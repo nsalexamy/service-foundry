@@ -1,0 +1,1778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Keycloak and Spring Boot OAuth 2.0 and OpenID Connect (OIDC) Authentication</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+    .listingblock pre,
+    .highlight pre {
+        background-color: #f3f4f6; /* gray-100 */
+        padding: 1rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;
+    }
+
+    code {
+        background-color: #f3f4f6;
+        padding: 0.1rem 0.3rem;
+        border-radius: 0.25rem;
+    }
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+    <div class="logo text-xl font-semibold">Service Foundry</div>
+    <nav>
+    <a href="/service-foundry/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+<!-- Breadcrumb -->
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/documents/sso-foundry/">SSO Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#project-overview">Project Overview</a></li>
+</ul>
+</li>
+<li><a href="#replacing-spring-authorization-server-with-keycloako">Replacing Spring Authorization Server with Keycloako</a>
+<ul class="sectlevel2">
+<li><a href="#keycloak-vs-spring-authorization-server">Keycloak vs Spring Authorization Server</a></li>
+</ul>
+</li>
+<li><a href="#setting-up-keycloak">Setting Up Keycloak</a>
+<ul class="sectlevel2">
+<li><a href="#running-keycloak-in-docker">Running Keycloak in Docker</a></li>
+<li><a href="#accessing-the-keycloak-admin-console">Accessing the Keycloak Admin Console</a></li>
+</ul>
+</li>
+<li><a href="#configuring-keycloak">Configuring Keycloak</a>
+<ul class="sectlevel2">
+<li><a href="#creating-a-new-realm">Creating a New Realm</a></li>
+<li><a href="#creating-a-client">Creating a Client</a></li>
+<li><a href="#client-secret">Client Secret</a></li>
+<li><a href="#creating-roles">Creating Roles</a></li>
+<li><a href="#create-groups">Create Groups</a></li>
+<li><a href="#creating-users">Creating Users</a></li>
+</ul>
+</li>
+<li><a href="#implementing-spring-gateway">Implementing Spring Gateway</a>
+<ul class="sectlevel2">
+<li><a href="#build-gradle-kts">build.gradle.kts</a></li>
+<li><a href="#application-configuration-application-yml">Application Configuration - application.yml</a></li>
+<li><a href="#security-configuration-securityconfig-java">Security Configuration - SecurityConfig.java</a></li>
+<li><a href="#endpoints-usercontroller-java">Endpoints - UserController.java</a></li>
+<li><a href="#running-spring-gateway">Running Spring Gateway</a></li>
+<li><a href="#accessing-spring-gateway-secure-endpoints">Accessing Spring Gateway Secure Endpoints</a></li>
+</ul>
+</li>
+<li><a href="#implementing-spring-resource-server">Implementing Spring Resource Server</a>
+<ul class="sectlevel2">
+<li><a href="#spring-gateway-configuration-for-routing">Spring Gateway Configuration for Routing</a></li>
+<li><a href="#build-gradle-kts-2">build.gradle.kts</a></li>
+<li><a href="#application-configuration-application-yml-2">Application Configuration - application.yml</a></li>
+<li><a href="#jwt-token-payload">JWT Token - Payload</a></li>
+<li><a href="#customjwtgrantedauthoritiesconverter-java">CustomJwtGrantedAuthoritiesConverter.java</a></li>
+<li><a href="#security-configuration-securityconfig-java-2">Security Configuration - SecurityConfig.java</a></li>
+<li><a href="#endpoints-securecontroller-java">Endpoints - SecureController.java</a></li>
+<li><a href="#running-spring-resource-server">Running Spring Resource Server</a></li>
+<li><a href="#access-secure-endpoints">Access Secure Endpoints</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock">
+<div class="content">
+<img src="images/introduction.png" alt="Keycloak and Spring Boot OAuth 2.0 and OpenID Connect (OIDC) Authentication">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Keycloak is an open-source identity and access management (IAM) server that provides Single Sign-On (SSO) for web applications and RESTful web services. It supports OAuth 2.0 and OpenID Connect (OIDC) for authentication and authorization.</p>
+</div>
+<div class="paragraph">
+<p>This tutorial demonstrates how to integrate Keycloak for OAuth 2.0 and OpenID Connect (OIDC) authentication in a Spring Boot application.</p>
+</div>
+<div class="sect2">
+<h3 id="project-overview">Project Overview</h3>
+<div class="paragraph">
+<p>This project is composed of the following modules:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>keycloak-server: A Keycloak server running in a Docker container.</p>
+</li>
+<li>
+<p>spring-gateway: A Spring Boot application acting as an OAuth 2.0 Client.</p>
+</li>
+<li>
+<p>spring-resource-server: A Spring Boot application acting as an OAuth 2.0 Resource Server.</p>
+</li>
+<li>
+<p>react-app: A React application acting as an OAuth 2.0 Client(TBD)</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Hostname Configuration (/etc/hosts)</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>127.0.0.1	auth.nsa2.com
+127.0.0.1	gateway.nsa2.com
+127.0.0.1	resource.nsa2.com</pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Services and Ports</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>auth.nsa2.com:9000 - Keycloak Server</p>
+</li>
+<li>
+<p>gateway.nsa2.com:8080 - Spring Gateway</p>
+</li>
+<li>
+<p>resource.nsa2.com:8082 - Spring Resource Server</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="replacing-spring-authorization-server-with-keycloako">Replacing Spring Authorization Server with Keycloako</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Previously, this project used the Spring Authorization Server, but it has now been replaced with Keycloak.</p>
+</div>
+<div class="paragraph">
+<p>For a previous implementation using Spring Authorization Server, refer to:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://www.linkedin.com/pulse/spring-cloud-gateway-authorization-server-using-database-kim-brbbc/">Spring Cloud Gateway with Authorization Server using Database</a></p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="keycloak-vs-spring-authorization-server">Keycloak vs Spring Authorization Server</h3>
+<div class="sect3">
+<h4 id="key-differences">Key Differences</h4>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Deployment</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Keycloak: Standalone server</p>
+</li>
+<li>
+<p>Spring Authorization Server: Embedded in Spring Boot applications</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Features</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Keycloak: SSO, Identity Brokering, Social Login, User Federation, Admin Console</p>
+</li>
+<li>
+<p>Spring Authorization Server: Basic OAuth 2.0 and OIDC support</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Use Cases</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Keycloak: Complex IAM solutions</p>
+</li>
+<li>
+<p>Spring Authorization Server: Simple authentication scenarios</p>
+</li>
+</ul>
+</div>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="setting-up-keycloak">Setting Up Keycloak</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="running-keycloak-in-docker">Running Keycloak in Docker</h3>
+<div class="listingblock">
+<div class="title">keycloak-server/docker-compose.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">networks</span><span class="pi">:</span>
+  <span class="na">keycloak</span><span class="pi">:</span>
+    <span class="na">driver</span><span class="pi">:</span> <span class="s">bridge</span>
+
+<span class="na">volumes</span><span class="pi">:</span>
+  <span class="na">pg_data</span><span class="pi">:</span>
+    <span class="na">driver</span><span class="pi">:</span> <span class="s">local</span>
+
+<span class="na">services</span><span class="pi">:</span>
+  <span class="na">keycloak-postgresql</span><span class="pi">:</span>
+    <span class="na">image</span><span class="pi">:</span> <span class="s">postgres:16.8</span>
+    <span class="na">volumes</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">pg_data:/var/lib/postgresql/data</span>
+    <span class="na">environment</span><span class="pi">:</span>
+      <span class="na">POSTGRES_DB</span><span class="pi">:</span> <span class="s">keycloak</span>
+      <span class="na">POSTGRES_USER</span><span class="pi">:</span> <span class="s">keycloak</span>
+      <span class="na">POSTGRES_PASSWORD</span><span class="pi">:</span> <span class="s">password</span>
+      <span class="na">POSTGRES_HOST_AUTH_METHOD</span><span class="pi">:</span> <span class="s">trust</span>
+    <span class="na">ports</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">5432:5432</span>
+    <span class="na">networks</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">keycloak</span>
+
+  <span class="na">keycloak</span><span class="pi">:</span>
+    <i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="na">image</span><span class="pi">:</span> <span class="s">bitnami/keycloak:26.1.4-debian-12-r0</span>
+    <span class="c1"># image: keycloak/keycloak:26.1 # docker hub</span>
+    <span class="c1"># https://www.keycloak.org/getting-started/getting-started-docker</span>
+    <span class="c1"># image: quay.io/keycloak/keycloak:26.1.4</span>
+    <span class="na">environment</span><span class="pi">:</span>
+      <span class="na">KC_BOOTSTRAP_ADMIN_USERNAME</span><span class="pi">:</span> <span class="s">admin</span>
+      <span class="na">KC_BOOTSTRAP_ADMIN_PASSWORD</span><span class="pi">:</span> <span class="s">changeit</span>
+      <span class="na">KC_SPI_ADMIN_REALM</span><span class="pi">:</span> <span class="s">master</span>
+      <span class="na">KEYCLOAK_HTTP_RELATIVE_PATH</span><span class="pi">:</span> <span class="s">/</span>
+
+      <span class="na">DB_VENDOR</span><span class="pi">:</span> <span class="s">POSTGRES</span>
+      <span class="na">DB_ADDR</span><span class="pi">:</span> <span class="s">keycloak-postgresql</span>
+      <span class="na">DB_DATABASE</span><span class="pi">:</span> <span class="s">keycloak</span>
+      <span class="na">DB_USER</span><span class="pi">:</span> <span class="s">keycloak</span>
+      <span class="na">DB_PASSWORD</span><span class="pi">:</span> <span class="s">password</span>
+    <span class="na">ports</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">9000:8080</span>
+    <span class="na">networks</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">keycloak</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>For Keycloak Docker Image, there are multiple options available:
+<div class="ulist">
+<ul>
+<li>
+<p><code>bitnami/keycloak:26.1.4-debian-12-r0</code> - Bitnami Keycloak Docker Image</p>
+</li>
+<li>
+<p><code>keycloak/keycloak:26.1</code> - Official Keycloak Docker Image</p>
+</li>
+<li>
+<p><code>quay.io/keycloak/keycloak:26.1.4</code> - Quay.io Keycloak Docker Image</p>
+</li>
+</ul>
+</div></td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>I have chosen the Bitnami Keycloak Docker Image as I am planning to use the Bitnami Keycloak Helm Chart to deploy Keycloak on Kubernetes in the next tutorial.</p>
+</div>
+<div class="paragraph">
+<p>To start the Keycloak server, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="nv">$ </span><span class="nb">cd </span>keycloak-server
+<span class="nv">$ </span>docker-compose up</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="accessing-the-keycloak-admin-console">Accessing the Keycloak Admin Console</h3>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Open a browser and go to <a href="http://auth.nsa2.com:9000" class="bare">http://auth.nsa2.com:9000</a></p>
+</li>
+<li>
+<p>Login with:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Username: <code>admin</code></p>
+</li>
+<li>
+<p>Password: <code>changeit</code></p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="images/kc-login.png" alt="kc login">
+</div>
+<div class="title">Figure 1. Keycloak Admin Console - Login</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="configuring-keycloak">Configuring Keycloak</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="creating-a-new-realm">Creating a New Realm</h3>
+<div class="paragraph">
+<p>The first step is to create a new realm in Keycloak. A realm is a container for a set of users, credentials, roles, and groups. It is used to manage a set of users and applications. It is like a tenant in a multi-tenant application.</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Open the Keycloak Admin Console.</p>
+</li>
+</ol>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/kc-create-realm-button.png" alt="kc create realm button">
+</div>
+<div class="title">Figure 2. Click on the <code>Create</code> button to create a new realm.</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic" start="2">
+<li>
+<p>Click Create Realm and name it nsa2-realm.</p>
+</li>
+</ol>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="images/kc-create-realm.png" alt="kc create realm">
+</div>
+<div class="title">Figure 3. Keycloak Admin Console - Create Realm</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic" start="3">
+<li>
+<p>The realm information endpoint:</p>
+<div class="literalblock">
+<div class="content">
+<pre>http://auth.nsa2.com:9000/realms/nsa2-realm</pre>
+</div>
+</div>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect2">
+<h3 id="creating-a-client">Creating a Client</h3>
+<div class="paragraph">
+<p>The next step is to create a new client in Keycloak. A client is an application that wants to use Keycloak for authentication and authorization. It can be a web application, a mobile application, or a service.</p>
+</div>
+<div class="paragraph">
+<p>I am going to use the BFF (Backend For Frontend) pattern in this tutorial. The BFF is a server-side component that is used to aggregate and transform data from multiple services into a single API for the front-end application. Spring Cloud Gateway acts as the BFF in this tutorial.</p>
+</div>
+<div class="paragraph">
+<p>Click on the <code>Clients</code> tab in the Keycloak Admin Console and then click on the <code>Create</code> button to create a new client.</p>
+</div>
+<div class="paragraph">
+<p>There are 3 steps to create a new client:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>General Settings</p>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Cleint Type</strong>: Select <code>OpendID Connect</code> as the client type.</p>
+</li>
+<li>
+<p><strong>Client ID</strong>: Set the client ID to <code>nsa2-gateway</code>.</p>
+</li>
+<li>
+<p><strong>Name</strong>: Set the name to <code>NSA2 Gateway</code>.</p>
+</li>
+<li>
+<p><strong>Description</strong>: Set the description to <code>NSA2 Gateway Client</code>.</p>
+</li>
+<li>
+<p><strong>Always display UI</strong>: Set to <code>Off</code> for now.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p>Capability config</p>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Client authenticator</strong>: Set to <code>On</code>.</p>
+</li>
+<li>
+<p><strong>Authorization</strong>: Set to <code>On</code>.</p>
+</li>
+<li>
+<p><strong>Authentication flow</strong>: Check 'Standard flow', 'Direct access grants', 'Service accounts roles'.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p>Login Settings</p>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Root URL</strong>: (blank)</p>
+</li>
+<li>
+<p><strong>Home URL</strong>: (blank)</p>
+</li>
+<li>
+<p><strong>Valid Redirect URIs</strong>: <code><a href="http://gateway.nsa2.com:8080/*" class="bare">http://gateway.nsa2.com:8080/*</a></code></p>
+</li>
+<li>
+<p><strong>Valid post logout redirect URIs</strong>: <code><a href="http://gateway.nsa2.com:8080/*" class="bare">http://gateway.nsa2.com:8080/*</a></code></p>
+</li>
+<li>
+<p><strong>Web Origins</strong>: <code><a href="http://gateway.nsa2.com:8080" class="bare">http://gateway.nsa2.com:8080</a></code></p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect2">
+<h3 id="client-secret">Client Secret</h3>
+<div class="paragraph">
+<p>To get the client secret, click on the <code>Credentials</code> tab and then click on the <code>Regenerate Secret</code> button to generate a new client secret.</p>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="images/kc-oauth2-client-secret.png" alt="kc oauth2 client secret">
+</div>
+<div class="title">Figure 4. Keycloak Admin Console - Client Credentials</div>
+</div>
+<div class="paragraph">
+<p>Use the client ID and client secret to configure the OAuth 2.0 client in the Spring Boot application.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="creating-roles">Creating Roles</h3>
+<div class="paragraph">
+<p>The next step is to create roles in Keycloak. A role is a set of permissions that can be assigned to users or groups. It is used to manage access control in the application.</p>
+</div>
+<div class="paragraph">
+<p>Click on the <code>Roles</code> tab in the Keycloak Admin Console and then click on the <code>Create role</code> button to create a new role.</p>
+</div>
+<div class="paragraph">
+<p><strong>Roles</strong>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>'ROLE_NSA2_ADMIN' - Admin role</p>
+</li>
+<li>
+<p>'ROLE_NSA2_USER' - User role</p>
+</li>
+</ul>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="images/kc-oauth2-client-roles.png" alt="kc oauth2 client roles">
+</div>
+<div class="title">Figure 5. Keycloak Admin Console - Create Role</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-groups">Create Groups</h3>
+<div class="paragraph">
+<p>The next step is to create groups in Keycloak. A group is a collection of users. It is used to manage a set of users with similar roles or permissions.</p>
+</div>
+<div class="paragraph">
+<p>Click on the <code>Groups</code> tab in the Keycloak Admin Console and then click on the <code>Create group</code> button to create a new group.</p>
+</div>
+<div class="paragraph">
+<p><strong>Groups</strong>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>'nsa2-admins' - Admins group</p>
+</li>
+<li>
+<p>'nsa2-users' - Users group</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="creating-users">Creating Users</h3>
+<div class="paragraph">
+<p>The next step is to create users in Keycloak. A user is an entity that can be authenticated and authorized to access the application.</p>
+</div>
+<div class="paragraph">
+<p>Click on the <code>Users</code> tab in the Keycloak Admin Console and then click on the <code>Create new user</code> button to create a new user.</p>
+</div>
+<div class="paragraph">
+<p><strong>Users</strong>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>'nsa2admin' user with the 'ROLE_NSA2_ADMIN' role and 'nsa2-admins' group.</p>
+</li>
+<li>
+<p>'nsa2user' user with the 'ROLE_NSA2_USER' role and 'nsa2-users' group.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Fill in the following information to create a new user:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Required user actions</strong>: None</p>
+</li>
+<li>
+<p><strong>Email verified</strong>: set to <code>On</code></p>
+</li>
+<li>
+<p><strong>Username</strong>: nsa2admin</p>
+</li>
+<li>
+<p><strong>Email</strong>: user&#8217;s email</p>
+</li>
+<li>
+<p><strong>First name</strong>: user&#8217;s first name</p>
+</li>
+<li>
+<p><strong>Last name</strong>:  user&#8217;s last name</p>
+</li>
+</ul>
+</div>
+<div class="sect3">
+<h4 id="set-password">Set Password</h4>
+<div class="paragraph">
+<p>To set the password for the user, click on the <code>Credentials</code> tab and then set the password for the user.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Password</strong>: user&#8217;s password</p>
+</li>
+<li>
+<p><strong>Password Confirmation</strong>: user&#8217;s password</p>
+</li>
+<li>
+<p><strong>Temporary</strong>: false</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="assigning-roles-to-user">Assigning Roles to User</h4>
+<div class="paragraph">
+<p>To assign a role to the user, click on the <code>Role Mappings</code> tab and then assign the role to the user. Click on the <code>Assign Role</code> button to assign the role to the user.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="assigning-groups-to-user">Assigning Groups to User</h4>
+<div class="paragraph">
+<p>To assign a group to the user, click on the <code>Groups</code> tab and then assign the group to the user. Click on the <code>Join Group</code> button to assign the group to the user.</p>
+</div>
+<div class="paragraph">
+<p>Now we have created a new realm, a new client, roles, groups, and users in Keycloak. We can use these entities for OAuth 2.0 and OpenID Connect (OIDC) authentication in the Spring Boot application.</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="implementing-spring-gateway">Implementing Spring Gateway</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>I will create a new Spring Boot application acting as an OAuth 2.0 client using the Spring Gateway with the Spring Boot version 3.4.3.</p>
+</div>
+<div class="paragraph">
+<p>Dependencies</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Lombok</p>
+</li>
+<li>
+<p>Spring Web</p>
+</li>
+<li>
+<p>OAuth2 Client</p>
+</li>
+<li>
+<p>Cloud Bootstrap</p>
+</li>
+<li>
+<p>Gateway</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="build-gradle-kts">build.gradle.kts</h3>
+<div class="paragraph">
+<p>Here is the <code>build.gradle.kts</code> file for the Spring Gateway application:</p>
+</div>
+<div class="listingblock">
+<div class="title">build.gradle.kts</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="kotlin"><span class="nf">plugins</span> <span class="p">{</span>
+    <span class="n">java</span>
+    <span class="nf">id</span><span class="p">(</span><span class="s">"org.springframework.boot"</span><span class="p">)</span> <span class="n">version</span> <span class="s">"3.4.3"</span>
+    <span class="nf">id</span><span class="p">(</span><span class="s">"io.spring.dependency-management"</span><span class="p">)</span> <span class="n">version</span> <span class="s">"1.1.7"</span>
+<span class="p">}</span>
+
+<span class="n">group</span> <span class="p">=</span> <span class="s">"com.nsalexamy.example"</span>
+<span class="n">version</span> <span class="p">=</span> <span class="s">"0.0.1-SNAPSHOT"</span>
+
+<span class="nf">java</span> <span class="p">{</span>
+    <span class="nf">toolchain</span> <span class="p">{</span>
+        <span class="n">languageVersion</span> <span class="p">=</span> <span class="nc">JavaLanguageVersion</span><span class="p">.</span><span class="nf">of</span><span class="p">(</span><span class="mi">21</span><span class="p">)</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="nf">configurations</span> <span class="p">{</span>
+    <span class="nf">compileOnly</span> <span class="p">{</span>
+        <span class="nf">extendsFrom</span><span class="p">(</span><span class="n">configurations</span><span class="p">.</span><span class="n">annotationProcessor</span><span class="p">.</span><span class="k">get</span><span class="p">())</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="nf">repositories</span> <span class="p">{</span>
+    <span class="nf">mavenCentral</span><span class="p">()</span>
+<span class="p">}</span>
+
+<span class="n">extra</span><span class="p">[</span><span class="s">"springCloudVersion"</span><span class="p">]</span> <span class="p">=</span> <span class="s">"2024.0.0"</span>
+
+<span class="nf">dependencies</span> <span class="p">{</span>
+    <span class="nf">implementation</span><span class="p">(</span><span class="s">"org.springframework.boot:spring-boot-starter-oauth2-client"</span><span class="p">)</span>
+    <span class="nf">implementation</span><span class="p">(</span><span class="s">"org.springframework.boot:spring-boot-starter-web"</span><span class="p">)</span>
+    <span class="nf">implementation</span><span class="p">(</span><span class="s">"org.springframework.cloud:spring-cloud-starter-gateway-mvc"</span><span class="p">)</span>
+
+    <span class="nf">implementation</span><span class="p">(</span><span class="s">"org.aspectj:aspectjweaver"</span><span class="p">)</span>
+
+    <span class="nf">compileOnly</span><span class="p">(</span><span class="s">"org.projectlombok:lombok"</span><span class="p">)</span>
+    <span class="nf">annotationProcessor</span><span class="p">(</span><span class="s">"org.projectlombok:lombok"</span><span class="p">)</span>
+
+    <span class="nf">testImplementation</span><span class="p">(</span><span class="s">"org.springframework.boot:spring-boot-starter-test"</span><span class="p">)</span>
+    <span class="nf">testImplementation</span><span class="p">(</span><span class="s">"org.springframework.security:spring-security-test"</span><span class="p">)</span>
+    <span class="nf">testRuntimeOnly</span><span class="p">(</span><span class="s">"org.junit.platform:junit-platform-launcher"</span><span class="p">)</span>
+<span class="p">}</span>
+
+<span class="nf">dependencyManagement</span> <span class="p">{</span>
+    <span class="nf">imports</span> <span class="p">{</span>
+        <span class="nf">mavenBom</span><span class="p">(</span><span class="s">"org.springframework.cloud:spring-cloud-dependencies:${property("</span><span class="n">springCloudVersion</span><span class="s">")}"</span><span class="p">)</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="n">tasks</span><span class="p">.</span><span class="n">withType</span><span class="p">&lt;</span><span class="nc">Test</span><span class="p">&gt;</span> <span class="p">{</span>
+    <span class="nf">useJUnitPlatform</span><span class="p">()</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="application-configuration-application-yml">Application Configuration - application.yml</h3>
+<div class="listingblock">
+<div class="title">application.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">spring.application.name</span><span class="pi">:</span> <span class="s">spring-gateway</span>
+
+<span class="c1"># virtual threads</span>
+<span class="na">spring.threads.virtual.enabled</span><span class="pi">:</span> <span class="kc">true</span> <i class="conum" data-value="1"></i><b>(1)</b>
+<span class="c1"># banner-mode: off</span>
+<span class="na">server</span><span class="pi">:</span>
+  <span class="na">main.banner-mode</span><span class="pi">:</span> <span class="s">off</span>
+  <span class="na">tomcat.threads.max</span><span class="pi">:</span> <span class="m">10</span>
+  <span class="na">servlet.session.cookie</span><span class="pi">:</span>
+    <span class="na">http-only</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="na">servlet</span><span class="pi">:</span>
+    <span class="na">context-path</span><span class="pi">:</span> <span class="s">/</span>
+
+<i class="conum" data-value="2"></i><b>(2)</b>
+<span class="na">spring.security.oauth2.client</span><span class="pi">:</span>
+  <span class="na">registration</span><span class="pi">:</span>
+    <span class="na">nsa2-gateway</span><span class="pi">:</span>
+      <span class="na">provider</span><span class="pi">:</span> <span class="s">keycloak</span>
+      <span class="na">client-id</span><span class="pi">:</span> <span class="s">nsa2-gateway</span>
+      <span class="na">client-secret</span><span class="pi">:</span> <span class="s">1YWFzABOmhL6Hb5VYWSo36bk0URILDdf</span> <i class="conum" data-value="3"></i><b>(3)</b>
+      <span class="na">authorization-grant-type</span><span class="pi">:</span> <span class="s">authorization_code</span>
+      <span class="na">scope</span><span class="pi">:</span> <span class="s">openid,profile,email</span>
+      <span class="na">redirect-uri</span><span class="pi">:</span> <span class="s">${NSA2_OAUTH_REDIRECT_URI:{baseUrl}/login/oauth2/code/nsa2-gateway}</span>
+      <span class="na">client-name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">NSA2</span><span class="nv"> </span><span class="s">Keycloak"</span>
+      <span class="na">client-authentication-method</span><span class="pi">:</span> <span class="s">client_secret_basic</span>
+  <span class="na">provider</span><span class="pi">:</span>
+    <span class="na">keycloak</span><span class="pi">:</span>
+      <span class="na">issuer-uri</span><span class="pi">:</span> <span class="s">${NSA2_OAUTH_ISSUER_URI:http://auth.nsa2.com:9000/realms/nsa2-realm}</span> <i class="conum" data-value="4"></i><b>(4)</b>
+      <span class="na">user-name-attribute</span><span class="pi">:</span> <span class="s">preferred_username</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Enable virtual threads for Spring Boot 3.4.3.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>OAuth 2.0 client configuration for Keycloak.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Client secret for the OAuth 2.0 client. Replace it with the actual client secret generated in Keycloak.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>Issuer URI for Keycloak. Replace it with the actual issuer URI provided by Keycloak.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="security-configuration-securityconfig-java">Security Configuration - SecurityConfig.java</h3>
+<div class="paragraph">
+<p>Here is the <code>SecurityConfig.java</code> file for the Spring Gateway application:</p>
+</div>
+<div class="listingblock">
+<div class="title">SecurityConfig.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@Configuration</span>
+<span class="nd">@EnableAspectJAutoProxy</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">SecurityConfig</span> <span class="o">{</span>
+
+    <i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="nd">@Bean</span>
+    <span class="kd">public</span> <span class="nc">SecurityFilterChain</span> <span class="nf">securityFilterChain</span><span class="o">(</span><span class="nc">HttpSecurity</span> <span class="n">http</span><span class="o">)</span> <span class="kd">throws</span> <span class="nc">Exception</span> <span class="o">{</span>
+        <span class="n">http</span>
+                <span class="o">.</span><span class="na">authorizeHttpRequests</span><span class="o">(</span><span class="n">auth</span> <span class="o">-&gt;</span>
+                        <span class="n">auth</span>
+                            <span class="o">.</span><span class="na">requestMatchers</span><span class="o">(</span><span class="s">"/actuator/**"</span><span class="o">).</span><span class="na">permitAll</span><span class="o">()</span>
+                            <span class="o">.</span><span class="na">anyRequest</span><span class="o">().</span><span class="na">authenticated</span><span class="o">()</span>
+                <span class="o">)</span>
+                <span class="o">.</span><span class="na">oauth2Login</span><span class="o">(</span><span class="nc">Customizer</span><span class="o">.</span><span class="na">withDefaults</span><span class="o">())</span>  <span class="c1">// Enables OAuth2 login</span>
+                <span class="o">.</span><span class="na">oauth2Client</span><span class="o">(</span><span class="nc">Customizer</span><span class="o">.</span><span class="na">withDefaults</span><span class="o">())</span> <span class="c1">// Enables OAuth2 client</span>
+                <span class="o">.</span><span class="na">csrf</span><span class="o">(</span><span class="n">csrf</span> <span class="o">-&gt;</span> <span class="n">csrf</span><span class="o">.</span><span class="na">disable</span><span class="o">())</span>  <span class="c1">// Disable CSRF for APIs</span>
+                <span class="o">.</span><span class="na">cors</span><span class="o">(</span><span class="n">cors</span> <span class="o">-&gt;</span> <span class="n">cors</span><span class="o">.</span><span class="na">configurationSource</span><span class="o">(</span><span class="n">corsConfigurationSource</span><span class="o">()));</span> <span class="c1">// Enable CORS</span>
+
+        <span class="k">return</span> <span class="n">http</span><span class="o">.</span><span class="na">build</span><span class="o">();</span>
+    <span class="o">}</span>
+
+    <i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="nd">@Bean</span>
+    <span class="kd">public</span> <span class="nc">CorsConfigurationSource</span> <span class="nf">corsConfigurationSource</span><span class="o">()</span> <span class="o">{</span>
+        <span class="nc">CorsConfiguration</span> <span class="n">config</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">CorsConfiguration</span><span class="o">();</span>
+        <span class="n">config</span><span class="o">.</span><span class="na">setAllowCredentials</span><span class="o">(</span><span class="kc">true</span><span class="o">);</span>
+        <span class="n">config</span><span class="o">.</span><span class="na">setAllowedOrigins</span><span class="o">(</span><span class="nc">List</span><span class="o">.</span><span class="na">of</span><span class="o">(</span>
+                <span class="s">"http://auth.nsa2.com:9000"</span><span class="o">,</span>  <span class="c1">// Keycloak</span>
+                <span class="s">"http://gateway.nsa2.com:8080"</span> <span class="c1">// Spring Cloud Gateway</span>
+        <span class="o">));</span>
+        <span class="n">config</span><span class="o">.</span><span class="na">setAllowedHeaders</span><span class="o">(</span><span class="nc">List</span><span class="o">.</span><span class="na">of</span><span class="o">(</span><span class="s">"*"</span><span class="o">));</span>
+        <span class="n">config</span><span class="o">.</span><span class="na">setAllowedMethods</span><span class="o">(</span><span class="nc">List</span><span class="o">.</span><span class="na">of</span><span class="o">(</span><span class="s">"GET"</span><span class="o">,</span> <span class="s">"POST"</span><span class="o">,</span> <span class="s">"PUT"</span><span class="o">,</span> <span class="s">"DELETE"</span><span class="o">,</span> <span class="s">"OPTIONS"</span><span class="o">));</span>
+
+        <span class="nc">UrlBasedCorsConfigurationSource</span> <span class="n">source</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">UrlBasedCorsConfigurationSource</span><span class="o">();</span>
+        <span class="n">source</span><span class="o">.</span><span class="na">registerCorsConfiguration</span><span class="o">(</span><span class="s">"/**"</span><span class="o">,</span> <span class="n">config</span><span class="o">);</span>
+        <span class="k">return</span> <span class="n">source</span><span class="o">;</span>
+    <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Security filter chain configuration for OAuth 2.0 and OpenID Connect (OIDC) authentication.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>CORS configuration for Keycloak and Spring Cloud Gateway.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="endpoints-usercontroller-java">Endpoints - UserController.java</h3>
+<div class="paragraph">
+<p>UserController.java provides two endpoints:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>/user/username</code> - Get the username of the authenticated user.</p>
+</li>
+<li>
+<p><code>/user/profile</code> - Get the profile information of the authenticated user.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>These are secure endpoints that require the user to be authenticated. The request will be redirected to the Keycloak login page if the user is not authenticated.</p>
+</div>
+<div class="paragraph">
+<p>Here is the <code>UserController.java</code> file for the Spring Gateway application:</p>
+</div>
+<div class="listingblock">
+<div class="title">UserController.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@RestController</span>
+<span class="nd">@RequestMapping</span><span class="o">(</span><span class="s">"/user"</span><span class="o">)</span>
+<span class="nd">@Slf4j</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">UserController</span> <span class="o">{</span>
+
+    <i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="nd">@GetMapping</span><span class="o">(</span><span class="s">"/username"</span><span class="o">)</span>
+    <span class="kd">public</span> <span class="nc">Map</span><span class="o">&lt;</span><span class="nc">String</span><span class="o">,</span> <span class="nc">String</span><span class="o">&gt;</span> <span class="nf">username</span><span class="o">(</span><span class="nc">Authentication</span> <span class="n">authentication</span><span class="o">)</span> <span class="o">{</span>
+        <span class="nc">String</span> <span class="n">username</span> <span class="o">=</span> <span class="n">authentication</span><span class="o">.</span><span class="na">getName</span><span class="o">();</span>
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"username: {}"</span><span class="o">,</span><span class="n">username</span><span class="o">);</span>
+        <span class="k">return</span> <span class="nc">Map</span><span class="o">.</span><span class="na">of</span><span class="o">(</span><span class="s">"username"</span><span class="o">,</span> <span class="n">username</span><span class="o">);</span>
+    <span class="o">}</span>
+
+    <i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="nd">@GetMapping</span><span class="o">(</span><span class="s">"/profile"</span><span class="o">)</span>
+    <span class="kd">public</span> <span class="nc">Map</span><span class="o">&lt;</span><span class="nc">String</span><span class="o">,</span> <span class="nc">Object</span><span class="o">&gt;</span> <span class="nf">idToken</span><span class="o">(</span><span class="nd">@AuthenticationPrincipal</span> <span class="nc">OidcUser</span> <span class="n">oidcUser</span><span class="o">)</span> <span class="o">{</span>
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"oidcUser: {}"</span><span class="o">,</span> <span class="n">oidcUser</span><span class="o">);</span>
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"id token: {}"</span><span class="o">,</span> <span class="n">oidcUser</span><span class="o">.</span><span class="na">getIdToken</span><span class="o">().</span><span class="na">getTokenValue</span><span class="o">());</span>
+
+        <span class="k">if</span><span class="o">(</span><span class="n">oidcUser</span> <span class="o">==</span> <span class="kc">null</span><span class="o">)</span> <span class="o">{</span>
+            <span class="k">return</span> <span class="nc">Map</span><span class="o">.</span><span class="na">of</span><span class="o">(</span><span class="s">"error"</span><span class="o">,</span> <span class="s">"No id_token found"</span><span class="o">,</span> <span class="s">"id_token"</span><span class="o">,</span> <span class="kc">null</span><span class="o">);</span>
+
+        <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+            <span class="k">return</span> <span class="n">oidcUser</span><span class="o">.</span><span class="na">getClaims</span><span class="o">();</span>
+        <span class="o">}</span>
+    <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Get the username of the authenticated user.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Get the profile information of the authenticated user.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="running-spring-gateway">Running Spring Gateway</h3>
+<div class="paragraph">
+<p>To run the Spring Gateway application, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="nv">$ </span><span class="nb">cd </span>spring-gateway
+<span class="nv">$ </span>./gradlew bootRun</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="accessing-spring-gateway-secure-endpoints">Accessing Spring Gateway Secure Endpoints</h3>
+<div class="paragraph">
+<p>Open a web browser and go to the following URL:</p>
+</div>
+<div class="paragraph">
+<p><a href="http://gateway.nsa2.com:8080/user/username" class="bare">http://gateway.nsa2.com:8080/user/username</a></p>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="images/gateway-login.png" alt="gateway login">
+</div>
+<div class="title">Figure 6. Keycloak Login Page</div>
+</div>
+<div class="paragraph">
+<p>You will be redirected to the Keycloak login page. Login with the following credentials:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Username: <code>nsa2admin</code></p>
+</li>
+<li>
+<p>Password: <code>password</code></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>After successful authentication, you will be redirected to the <code>/user/username</code> endpoint, which will display the username of the authenticated user.</p>
+</div>
+<div class="listingblock">
+<div class="title">Output of /user/username</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"username"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nsa2admin"</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Once you are authenticated, you can access the <code>/user/profile</code> endpoint to get the profile information of the authenticated user.</p>
+</div>
+<div class="listingblock">
+<div class="title">Output of /user/profile</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"at_hash"</span><span class="p">:</span><span class="w"> </span><span class="s2">"L8xCaoLgmQLo7vU1ox3VhQ"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"sub"</span><span class="p">:</span><span class="w"> </span><span class="s2">"e6ce3b9e-902a-42db-af8b-f94282f7cf3b"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"email_verified"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"iss"</span><span class="p">:</span><span class="w"> </span><span class="s2">"http://auth.nsa2.com:9000/realms/nsa2-realm"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"typ"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ID"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"preferred_username"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nsa2admin"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"given_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Nsa2Admin"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"nonce"</span><span class="p">:</span><span class="w"> </span><span class="s2">"wOvSXLTx8xE0cP-tPB7F4TlekUDg4Gtz5g3y44G_EGM"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"sid"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ebc263bb-0be6-4ed6-a87e-bb316823dddc"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"aud"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+    </span><span class="s2">"nsa2-gateway"</span><span class="w">
+  </span><span class="p">],</span><span class="w">
+  </span><span class="nl">"acr"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"azp"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nsa2-gateway"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"auth_time"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2025-03-16T23:50:08Z"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Nsa2Admin Doe"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"exp"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2025-03-16T23:55:08Z"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"family_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Doe"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"iat"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2025-03-16T23:50:08Z"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"email"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nsa2admin@nsa2.com"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"jti"</span><span class="p">:</span><span class="w"> </span><span class="s2">"8bb63bf6-5ffb-496e-ac30-4c2b09b9aad0"</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now we have successfully implemented OAuth 2.0 and OpenID Connect (OIDC) authentication in the Spring Gateway application using Keycloak.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="implementing-spring-resource-server">Implementing Spring Resource Server</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this section, we will create a new Spring Boot application acting as an OAuth 2.0 resource server using the Spring Resource Server with the Spring Boot version 3.4.3. All secure endpoints in the Spring Resource Server require JWT token authentication provided by the Spring Gateway. As the OAuth 2.0 client, the Spring Gateway will provide the JWT token to the Spring Resource Server.</p>
+</div>
+<div class="sect2">
+<h3 id="spring-gateway-configuration-for-routing">Spring Gateway Configuration for Routing</h3>
+<div class="paragraph">
+<p>Let&#8217;s add configuration below to the <code>application.yml</code> file of Spring Gateway to pass the JWT token to the Spring Resource Server.</p>
+</div>
+<div class="listingblock">
+<div class="title">application.yml - Spring Gateway</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">spring</span><span class="pi">:</span>
+  <span class="na">cloud</span><span class="pi">:</span>
+    <span class="na">gateway</span><span class="pi">:</span>
+      <span class="na">mvc</span><span class="pi">:</span>
+        <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+
+        <span class="na">routes</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">id</span><span class="pi">:</span> <span class="s">resource-server</span>
+            <span class="na">uri</span><span class="pi">:</span> <span class="s">${RESOURCE_SERVER_URI:http://resource.nsa2.com:8082}</span>   <i class="conum" data-value="1"></i><b>(1)</b>
+            <span class="na">predicates</span><span class="pi">:</span>
+              <span class="pi">-</span> <span class="s">Path=/resource/**</span>   <i class="conum" data-value="2"></i><b>(2)</b>
+            <span class="na">filters</span><span class="pi">:</span>
+              <span class="pi">-</span> <span class="s">StripPrefix=1</span>    <i class="conum" data-value="3"></i><b>(3)</b>
+              <span class="pi">-</span> <span class="s">TokenRelay=</span>  <i class="conum" data-value="4"></i><b>(4)</b></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>URI of the Spring Resource Server.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Path predicate for the Spring Resource Server.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>StripPrefix filter to remove the <code>/resource</code> prefix from the request path.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>TokenRelay filter to pass the JWT token to the Spring Resource Server.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="build-gradle-kts-2">build.gradle.kts</h3>
+<div class="paragraph">
+<p>Here is the <code>build.gradle.kts</code> file for the Spring Resource Server application:</p>
+</div>
+<div class="listingblock">
+<div class="title">build.gradle.kts - dependencies</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="kotlin"><span class="nf">dependencies</span> <span class="p">{</span>
+    <span class="nf">implementation</span><span class="p">(</span><span class="s">"org.springframework.boot:spring-boot-starter-oauth2-resource-server"</span><span class="p">)</span>
+    <span class="nf">implementation</span><span class="p">(</span><span class="s">"org.springframework.boot:spring-boot-starter-web"</span><span class="p">)</span>
+    <span class="nf">implementation</span><span class="p">(</span><span class="s">"org.springframework.boot:spring-boot-starter-actuator"</span><span class="p">)</span>
+    <span class="nf">compileOnly</span><span class="p">(</span><span class="s">"org.projectlombok:lombok"</span><span class="p">)</span>
+    <span class="nf">annotationProcessor</span><span class="p">(</span><span class="s">"org.projectlombok:lombok"</span><span class="p">)</span>
+    <span class="nf">testImplementation</span><span class="p">(</span><span class="s">"org.springframework.boot:spring-boot-starter-test"</span><span class="p">)</span>
+    <span class="nf">testRuntimeOnly</span><span class="p">(</span><span class="s">"org.junit.platform:junit-platform-launcher"</span><span class="p">)</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="application-configuration-application-yml-2">Application Configuration - application.yml</h3>
+<div class="listingblock">
+<div class="title">application.yml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">server</span><span class="pi">:</span>
+  <span class="na">port</span><span class="pi">:</span> <span class="s">8082</span>    <i class="conum" data-value="1"></i><b>(1)</b>
+
+<span class="na">spring.application.name</span><span class="pi">:</span> <span class="s">spring-resource-server</span>
+
+<span class="na">spring.threads.virtual.enabled</span><span class="pi">:</span> <span class="kc">true</span>
+
+<span class="na">spring</span><span class="pi">:</span>
+  <span class="na">security</span><span class="pi">:</span>
+    <span class="na">oauth2</span><span class="pi">:</span>
+      <span class="na">resourceserver</span><span class="pi">:</span>
+        <span class="na">jwt</span><span class="pi">:</span>
+          <span class="na">issuer-uri</span><span class="pi">:</span> <span class="s">${NSA2_JWT_ISSUER_URI:http://http://auth.nsa2.com:9000/realms/nsa2-realm}</span> <i class="conum" data-value="2"></i><b>(2)</b></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Port of the Spring Resource Server.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Issuer URI for the JWT token. Replace it with the actual issuer URI provided by Keycloak.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Make sure that the Spring Resource Server is running on the <code>resource.nsa2.com:8082</code> hostname.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="jwt-token-payload">JWT Token - Payload</h3>
+<div class="paragraph">
+<p>The roles configured in Keycloak are included in the JWT token payload. The JWT token payload contains the following information:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code><table class="linenotable"><tbody><tr><td class="linenos gl"><pre class="lineno"> 1
+ 2
+ 3
+ 4
+ 5
+ 6
+ 7
+ 8
+ 9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+</pre></td><td class="code"><pre>{
+  "exp": 1742183867,
+  "iat": 1742183567,
+  "auth_time": 1742183567,
+  "jti": "4d637fbc-08aa-4fa5-8354-25547f61a27e",
+  "iss": "http://auth.nsa2.com:9000/realms/nsa2-realm",
+  "aud": "account",
+  "sub": "ea1c0590-2144-41b4-9cdc-557198fc540d",
+  "typ": "Bearer",
+  "azp": "nsa2-gateway",
+  "sid": "43b5a310-5d24-472e-85e0-cba279ba4a2f",
+  "acr": "1",
+  "allowed-origins": [
+    "http://gateway.nsa2.com:8080"
+  ],
+  "realm_access": {
+    "roles": [
+      "offline_access",
+      "uma_authorization",
+      "default-roles-nsa2-realm"
+    ]
+  },
+  "resource_access": {
+    "account": {
+      "roles": [
+        "manage-account",
+        "manage-account-links",
+        "view-profile"
+      ]
+    },
+    "nsa2-gateway": {
+      "roles": [
+        "ROLE_NSA2_USER"    <i class="conum" data-value="1"></i><b>(1)</b>
+      ]
+    }
+  },
+  "scope": "openid profile email",
+  "email_verified": true,
+  "name": "Nsa2 User Doe",
+  "preferred_username": "nsa2user",
+  "given_name": "Nsa2 User",
+  "family_name": "Doe",
+  "email": "nsa2user@nsa2.com"
+}
+</pre></td></tr></tbody></table></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Roles assigned to the user in the resource_access.nsa2-gateway.roles section.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>We are going to use the 'ROLE_NAS2_USER' and 'ROLE_NSA2_ADMIN' roles in the Spring Resource Server in the form of <code>@PreAuthorize</code> annotations.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@PreAuthorize</span><span class="o">(</span><span class="s">"hasRole('ROLE_NSA2_USER')"</span><span class="o">)</span>
+<span class="nd">@PreAuthorize</span><span class="o">(</span><span class="s">"hasRole('ROLE_NSA2_ADMIN')"</span><span class="o">)</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>For more information on JwtAuthenticationConverter, refer to the following link:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://www.linkedin.com/pulse/spring-cloud-gateway-authorization-server-roles-young-gyu-kim-1m0ac/">Spring Security Reference - JwtAuthenticationConverter</a></p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="customjwtgrantedauthoritiesconverter-java">CustomJwtGrantedAuthoritiesConverter.java</h3>
+<div class="paragraph">
+<p>CustomJwtGrantedAuthoritiesConverter.java is a custom implementation of JwtGrantedAuthoritiesConverter that converts the roles in the JWT token payload to authorities.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>For nsa2admin user, the role 'ROLE_NSA2_ADMIN' is assigned in Keycloak Admin Console.</p>
+</li>
+<li>
+<p>For nsa2user user, the role 'ROLE_NSA2_USER' is assigned in Keycloak Admin Console.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>These roles are assigned to the user in the JWT token payload when the user is authenticated.</p>
+</div>
+<div class="listingblock">
+<div class="title">CustomJwtGrantedAuthoritiesConverter.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@Slf4j</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">CustomJwtGrantedAuthoritiesConverter</span> <span class="kd">implements</span> <span class="nc">Converter</span><span class="o">&lt;</span><span class="nc">Jwt</span><span class="o">,</span> <span class="nc">Collection</span><span class="o">&lt;</span><span class="nc">GrantedAuthority</span><span class="o">&gt;&gt;</span> <span class="o">{</span>
+    <span class="kd">private</span> <span class="kd">static</span> <span class="kd">final</span> <span class="nc">String</span> <span class="no">RESOURCE_ACCESS</span> <span class="o">=</span> <span class="s">"resource_access"</span><span class="o">;</span>
+    <span class="kd">private</span> <span class="kd">static</span> <span class="kd">final</span> <span class="nc">String</span> <span class="no">CLIENT_ID</span> <span class="o">=</span> <span class="s">"nsa2-gateway"</span><span class="o">;</span> <span class="c1">// Your Keycloak client ID</span>
+    <span class="kd">private</span> <span class="kd">static</span> <span class="kd">final</span> <span class="nc">String</span> <span class="no">ROLES</span> <span class="o">=</span> <span class="s">"roles"</span><span class="o">;</span>
+
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nc">JwtGrantedAuthoritiesConverter</span> <span class="n">defaultGrantedAuthoritiesConverter</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">JwtGrantedAuthoritiesConverter</span><span class="o">();</span>
+
+
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="o">&lt;</span><span class="no">U</span><span class="o">&gt;</span> <span class="nc">Converter</span><span class="o">&lt;</span><span class="nc">Jwt</span><span class="o">,</span> <span class="no">U</span><span class="o">&gt;</span> <span class="nf">andThen</span><span class="o">(</span><span class="nc">Converter</span><span class="o">&lt;?</span> <span class="kd">super</span> <span class="nc">Collection</span><span class="o">&lt;</span><span class="nc">GrantedAuthority</span><span class="o">&gt;,</span> <span class="o">?</span> <span class="kd">extends</span> <span class="no">U</span><span class="o">&gt;</span> <span class="n">after</span><span class="o">)</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="nc">Converter</span><span class="o">.</span><span class="na">super</span><span class="o">.</span><span class="na">andThen</span><span class="o">(</span><span class="n">after</span><span class="o">);</span>
+    <span class="o">}</span>
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="nc">Collection</span><span class="o">&lt;</span><span class="nc">GrantedAuthority</span><span class="o">&gt;</span> <span class="nf">convert</span><span class="o">(</span><span class="nc">Jwt</span> <span class="n">source</span><span class="o">)</span> <span class="o">{</span>
+        <span class="nc">Collection</span><span class="o">&lt;</span><span class="nc">GrantedAuthority</span><span class="o">&gt;</span> <span class="n">authorities</span> <span class="o">=</span> <span class="n">defaultGrantedAuthoritiesConverter</span><span class="o">.</span><span class="na">convert</span><span class="o">(</span><span class="n">source</span><span class="o">);</span>
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"authorities : {}"</span><span class="o">,</span> <span class="n">authorities</span><span class="o">);</span>
+
+        <span class="kt">var</span> <span class="n">roles</span> <span class="o">=</span> <span class="n">source</span><span class="o">.</span><span class="na">getClaimAsStringList</span><span class="o">(</span><span class="s">"roles"</span><span class="o">);</span>
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"roles: {}"</span><span class="o">,</span> <span class="n">roles</span><span class="o">);</span>
+
+
+        <span class="nc">Map</span><span class="o">&lt;</span><span class="nc">String</span><span class="o">,</span> <span class="nc">Object</span><span class="o">&gt;</span> <span class="n">resourceAccess</span> <span class="o">=</span> <span class="n">source</span><span class="o">.</span><span class="na">getClaimAsMap</span><span class="o">(</span><span class="no">RESOURCE_ACCESS</span><span class="o">);</span>
+
+        <i class="conum" data-value="1"></i><b>(1)</b>
+        <span class="k">if</span> <span class="o">(</span><span class="n">resourceAccess</span> <span class="o">!=</span> <span class="kc">null</span> <span class="o">&amp;&amp;</span> <span class="n">resourceAccess</span><span class="o">.</span><span class="na">containsKey</span><span class="o">(</span><span class="no">CLIENT_ID</span><span class="o">))</span> <span class="o">{</span>
+            <span class="nc">Map</span><span class="o">&lt;</span><span class="nc">String</span><span class="o">,</span> <span class="nc">Object</span><span class="o">&gt;</span> <span class="n">clientAccess</span> <span class="o">=</span> <span class="o">(</span><span class="nc">Map</span><span class="o">&lt;</span><span class="nc">String</span><span class="o">,</span> <span class="nc">Object</span><span class="o">&gt;)</span> <span class="n">resourceAccess</span><span class="o">.</span><span class="na">get</span><span class="o">(</span><span class="no">CLIENT_ID</span><span class="o">);</span>
+            <span class="k">if</span> <span class="o">(</span><span class="n">clientAccess</span><span class="o">.</span><span class="na">containsKey</span><span class="o">(</span><span class="no">ROLES</span><span class="o">))</span> <span class="o">{</span>
+                <span class="nc">List</span><span class="o">&lt;</span><span class="nc">String</span><span class="o">&gt;</span> <span class="n">clientRoles</span> <span class="o">=</span> <span class="o">(</span><span class="nc">List</span><span class="o">&lt;</span><span class="nc">String</span><span class="o">&gt;)</span> <span class="n">clientAccess</span><span class="o">.</span><span class="na">get</span><span class="o">(</span><span class="no">ROLES</span><span class="o">);</span>
+                <span class="n">authorities</span> <span class="o">=</span> <span class="nc">Stream</span><span class="o">.</span><span class="na">concat</span><span class="o">(</span>
+                        <span class="n">authorities</span><span class="o">.</span><span class="na">stream</span><span class="o">(),</span>
+                        <span class="n">clientRoles</span><span class="o">.</span><span class="na">stream</span><span class="o">().</span><span class="na">map</span><span class="o">(</span><span class="n">role</span> <span class="o">-&gt;</span> <span class="n">role</span><span class="o">.</span><span class="na">startsWith</span><span class="o">(</span><span class="s">"ROLE_"</span><span class="o">)</span> <span class="o">?</span> <span class="n">role</span> <span class="o">:</span> <span class="s">"ROLE_"</span> <span class="o">+</span> <span class="n">role</span><span class="o">).</span><span class="na">map</span><span class="o">(</span><span class="nl">SimpleGrantedAuthority:</span><span class="o">:</span><span class="k">new</span><span class="o">)</span>
+                <span class="o">).</span><span class="na">collect</span><span class="o">(</span><span class="nc">Collectors</span><span class="o">.</span><span class="na">toList</span><span class="o">());</span>
+            <span class="o">}</span>
+        <span class="o">}</span>
+
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"authorities : {}"</span><span class="o">,</span> <span class="n">authorities</span><span class="o">);</span>
+
+        <span class="k">return</span> <span class="n">authorities</span><span class="o">;</span>
+    <span class="o">}</span>
+
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Convert the roles in the JWT token payload to authorities. The roles are prefixed with 'ROLE_'.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="security-configuration-securityconfig-java-2">Security Configuration - SecurityConfig.java</h3>
+<div class="paragraph">
+<p>The CustomJwtGrantedAuthoritiesConverter is configured in the SecurityConfig.java file.</p>
+</div>
+<div class="paragraph">
+<p>Here is the <code>SecurityConfig.java</code> file for the Spring Resource Server application:</p>
+</div>
+<div class="listingblock">
+<div class="title">SecurityConfig.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@Configuration</span><span class="o">(</span><span class="n">proxyBeanMethods</span> <span class="o">=</span> <span class="kc">false</span><span class="o">)</span>
+<span class="nd">@EnableWebSecurity</span>
+<span class="nd">@EnableMethodSecurity</span><span class="o">(</span><span class="n">prePostEnabled</span> <span class="o">=</span> <span class="kc">true</span><span class="o">)</span> <i class="conum" data-value="1"></i><b>(1)</b>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">SecurityConfig</span> <span class="o">{</span>
+
+    <i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nc">String</span> <span class="n">jwkSetUri</span> <span class="o">=</span> <span class="s">"http://auth.nsa2.com:9000/realms/nsa2-realm/protocol/openid-connect/certs"</span><span class="o">;</span>
+
+    <span class="nd">@Bean</span>
+    <span class="kd">public</span> <span class="nc">SecurityFilterChain</span> <span class="nf">securityFilterChain</span><span class="o">(</span>
+            <span class="nc">HttpSecurity</span> <span class="n">http</span><span class="o">,</span>
+            <span class="nc">JwtAuthenticationConverter</span> <span class="n">nsa2AuthenticationConverter</span><span class="o">)</span> <span class="kd">throws</span> <span class="nc">Exception</span> <span class="o">{</span>
+
+        <span class="n">http</span>
+                <span class="o">.</span><span class="na">authorizeHttpRequests</span><span class="o">(</span><span class="n">auth</span> <span class="o">-&gt;</span> <span class="n">auth</span>
+                        <span class="o">.</span><span class="na">requestMatchers</span><span class="o">(</span><span class="s">"/actuator/**"</span><span class="o">).</span><span class="na">permitAll</span><span class="o">()</span>
+                        <span class="o">.</span><span class="na">anyRequest</span><span class="o">().</span><span class="na">authenticated</span><span class="o">()</span>
+                <span class="o">)</span>
+                <span class="o">.</span><span class="na">oauth2ResourceServer</span><span class="o">(</span><span class="n">oauth2</span> <span class="o">-&gt;</span> <span class="n">oauth2</span>
+                        <span class="o">.</span><span class="na">jwt</span><span class="o">(</span><span class="n">jwt</span> <span class="o">-&gt;</span> <span class="n">jwt</span>
+                                <span class="o">.</span><span class="na">jwtAuthenticationConverter</span><span class="o">(</span><span class="n">nsa2AuthenticationConverter</span><span class="o">)</span> <i class="conum" data-value="3"></i><b>(3)</b>
+                                <span class="o">.</span><span class="na">jwkSetUri</span><span class="o">(</span><span class="n">jwkSetUri</span><span class="o">)</span>   <i class="conum" data-value="4"></i><b>(4)</b>
+                        <span class="o">)</span>
+                <span class="o">);</span>
+
+        <span class="k">return</span> <span class="n">http</span><span class="o">.</span><span class="na">build</span><span class="o">();</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Bean</span>
+    <span class="kd">public</span> <span class="nc">JwtAuthenticationConverter</span> <span class="nf">nsa2AuthenticationConverter</span><span class="o">()</span> <span class="o">{</span>
+        <span class="kt">var</span> <span class="n">converter</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">JwtAuthenticationConverter</span><span class="o">();</span>
+        <span class="n">converter</span><span class="o">.</span><span class="na">setJwtGrantedAuthoritiesConverter</span><span class="o">(</span><span class="k">new</span> <span class="nc">CustomJwtGrantedAuthoritiesConverter</span><span class="o">());</span>
+        <span class="k">return</span> <span class="n">converter</span><span class="o">;</span>
+    <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Enable method-level security with <code>@PreAuthorize</code> annotations.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>JWK set URI for the JWT token.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Custom JwtAuthenticationConverter for converting the roles in the JWT token payload to authorities.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>JWK set URI for the JWT token.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="endpoints-securecontroller-java">Endpoints - SecureController.java</h3>
+<div class="paragraph">
+<p>SecureController.java provides the following secure endpoints:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>/secure/hello</code> - Hello endpoint that requires the 'ROLE_NSA2_USER' or 'ROLE_NSA2_ADMIN' role.</p>
+</li>
+<li>
+<p><code>/secure/admin/hello</code> - Admin Hello endpoint that requires the 'ROLE_NSA2_ADMIN' role.</p>
+</li>
+<li>
+<p><code>/secure/access_token</code> - Access Token endpoint that displays the access token information. This is for debugging purposes only. Do not expose this endpoint in production because it exposes sensitive information.</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">secureController.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@RestController</span>
+<span class="nd">@Slf4j</span>
+<span class="nd">@RequestMapping</span><span class="o">(</span><span class="s">"/secure"</span><span class="o">)</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">SecureController</span> <span class="o">{</span>
+    <span class="nd">@PreAuthorize</span><span class="o">(</span><span class="s">"hasAnyRole('NSA2_USER', 'NSA2_ADMIN')"</span><span class="o">)</span>  <i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="nd">@GetMapping</span><span class="o">(</span><span class="s">"/hello"</span><span class="o">)</span>
+    <span class="kd">public</span> <span class="nc">Message</span> <span class="nf">hello</span><span class="o">(</span><span class="nc">Principal</span> <span class="n">principal</span><span class="o">,</span> <span class="nc">JwtAuthenticationToken</span> <span class="n">jwtToken</span><span class="o">)</span> <span class="o">{</span>
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"principal: {}"</span><span class="o">,</span> <span class="n">principal</span><span class="o">);</span>
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"name: {}"</span><span class="o">,</span> <span class="n">jwtToken</span><span class="o">.</span><span class="na">getName</span><span class="o">());</span>
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"principal class: {}"</span><span class="o">,</span> <span class="n">principal</span><span class="o">.</span><span class="na">getClass</span><span class="o">());</span>
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"jwtToken class: {}"</span><span class="o">,</span> <span class="n">jwtToken</span><span class="o">.</span><span class="na">getClass</span><span class="o">());</span>
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"authorities: {}"</span><span class="o">,</span> <span class="n">jwtToken</span><span class="o">.</span><span class="na">getAuthorities</span><span class="o">());</span>
+        <span class="k">return</span> <span class="k">new</span> <span class="nf">Message</span><span class="o">(</span><span class="s">"ResourceServer - Hello, "</span> <span class="o">+</span> <span class="n">principal</span><span class="o">.</span><span class="na">getName</span><span class="o">());</span>
+    <span class="o">}</span>
+
+    <span class="nd">@PreAuthorize</span><span class="o">(</span><span class="s">"hasRole('NSA2_ADMIN')"</span><span class="o">)</span>  <i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="nd">@GetMapping</span><span class="o">(</span><span class="s">"/admin/hello"</span><span class="o">)</span>
+    <span class="kd">public</span> <span class="nc">Message</span> <span class="nf">adminHello</span><span class="o">(</span><span class="nc">Principal</span> <span class="n">principal</span><span class="o">)</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="k">new</span> <span class="nf">Message</span><span class="o">(</span><span class="s">"ResourceServer - Admin Hello, "</span> <span class="o">+</span> <span class="n">principal</span><span class="o">.</span><span class="na">getName</span><span class="o">());</span>
+    <span class="o">}</span>
+
+    <span class="nd">@GetMapping</span><span class="o">(</span><span class="s">"/access_token"</span><span class="o">)</span>
+    <span class="kd">public</span> <span class="nc">AccessToken</span> <span class="nf">accessToken</span><span class="o">(</span><span class="nc">JwtAuthenticationToken</span> <span class="n">jwtToken</span><span class="o">)</span> <span class="o">{</span>
+
+        <span class="nc">Map</span><span class="o">&lt;</span><span class="nc">String</span><span class="o">,</span> <span class="nc">Object</span><span class="o">&gt;</span> <span class="n">tokenAttributes</span> <span class="o">=</span> <span class="n">jwtToken</span><span class="o">.</span><span class="na">getTokenAttributes</span><span class="o">();</span>
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"principal class: {}"</span><span class="o">,</span> <span class="n">jwtToken</span><span class="o">.</span><span class="na">getPrincipal</span><span class="o">().</span><span class="na">getClass</span><span class="o">());</span>
+
+        <span class="k">if</span><span class="o">(</span><span class="n">jwtToken</span><span class="o">.</span><span class="na">getPrincipal</span><span class="o">()</span> <span class="k">instanceof</span> <span class="nc">DefaultOidcUser</span> <span class="n">oidcUser</span><span class="o">)</span> <span class="o">{</span>
+            <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"oidcUser: {}"</span><span class="o">,</span> <span class="n">oidcUser</span><span class="o">);</span>
+        <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+            <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"is not instance of DefaultOidcUser"</span><span class="o">);</span>
+        <span class="o">}</span>
+
+        <span class="kt">var</span> <span class="n">authorities</span> <span class="o">=</span> <span class="n">jwtToken</span><span class="o">.</span><span class="na">getAuthorities</span><span class="o">();</span>
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"authorities: {}"</span><span class="o">,</span> <span class="n">authorities</span><span class="o">);</span>
+        <span class="k">return</span> <span class="k">new</span> <span class="nf">AccessToken</span><span class="o">(</span><span class="n">jwtToken</span><span class="o">.</span><span class="na">getName</span><span class="o">(),</span> <span class="n">jwtToken</span><span class="o">.</span><span class="na">getToken</span><span class="o">().</span><span class="na">getTokenValue</span><span class="o">(),</span> <span class="n">authorities</span><span class="o">.</span><span class="na">toString</span><span class="o">(),</span>
+                <span class="n">tokenAttributes</span><span class="o">.</span><span class="na">containsKey</span><span class="o">(</span><span class="s">"scope"</span><span class="o">)</span> <span class="o">?</span> <span class="n">tokenAttributes</span><span class="o">.</span><span class="na">get</span><span class="o">(</span><span class="s">"scope"</span><span class="o">).</span><span class="na">toString</span><span class="o">()</span> <span class="o">:</span> <span class="s">""</span><span class="o">);</span>
+    <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Secure endpoint that requires the 'ROLE_NSA2_USER' or 'ROLE_NSA2_ADMIN' role.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Secure endpoint that requires the 'ROLE_NSA2_ADMIN' role. When the 'nsa2user' user accesses this endpoint, an 'Access Denied' error will be returned.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="running-spring-resource-server">Running Spring Resource Server</h3>
+<div class="paragraph">
+<p>To run the Spring Resource Server application, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">cd </span>spring-resource-server
+<span class="nv">$ </span>./gradlew bootRun</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="access-secure-endpoints">Access Secure Endpoints</h3>
+<div class="paragraph">
+<p>To access endpoints in the Spring Resource Server, you need to get the JWT token from the Spring Gateway and pass it to the Spring Resource Server. As Spring Gateway is acting as the OAuth 2.0 client and Backend for frontend(BFF), it will manage the JWT token and pass it to the Spring Resource Server.</p>
+</div>
+<div class="paragraph">
+<p>Open a web browser and go to the following URL:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="http://gateway.nsa2.com:8080/resource/secure/hello" class="bare">http://gateway.nsa2.com:8080/resource/secure/hello</a></p>
+</li>
+<li>
+<p><a href="http://gateway.nsa2.com:8080/resource/secure/admin/hello" class="bare">http://gateway.nsa2.com:8080/resource/secure/admin/hello</a></p>
+</li>
+</ul>
+</div>
+<div class="sect3">
+<h4 id="securehello">/secure/hello</h4>
+<div class="paragraph">
+<p>Either the 'nsa2admin' or 'nsa2user' user can access the <code>/secure/hello</code> endpoint. The 'nsa2admin' user has the 'ROLE_NSA2_ADMIN' role, and the 'nsa2user' user has the 'ROLE_NSA2_USER' role. And the output will be as follows:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"message"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ResourceServer - Hello, nsa2admin"</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="secureadminhello">/secure/admin/hello</h4>
+<div class="paragraph">
+<p>Only the 'nsa2admin' user can access the <code>/secure/admin/hello</code> endpoint. The 'nsa2user' user will get an 'Access Denied' error when trying to access this endpoint.</p>
+</div>
+<div class="paragraph">
+<p>The output will be as follows:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"message"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ResourceServer - Admin Hello, nsa2admin"</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>When the 'nsa2user' user tries to access the <code>/secure/admin/hello</code> endpoint, an 'Access Denied' error will be returned.</p>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="images/resource-access-denied.png" alt="resource access denied">
+</div>
+<div class="title">Figure 7. Access Denied Error</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide demonstrated how to set up OAuth 2.0 and OpenID Connect authentication using Keycloak with Spring Boot applications. We configured a Keycloak server, integrated it with a Spring Cloud Gateway (OAuth 2.0 Client), and secured a Spring Resource Server (OAuth 2.0 Resource Server). The setup supports user authentication, role-based access control, and token relay for secured API calls.</p>
+</div>
+<div class="paragraph">
+<p>This project is available on GitHub at link: <a href="https://github.com/nsalexamy/keycloak-spring-react-bff">nsalexamy/keycloak-spring-react-bff</a>.</p>
+</div>
+<div class="paragraph">
+<p>All my LinkedIn articles are available at <a href="https://www.linkedin.com/pulse/my-linkedin-article-library-young-gyu-kim-2jihc/">My LinkedIn Article Library</a>.</p>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>
