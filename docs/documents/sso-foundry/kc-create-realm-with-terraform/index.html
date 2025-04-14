@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Keycloak - Create Realm with Terraform</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: sans-serif;
+        }
+
+        /* Header styles */
+        header {
+            background-color: #1f2937; /* gray-900 */
+            color: white;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header a {
+            color: #d1d5db; /* gray-300 */
+            margin-left: 1rem;
+            text-decoration: none;
+        }
+
+        header a:hover {
+            color: #38bdf8; /* sky-400 */
+        }
+
+        /* Sub-navigation */
+        .subnav {
+            background-color: #374151; /* gray-800 */
+            padding: 0.5rem 2rem;
+        }
+
+        .subnav a {
+            color: #d1d5db;
+            margin-right: 1rem;
+            text-decoration: none;
+            font-size: 0.875rem;
+        }
+
+        .subnav a:hover {
+            color: #ffffff;
+        }
+
+        /* Layout */
+        .container {
+            display: flex;
+        }
+
+        /* TOC sidebar styles (scoped) */
+        .toc-nav {
+            width: 250px;
+            padding: 1rem;
+            background-color: #f8f8f8;
+            border-right: 1px solid #ccc;
+            overflow-y: auto;
+            position: sticky;
+            top: 0;
+            height: calc(100vh - 120px); /* adjust for header + subnav height */
+        }
+
+        main {
+            flex: 1;
+            padding: 2rem;
+        }
+
+        /* Code block styles */
+        .listingblock pre,
+        .highlight pre {
+            background-color: #f3f4f6; /* gray-100 */
+            padding: 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            overflow-x: auto;
+        }
+
+        code {
+            background-color: #f3f4f6;
+            padding: 0.1rem 0.3rem;
+            border-radius: 0.25rem;
+        }
+        .breadcrumb-wrapper {
+            max-width: 1024px;
+            margin: 0 auto;
+            padding: 0.75rem 1.5rem;
+            font-size: 0.875rem;
+            color: #4b5563; /* gray-600 */
+        }
+
+        .breadcrumb {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .breadcrumb li {
+            display: flex;
+            align-items: center;
+        }
+
+        .breadcrumb a {
+            color: #0d9488; /* teal-600 */
+            text-decoration: none;
+        }
+
+        .breadcrumb a:hover {
+            text-decoration: underline;
+        }
+
+        .separator {
+            margin: 0 0.5rem;
+            color: #9ca3af; /* gray-400 */
+        }
+        /* Table styles */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1.5rem;
+        }
+
+        table, th, td {
+            border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+        }
+
+        th, td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+        }
+
+        thead {
+            background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+        }
+
+        /* Admonition styles */
+        .admonitionblock {
+            border-left: 4px solid #0d9488; /* teal-600 */
+            background-color: #f0fdfa;      /* teal-50 */
+            padding: 1rem 1.25rem;
+            margin: 1.5rem 0;
+            border-radius: 0.375rem;
+            display: flex;
+            align-items: flex-start;
+        }
+
+        .admonitionblock .icon {
+            font-size: 1.25rem;
+            margin-right: 0.75rem;
+            line-height: 1;
+        }
+
+        .admonitionblock .content {
+            flex: 1;
+        }
+
+        .admonitionblock.note .icon::before {
+            content: "💡";
+        }
+
+        .admonitionblock.tip .icon::before {
+            content: "✨";
+        }
+
+        .admonitionblock.warning .icon::before {
+            content: "⚠️";
+        }
+
+        .admonitionblock.important .icon::before {
+            content: "🚨";
+        }
+
+        .admonitionblock.caution .icon::before {
+            content: "🛑";
+        }
+
+        /* Table of Contents styles */
+        #toc {
+            font-size: 0.875rem;
+            line-height: 1.4;
+        }
+
+        #toc ul {
+            margin: 0;
+            padding-left: 1rem;
+            list-style-type: disc;
+        }
+
+        #toc li {
+            margin: 0.25rem 0; /* tighten vertical spacing */
+        }
+
+        #toc a {
+            text-decoration: none;
+            color: #0d9488; /* teal-600 */
+        }
+
+        #toc a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+    <div class="logo text-xl font-semibold">Service Foundry</div>
+    <nav>
+        <a href="/docs.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+        <a href="/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+        <a href="/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+        <a href="https://github.com/your-repo" class="hover:text-teal-400">GitHub</a>
+    </nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+<!-- Breadcrumb -->
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/documents/sso-foundry/">SSO Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#prerequisites">Prerequisites</a></li>
+</ul>
+</li>
+<li><a href="#what-is-terraform">What is Terraform?</a>
+<ul class="sectlevel2">
+<li><a href="#install-terraform-macos">Install Terraform (macOS)</a></li>
+<li><a href="#verify-installation">Verify Installation</a></li>
+</ul>
+</li>
+<li><a href="#deployment-scenario">Deployment Scenario</a>
+<ul class="sectlevel2">
+<li><a href="#directory-structure">Directory Structure</a></li>
+</ul>
+</li>
+<li><a href="#installing-keycloak">Installing Keycloak</a>
+<ul class="sectlevel2">
+<li><a href="#sso-foundry-config-yaml">sso-foundry-config.yaml</a></li>
+<li><a href="#generate-kubernetes-resources-helm-charts-and-terraform-files">Generate Kubernetes Resources, Helm Charts, and Terraform Files</a></li>
+</ul>
+</li>
+<li><a href="#terraform-configuration-files">Terraform Configuration Files</a>
+<ul class="sectlevel2">
+<li><a href="#variables-tf">variables.tf</a></li>
+<li><a href="#terraform-tfvars">terraform.tfvars</a></li>
+<li><a href="#main-tf">main.tf</a></li>
+<li><a href="#apply-terraform-configuration">Apply Terraform Configuration</a></li>
+<li><a href="#screenshot">Screenshot</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/automated-deployment.png" alt="Automated Deployment" width="1000">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>As part of the <strong>SSO Foundry deployment</strong>, this document outlines the process of<strong> automating Keycloak installation and configuration</strong> using <strong>Kustomize</strong>, <strong>Helm</strong>, and <strong>Terraform</strong>.</p>
+</div>
+<div class="paragraph">
+<p>This guide focuses specifically on <strong>creating a Keycloak realm using Terraform</strong> within a Kubernetes-based deployment.</p>
+</div>
+<div class="sect2">
+<h3 id="prerequisites">Prerequisites</h3>
+<div class="paragraph">
+<p>Make sure the following tools are installed:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>helm</p>
+</li>
+<li>
+<p>kubectl</p>
+</li>
+<li>
+<p>jq</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-is-terraform">What is Terraform?</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p><a href="https://www.terraform.io/docs/index.html">Terraform</a> is an open-source infrastructure-as-code tool by HashiCorp. It enables defining and provisioning infrastructure using the HashiCorp Configuration Language (HCL).</p>
+</div>
+<div class="paragraph">
+<p>With Terraform, we will create the Keycloak realm and its associated resources. The configuration will include the following:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Keycloak Realm</p>
+</li>
+<li>
+<p>Keycloak Client</p>
+</li>
+<li>
+<p>Keycloak User</p>
+</li>
+<li>
+<p>Keycloak Realm Role</p>
+</li>
+<li>
+<p>Keycloak Client Scope to add roles to ID token</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="install-terraform-macos">Install Terraform (macOS)</h3>
+<div class="paragraph">
+<p>Install Terraform using Homebrew:</p>
+</div>
+<div class="listingblock terminal">
+<div class="content">
+<pre>$ brew tap hashicorp/tap
+$ brew install hashicorp/tap/terraform</pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="verify-installation">Verify Installation</h3>
+<div class="paragraph">
+<p>To verify that Terraform is installed correctly, run the following command:</p>
+</div>
+<div class="listingblock terminal">
+<div class="content">
+<pre>$ terraform -v</pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Example Output</strong></p>
+</div>
+<div class="listingblock terminal">
+<div class="content">
+<pre>Terraform v1.11.4
+on darwin_arm64</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deployment-scenario">Deployment Scenario</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This document covers steps 3 and 4 from the full deployment pipeline:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Create Kubernetes resources for Keycloak using Kustomize</p>
+</li>
+<li>
+<p>Install Keycloak using Helm</p>
+</li>
+<li>
+<p><strong>Get the Keycloak LoadBalancer hostname</strong></p>
+</li>
+<li>
+<p><strong>Create a Keycloak realm using Terraform</strong></p>
+</li>
+<li>
+<p>Create Kubernetes resources for OAuth2 Proxy using Kustomize</p>
+</li>
+<li>
+<p>Install OAuth2 Proxy using Helm</p>
+</li>
+<li>
+<p>Install Ingresses using Kustomize</p>
+</li>
+</ol>
+</div>
+<div class="sect2">
+<h3 id="directory-structure">Directory Structure</h3>
+<div class="paragraph">
+<p>The directory structure for the SSO Foundry deployment is as follows:</p>
+</div>
+<div class="listingblock terminal">
+<div class="content">
+<pre>$ tree -d .
+
+.
+├── bin
+├── helm-charts
+│   ├── keycloak
+│   └── oauth2-proxy
+├── k8s
+│   ├── keycloak
+│   ├── oauth2-proxy
+│   └── traefik
+└── terraform
+    └── keycloak</pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Directory Descriptions:</strong></p>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<caption class="title">Table 1. Directory Structure</caption>
+<colgroup>
+<col style="width: 33.3333%;">
+<col style="width: 66.6667%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Directory</th>
+<th class="tableblock halign-left valign-top">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">bin</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Contains scripts for installation and configuration</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">helm-charts/keycloak</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Contains the Keycloak Helm chart</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">k8s/keycloak</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Contains Kubernetes kustomization.yaml and resources for Keycloak</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">terraform/keycloak</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Contains main.tf and variables.tf for Keycloak</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-keycloak">Installing Keycloak</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Use the follow Yeoman generator steps for Service Foundry:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>yo nsa2:{submodule-name} init - Generate the configuration file</p>
+</li>
+<li>
+<p>yo nsa2:{submodule-name} generate - Generate Kubernetes resources, Helm charts, and Terraform files</p>
+</li>
+<li>
+<p>yo nsa2:{submodule-name} build - Build components locally if needed</p>
+</li>
+<li>
+<p>yo nsa2:{submodule-name} deploy - Deploy components to the Kubernetes cluster. Push custom Docker images to the registry if needed</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>For SSO Foundry, the submodule-name is <code>sso-foundry</code>.</p>
+</div>
+<div class="sect2">
+<h3 id="sso-foundry-config-yaml">sso-foundry-config.yaml</h3>
+<div class="paragraph">
+<p>This file can be generated using the command below.</p>
+</div>
+<div class="listingblock bash">
+<div class="content">
+<pre>$ yo nsa2:sso-foundry init</pre>
+</div>
+</div>
+<div class="listingblock yaml">
+<div class="title">sso-foundry-config.yaml - Keycloak and OAuth2 Configuration</div>
+<div class="content">
+<pre>#<i class="conum" data-value="1"></i><b>(1)</b>
+keycloak:
+  enabled: true
+  namespace: keycloak
+  release-name: keycloak
+  version: "24.4.13"
+  admin-user: "admin"
+  admin-password: "changeit"
+  realm: nsa2-realm
+  # http or https
+  protocol: http
+  postgresql:
+    enabled: true
+    postgres-password: "changeit"
+    username: "keycloak"
+    password: "changeit"
+    database: "keycloak"
+
+#<i class="conum" data-value="2"></i><b>(2)</b>
+oauth2:
+  enabled: true
+
+  # if oidc-issuer-url is empty
+  # the issuer URL will be generated from the keycloak service
+  # http://&lt;keycloak-service-hostname&gt;/realms/&lt;keycloak-realm&gt;
+  oidc-issuer-url: ""
+  client_id: "nsa2-o11y"
+  client_secret: "gZ343TCd0kBehqTOkGZFkbL4WvXoa3Ss"
+
+# oauth2-proxy configuration is omitted for brevity</pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Keycloak configuration - These configuration values are used to create a Keycloak instance in the Kubernetes cluster.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>OAuth2 Configuration - These configuration values are used to create a Client in Keycloak and configure OAuth2 Proxy.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>You can modify the <code>sso-foundry-config.yaml</code> file to customize the Keycloak and OAuth2 Proxy configuration. The <code>keycloak</code> section contains the configuration for Keycloak, including the namespace, release name, version, admin user, and PostgreSQL configuration. The <code>oauth2</code> section contains the configuration for OAuth2 Proxy, including the client ID and client secret.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="generate-kubernetes-resources-helm-charts-and-terraform-files">Generate Kubernetes Resources, Helm Charts, and Terraform Files</h3>
+<div class="paragraph">
+<p>The next step is to generate the Kubernetes resources, Helm charts, and Terraform files using the command below.</p>
+</div>
+<div class="listingblock bash">
+<div class="content">
+<pre>$ yo nsa2:sso-foundry generate</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The command will generate the following files and directories:</p>
+</div>
+<div class="listingblock terminal">
+<div class="content">
+<pre>$ tree .
+.
+├── bin
+│   ├── deploy-keycloak.sh
+│   └── undeploy-keycloak.sh
+├── build-sso-foundry.sh
+├── deploy-sso-foundry.sh
+├── helm-charts
+│   ├── keycloak
+│   │   ├── custom-values.yaml
+│   │   └── keycloak-24.4.13.tgz
+│   └── oauth2-proxy
+│       ├── custom-values.yaml
+│       └── oauth2-proxy-7.12.6.tgz
+├── k8s
+│   ├── keycloak
+│   │   ├── keycloak-credentials-secret.yaml
+│   │   ├── keycloak-namespace.yaml
+│   │   ├── keycloak-postgresql-credentials-secret.yaml
+│   │   ├── kustomization.yaml
+│   │   └── nsa2-realm-export.json
+│   ├── oauth2-proxy
+│   │   ├── kustomization.yaml
+│   │   ├── oauth2-proxy-config.yaml
+│   │   └── oauth2-proxy-secret.yaml
+│   └── traefik
+│       ├── forward-auth-middleware.yaml
+│       ├── kustomization.yaml
+│       ├── o11y-sso-ingress.yaml
+│       └── oauth2-proxy-ingress.yaml
+├── sso-foundry-config.yaml
+├── terraform
+│   └── keycloak
+│       ├── main.tf
+│       └── variables.tf
+└── undeploy-sso-foundry.sh</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Among the files above, I will explain the files related to Terraform used to create a Keycloak realm.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="terraform-configuration-files">Terraform Configuration Files</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The Terraform files are located in the <code>terraform/keycloak</code> directory. The files are as follows:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>variables.tf</code> - This file contains the variables used in the <code>main.tf</code> file.</p>
+</li>
+<li>
+<p><code>terraform.tfvars</code> - This file contains the values for the variables defined in <code>variables.tf</code>. This file can be created and configured after Keycloak is installed and the LoadBalancer hostname is available.</p>
+</li>
+<li>
+<p><code>main.tf</code> - This file contains the Terraform configuration for creating a Keycloak realm, client, user, and roles.</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="variables-tf">variables.tf</h3>
+<div class="paragraph">
+<p>To create a Keycloak realm, I need to access Keycloak using the Keycloak LoadBalancer hostname. The hostname is passed as a variable to the Terraform configuration.</p>
+</div>
+<div class="listingblock hcl">
+<div class="content">
+<pre>variable "kc_lb_hostname" {
+  description = "Keycloak load balancer hostname"
+  type        = string
+}</pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="terraform-tfvars">terraform.tfvars</h3>
+<div class="paragraph">
+<p>The <code>terraform.tfvars</code> file contains the values for the variables defined in <code>variables.tf</code>. The <code>kc_lb_hostname</code> variable is set to the Keycloak LoadBalancer hostname.
+The hostname can be obtained after Keycloak is installed and the LoadBalancer service is created.</p>
+</div>
+<div class="listingblock hcl">
+<div class="content">
+<pre>kc_lb_hostname = "a9e632348b7944f03a3a890000000000-1740928954.ca-west-1.elb.amazonaws.com"</pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="main-tf">main.tf</h3>
+<div class="paragraph">
+<p>The <code>main.tf</code> file is generated by the Yeoman generator based on the <code>sso-foundry-config.yaml</code> file. This file contains the Terraform configuration for creating a Keycloak realm, client, user, and roles. The configuration uses the Keycloak provider to interact with the Keycloak instance.</p>
+</div>
+<div class="sect3">
+<h4 id="provider-setup">Provider Setup</h4>
+<div class="listingblock hcl">
+<div class="title">main.tf - Keycloak Configuration</div>
+<div class="content">
+<pre>#<i class="conum" data-value="1"></i><b>(1)</b>
+terraform {
+  required_providers {
+    keycloak = {
+      source  = "keycloak/keycloak"
+      version = "~&gt; 5.0.0" # You can use the latest stable version
+    }
+  }
+}
+
+#<i class="conum" data-value="2"></i><b>(2)</b>
+provider "keycloak" {
+  client_id = "admin-cli"
+  username  = "admin"
+  password  = "changeit"
+  url       = "http://${var.kc_lb_hostname}"  #<i class="conum" data-value="3"></i><b>(3)</b>
+  realm     = "master"
+}</pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Keycloak is not officially supported by HashiCorp. The Keycloak provider is maintained by the community. The provider is used to interact with the Keycloak instance.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The Keycloak provider is configured with the Keycloak LoadBalancer hostname, admin username, and password.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>The <code>url</code> parameter is set to the Keycloak LoadBalancer hostname. kc_lb_hostname is passed through the terraform.tfvars file.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect3">
+<h4 id="realm-and-client">Realm and Client</h4>
+<div class="listingblock hcl">
+<div class="title">main.tf - Keycloak Realm, Client</div>
+<div class="content">
+<pre># Create a new realm
+#<i class="conum" data-value="1"></i><b>(1)</b>
+resource "keycloak_realm" "nsa2_realm" {
+  realm   = "nsa2-realm"
+  enabled = true
+}
+
+# Create a new client
+#<i class="conum" data-value="2"></i><b>(2)</b>
+resource "keycloak_openid_client" "nsa2_o11y" {
+  #realm_id                     = keycloak_realm.this.id
+  realm_id                     = keycloak_realm.nsa2_realm.id
+  client_id                    = "nsa2-o11y"
+  name                         = "NSA2 Observability"
+  enabled                      = true
+  access_type                  = "CONFIDENTIAL" # or "PUBLIC"
+  standard_flow_enabled        = true
+  implicit_flow_enabled        = false
+  direct_access_grants_enabled = true
+  client_secret                = "gZ343TCd0kBehqTOkGZFkbL4WvXoa3Ss"
+
+  valid_redirect_uris = [
+    "http://prometheus.nsa2.com/*",
+    "http://grafana.nsa2.com/*",
+    "http://jaeger.nsa2.com/*",
+    "http://oauth2-proxy.nsa2.com/*"
+  ]
+
+  valid_post_logout_redirect_uris = [
+    "http://prometheus.nsa2.com/*",
+    "http://grafana.nsa2.com/*",
+    "http://jaeger.nsa2.com/*",
+    "http://oauth2-proxy.nsa2.com/*"
+  ]
+
+  web_origins = [
+    "http://prometheus.nsa2.com",
+    "http://jaeger.nsa2.com",
+    "http://grafana.nsa2.com",
+    "http://oauth2-proxy.nsa2.com"
+  ]
+}</pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The <code>keycloak_realm</code> resource is used to create a new Keycloak realm. The realm name is set to <code>nsa2-realm</code>.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The <code>keycloak_openid_client</code> resource is used to create a new Keycloak client. The client ID is set to <code>nsa2-o11y</code>, and the client secret is set to <code>gZ343TCd0kBehqTOkGZFkbL4WvXoa3Ss</code>. The valid redirect URIs and web origins are set to the corresponding URLs for Prometheus, Grafana, Jaeger, and OAuth2 Proxy.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect3">
+<h4 id="realm-roles-and-user">Realm Roles and User</h4>
+<div class="listingblock hcl">
+<div class="title">main.tf - Keycloak Realm Roles, User</div>
+<div class="content">
+<pre># Create realm roles - grafana-admin, grafana-editor, grafana-viewer
+
+#<i class="conum" data-value="1"></i><b>(1)</b>
+resource "keycloak_role" "grafana_admin_role" {
+  realm_id = keycloak_realm.nsa2_realm.id
+  name     = "grafana-admin"
+}
+
+resource "keycloak_role" "grafana_editor_role" {
+  realm_id = keycloak_realm.nsa2_realm.id
+  name     = "grafana-editor"
+}
+
+resource "keycloak_role" "grafana_viewer_role" {
+  realm_id = keycloak_realm.nsa2_realm.id
+  name     = "grafana-viewer"
+}
+
+# Create devops User
+#<i class="conum" data-value="2"></i><b>(2)</b>
+resource "keycloak_user" "devops" {
+  realm_id   = keycloak_realm.nsa2_realm.id
+  username   = "devops"
+  email      = "devops@nsa2.com"
+  email_verified = true
+  enabled    = true
+  first_name = "DevOps"
+  last_name  = "Staff"
+
+  initial_password {
+    value     = "password"
+    temporary = false
+  }
+
+  required_actions = []
+}</pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The <code>keycloak_role</code> resource is used to create realm roles. The roles are created for Grafana with the names <code>grafana-admin</code>, <code>grafana-editor</code>, and <code>grafana-viewer</code>.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The <code>keycloak_user</code> resource is used to create users.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect3">
+<h4 id="assign-roles-to-user">Assign Roles to User</h4>
+<div class="listingblock hcl">
+<div class="title">main.tf - Keycloak User Roles mapping</div>
+<div class="content">
+<pre># Assign roles to the user
+#<i class="conum" data-value="1"></i><b>(1)</b>
+resource "keycloak_user_roles" "devops_roles" {
+  realm_id = keycloak_realm.nsa2_realm.id
+  user_id  = keycloak_user.devops.id
+
+  role_ids = [
+    keycloak_role.grafana_admin_role.id,
+    #keycloak_role.grafana_roles["grafana-admin"].id
+    # data.keycloak_role.grafana_admin.id
+# or keycloak_role.grafana_admin.id if defined as a resource
+  ]
+}</pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The <code>keycloak_user_roles</code> resource is used to assign roles to the user. The user is assigned the <code>grafana-admin</code> role.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect3">
+<h4 id="create-client-scope-role-mapper">Create Client Scope &amp; Role Mapper</h4>
+<div class="listingblock hcl">
+<div class="title">main.tf - Keycloak Client Scope</div>
+<div class="content">
+<pre># Create a new client scope
+#<i class="conum" data-value="1"></i><b>(1)</b>
+resource "keycloak_openid_client_scope" "o11y_client_scope" {
+  realm_id = keycloak_realm.nsa2_realm.id
+  name     = "nsa2-o11y-client-scope"
+  description = "Client scope for NSA2 Observability"
+  include_in_token_scope = true
+}
+
+# Configure the client scope to add roles to the ID token
+#<i class="conum" data-value="2"></i><b>(2)</b>
+resource "keycloak_openid_user_realm_role_protocol_mapper" "realm_roles_mapper" {
+  realm_id        = keycloak_realm.nsa2_realm.id
+  client_scope_id = keycloak_openid_client_scope.o11y_client_scope.id
+  name            = "realm-role-mapper"
+
+  claim_name        = "realm_access.roles"
+  claim_value_type  = "String"
+  add_to_id_token   = true
+  add_to_access_token = true
+  add_to_userinfo   = true
+  multivalued        = true
+}
+
+# Add the client scope to the client
+#<i class="conum" data-value="3"></i><b>(3)</b>
+resource "keycloak_openid_client_default_scopes" "client_default_scopes" {
+  realm_id  = keycloak_realm.nsa2_realm.id
+  client_id = keycloak_openid_client.nsa2_o11y.id
+
+  default_scopes = [
+    "web-origins",
+    "acr",
+    "roles",
+    "profile",
+    "basic",
+    "email",
+    keycloak_openid_client_scope.o11y_client_scope.name
+  ]
+}</pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The <code>keycloak_openid_client_scope</code> resource is used to create a new client scope. The client scope is created for NSA2 Observability.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The <code>keycloak_openid_user_realm_role_protocol_mapper</code> resource is used to configure the client scope to add roles to the ID token. The <code>claim_name</code> is set to <code>realm_access.roles</code>, and the <code>claim_value_type</code> is set to <code>String</code>. The <code>add_to_id_token</code>, <code>add_to_access_token</code>, and <code>add_to_userinfo</code> parameters are set to <code>true</code>.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>The <code>keycloak_openid_client_default_scopes</code> resource is used to add the client scope to the client. The <code>default_scopes</code> parameter is set to include the client scope name.</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="apply-terraform-configuration">Apply Terraform Configuration</h3>
+<div class="paragraph">
+<p>Run the following in the <code>terraform/keycloak</code> directory:</p>
+</div>
+<div class="listingblock terminal">
+<div class="content">
+<pre>$ terraform init
+$ terraform plan
+$ terraform apply -auto-approve</pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="screenshot">Screenshot</h3>
+<div class="paragraph">
+<p>After applying Terraform, you will see:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>A new relam: nsa2-realm</p>
+</li>
+<li>
+<p>A client: nsa2-o11y</p>
+</li>
+<li>
+<p>Roles: grafana-admin, grafana-editor, grafana-viewer</p>
+</li>
+<li>
+<p>User: devops with the role grafana-admin</p>
+</li>
+</ul>
+</div>
+<div class="sect3">
+<h4 id="new-keycloak-realm-and-client">New Keycloak Realm and Client</h4>
+<div class="paragraph">
+<p>As described in the <code>main.tf</code> file, a new Keycloak realm named <code>nsa2-realm</code> and a new client named <code>nsa2-o11y</code> are created.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/kc-admin-clients.png" alt="Keycloak Admin - Realm and Client" width="800">
+</div>
+<div class="title">Figure 1. Keycloak Admin - Realm and Client</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="keycloak-realm-roles">Keycloak Realm Roles</h4>
+<div class="paragraph">
+<p>The realm roles <code>grafana-admin</code>, <code>grafana-editor</code>, and <code>grafana-viewer</code> are created in the <code>nsa2-realm</code>.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/kc-admin-realm-roles.png" alt="Keycloak Admin - Realm Roles" width="800">
+</div>
+<div class="title">Figure 2. Keycloak Admin - Realm Roles</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="keycloak-user">Keycloak User</h4>
+<div class="paragraph">
+<p>The user <code>devops</code> is created in the <code>nsa2-realm</code>. The user is assigned the <code>grafana-admin</code> role.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/kc-admin-users.png" alt="Keycloak Admin - Users" width="800">
+</div>
+<div class="title">Figure 3. Keycloak Admin - Users</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide demonstrated how to automate the creation of a <strong>Keycloak realm, client, user, and roles using Terraform</strong> as part of the <strong>SSO Foundry</strong> deployment.</p>
+</div>
+<div class="paragraph">
+<p>With this setup:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>You reduce manual configuration</p>
+</li>
+<li>
+<p>Ensure consistent environments</p>
+</li>
+<li>
+<p>Integrate SSO capabilities seamlessly across services</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>

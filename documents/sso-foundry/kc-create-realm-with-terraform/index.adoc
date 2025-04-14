@@ -1,0 +1,539 @@
+---
+layout: tech_document
+title: Keycloak - Create Realm with Terraform
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: SSO Foundry
+    url: /documents/sso-foundry/
+---
+= Keycloak - Create Realm with Terraform
+
+:toc:
+:toc-placement: macro
+:toclevels: 3
+:toc-title: Table of Contents
+:author: Young Gyu Kim
+:email: credemol@gmail.com
+
+
+:imagesdir: images
+
+image::automated-deployment.png[width=1000, align="center", alt="Automated Deployment"]
+== Introduction
+
+As part of the *SSO Foundry deployment*, this document outlines the process of** automating Keycloak installation and configuration** using *Kustomize*, *Helm*, and *Terraform*.
+
+This guide focuses specifically on *creating a Keycloak realm using Terraform* within a Kubernetes-based deployment.
+
+
+
+=== Prerequisites
+
+Make sure the following tools are installed:
+
+
+* helm
+* kubectl
+* jq
+
+
+
+== What is Terraform?
+
+link:https://www.terraform.io/docs/index.html[Terraform] is an open-source infrastructure-as-code tool by HashiCorp. It enables defining and provisioning infrastructure using the HashiCorp Configuration Language (HCL).
+
+
+With Terraform, we will create the Keycloak realm and its associated resources. The configuration will include the following:
+
+* Keycloak Realm
+* Keycloak Client
+* Keycloak User
+* Keycloak Realm Role
+* Keycloak Client Scope to add roles to ID token
+
+
+=== Install Terraform (macOS)
+
+Install Terraform using Homebrew:
+
+[.terminal]
+----
+$ brew tap hashicorp/tap
+$ brew install hashicorp/tap/terraform
+----
+
+=== Verify Installation
+
+To verify that Terraform is installed correctly, run the following command:
+
+[.terminal]
+----
+$ terraform -v
+----
+
+*Example Output*
+[.terminal]
+----
+Terraform v1.11.4
+on darwin_arm64
+----
+
+== Deployment Scenario
+
+This document covers steps 3 and 4 from the full deployment pipeline:
+
+. Create Kubernetes resources for Keycloak using Kustomize
+. Install Keycloak using Helm
+. *Get the Keycloak LoadBalancer hostname*
+. *Create a Keycloak realm using Terraform*
+. Create Kubernetes resources for OAuth2 Proxy using Kustomize
+. Install OAuth2 Proxy using Helm
+. Install Ingresses using Kustomize
+
+
+=== Directory Structure
+
+The directory structure for the SSO Foundry deployment is as follows:
+
+[.terminal]
+----
+$ tree -d .
+
+.
+├── bin
+├── helm-charts
+│   ├── keycloak
+│   └── oauth2-proxy
+├── k8s
+│   ├── keycloak
+│   ├── oauth2-proxy
+│   └── traefik
+└── terraform
+    └── keycloak
+----
+
+*Directory Descriptions:*
+
+[cols="1,2"]
+.Directory Structure
+|===
+| Directory | Description
+
+| bin | Contains scripts for installation and configuration
+| helm-charts/keycloak | Contains the Keycloak Helm chart
+| k8s/keycloak | Contains Kubernetes kustomization.yaml and resources for Keycloak
+| terraform/keycloak | Contains main.tf and variables.tf for Keycloak
+|===
+
+
+
+== Installing Keycloak
+
+Use the follow Yeoman generator steps for Service Foundry:
+
+. yo nsa2:{submodule-name} init - Generate the configuration file
+. yo nsa2:{submodule-name} generate - Generate Kubernetes resources, Helm charts, and Terraform files
+. yo nsa2:{submodule-name} build - Build components locally if needed
+. yo nsa2:{submodule-name} deploy - Deploy components to the Kubernetes cluster. Push custom Docker images to the registry if needed
+
+For SSO Foundry, the submodule-name is `sso-foundry`.
+
+
+=== sso-foundry-config.yaml
+
+This file can be generated using the command below.
+
+[.bash]
+----
+$ yo nsa2:sso-foundry init
+----
+
+.sso-foundry-config.yaml - Keycloak and OAuth2 Configuration
+[.yaml]
+----
+## <1>
+keycloak:
+  enabled: true
+  namespace: keycloak
+  release-name: keycloak
+  version: "24.4.13"
+  admin-user: "admin"
+  admin-password: "changeit"
+  realm: nsa2-realm
+  # http or https
+  protocol: http
+  postgresql:
+    enabled: true
+    postgres-password: "changeit"
+    username: "keycloak"
+    password: "changeit"
+    database: "keycloak"
+
+## <2>
+oauth2:
+  enabled: true
+
+  # if oidc-issuer-url is empty
+  # the issuer URL will be generated from the keycloak service
+  # http://<keycloak-service-hostname>/realms/<keycloak-realm>
+  oidc-issuer-url: ""
+  client_id: "nsa2-o11y"
+  client_secret: "gZ343TCd0kBehqTOkGZFkbL4WvXoa3Ss"
+
+# oauth2-proxy configuration is omitted for brevity
+----
+
+<1> Keycloak configuration - These configuration values are used to create a Keycloak instance in the Kubernetes cluster.
+<2> OAuth2 Configuration - These configuration values are used to create a Client in Keycloak and configure OAuth2 Proxy.
+
+You can modify the `sso-foundry-config.yaml` file to customize the Keycloak and OAuth2 Proxy configuration. The `keycloak` section contains the configuration for Keycloak, including the namespace, release name, version, admin user, and PostgreSQL configuration. The `oauth2` section contains the configuration for OAuth2 Proxy, including the client ID and client secret.
+
+=== Generate Kubernetes Resources, Helm Charts, and Terraform Files
+
+The next step is to generate the Kubernetes resources, Helm charts, and Terraform files using the command below.
+
+[.bash]
+----
+$ yo nsa2:sso-foundry generate
+----
+
+The command will generate the following files and directories:
+
+[.terminal]
+----
+$ tree .
+.
+├── bin
+│   ├── deploy-keycloak.sh
+│   └── undeploy-keycloak.sh
+├── build-sso-foundry.sh
+├── deploy-sso-foundry.sh
+├── helm-charts
+│   ├── keycloak
+│   │   ├── custom-values.yaml
+│   │   └── keycloak-24.4.13.tgz
+│   └── oauth2-proxy
+│       ├── custom-values.yaml
+│       └── oauth2-proxy-7.12.6.tgz
+├── k8s
+│   ├── keycloak
+│   │   ├── keycloak-credentials-secret.yaml
+│   │   ├── keycloak-namespace.yaml
+│   │   ├── keycloak-postgresql-credentials-secret.yaml
+│   │   ├── kustomization.yaml
+│   │   └── nsa2-realm-export.json
+│   ├── oauth2-proxy
+│   │   ├── kustomization.yaml
+│   │   ├── oauth2-proxy-config.yaml
+│   │   └── oauth2-proxy-secret.yaml
+│   └── traefik
+│       ├── forward-auth-middleware.yaml
+│       ├── kustomization.yaml
+│       ├── o11y-sso-ingress.yaml
+│       └── oauth2-proxy-ingress.yaml
+├── sso-foundry-config.yaml
+├── terraform
+│   └── keycloak
+│       ├── main.tf
+│       └── variables.tf
+└── undeploy-sso-foundry.sh
+----
+
+Among the files above, I will explain the files related to Terraform used to create a Keycloak realm.
+
+== Terraform Configuration Files
+
+The Terraform files are located in the `terraform/keycloak` directory. The files are as follows:
+
+* `variables.tf` - This file contains the variables used in the `main.tf` file.
+* `terraform.tfvars` - This file contains the values for the variables defined in `variables.tf`. This file can be created and configured after Keycloak is installed and the LoadBalancer hostname is available.
+* `main.tf` - This file contains the Terraform configuration for creating a Keycloak realm, client, user, and roles.
+
+=== variables.tf
+
+To create a Keycloak realm, I need to access Keycloak using the Keycloak LoadBalancer hostname. The hostname is passed as a variable to the Terraform configuration.
+
+[.hcl]
+----
+variable "kc_lb_hostname" {
+  description = "Keycloak load balancer hostname"
+  type        = string
+}
+----
+
+=== terraform.tfvars
+
+The `terraform.tfvars` file contains the values for the variables defined in `variables.tf`. The `kc_lb_hostname` variable is set to the Keycloak LoadBalancer hostname.
+The hostname can be obtained after Keycloak is installed and the LoadBalancer service is created.
+
+[.hcl]
+----
+kc_lb_hostname = "a9e632348b7944f03a3a890000000000-1740928954.ca-west-1.elb.amazonaws.com"
+----
+
+=== main.tf
+
+The `main.tf` file is generated by the Yeoman generator based on the `sso-foundry-config.yaml` file. This file contains the Terraform configuration for creating a Keycloak realm, client, user, and roles. The configuration uses the Keycloak provider to interact with the Keycloak instance.
+
+==== Provider Setup
+
+.main.tf - Keycloak Configuration
+[.hcl]
+----
+## <1>
+terraform {
+  required_providers {
+    keycloak = {
+      source  = "keycloak/keycloak"
+      version = "~> 5.0.0" # You can use the latest stable version
+    }
+  }
+}
+
+## <2>
+provider "keycloak" {
+  client_id = "admin-cli"
+  username  = "admin"
+  password  = "changeit"
+  url       = "http://${var.kc_lb_hostname}"  ## <3>
+  realm     = "master"
+}
+----
+
+<1> Keycloak is not officially supported by HashiCorp. The Keycloak provider is maintained by the community. The provider is used to interact with the Keycloak instance.
+<2> The Keycloak provider is configured with the Keycloak LoadBalancer hostname, admin username, and password.
+<3> The `url` parameter is set to the Keycloak LoadBalancer hostname. kc_lb_hostname is passed through the terraform.tfvars file.
+
+
+==== Realm and Client
+
+.main.tf - Keycloak Realm, Client
+[.hcl]
+----
+# Create a new realm
+## <1>
+resource "keycloak_realm" "nsa2_realm" {
+  realm   = "nsa2-realm"
+  enabled = true
+}
+
+# Create a new client
+## <2>
+resource "keycloak_openid_client" "nsa2_o11y" {
+  #realm_id                     = keycloak_realm.this.id
+  realm_id                     = keycloak_realm.nsa2_realm.id
+  client_id                    = "nsa2-o11y"
+  name                         = "NSA2 Observability"
+  enabled                      = true
+  access_type                  = "CONFIDENTIAL" # or "PUBLIC"
+  standard_flow_enabled        = true
+  implicit_flow_enabled        = false
+  direct_access_grants_enabled = true
+  client_secret                = "gZ343TCd0kBehqTOkGZFkbL4WvXoa3Ss"
+
+  valid_redirect_uris = [
+    "http://prometheus.nsa2.com/*",
+    "http://grafana.nsa2.com/*",
+    "http://jaeger.nsa2.com/*",
+    "http://oauth2-proxy.nsa2.com/*"
+  ]
+
+  valid_post_logout_redirect_uris = [
+    "http://prometheus.nsa2.com/*",
+    "http://grafana.nsa2.com/*",
+    "http://jaeger.nsa2.com/*",
+    "http://oauth2-proxy.nsa2.com/*"
+  ]
+
+  web_origins = [
+    "http://prometheus.nsa2.com",
+    "http://jaeger.nsa2.com",
+    "http://grafana.nsa2.com",
+    "http://oauth2-proxy.nsa2.com"
+  ]
+}
+----
+<1> The `keycloak_realm` resource is used to create a new Keycloak realm. The realm name is set to `nsa2-realm`.
+<2> The `keycloak_openid_client` resource is used to create a new Keycloak client. The client ID is set to `nsa2-o11y`, and the client secret is set to `gZ343TCd0kBehqTOkGZFkbL4WvXoa3Ss`. The valid redirect URIs and web origins are set to the corresponding URLs for Prometheus, Grafana, Jaeger, and OAuth2 Proxy.
+
+
+==== Realm Roles and User
+
+.main.tf - Keycloak Realm Roles, User
+[.hcl]
+----
+# Create realm roles - grafana-admin, grafana-editor, grafana-viewer
+
+## <1>
+resource "keycloak_role" "grafana_admin_role" {
+  realm_id = keycloak_realm.nsa2_realm.id
+  name     = "grafana-admin"
+}
+
+resource "keycloak_role" "grafana_editor_role" {
+  realm_id = keycloak_realm.nsa2_realm.id
+  name     = "grafana-editor"
+}
+
+resource "keycloak_role" "grafana_viewer_role" {
+  realm_id = keycloak_realm.nsa2_realm.id
+  name     = "grafana-viewer"
+}
+
+# Create devops User
+## <2>
+resource "keycloak_user" "devops" {
+  realm_id   = keycloak_realm.nsa2_realm.id
+  username   = "devops"
+  email      = "devops@nsa2.com"
+  email_verified = true
+  enabled    = true
+  first_name = "DevOps"
+  last_name  = "Staff"
+
+  initial_password {
+    value     = "password"
+    temporary = false
+  }
+
+  required_actions = []
+}
+----
+
+<1> The `keycloak_role` resource is used to create realm roles. The roles are created for Grafana with the names `grafana-admin`, `grafana-editor`, and `grafana-viewer`.
+<2> The `keycloak_user` resource is used to create users.
+
+
+==== Assign Roles to User
+
+.main.tf - Keycloak User Roles mapping
+[.hcl]
+----
+# Assign roles to the user
+## <1>
+resource "keycloak_user_roles" "devops_roles" {
+  realm_id = keycloak_realm.nsa2_realm.id
+  user_id  = keycloak_user.devops.id
+
+  role_ids = [
+    keycloak_role.grafana_admin_role.id,
+    #keycloak_role.grafana_roles["grafana-admin"].id
+    # data.keycloak_role.grafana_admin.id
+# or keycloak_role.grafana_admin.id if defined as a resource
+  ]
+}
+----
+
+<1> The `keycloak_user_roles` resource is used to assign roles to the user. The user is assigned the `grafana-admin` role.
+
+==== Create Client Scope & Role Mapper
+
+.main.tf - Keycloak Client Scope
+[.hcl]
+----
+# Create a new client scope
+## <1>
+resource "keycloak_openid_client_scope" "o11y_client_scope" {
+  realm_id = keycloak_realm.nsa2_realm.id
+  name     = "nsa2-o11y-client-scope"
+  description = "Client scope for NSA2 Observability"
+  include_in_token_scope = true
+}
+
+# Configure the client scope to add roles to the ID token
+## <2>
+resource "keycloak_openid_user_realm_role_protocol_mapper" "realm_roles_mapper" {
+  realm_id        = keycloak_realm.nsa2_realm.id
+  client_scope_id = keycloak_openid_client_scope.o11y_client_scope.id
+  name            = "realm-role-mapper"
+
+  claim_name        = "realm_access.roles"
+  claim_value_type  = "String"
+  add_to_id_token   = true
+  add_to_access_token = true
+  add_to_userinfo   = true
+  multivalued        = true
+}
+
+# Add the client scope to the client
+## <3>
+resource "keycloak_openid_client_default_scopes" "client_default_scopes" {
+  realm_id  = keycloak_realm.nsa2_realm.id
+  client_id = keycloak_openid_client.nsa2_o11y.id
+
+  default_scopes = [
+    "web-origins",
+    "acr",
+    "roles",
+    "profile",
+    "basic",
+    "email",
+    keycloak_openid_client_scope.o11y_client_scope.name
+  ]
+}
+----
+<1> The `keycloak_openid_client_scope` resource is used to create a new client scope. The client scope is created for NSA2 Observability.
+<2> The `keycloak_openid_user_realm_role_protocol_mapper` resource is used to configure the client scope to add roles to the ID token. The `claim_name` is set to `realm_access.roles`, and the `claim_value_type` is set to `String`. The `add_to_id_token`, `add_to_access_token`, and `add_to_userinfo` parameters are set to `true`.
+<3> The `keycloak_openid_client_default_scopes` resource is used to add the client scope to the client. The `default_scopes` parameter is set to include the client scope name.
+
+
+=== Apply Terraform Configuration
+
+Run the following in the `terraform/keycloak` directory:
+
+[.terminal]
+----
+$ terraform init
+$ terraform plan
+$ terraform apply -auto-approve
+----
+
+=== Screenshot
+
+After applying Terraform, you will see:
+
+* A new relam: nsa2-realm
+* A client: nsa2-o11y
+* Roles: grafana-admin, grafana-editor, grafana-viewer
+* User: devops with the role grafana-admin
+
+
+==== New Keycloak Realm and Client
+
+As described in the `main.tf` file, a new Keycloak realm named `nsa2-realm` and a new client named `nsa2-o11y` are created.
+
+.Keycloak Admin - Realm and Client
+image::kc-admin-clients.png[width=800, align="center", alt="Keycloak Admin - Realm and Client"]
+
+
+==== Keycloak Realm Roles
+
+The realm roles `grafana-admin`, `grafana-editor`, and `grafana-viewer` are created in the `nsa2-realm`.
+
+.Keycloak Admin - Realm Roles
+image::kc-admin-realm-roles.png[width=800, align="center", alt="Keycloak Admin - Realm Roles"]
+
+==== Keycloak User
+
+The user `devops` is created in the `nsa2-realm`. The user is assigned the `grafana-admin` role.
+
+.Keycloak Admin - Users
+image::kc-admin-users.png[width=800, align="center", alt="Keycloak Admin - Users"]
+
+== Conclusion
+
+This guide demonstrated how to automate the creation of a *Keycloak realm, client, user, and roles using Terraform* as part of the *SSO Foundry* deployment.
+
+With this setup:
+
+* You reduce manual configuration
+* Ensure consistent environments
+* Integrate SSO capabilities seamlessly across services
+
+
+
