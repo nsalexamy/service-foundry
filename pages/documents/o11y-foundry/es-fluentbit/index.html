@@ -51,6 +51,7 @@
     /* Layout */
     .container {
         display: flex;
+        min-width: 0;
     }
 
     /* TOC sidebar styles (scoped) */
@@ -63,6 +64,7 @@
         position: sticky;
         top: 0;
         height: calc(100vh - 120px); /* adjust for header + subnav height */
+        flex-shrink: 0;
     }
 
     main {
@@ -79,11 +81,13 @@
         padding: 0.5rem;
         border-radius: 0.5rem;
         font-size: 0.875rem;
-        overflow-x: auto;
+        overflow-x: auto;           /* fallback scroll if absolutely needed */
         line-height: 1.6;
         margin: 0;
         text-indent: 0;
-        white-space: pre;
+        white-space: pre-wrap;      /* enables line wrap */
+        word-wrap: break-word;      /* breaks long words if needed */
+        overflow-wrap: break-word;  /* ensures content wraps in small containers */
         display: block;
         tab-size: 2;
     }
@@ -351,6 +355,13 @@
         </div>
         
 
+        <!-- Title -->
+        
+        <h1 style="font-size: 2rem; font-weight: bold; margin-bottom: 1rem; color: #1f2937;">
+            Fluent-bit with Elasticsearch on K8s
+        </h1>
+        
+
         <div id="toc" class="toc">
 <div id="toctitle">On this page</div>
 <ul class="sectlevel1">
@@ -565,9 +576,7 @@ In this tutorial, we are going to focus on how to collect logs from the Spring B
 <div class="listingblock">
 <div class="title">an example of a simple log message</div>
 <div class="content">
-<pre class="rouge highlight"><code data-lang="text">2024-05-27T22:14:06.787Z  INFO 1 --- [nsa2-logging-example]
-[           main] c.a.n.e.l.LoggingExampleApplication      :
-Application started successfully.</code></pre>
+<pre class="rouge highlight"><code data-lang="text">2024-05-27T22:14:06.787Z  INFO 1 --- [nsa2-logging-example] [           main] c.a.n.e.l.LoggingExampleApplication      : Application started successfully.</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -636,9 +645,7 @@ Application started successfully.</code></pre>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="rouge highlight"><code data-lang="regexp">^(?&lt;timestamp&gt;[0-9-]+T[:0-9\.]+\d{3}Z)\s+(?&lt;level&gt;[A-Z]+)\s+\d+
-\s\-{3}\s+\[(?&lt;appName&gt;[\w\-\d]+)\]+\s+\[\s*(?&lt;thread&gt;[\w\-\d]+)\]+
-\s+[\w\d\.]*\.(?&lt;loggerClass&gt;[\w\.\d]+)\s+:(?&lt;message&gt;.*)$</code></pre>
+<pre class="rouge highlight"><code data-lang="regexp">^(?&lt;timestamp&gt;[0-9-]+T[:0-9\.]+\d{3}Z)\s+(?&lt;level&gt;[A-Z]+)\s+\d+ \s\-{3}\s+\[(?&lt;appName&gt;[\w\-\d]+)\]+\s+\[\s*(?&lt;thread&gt;[\w\-\d]+)\]+ \s+[\w\d\.]*\.(?&lt;loggerClass&gt;[\w\.\d]+)\s+:(?&lt;message&gt;.*)$</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -974,22 +981,17 @@ The regular expression used in this section is just an example to see how Fluent
     <span class="s">[PARSER]</span>
         <span class="s">Name named-capture-test</span>
         <span class="s">Format regex</span>
-        <span class="s">Regex (?&lt;timestamp&gt;[0-9\-]+T[:0-9\.]+\d{3}Z)\s+</span>
-<span class="s">(?&lt;level&gt;[A-Z]+)\s+\d+\s\-{3}\s+\[(?&lt;appName&gt;[\w\-\d]+)\]+\s+</span>
-<span class="s">\[.*\]+\s+[\w\d\.]*\.(?&lt;loggerClass&gt;[\w\.\d]+)\s+:(?&lt;message&gt;.*)</span>
+        <span class="s">Regex (?&lt;timestamp&gt;[0-9\-]+T[:0-9\.]+\d{3}Z)\s+(?&lt;level&gt;[A-Z]+)\s+\d+\s\-{3}\s+\[(?&lt;appName&gt;[\w\-\d]+)\]+\s+\[.*\]+\s+[\w\d\.]*\.(?&lt;loggerClass&gt;[\w\.\d]+)\s+:(?&lt;message&gt;.*)</span>
 
     <span class="s">[MULTILINE_PARSER]</span>
         <span class="s">name              multiline-parser</span>
         <span class="s">type              regex</span>
-        <span class="s">flush_timeout      </span><span class="m">1000</span>
+        <span class="s">flush_timeout      1000</span>
 
-        <span class="c1"># rules |   state name  | regex pattern                    | next state</span>
-        <span class="c1"># ------|---------------|----------------------------------|-----------</span>
-        <span class="c1"># https://github.com/fluent/fluent-bit/discussions/5430</span>
-        <span class="s">rule      "start_state"</span>
-<span class="s2">"</span><span class="s">/(?&lt;timestamp&gt;[0-9</span><span class="err">\</span><span class="s">-]+T[:0-9</span><span class="err">\</span><span class="s">.]+</span><span class="err">\</span><span class="s">d{3}Z)</span><span class="err">\</span><span class="s">s+(?&lt;level&gt;[A-Z]+)</span><span class="err">\</span><span class="s">s+</span><span class="err">\</span><span class="s">d+</span><span class="err">\</span><span class="s">s</span><span class="err">\</span><span class="s">-{3}</span>
-<span class="err">\</span><span class="s">s+</span><span class="err">\</span><span class="s">[(?&lt;appName&gt;[</span><span class="err">\</span><span class="s">w</span><span class="err">\</span><span class="s">-</span><span class="err">\</span><span class="s">d]+)</span><span class="err">\</span><span class="s">]+</span><span class="err">\</span><span class="s">s+</span><span class="err">\</span><span class="s">[.*</span><span class="err">\</span><span class="s">]+</span><span class="err">\</span><span class="s">s+[</span><span class="err">\</span><span class="s">w</span><span class="err">\</span><span class="s">d</span><span class="err">\</span><span class="s">.]*</span><span class="err">\</span><span class="s">.(?&lt;loggerClass&gt;[</span><span class="err">\</span><span class="s">w</span><span class="err">\</span><span class="s">.</span><span class="err">\</span><span class="s">d]+)</span>
-<span class="err">\</span><span class="s">s+:(?&lt;message&gt;.*)/"</span>  <span class="s2">"</span><span class="s">cont"</span>
+        <span class="s"># rules |   state name  | regex pattern                    | next state</span>
+        <span class="s"># ------|---------------|----------------------------------|-----------</span>
+        <span class="s"># https://github.com/fluent/fluent-bit/discussions/5430</span>
+        <span class="s">rule      "start_state" "/(?&lt;timestamp&gt;[0-9\-]+T[:0-9\.]+\d{3}Z)\s+(?&lt;level&gt;[A-Z]+)\s+\d+\s\-{3}\s+\[(?&lt;appName&gt;[\w\-\d]+)\]+\s+\[.*\]+\s+[\w\d\.]*\.(?&lt;loggerClass&gt;[\w\.\d]+)\s+:(?&lt;message&gt;.*)/"  "cont"</span>
         <span class="s">rule      "cont"        "/^(?:\s+at\s.*)|(?:[\w$_][\w\d.$:]*.*)$/"</span></code></pre>
 </div>
 </div>
@@ -1188,11 +1190,8 @@ Please remember that multiline parser is used to parse the log messages. So the 
   </span><span class="nl">"appName"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nsa2-logging-example"</span><span class="p">,</span><span class="w">
   </span><span class="nl">"loggerClass"</span><span class="p">:</span><span class="w"> </span><span class="s2">"LoggingExampleService"</span><span class="p">,</span><span class="w">
   </span><span class="nl">"message"</span><span class="p">:</span><span class="w"> </span><span class="s2">" Writing log - level: WARN, message: This is an WARN log message</span><span class="se">\n</span><span class="s2">"</span><span class="p">,</span><span class="w">
-  </span><span class="nl">"log"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-06T21:51:13.819968386Z stdout F 2024-06-06T21:51:13.819Z
-    WARN 1 --- [nsa2-logging-example] [or-http-epoll-2] c.a.n.e.l.service.LoggingExampleService  :
-  Writing log - level: WARN, message: This is an WARN log message</span><span class="se">\n</span><span class="s2">"</span><span class="p">,</span><span class="w">
-  </span><span class="nl">"filePath"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/var/log/containers/nsa2-logging-example-5c8c465555-lhcss_nsa2_nsa2-logging
--example-adc9cb921fb8ae407971d03326a153ada850e6c64a1175a8f6796766035dde97.log"</span><span class="w">
+  </span><span class="nl">"log"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-06T21:51:13.819968386Z stdout F 2024-06-06T21:51:13.819Z WARN 1 --- [nsa2-logging-example] [or-http-epoll-2] c.a.n.e.l.service.LoggingExampleService  : Writing log - level: WARN, message: This is an WARN log message</span><span class="se">\n</span><span class="s2">"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"filePath"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/var/log/containers/nsa2-logging-example-5c8c465555-lhcss_nsa2_nsa2-logging-example-adc9cb921fb8ae407971d03326a153ada850e6c64a1175a8f6796766035dde97.log"</span><span class="w">
 </span><span class="p">}</span><span class="w">
 </span></code></pre>
 </div>
@@ -1226,14 +1225,8 @@ Please remember that multiline parser is used to parse the log messages. So the 
   </span><span class="nl">"appName"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nsa2-logging-example"</span><span class="p">,</span><span class="w">
   </span><span class="nl">"loggerClass"</span><span class="p">:</span><span class="w"> </span><span class="s2">"LoggingExampleService"</span><span class="p">,</span><span class="w">
   </span><span class="nl">"message"</span><span class="p">:</span><span class="w"> </span><span class="s2">" Writing log - level: WARN, message: This is a sample of WARN level messages</span><span class="se">\n</span><span class="s2">"</span><span class="p">,</span><span class="w">
-  </span><span class="nl">"log"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-06T21:55:29.119686381Z stdout F 2024-06-06T21:55:29.119Z
-  INFO 1 --- [nsa2-logging-example] [or-http-epoll-3] c.a.n.e.l.service.LoggingExampleService  :
-  Writing log - level: INFO, message: This is a sample of INFO level messages</span><span class="se">\n</span><span class="s2">
-  2024-06-06T21:55:29.395604417Z stdout F 2024-06-06T21:55:29.395Z
-  WARN 1 --- [nsa2-logging-example] [or-http-epoll-4] c.a.n.e.l.service.LoggingExampleService  :
-  Writing log - level: WARN, message: This is a sample of WARN level messages</span><span class="se">\n</span><span class="s2">"</span><span class="p">,</span><span class="w">
-  </span><span class="nl">"filePath"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/var/log/containers/nsa2-logging-example-5c8c465555-lhcss_nsa2_nsa2-logging
--example-adc9cb921fb8ae407971d03326a153ada850e6c64a1175a8f6796766035dde97.log"</span><span class="w">
+  </span><span class="nl">"log"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-06T21:55:29.119686381Z stdout F 2024-06-06T21:55:29.119Z INFO 1 --- [nsa2-logging-example] [or-http-epoll-3] c.a.n.e.l.service.LoggingExampleService  : Writing log - level: INFO, message: This is a sample of INFO level messages</span><span class="se">\n</span><span class="s2"> 2024-06-06T21:55:29.395604417Z stdout F 2024-06-06T21:55:29.395Z WARN 1 --- [nsa2-logging-example] [or-http-epoll-4] c.a.n.e.l.service.LoggingExampleService  : Writing log - level: WARN, message: This is a sample of WARN level messages</span><span class="se">\n</span><span class="s2">"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"filePath"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/var/log/containers/nsa2-logging-example-5c8c465555-lhcss_nsa2_nsa2-logging -example-adc9cb921fb8ae407971d03326a153ada850e6c64a1175a8f6796766035dde97.log"</span><span class="w">
 </span><span class="p">}</span></code></pre>
 </div>
 </div>
@@ -1260,20 +1253,9 @@ These fine-grained fields are useful for simple log messages when we are not usi
 <pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
   </span><span class="nl">"@timestamp"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-06T22:07:27.554Z"</span><span class="p">,</span><span class="w">
   </span><span class="nl">"timestamp"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-06T22:07:27.554214387Z"</span><span class="p">,</span><span class="w">
-  </span><span class="nl">"message"</span><span class="p">:</span><span class="w"> </span><span class="s2">"stdout F 2024-06-06T22:07:27.553Z
-  INFO 1 --- [nsa2-logging-example] [or-http-epoll-4] c.a.n.e.l.service.LoggingExampleService  :
-  Writing log - level: INFO, message: This is a sample of INFO level messages</span><span class="se">\n</span><span class="s2">
-  2024-06-06T22:07:27.780009745Z stdout F 2024-06-06T22:07:27.779Z
-  WARN 1 --- [nsa2-logging-example] [or-http-epoll-1] c.a.n.e.l.service.LoggingExampleService  :
-  Writing log - level: WARN, message: This is a sample of WARN level messages"</span><span class="p">,</span><span class="w">
-  </span><span class="nl">"log"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-06T22:07:27.554214387Z stdout F 2024-06-06T22:07:27.553Z
-  INFO 1 --- [nsa2-logging-example] [or-http-epoll-4] c.a.n.e.l.service.LoggingExampleService  :
-  Writing log - level: INFO, message: This is a sample of INFO level messages</span><span class="se">\n</span><span class="s2">
-  2024-06-06T22:07:27.780009745Z stdout F 2024-06-06T22:07:27.779Z
-  WARN 1 --- [nsa2-logging-example] [or-http-epoll-1] c.a.n.e.l.service.LoggingExampleService  :
-  Writing log - level: WARN, message: This is a sample of WARN level messages"</span><span class="p">,</span><span class="w">
-  </span><span class="nl">"filePath"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/var/log/containers/nsa2-logging-example-5c8c465555-lhcss_nsa2_nsa2-logging-example
--adc9cb921fb8ae407971d03326a153ada850e6c64a1175a8f6796766035dde97.log"</span><span class="w">
+  </span><span class="nl">"message"</span><span class="p">:</span><span class="w"> </span><span class="s2">"stdout F 2024-06-06T22:07:27.553Z INFO 1 --- [nsa2-logging-example] [or-http-epoll-4] c.a.n.e.l.service.LoggingExampleService  : Writing log - level: INFO, message: This is a sample of INFO level messages</span><span class="se">\n</span><span class="s2"> 2024-06-06T22:07:27.780009745Z stdout F 2024-06-06T22:07:27.779Z WARN 1 --- [nsa2-logging-example] [or-http-epoll-1] c.a.n.e.l.service.LoggingExampleService  : Writing log - level: WARN, message: This is a sample of WARN level messages"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"log"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-06T22:07:27.554214387Z stdout F 2024-06-06T22:07:27.553Z INFO 1 --- [nsa2-logging-example] [or-http-epoll-4] c.a.n.e.l.service.LoggingExampleService  : Writing log - level: INFO, message: This is a sample of INFO level messages</span><span class="se">\n</span><span class="s2"> 2024-06-06T22:07:27.780009745Z stdout F 2024-06-06T22:07:27.779Z WARN 1 --- [nsa2-logging-example] [or-http-epoll-1] c.a.n.e.l.service.LoggingExampleService  : Writing log - level: WARN, message: This is a sample of WARN level messages"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"filePath"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/var/log/containers/nsa2-logging-example-5c8c465555-lhcss_nsa2_nsa2-logging-example -adc9cb921fb8ae407971d03326a153ada850e6c64a1175a8f6796766035dde97.log"</span><span class="w">
 </span><span class="p">}</span></code></pre>
 </div>
 </div>
@@ -1295,18 +1277,7 @@ These fine-grained fields are useful for simple log messages when we are not usi
 <div class="content">
 <pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
   </span><span class="nl">"@timestamp"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-06T22:17:47.503Z"</span><span class="p">,</span><span class="w">
-  </span><span class="nl">"log"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-06T22:17:47.503239291Z stdout F 2024-06-06T22:17:47.502Z
-  INFO 1 --- [nsa2-logging-example] [or-http-epoll-4] c.a.n.e.l.service.LoggingExampleService  :
-  Writing log - level:
-  INFO, message: This is a sample of INFO level messages</span><span class="se">\n</span><span class="s2">
-  2024-06-06T22:17:48.010204823Z stdout F 2024-06-06T22:17:48.009Z
-  WARN 1 --- [nsa2-logging-example] [or-http-epoll-1] c.a.n.e.l.service.LoggingExampleService  :
-  Writing log - level: WARN, message: This is a sample of WARN level messages</span><span class="se">\n</span><span class="s2">
-  2024-06-06T22:17:48.231040111Z stdout F 2024-06-06T22:17:48.229Z
-  ERROR 1 --- [nsa2-logging-example] [or-http-epoll-2] c.a.n.e.l.service.LoggingExampleService  :
-  Writing log - level: ERROR, message: This is a sample of ERROR level messages</span><span class="se">\n</span><span class="s2">"</span><span class="p">,</span><span class="w">
-  </span><span class="nl">"filePath"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/var/log/containers/nsa2-logging-example-5c8c465555-lhcss_nsa2_nsa2-logging
-  -example-adc9cb921fb8ae407971d03326a153ada850e6c64a1175a8f6796766035dde97.log"</span><span class="w">
+  </span><span class="nl">"log"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-06T22:17:47.503239291Z stdout F 2024-06-06T22:17:47.502Z INFO 1 --- [nsa2-logging-example] [or-http-epoll-4] c.a.n.e.l.service.LoggingExampleService  : Writing log - level: INFO, message: This is a sample of INFO level messages</span><span class="se">\n</span><span class="s2"> 2024-06-06T22:17:48.010204823Z stdout F 2024-06-06T22:17:48.009Z WARN 1 --- [nsa2-logging-example] [or-http-epoll-1] c.a.n.e.l.service.LoggingExampleService  : Writing log - level: WARN, message: This is a sample of WARN level messages</span><span class="se">\n</span><span class="s2"> 2024-06-06T22:17:48.231040111Z stdout F 2024-06-06T22:17:48.229Z ERROR 1 --- [nsa2-logging-example] [or-http-epoll-2] c.a.n.e.l.service.LoggingExampleService  : Writing log - level: ERROR, message: This is a sample of ERROR level messages</span><span class="se">\n</span><span class="s2">"</span><span class="p">,</span><span class="w"> </span><span class="nl">"filePath"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/var/log/containers/nsa2-logging-example-5c8c465555-lhcss_nsa2_nsa2-logging -example-adc9cb921fb8ae407971d03326a153ada850e6c64a1175a8f6796766035dde97.log"</span><span class="w">
 </span><span class="p">}</span></code></pre>
 </div>
 </div>
@@ -1353,10 +1324,7 @@ When the filter is applied, the log message will look like this:</p>
   </span><span class="nl">"time"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-06T23:26:04.692181582Z"</span><span class="p">,</span><span class="w">
   </span><span class="nl">"stream"</span><span class="p">:</span><span class="w"> </span><span class="s2">"stdout"</span><span class="p">,</span><span class="w">
   </span><span class="nl">"_p"</span><span class="p">:</span><span class="w"> </span><span class="s2">"F"</span><span class="p">,</span><span class="w">
-  </span><span class="nl">"log"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-06T23:26:04.691Z
-WARN 1 --- [nsa2-logging-example] [or-http-epoll-1]
-c.a.n.e.l.service.LoggingExampleService  :
-Writing log - level: WARN, message: This is an WARN log message"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"log"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-06T23:26:04.691Z WARN 1 --- [nsa2-logging-example] [or-http-epoll-1] c.a.n.e.l.service.LoggingExampleService  : Writing log - level: WARN, message: This is an WARN log message"</span><span class="p">,</span><span class="w">
   </span><span class="nl">"kubernetes"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
     </span><span class="nl">"pod_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nsa2-logging-example-5c8c465555-lhcss"</span><span class="p">,</span><span class="w">
     </span><span class="nl">"namespace_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nsa2"</span><span class="p">,</span><span class="w">
@@ -1372,8 +1340,7 @@ Writing log - level: WARN, message: This is an WARN log message"</span><span cla
     </span><span class="nl">"host"</span><span class="p">:</span><span class="w"> </span><span class="s2">"aks-depnodes-90256095-vmss000001"</span><span class="p">,</span><span class="w">
     </span><span class="nl">"container_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nsa2-logging-example"</span><span class="p">,</span><span class="w">
     </span><span class="nl">"docker_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"adc9cb921fb8ae407971d03326a153ada850e6c64a1175a8f6796766035dde97"</span><span class="p">,</span><span class="w">
-    </span><span class="nl">"container_hash"</span><span class="p">:</span><span class="w"> </span><span class="s2">"docker.io/credemol/nsa2-logging-example@sha256:
-b6552a4f1253b118b7deda59a4a0cfd7c2896670f225513beebdaee96ae0dd41"</span><span class="p">,</span><span class="w">
+    </span><span class="nl">"container_hash"</span><span class="p">:</span><span class="w"> </span><span class="s2">"docker.io/credemol/nsa2-logging-example@sha256: b6552a4f1253b118b7deda59a4a0cfd7c2896670f225513beebdaee96ae0dd41"</span><span class="p">,</span><span class="w">
     </span><span class="nl">"container_image"</span><span class="p">:</span><span class="w"> </span><span class="s2">"docker.io/credemol/nsa2-logging-example:latest"</span><span class="w">
   </span><span class="p">}</span><span class="w">
 </span><span class="p">}</span></code></pre>
@@ -1432,9 +1399,7 @@ b6552a4f1253b118b7deda59a4a0cfd7c2896670f225513beebdaee96ae0dd41"</span><span cl
 <div class="content">
 <pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
   </span><span class="nl">"@timestamp"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-07T00:34:59.336Z"</span><span class="p">,</span><span class="w">
-  </span><span class="nl">"log"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-07T00:34:59.336Z  WARN 1
-  --- [nsa2-logging-example] [or-http-epoll-1] c.a.n.e.l.service.LoggingExampleService  :
-  Writing log - level: WARN, message: This is an WARN log message"</span><span class="w">
+  </span><span class="nl">"log"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-07T00:34:59.336Z  WARN 1 --- [nsa2-logging-example] [or-http-epoll-1] c.a.n.e.l.service.LoggingExampleService  : Writing log - level: WARN, message: This is an WARN log message"</span><span class="w">
 </span><span class="p">}</span></code></pre>
 </div>
 </div>
@@ -1593,19 +1558,17 @@ b6552a4f1253b118b7deda59a4a0cfd7c2896670f225513beebdaee96ae0dd41"</span><span cl
         <span class="s">rule      "start_state"      "/([\d-]+T[\d:.]+)Z ([\s\S]*)/m"  "empty_row"</span>
         <span class="s">rule      "empty_row"        "/^$/m"                                    "cont"</span>
         <span class="s"># start with at java class or start with java class name or empty line</span>
-        <span class="s">rule      "cont"</span>
-<span class="s2">"</span><span class="s">/(?:</span><span class="err">\</span><span class="s">s+at</span><span class="err">\</span><span class="s">s.*)|^(?:[a-zA-Z_$][a-zA-Z</span><span class="err">\</span><span class="s">d_$]*(</span><span class="err">\</span><span class="s">.[a-zA-Z_$][a-zA-Z</span><span class="err">\</span><span class="s">d_$]*)*)|^</span><span class="err">\</span><span class="s">s*$/m"</span>
-<span class="s2">"</span><span class="s">cont"</span>
+        <span class="s">rule      "cont" "/(?:\s+at\s.*)|^(?:[a-zA-Z_$][a-zA-Z\d_$]*(\.[a-zA-Z_$][a-zA-Z\d_$]*)*)|^\s*$/m" "cont"</span>
 
 
-    <span class="pi">[</span><span class="nv">PARSER</span><span class="pi">]</span>
+    <span class="s">[PARSER]</span>
         <span class="s">Name named-capture-test</span>
         <span class="s">Format regex</span>
         <span class="s">Skip_Empty_Values On</span>
         <span class="s"># simplified version</span>
         <span class="s">Regex /([0-9\-]+T[:0-9\.]+\d{3}Z)\s+(.*)/m</span>
 
-  <span class="s">extraFiles</span><span class="err">:</span> <span class="pi">{}</span></code></pre>
+  <span class="na">extraFiles</span><span class="pi">:</span> <span class="pi">{}</span></code></pre>
 </div>
 </div>
 <div class="paragraph">
