@@ -1,0 +1,325 @@
+---
+layout: documents
+title: OAuth2 Proxy as a Standalone Reverse Proxy on Kubernetes
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: SSO Foundry
+    url: /documents/sso-foundry/
+
+# docs/oauth2-proxy/01-standalone-reverse-proxy/index.adoc
+---
+= OAuth2 Proxy as a Standalone Reverse Proxy on Kubernetes
+
+:imagesdir: images
+
+image::oauth2-proxy-introduction.png[width=1000, align="center"]
+== Introduction
+
+This guide provides step-by-step instructions for installing OAuth2 Proxy as a standalone reverse proxy on Kubernetes. By following this guide, you will integrate OAuth2 authentication into the Jaeger UI using Keycloak as the Identity Provider (IdP).
+
+=== What is OAuth2 Proxy?
+
+[quote, OAuth2 Proxy, https://github.com/oauth2-proxy/oauth2-proxy]
+____
+OAuth2-Proxy is a flexible, open-source tool that can act as either a standalone reverse proxy or a middleware component integrated into existing reverse proxy or load balancer setups. It provides a simple and secure way to protect your web applications with OAuth2 / OIDC authentication.
+____
+
+=== OAuth2 Proxy Architecture
+
+.OAuth2 Proxy Architecture
+image::simplified-architecture.png[width=1000, align="center"]
+
+==== Reverse Proxy Mode
+In reverse proxy mode, OAuth2 Proxy intercepts requests to your application and redirects users to an OAuth2 provider for authentication.
+
+
+==== Middleware Mode
+As middleware, OAuth2 Proxy can integrate into an existing infrastructure to handle authentication for multiple applications.
+
+
+=== Key components of this Guide
+
+* Keycloak (Identity Provider) - Deployed in the keycloak namespace
+* Jaeger v2 with Memory Store - Deployed in the o11y namespace
+* OAuth2 Proxy - Deployed in the o11y namespace
+
+// == Create o11y Namespace
+//
+// [source,shell]
+// ----
+// $ kubectl create namespace o11y
+// ----
+
+== Installing Dependencies
+
+* cert-manager
+* OpenTelemetry Collector Operator
+
+[source,shell]
+----
+$ ./install-dependencies.sh
+----
+
+
+// == Install Prometheus
+//
+// [source,shell]
+// ----
+// $ kubectl apply -k prometheus
+// ----
+
+== Installing Keycloak
+
+For detailed Keycloak installation instructions, refer to link:https://www.linkedin.com/pulse/keycloak-spring-boot-oauth-20-openid-connect-oidc-young-gyu-kim-e444c[Keycloak and Spring Boot with OAuth 2.0 and OpenID Connect (OIDC)]
+
+// Run the command below to install Keycloak:
+// [source,shell]
+// ----
+// $ kubectl -n keycloak port-forward svc/keycloak 9000:80
+// ----
+
+To use a separate URL for Keycloak, I created the service with the type LoadBalancer.
+
+.custom-values.yaml - service
+[source,yaml]
+----
+service:
+  type: LoadBalancer
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+----
+
+To get the external IP address of the Keycloak service, run the command below:
+
+[source,shell]
+----
+$ kubectl -n keycloak get svc keycloak
+----
+
+Example output:
+[source,shell]
+----
+NAME       TYPE           CLUSTER-IP      EXTERNAL-IP                                                              PORT(S)        AGE
+keycloak   LoadBalancer   10.100.62.187   a135bed50a0204aee8f53817ec45a913-434675855.ca-west-1.elb.amazonaws.com   80:32569/TCP   7h3m
+----
+
+In my case, the external IP address is `a135bed50a0204aee8f53817ec45a913-434675855.ca-west-1.elb.amazonaws.com`. You might have a different external IP address.
+
+This value will be used when set oidc_issuer_url in the custom-values.yaml file.
+
+=== Keycloak Configuratoin
+
+* **Realm**: nsa2-realm
+* **Client ID**: nsa2-o11y
+* **Client Secret**: get from the Keycloak console
+* **User**: devops
+
+== Installing Jaeger v2 with Memory Store
+
+For installation details, refer to the link below:
+
+* link:https://www.linkedin.com/pulse/jaeger-v2-opentelemetry-kubernetes-young-gyu-kim-7s00c[Jaeger v2 with OpenTelemetry on Kubernetes]
+
+To get the service name of the otel-collector service, run the command below:
+
+[source,shell]
+----
+$ kubectl -n o11y get service otel-collector
+NAME             TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)                       AGE
+otel-collector   ClusterIP   10.100.237.241   <none>        16686/TCP,4317/TCP,4318/TCP   36m
+----
+
+'http://otel-collector.o11y.svc.cluster.local:16686' will be used to set upstreams in the custom-values.yaml file. In case of oauth2-proxy installed in the same namespace, you can use 'http://otel-collector:16686'.
+
+== Installing OAuth2 Proxy
+
+We are going to Install OAuth2 Proxy using the Helm chart.
+
+For more information about the OAuth2 Proxy Helm chart, refer to the link below:
+
+https://github.com/oauth2-proxy/manifests/tree/main/helm/oauth2-proxy
+
+=== Add and Update the Helm Repository
+
+[source,shell]
+----
+$ helm repo add oauth2-proxy https://oauth2-proxy.github.io/manifests
+
+$ helm repo update oauth2-proxy
+#$ helm install my-release oauth2-proxy/oauth2-proxy
+----
+
+=== Pull the OAuth2 Proxy Helm Chart
+
+Target the directory where you want to save the OAuth2 Proxy Helm chart.
+[source,shell]
+----
+$ mkdir -p $HOME/Dev/helm/charts/oauth2-proxy
+
+$ helm pull oauth2-proxy/oauth2-proxy -d $HOME/Dev/helm/charts/oauth2-proxy
+----
+
+Verify the OAuth2 Proxy Helm chart in the directory $HOME/Dev/helm/charts/oauth2-proxy.
+[source,shell]
+----
+$ ls -l $HOME/Dev/helm/charts/oauth2-proxy
+
+-rw-r--r--@ 1 young  staff  131387 Mar 19 10:49 oauth2-proxy-7.12.6.tgz
+----
+
+=== Get default values
+
+To read the default values of the OAuth2 Proxy Helm chart, run the command below:
+
+[source,shell]
+----
+$ helm show values oauth2-proxy/oauth2-proxy > values.yaml
+----
+
+The values.yaml file contains the default values of the OAuth2 Proxy Helm chart.
+
+=== oauth2-secret.yaml
+
+In oauth2-secret.yaml, we will create a secret named oauth2-secret that contains the followings:
+
+* client-id
+* client-secret
+* cookie-secret
+
+[source,shell]
+----
+$ set CLIENT_ID=YOUR_CLIENT_ID
+$ set CLIENT_SECRET=YOUR_CLIENT_SECRET
+$ set COOKIE_SECRET=YOUR_COOKIE_SECRET
+
+$ CLIENT_ID=nsa2-o11y
+$ CLIENT_SECRET=gZ343TCd0kBehqTOkGZFkbL4WvXoa3Ss
+$ COOKIE_SECRET=$( openssl rand -base64 32 | head -c 32 | base64)
+#$ COOKIE_SECRET=$(openssl rand -base64 32)
+# OR
+# $ COOKIE_SECRET=$(head -c 32 /dev/urandom | base64 )
+
+$ kubectl -n o11y create secret generic oauth2-secret \
+  --from-literal=client-id=$CLIENT_ID \
+  --from-literal=client-secret=$CLIENT_SECRET \
+  --from-literal=cookie-secret=$COOKIE_SECRET \
+  --dry-run=client -o yaml | yq eval 'del(.metadata.creationTimestamp)' > oauth2-secret.yaml
+----
+
+For more information about data items in the secret, refer to the link below:
+
+* https://github.com/oauth2-proxy/manifests/blob/main/helm/oauth2-proxy/templates/_helpers.tpl
+
+this secret is used in the custom-values.yaml file.
+
+[source,yaml]
+----
+config:
+  existingSecret: oauth2-secret
+----
+
+To apply the secret, run the command below:
+
+[source,shell]
+----
+$ kubectl apply -f oauth2-secret.yaml
+----
+
+=== custom-values.yaml
+
+Here is the custom-values.yaml file that I used to install oauth2-proxy on Kubernetes
+
+.custom-values.yaml
+[source,yaml]
+----
+# values.yaml - line 18
+config:
+  # <1>
+  existingSecret: oauth2-secret
+
+  configFile: |
+    # <2>
+    provider = "oidc"
+    # <3>
+    oidc_issuer_url = "http://a135bed50a0204aee8f53817ec45a913-434675855.ca-west-1.elb.amazonaws.com/realms/nsa2-realm"
+    email_domains = ["*"]
+    cookie_secure = false
+    # <4>
+    upstreams = ["http://otel-collector:16686"]
+    #upstreams = ["http://otel-collector.o11y.svc.cluster.local:16686"]
+    redirect_url = "http://oauth2-proxy.nsa2.com:4180/oauth2/callback"
+    scope = "openid email profile"
+    pass_access_token = true
+    pass_authorization_header = true
+    pass_user_headers = true
+    set_authorization_header = true
+    # <5>
+    cookie_domains = ".nsa2.com"
+    cookie_name = "_oauth2_proxy"
+    cookie_refresh = "2m"
+    cookie_expire = "24h"
+
+# values.yaml - line 94
+extraArgs:
+  - --cookie-secure=false
+  - --skip-provider-button
+  - --ssl-insecure-skip-verify
+
+----
+
+<1> existingSecret: oauth2-secret contains the client-id, client-secret, and cookie-secret.
+<2> provider: "oidc"
+<3> oidc_issuer_url: nsa2-realm URL
+<4> upstreams: "http://otel-collector:16686" or "http://otel-collector.o11y.svc.cluster.local:16686"
+<5> cookie_domains: Cookie domain.
+
+
+=== Install OAuth2 Proxy using Helm
+
+To install OAuth2 Proxy, run the command below:
+
+[source,shell]
+----
+$ helm upgrade --install oauth2-proxy \
+  $HOME/Dev/helm/charts/oauth2-proxy/oauth2-proxy-7.12.6.tgz \
+  -f custom-values.yaml --namespace o11y --create-namespace
+
+$ helm upgrade --install oauth2-proxy \
+  oauth2-proxy/oauth2-proxy --version "7.12.6" \
+  -f custom-values.yaml --namespace o11y --create-namespace
+----
+
+To access the OAuth2 Proxy, we can either use port-forward or create a Ingress. In this guide, we will use port-forward.
+
+[source,shell]
+----
+$ kubectl -n o11y port-forward svc/oauth2-proxy 4180:80
+----
+
+Add the following entry to the /etc/hosts file:
+----
+127.0.0.1	oauth2-proxy.nsa2.com
+----
+
+To access the OAuth2 Proxy, open a browser and navigate to `http://oauth2-proxy.nsa2.com:4180`. As upstreams is set to `http://otel-collector:16686`, you will be redirected to the Keycloak login page and then to the Jaeger UI.
+
+.Keycloak Login for OAuth2 Proxy
+image::kc-devops-login.png[width=1000, align="center"]
+
+Use any user from the Keycloak realm to login.
+
+.Jaeger UI
+image::oauth2-proxy-jaeger.png[width=1000, align="center"]
+
+Make sure that the URL is the oauth2-proxy.nsa2.com:4180 that is not Jaeger UI.
+
+Now we can use OIDC authentication to access the Jaeger UI.
+
+== Conclusion
+
+In this guide, we successfully installed OAuth2 Proxy as a standalone reverse proxy on Kubernetes. We integrated OAuth2 authentication with the Jaeger UI using Keycloak as the Identity Provider (IdP). This setup enhances security by enabling OIDC-based authentication for accessing Jaeger.

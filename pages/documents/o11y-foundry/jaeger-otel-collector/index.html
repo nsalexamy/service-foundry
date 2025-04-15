@@ -1,0 +1,1372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Distributed Tracing - Jaeger and OpenTelemetry Collector</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre,
+    pre code {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre;
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+    <div class="logo text-xl font-semibold">Service Foundry</div>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#jaeger">Jaeger</a></li>
+</ul>
+</li>
+<li><a href="#apache-cassandra">Apache Cassandra</a></li>
+<li><a href="#install-cassandra-using-helm-chart">Install Cassandra using Helm chart</a>
+<ul class="sectlevel2">
+<li><a href="#get-values-yaml">Get values.yaml</a></li>
+<li><a href="#create-a-secret-for-cassandra">Create a secret for Cassandra</a></li>
+<li><a href="#create-a-configmap-for-initdbconfigmap">Create a ConfigMap for initDBConfigMap</a></li>
+<li><a href="#install-cassandra">Install Cassandra</a></li>
+<li><a href="#uninstall-cassandra">Uninstall Cassandra</a></li>
+<li><a href="#access-cassandra">Access Cassandra</a></li>
+<li><a href="#install-cqlsh-on-mac">Install cqlsh on Mac</a></li>
+<li><a href="#connect-to-cassandra-using-cqlsh">Connect to Cassandra using cqlsh</a></li>
+<li><a href="#create-a-keyspace">Create a keyspace</a></li>
+<li><a href="#reference">Reference</a></li>
+</ul>
+</li>
+<li><a href="#install-jaeger-using-helm-chart">Install Jaeger using Helm chart</a>
+<ul class="sectlevel2">
+<li><a href="#add-jaeger-helm-repository">Add Jaeger Helm repository</a></li>
+<li><a href="#get-the-values-yaml-file">Get the values.yaml file</a></li>
+<li><a href="#nsa2-jaeger-values-yaml">nsa2-jaeger-values.yaml</a></li>
+<li><a href="#install-jaeger">Install Jaeger</a></li>
+<li><a href="#update-jaeger">Update Jaeger</a></li>
+<li><a href="#uninstall-jaeger">Uninstall Jaeger</a></li>
+<li><a href="#cassandra-tables-created-by-jaeger">Cassandra tables created by Jaeger</a></li>
+<li><a href="#access-jaeger-ui">Access Jaeger UI</a></li>
+<li><a href="#reference-2">Reference</a></li>
+</ul>
+</li>
+<li><a href="#otel-collector">Install OpenTelemetry Collector</a>
+<ul class="sectlevel2">
+<li><a href="#otel-collector-yaml">otel-collector.yaml</a></li>
+</ul>
+</li>
+<li><a href="#test-the-spring-boot-application">Test the Spring Boot Application</a></li>
+<li><a href="#compare-the-traces-from-jaeger-and-zipkin">Compare the traces from Jaeger and Zipkin</a>
+<ul class="sectlevel2">
+<li><a href="#jaeger-ui">Jaeger UI</a></li>
+<li><a href="#zipkin-ui">Zipkin UI</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This article is part of a series of articles on Distributed Tracing. In this article, we will discuss how to set up Jaeger and OpenTelemetry Collector to demonstrate distributed tracing.</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Part 1 - <a href="https://www.linkedin.com/pulse/distributed-tracing-setup-zipkin-sample-spring-boot-young-gyu-kim-msaqc/">Distributed Tracing - Setup Zipkin and Sample Spring Boot Application</a></p>
+</li>
+<li>
+<p>Part 2 - <a href="https://www.linkedin.com/pulse/distributed-tracing-spring-boot-application-micrometer-kim-napzc">Distributed Tracing - Spring Boot Application with Micrometer and OpenTelemetry</a></p>
+</li>
+<li>
+<p>Part 3 - <a href="https://www.linkedin.com/pulse/distributed-tracing-spring-boot-application-young-gyu-kim-cuuvc/">Distributed Tracing - Spring Boot Application with OpenTelemetry Instrumentation</a></p>
+</li>
+<li>
+<p>Part 4 - <a href="https://www.linkedin.com/pulse/distributed-tracing-spring-boot-application-collector-young-gyu-kim-dq5hc/">Distributed Tracing - Spring Boot Application with OpenTelemetry Collector</a></p>
+</li>
+<li>
+<p>Part 5 - <a href="https://www.linkedin.com/pulse/distributed-tracing-jaeger-opentelemetry-collector-young-gyu-kim-gy5sc/">Distributed Tracing - Jaeger and OpenTelemetry Collector</a></p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>This article is the 5th part of the series.</p>
+</div>
+<div class="sect2">
+<h3 id="jaeger">Jaeger</h3>
+<div class="paragraph">
+<p>Jaeger is an open-source, end-to-end distributed tracing system. It is used for monitoring and troubleshooting microservices-based distributed systems. It is a powerful tool that can be used to visualize and analyze traces.</p>
+</div>
+<div class="paragraph">
+<p>Both Jaeger and OpenTelemetry is a CNCF project. Jaeger is a graduated project and OpenTelemetry is an incubating project.</p>
+</div>
+<div class="paragraph">
+<p>As of this writing, statuses of Jaeger and OpenTelemetry are as follows:</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Jaeger was accepted to CNCF on September 13, 2017 at the Incubating maturity level and then moved to the Graduated maturity level on October 31, 2019.</p>
+</div>
+</blockquote>
+<div class="attribution">
+&#8212; CNCF Jaeger<br>
+<cite>https://www.cncf.io/projects/jaeger/</cite>
+</div>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>OpenTelemetry was accepted to CNCF on May 7, 2019 and moved to the Incubating maturity level on August 26, 2021.</p>
+</div>
+</blockquote>
+<div class="attribution">
+&#8212; CNCF OpenTelemetry<br>
+<cite>https://www.cncf.io/projects/opentelemetry/</cite>
+</div>
+</div>
+<div class="paragraph">
+<p>Following topics will be covered in this article:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Install Apache Cassandra as the backend storage for Jaeger</p>
+</li>
+<li>
+<p>Install Jaeger</p>
+</li>
+<li>
+<p>Configure OpenTelemetry Collector to export traces to Jaeger</p>
+</li>
+<li>
+<p>Compare the traces from Jaeger and Zipkin</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>For more information about how to set up OpenTelemetry Collector, please refer to the <a href="https://www.linkedin.com/pulse/distributed-tracing-spring-boot-application-collector-young-gyu-kim-dq5hc/">Distributed Tracing - Spring Boot Application with OpenTelemetry Collector</a>.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="apache-cassandra">Apache Cassandra</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Apache Cassandra is a free and open-source, distributed, wide-column store, NoSQL database management system designed to handle large amounts of data across many commodity servers, providing high availability with no single point of failure.</p>
+</div>
+<div class="paragraph">
+<p>In this article, we will install Apache Cassandra as the backend storage for Jaeger.</p>
+</div>
+<div class="paragraph">
+<p>For more information about Apache Cassandra, please refer to the <a href="https://cassandra.apache.org/">Apache Cassandra</a>.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="install-cassandra-using-helm-chart">Install Cassandra using Helm chart</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We are going to install Apache Cassandra using the Bitnami Cassandra Helm chart.</p>
+</div>
+<div class="paragraph">
+<p>Let&#8217;s first look at the default values for the Cassandra Helm chart.</p>
+</div>
+<div class="sect2">
+<h3 id="get-values-yaml">Get values.yaml</h3>
+<div class="paragraph">
+<p>To check the default values for the Cassandra Helm chart, we can use the following command to get the values.yaml file.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm show values oci://registry-1.docker.io/bitnamicharts/cassandra <span class="o">&gt;</span> values.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We can check the values.yaml file to see the default settings for the Cassandra Helm chart.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-a-secret-for-cassandra">Create a secret for Cassandra</h3>
+<div class="paragraph">
+<p>I will use the default username <code>cassandra</code> and password <code>changeme</code> for Cassandra. You can change the password to a more secure one.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>username - cassandra</p>
+</li>
+<li>
+<p>password - changeme</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>We need to create a secret for Cassandra with the password <code>changeme</code>. field <code>password</code> is used for the password.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 create secret generic cassandra-credentials <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span><span class="nv">password</span><span class="o">=</span>changeme <span class="nt">--dry-run</span><span class="o">=</span>client <span class="nt">-o</span> yaml | <span class="se">\</span>
+  yq <span class="nb">eval</span> <span class="s1">'del(.metadata.creationTimestamp)'</span> <span class="o">&gt;</span>  <span class="se">\</span>
+cassandra-credentials.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Here is the content of the cassandra-credentials.yaml file.</p>
+</div>
+<div class="listingblock">
+<div class="title">cassandra-credentials.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">data</span><span class="pi">:</span>
+  <span class="na">password</span><span class="pi">:</span> <span class="s">Y2hhbmdlbWU=</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Secret</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">cassandra-credentials</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">nsa2</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We can apply the cassandra-credentials.yaml file to create a secret for Cassandra.</p>
+</div>
+<div class="listingblock">
+<div class="title">deploy-cassandra-credentials</div>
+<div class="content">
+<pre>$ kubectl -n nsa2 apply -f cassandra-credentials.yaml</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This secret will be used to set existingSecret in the values file for Cassandra.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-a-configmap-for-initdbconfigmap">Create a ConfigMap for initDBConfigMap</h3>
+<div class="paragraph">
+<p>For more information Refer to links below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/bitnami/charts/blob/main/bitnami/cassandra/README.md#initialize-the-database" class="bare">https://github.com/bitnami/charts/blob/main/bitnami/cassandra/README.md#initialize-the-database</a></p>
+</li>
+<li>
+<p><a href="https://www.jaegertracing.io/docs/1.65/operator/#cassandra-storage" class="bare">https://www.jaegertracing.io/docs/1.65/operator/#cassandra-storage</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>ConfigMap: cassandra-initdb-configmap</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c"># create a ConfigMap for initDBConfigMap adding 'create-keyspace.cql' script</span>
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 create configmap cassandra-initdb-configmap <span class="se">\</span>
+  <span class="nt">--from-file</span><span class="o">=</span>create-keyspace.cql <span class="nt">--dry-run</span><span class="o">=</span>client <span class="nt">-o</span> yaml | <span class="se">\</span>
+  yq <span class="nb">eval</span> <span class="s1">'del(.metadata.creationTimestamp)'</span> <span class="o">&gt;</span> <span class="se">\</span>
+  cassandra-initdb-configmap.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-cassandra">Install Cassandra</h3>
+<div class="paragraph">
+<p>I have created a values file for Cassandra called <code>nsa2-cassandra-values.yaml</code>. This file contains the values that I want to override from the default values.</p>
+</div>
+<div class="listingblock">
+<div class="title">nsa2-cassandra-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">dbUser</span><span class="pi">:</span>
+  <span class="na">existingSecret</span><span class="pi">:</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">cassandra-credentials</span>
+    <span class="na">keyMapping</span><span class="pi">:</span>
+      <span class="na">cassandra-password</span><span class="pi">:</span> <span class="s">password</span>
+
+<span class="na">initDBConfigMap</span><span class="pi">:</span> <span class="s2">"</span><span class="s">cassandra-initdb-configmap"</span>
+
+<span class="na">replicaCount</span><span class="pi">:</span> <span class="m">1</span>
+
+<span class="na">nodeSelector</span><span class="pi">:</span>
+  <span class="na">agentpool</span><span class="pi">:</span> <span class="s">depnodes</span>
+
+<span class="na">resources</span><span class="pi">:</span>
+  <span class="na">limits</span><span class="pi">:</span>
+    <span class="na">cpu</span><span class="pi">:</span> <span class="s">400m</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s">2048Mi</span>
+  <span class="na">requests</span><span class="pi">:</span>
+    <span class="na">cpu</span><span class="pi">:</span> <span class="s">100m</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s">128Mi</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The value of 'dbUser.user' is set to 'cassandra' in the values.yaml file which is the default username for Cassandra.
+In nsa2-cassandra-values.yaml, I have set the 'dbUser.existingSecret' to 'cassandra-credentials' which is the secret that I created for Cassandra.</p>
+</div>
+<div class="paragraph">
+<p>In addition, I have set resources settings for Cassandra.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c">#$ helm -n nsa2 install cassandra oci://registry-1.docker.io/bitnamicharts/cassandra -f nsa2-cassandra-opensearch-values.yaml</span>
+<span class="nv">$ </span>helm <span class="nt">-n</span> nsa2 <span class="nb">install </span>cassandra oci://registry-1.docker.io/bitnamicharts/cassandra <span class="nt">-f</span> nsa2-cassandra-values.yaml
+
+
+NAME: cassandra
+LAST DEPLOYED: Sat Aug 31 03:22:07 2024
+NAMESPACE: nsa2
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+CHART NAME: cassandra
+CHART VERSION: 11.3.14
+APP VERSION: 4.1.6<span class="k">**</span> Please be patient <span class="k">while </span>the chart is being deployed <span class="k">**</span>
+
+Cassandra can be accessed through the following URLs from within the cluster:
+
+  - CQL: cassandra.nsa2.svc.cluster.local:9042
+
+To get your password run:
+
+   <span class="nb">export </span><span class="nv">CASSANDRA_PASSWORD</span><span class="o">=</span><span class="si">$(</span>kubectl get secret <span class="nt">--namespace</span> <span class="s2">"nsa2"</span> <span class="se">\</span>
+    cassandra-credentials <span class="nt">-o</span> <span class="nv">jsonpath</span><span class="o">=</span><span class="s2">"{.data.cassandra-password}"</span> | <span class="nb">base64</span> <span class="nt">-d</span><span class="si">)</span>
+
+Check the cluster status by running:
+
+   kubectl <span class="nb">exec</span> <span class="nt">-it</span> <span class="nt">--namespace</span> nsa2 <span class="se">\</span>
+     <span class="si">$(</span>kubectl get pods <span class="nt">--namespace</span> nsa2 <span class="se">\</span>
+     <span class="nt">-l</span> app.kubernetes.io/name<span class="o">=</span>cassandra,app.kubernetes.io/instance<span class="o">=</span>cassandra <span class="se">\</span>
+      <span class="nt">-o</span> <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.items[0].metadata.name}'</span><span class="si">)</span> nodetool status
+
+To connect to your Cassandra cluster using CQL:
+
+1. Run a Cassandra pod that you can use as a client:
+
+   kubectl run <span class="nt">--namespace</span> nsa2 cassandra-client <span class="nt">--rm</span> <span class="nt">--tty</span> <span class="nt">-i</span> <span class="nt">--restart</span><span class="o">=</span><span class="s1">'Never'</span> <span class="se">\</span>
+   <span class="nt">--env</span> <span class="nv">CASSANDRA_PASSWORD</span><span class="o">=</span><span class="nv">$CASSANDRA_PASSWORD</span> <span class="se">\</span>
+    <span class="se">\</span>
+   <span class="nt">--image</span> docker.io/bitnami/cassandra:4.1.6-debian-12-r3 <span class="nt">--</span> bash
+
+2. Connect using the cqlsh client:
+
+   cqlsh <span class="nt">-u</span> cassandra <span class="nt">-p</span> <span class="nv">$CASSANDRA_PASSWORD</span> cassandra
+
+To connect to your database from outside the cluster execute the following commands:
+
+   kubectl port-forward <span class="nt">--namespace</span> nsa2 svc/cassandra 9042:9042 &amp;
+   cqlsh <span class="nt">-u</span> cassandra <span class="nt">-p</span> <span class="nv">$CASSANDRA_PASSWORD</span> 127.0.0.1 9042
+WARNING: JVM Max Heap Size not <span class="nb">set </span><span class="k">in </span>value jvm.maxHeapSize. When not <span class="nb">set</span>, the chart will calculate the following size:
+     MIN<span class="o">(</span>Memory Limit <span class="o">(</span><span class="k">if </span><span class="nb">set</span><span class="o">)</span> / 4, 1024M<span class="o">)</span>
+WARNING: JVM New Heap Size not <span class="nb">set </span><span class="k">in </span>value jvm.newHeapSize. When not <span class="nb">set</span>, the chart will calculate the following size:
+     MAX<span class="o">(</span>Memory Limit <span class="o">(</span><span class="k">if </span><span class="nb">set</span><span class="o">)</span> / 64, 256M<span class="o">)</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="uninstall-cassandra">Uninstall Cassandra</h3>
+<div class="paragraph">
+<p>When we are done with Cassandra, we can uninstall it.</p>
+</div>
+<div class="paragraph">
+<p>To uninstall Cassandra, we can use the following command.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nt">-n</span> nsa2 uninstall cassandra</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="access-cassandra">Access Cassandra</h3>
+<div class="paragraph">
+<p>To access Cassandra, we can use the following command.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubeclt <span class="nt">-n</span> nsa2 port-forward svc/cassandra 9042:9042</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-cqlsh-on-mac">Install cqlsh on Mac</h3>
+<div class="paragraph">
+<p>We will use cqlsh to connect to Cassandra. To install cqlsh on Mac, we can use the following commands.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>pip <span class="nb">install </span>cqlsh
+<span class="nv">$ </span>pip <span class="nb">install </span>cassandra-driver</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="connect-to-cassandra-using-cqlsh">Connect to Cassandra using cqlsh</h3>
+<div class="paragraph">
+<p>To connect to Cassandra using cqlsh, we can use the following command.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>cqlsh <span class="nt">-u</span> cassandra <span class="nt">-p</span> <span class="nv">$CASSANDRA_PASSWORD</span> 127.0.0.1 9042
+
+cqlsh <span class="o">&gt;</span> SHOW VERSION<span class="p">;</span>
+
+cqlsh <span class="o">&gt;</span> SHOW HOST<span class="p">;</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-a-keyspace">Create a keyspace</h3>
+<div class="paragraph">
+<p>We are using the keyspace <code>jaeger_nsa2</code> for Jaeger. To create a keyspace, we can use the following commands.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">cqlsh <span class="o">&gt;</span> DESC KEYSPACES<span class="p">;</span>
+
+cqlsh <span class="o">&gt;</span> CREATE KEYSPACE jaeger_nsa2 WITH REPLICATION <span class="o">=</span> <span class="o">{</span><span class="s1">'class'</span>: <span class="s1">'SimpleStrategy'</span>, <span class="s1">'replication_factor'</span>: 1<span class="o">}</span><span class="p">;</span>
+
+cqlsh <span class="o">&gt;</span> DESC KEYSPACES<span class="p">;</span>
+
+cqlsh <span class="o">&gt;</span> USE jaeger_nsa2<span class="p">;</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="reference">Reference</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/bitnami/charts/blob/main/bitnami/cassandra/README.md" class="bare">https://github.com/bitnami/charts/blob/main/bitnami/cassandra/README.md</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="install-jaeger-using-helm-chart">Install Jaeger using Helm chart</h2>
+<div class="sectionbody">
+<div class="imageblock text-center">
+<div class="content">
+<img src="./images/jaeger-architecture.png" alt="jaeger architecture" width="800">
+</div>
+<div class="title">Figure 1. Jaeger Architecture</div>
+</div>
+<div class="paragraph">
+<p>For more information about Jaeger Helm chart, please refer to the link:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/jaegertracing/helm-charts/blob/main/charts/jaeger/README.md" class="bare">https://github.com/jaegertracing/helm-charts/blob/main/charts/jaeger/README.md</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>We will install Jaeger using the Helm chart.</p>
+</div>
+<div class="paragraph">
+<p>Let&#8217;s add the Jaeger Helm repository and get the values.yaml file.</p>
+</div>
+<div class="sect2">
+<h3 id="add-jaeger-helm-repository">Add Jaeger Helm repository</h3>
+<div class="paragraph">
+<p>To add the Jaeger Helm repository, use the following command.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
+<span class="nv">$ </span>helm repo update</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="get-the-values-yaml-file">Get the values.yaml file</h3>
+<div class="paragraph">
+<p>To check the default values for the Jaeger Helm chart, we can use the following command to get the values.yaml file.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm show values jaegertracing/jaeger <span class="o">&gt;</span> jaeger-values.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="nsa2-jaeger-values-yaml">nsa2-jaeger-values.yaml</h3>
+<div class="paragraph">
+<p>I have created a values file for Jaeger called <code>nsa2-jaeger-values.yaml</code>. This file contains the values that I want to override from the default values.</p>
+</div>
+<div class="listingblock">
+<div class="title">nsa2-jaeger-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">provisionDataStore</span><span class="pi">:</span>
+  <span class="na">cassandra</span><span class="pi">:</span> <span class="kc">false</span>
+
+<span class="na">storage</span><span class="pi">:</span>
+  <span class="na">cassandra</span><span class="pi">:</span>
+    <span class="na">user</span><span class="pi">:</span> <span class="s">cassandra</span>
+    <span class="na">existingSecret</span><span class="pi">:</span> <span class="s">cassandra-credentials</span>
+    <span class="na">keyspace</span><span class="pi">:</span> <span class="s">jaeger_nsa2</span>
+
+
+<span class="na">agent</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">false</span>
+
+<span class="na">collector</span><span class="pi">:</span>
+  <span class="na">service</span><span class="pi">:</span>
+    <span class="na">otlp</span><span class="pi">:</span>
+      <span class="na">http</span><span class="pi">:</span>
+        <span class="na">name</span><span class="pi">:</span> <span class="s">otlp-http</span>
+        <span class="na">port</span><span class="pi">:</span> <span class="m">4318</span>
+      <span class="na">grpc</span><span class="pi">:</span>
+        <span class="na">name</span><span class="pi">:</span> <span class="s">otlp-grpc</span>
+        <span class="na">port</span><span class="pi">:</span> <span class="m">4317</span>
+
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">limits</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">200m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">512Mi</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">100m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">128Mi</span>
+  <span class="na">nodeSelector</span><span class="pi">:</span>
+      <span class="na">agentpool</span><span class="pi">:</span> <span class="s">depnodes</span>
+
+<span class="na">query</span><span class="pi">:</span>
+  <span class="c1"># basePath: /traces</span>
+
+  <span class="na">oAuthSidecar</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">false</span>
+    <span class="na">resources</span><span class="pi">:</span>
+      <span class="na">limits</span><span class="pi">:</span>
+        <span class="na">cpu</span><span class="pi">:</span> <span class="s">200m</span>
+        <span class="na">memory</span><span class="pi">:</span> <span class="s">512Mi</span>
+      <span class="na">requests</span><span class="pi">:</span>
+        <span class="na">cpu</span><span class="pi">:</span> <span class="s">100m</span>
+        <span class="na">memory</span><span class="pi">:</span> <span class="s">128Mi</span>
+    <span class="na">args</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">--config</span>
+      <span class="pi">-</span> <span class="s">/etc/oauth2-proxy/oauth2-proxy.cfg</span>
+      <span class="pi">-</span> <span class="s">--client-secret</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">$(client-secret)"</span>
+    <span class="na">extraEnv</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">client-secret</span>
+        <span class="na">value</span><span class="pi">:</span> <span class="s">secret</span>
+<span class="c1">#        valueFrom:</span>
+<span class="c1">#          secretKeyRef:</span>
+<span class="c1">#            name: client-secret</span>
+<span class="c1">#            key: client-secret-key</span>
+    <span class="na">config</span><span class="pi">:</span> <span class="pi">|-</span>
+      <span class="s">provider = "oidc"</span>
+      <span class="s">http_address = "http://jaeger-query:4180"</span>
+      <span class="s">upstreams = ["http://127.0.0.1:16686"]</span>
+      <span class="s">scope = "openid profile"</span>
+      <span class="s">redirect_url = "http://jaeger-query/oauth2/callback"</span>
+      <span class="s">ssl_insecure_skip_verify = false</span>
+      <span class="s">client_id = "jaeger-query"</span>
+      <span class="s">oidc_issuer_url = "http://nsa2-auth-server:9000"</span>
+      <span class="s">cookie_secure = "false"</span>
+      <span class="s">cookie_secret = ""</span>
+      <span class="s">email_domains = "*"</span>
+      <span class="s">#oidc_groups_claim = "groups"</span>
+      <span class="s">user_id_claim = "preferred_username"</span>
+      <span class="s">skip_provider_button = "true"</span>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">limits</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">200m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">1024Mi</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">100m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">128Mi</span>
+
+  <span class="na">agentSidecar</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">false</span>
+
+  <span class="na">nodeSelector</span><span class="pi">:</span>
+    <span class="na">agentpool</span><span class="pi">:</span> <span class="s">depnodes</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>I have set <code>provisionDataStore.cassandra</code> to <code>false</code> because I don&#8217;t want to install Cassandra using the Jaeger Helm chart. I have already installed Cassandra using the Bitnami Cassandra Helm chart.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">storage</span><span class="pi">:</span>
+  <span class="na">cassandra</span><span class="pi">:</span>
+    <span class="na">user</span><span class="pi">:</span> <span class="s">cassandra</span>
+    <span class="na">existingSecret</span><span class="pi">:</span> <span class="s">cassandra-credentials</span>
+    <span class="na">keyspace</span><span class="pi">:</span> <span class="s">jaeger_nsa2</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>For the Cassandra storage, I have set the <code>user</code> to <code>cassandra</code>, <code>existingSecret</code> to <code>cassandra-credentials</code>, and <code>keyspace</code> to <code>jaeger_nsa2</code>.</p>
+</div>
+<div class="paragraph">
+<p>I am not going to install Jaeger Agent, so I have set <code>agent.enabled</code> to <code>false</code>.</p>
+</div>
+<div class="paragraph">
+<p>For the Jaeger Collector, I have configured the <code>service.otlp.grpc</code> and <code>service.otlp.http</code> to <code>4317</code> and <code>4318</code>, respectively. This is needed to configure OpenTelemetry Collector to export traces to Jaeger. We are going to configure OpenTelemetry Collector to export traces to Jaeger in the next section.</p>
+</div>
+<div class="paragraph">
+<p>I will also install Jaeger Query to access the Jaeger UI.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-jaeger">Install Jaeger</h3>
+<div class="paragraph">
+<p>To install Jaeger, use the following command.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ helm -n nsa2 install jaeger jaegertracing/jaeger -f nsa2-jaeger-values.yaml</pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="update-jaeger">Update Jaeger</h3>
+<div class="paragraph">
+<p>If you want to update Jaeger, use the following command.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ helm -n nsa2 upgrade jaeger jaegertracing/jaeger -f nsa2-jaeger-values.yaml</pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="uninstall-jaeger">Uninstall Jaeger</h3>
+<div class="paragraph">
+<p>If you want to uninstall Jaeger, use the following command.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nt">-n</span> nsa2 uninstall jaeger</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="cassandra-tables-created-by-jaeger">Cassandra tables created by Jaeger</h3>
+<div class="paragraph">
+<p>While installing Jaeger, it creates tables in the Cassandra keyspace. Let&#8217;s check the tables created by Jaeger in the Cassandra keyspace.</p>
+</div>
+<div class="paragraph">
+<p>To see the tables created by Jaeger, use the following command.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>cqlsh 127.0.0.1 <span class="nt">-u</span> cassandra <span class="nt">-p</span> <span class="nv">$CASSANDRA_PASSWORD</span>
+
+<span class="c"># Show keyspaces to see if jaeger_nsa2 exists</span>
+cqlsh&gt; DESC KEYSPACES
+
+<span class="c"># Use jaeger_nsa2 keyspace</span>
+cqlsh&gt; USE jaeger_nsa2<span class="p">;</span>
+
+<span class="c"># Show tables in jaeger_nsa2 keyspace</span>
+cqlsh&gt; DESC TABLES<span class="p">;</span>
+
+dependencies_v2  operation_names_v2      service_name_index       tag_index
+duration_index   operation_throughput    service_names            traces
+leases           sampling_probabilities  service_operation_index</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="access-jaeger-ui">Access Jaeger UI</h3>
+<div class="paragraph">
+<p>To access the Jaeger UI, we need to port-forward the Jaeger Query service.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 port-forward svc/jaeger-query 16686:80</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>And then open a browser and navigate to <a href="http://localhost:16686" class="bare">http://localhost:16686</a></p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="reference-2">Reference</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/jaegertracing/helm-charts" class="bare">https://github.com/jaegertracing/helm-charts</a></p>
+</li>
+<li>
+<p><a href="https://medium.com/@blackhorseya/deploying-opentelemetry-and-jaeger-with-helm-on-kubernetes-d86cc8ba0332" class="bare">https://medium.com/@blackhorseya/deploying-opentelemetry-and-jaeger-with-helm-on-kubernetes-d86cc8ba0332</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="otel-collector">Install OpenTelemetry Collector</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Now that we have installed Jaeger, let&#8217;s configure OpenTelemetry Collector to export traces to Jaeger.</p>
+</div>
+<div class="paragraph">
+<p>In the previous article, we used OpenTelemetry Collector to export traces to Zipkin. So we already have OpenTelemetry Collector installed and the Spring Boot application is configured to export traces to OpenTelemetry Collector. So we don&#8217;t need to configure the Spring Boot application again.</p>
+</div>
+<div class="sect2">
+<h3 id="otel-collector-yaml">otel-collector.yaml</h3>
+<div class="paragraph">
+<p>To configure OpenTelemetry Collector to export traces to Jaeger, we need to update the configuration file for OpenTelemetry Collector.</p>
+</div>
+<div class="sect3">
+<h4 id="jaeger-exported-has-deprecated">jaeger exported has deprecated</h4>
+<div class="paragraph">
+<p>You may come across blogs or articles that mention using the Jaeger exporter to send traces to Jaeger. However, the Jaeger exporter is now deprecated and has been replaced by the OTLP exporter. So, we should use the OTLP exporter to send traces to Jaeger.</p>
+</div>
+<div class="paragraph">
+<p>You can find more information about the deprecated <code>jaeger</code> exporter in the link:</p>
+</div>
+<div class="paragraph">
+<p><a href="https://opentelemetry.io/blog/2023/jaeger-exporter-collector-migration/" class="bare">https://opentelemetry.io/blog/2023/jaeger-exporter-collector-migration/</a></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">exporters</span><span class="pi">:</span>
+  <span class="na">jaeger</span><span class="pi">:</span>
+    <span class="na">endpoint</span><span class="pi">:</span> <span class="s">https://jaeger.example.com:14250</span>
+
+<span class="na">service</span><span class="pi">:</span>
+  <span class="na">pipelines</span><span class="pi">:</span>
+    <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">jaeger</span><span class="pi">]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>When using the <code>jaeger</code> exporter, you will see the following warning message in the OpenTelemetry Collector logs.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>error decoding 'exporters': unknown type: "jaeger" for id:
+"jaeger" (valid values: [debug nop kafka prometheus zipkin
+logging otlp otlphttp file opencensus prometheusremotewrite])</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The configuration above needs to be updated to use <code>otlp</code> exporter instead of <code>jaeger</code> exporter.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">exporters</span><span class="pi">:</span>
+  <span class="na">otlp/jaeger</span><span class="pi">:</span> <span class="c1"># Jaeger supports OTLP directly. The default port for OTLP/gRPC is 4317</span>
+    <span class="na">endpoint</span><span class="pi">:</span> <span class="s">https://jaeger.example.com:4317</span>
+
+<span class="na">service</span><span class="pi">:</span>
+  <span class="na">pipelines</span><span class="pi">:</span>
+    <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp/jaeger</span><span class="pi">]</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="update-otel-collector-yaml">Update otel-collector.yaml</h4>
+<div class="paragraph">
+<p>Let&#8217;s update the <code>otel-collector.yaml</code> file to export traces to Jaeger.</p>
+</div>
+<div class="paragraph">
+<p>Here is the updated <code>otel-collector.yaml</code> file.</p>
+</div>
+<div class="listingblock">
+<div class="title">otel-collector.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">opentelemetry.io/v1beta1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">OpenTelemetryCollector</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">otel</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">nsa2</span>
+
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">mode</span><span class="pi">:</span> <span class="s">statefulset</span>
+  <span class="na">targetAllocator</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">serviceAccount</span><span class="pi">:</span> <span class="s">opentelemetry-targetallocator-sa</span>
+    <span class="na">prometheusCR</span><span class="pi">:</span>
+      <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+      <span class="na">serviceMonitorSelector</span><span class="pi">:</span> <span class="pi">{}</span>
+      <span class="na">podMonitorSelector</span><span class="pi">:</span> <span class="pi">{}</span>
+
+  <span class="na">config</span><span class="pi">:</span>
+    <span class="na">receivers</span><span class="pi">:</span>
+      <span class="na">otlp</span><span class="pi">:</span>
+        <span class="na">protocols</span><span class="pi">:</span>
+          <span class="na">grpc</span><span class="pi">:</span>
+            <span class="na">endpoint</span><span class="pi">:</span> <span class="s">0.0.0.0:4317</span>
+          <span class="na">http</span><span class="pi">:</span>
+            <span class="na">endpoint</span><span class="pi">:</span> <span class="s">0.0.0.0:4318</span>
+
+      <span class="na">prometheus</span><span class="pi">:</span>
+        <span class="na">config</span><span class="pi">:</span>
+          <span class="na">scrape_configs</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">job_name</span><span class="pi">:</span> <span class="s1">'</span><span class="s">otel-collector'</span>
+              <span class="na">scrape_interval</span><span class="pi">:</span> <span class="s">30s</span>
+              <span class="na">static_configs</span><span class="pi">:</span>
+                <span class="pi">-</span> <span class="na">targets</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">0.0.0.0:8888'</span><span class="pi">]</span>
+
+
+    <span class="na">processors</span><span class="pi">:</span>
+      <span class="na">memory_limiter</span><span class="pi">:</span>
+        <span class="na">check_interval</span><span class="pi">:</span> <span class="s">1s</span>
+        <span class="na">limit_percentage</span><span class="pi">:</span> <span class="m">75</span>
+        <span class="na">spike_limit_percentage</span><span class="pi">:</span> <span class="m">15</span>
+      <span class="na">batch</span><span class="pi">:</span>
+        <span class="na">send_batch_size</span><span class="pi">:</span> <span class="m">10000</span>
+        <span class="na">timeout</span><span class="pi">:</span> <span class="s">10s</span>
+
+
+    <span class="na">exporters</span><span class="pi">:</span>
+      <span class="na">debug</span><span class="pi">:</span> <span class="pi">{}</span>
+      <span class="na">logging</span><span class="pi">:</span>
+        <span class="na">loglevel</span><span class="pi">:</span> <span class="s">debug</span>
+      <span class="na">zipkin</span><span class="pi">:</span>
+        <span class="na">endpoint</span><span class="pi">:</span> <span class="s">http://zipkin-server:9411/api/v2/spans</span>
+        <span class="na">format</span><span class="pi">:</span> <span class="s">proto</span>
+
+      <span class="na">otlp/jaeger</span><span class="pi">:</span>
+        <span class="na">endpoint</span><span class="pi">:</span> <span class="s">http://jaeger-collector:4317</span>
+        <span class="na">tls</span><span class="pi">:</span>
+          <span class="na">insecure</span><span class="pi">:</span> <span class="kc">true</span>
+
+
+      <span class="na">prometheusremotewrite</span><span class="pi">:</span>
+        <span class="c1"># https://prometheus.io/docs/prometheus/latest/querying/api/#remote-write-receiver</span>
+        <span class="na">endpoint</span><span class="pi">:</span> <span class="s">http://prometheus:9090/api/v1/write</span>
+      <span class="na">otlphttp</span><span class="pi">:</span>
+        <span class="c1"># https://prometheus.io/docs/prometheus/latest/querying/api/#otlp-receiver</span>
+        <span class="na">metrics_endpoint</span><span class="pi">:</span> <span class="s">http://prometheus:9090/api/v1/otlp/v1/metrics</span>
+
+
+
+    <span class="na">service</span><span class="pi">:</span>
+      <span class="c1">#      extensions: [health_check, pprof, zpages]</span>
+      <span class="na">pipelines</span><span class="pi">:</span>
+        <span class="na">traces</span><span class="pi">:</span>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp</span><span class="pi">]</span>
+          <span class="na">processors</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">memory_limiter</span><span class="pi">,</span> <span class="nv">batch</span><span class="pi">]</span>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">zipkin</span><span class="pi">,</span> <span class="nv">otlp/jaeger</span><span class="pi">]</span>
+        <span class="na">metrics</span><span class="pi">:</span>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp</span><span class="pi">,</span> <span class="nv">prometheus</span><span class="pi">]</span>
+          <span class="na">processors</span><span class="pi">:</span> <span class="pi">[]</span>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlphttp</span><span class="pi">]</span>
+        <span class="na">logs</span><span class="pi">:</span>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp</span><span class="pi">]</span>
+          <span class="na">processors</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">memory_limiter</span><span class="pi">,</span> <span class="nv">batch</span><span class="pi">]</span>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">logging</span><span class="pi">]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>I added <code>otlp/jaeger</code> exporter to export traces to Jaeger. <code>jaeger-collector</code> is the hostname of the Jaeger Collector service.
+I have set <code>insecure</code> to <code>true</code> because I did not set up TLS for Jaeger. In a production environment, you should set up TLS for Jaeger.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">    exporters:
+
+<span class="c"># omitted for brevity</span>
+
+      otlp/jaeger:
+        endpoint: http://jaeger-collector:4317
+        tls:
+          insecure: <span class="nb">true</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>I have set <code>otlp/jaeger</code> exporter to export traces to Jaeger.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">    service:
+      pipelines:
+        traces:
+          receivers: <span class="o">[</span>otlp]
+          processors: <span class="o">[</span>memory_limiter, batch]
+          exporters: <span class="o">[</span>zipkin, otlp/jaeger]</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>I have set both <code>zipkin</code> and <code>otlp/jaeger</code> exporters to export traces to Jaeger. This is because I want to compare the traces from Jaeger and Zipkin.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 apply <span class="nt">-f</span> otel-collector.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="test-the-spring-boot-application">Test the Spring Boot Application</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Now that we have installed Jaeger and configured OpenTelemetry Collector to export traces to Jaeger, let&#8217;s test the Spring Boot application.</p>
+</div>
+<div class="paragraph">
+<p>To call the <code>/error-logs/notify</code> endpoint, use the following command.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 port-forward service/nsa2-opentelemetry-example 8080:8080</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To call the <code>/error-logs/notify</code> endpoint, use the following command.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>curl http://localhost:8080/error-logs/notify</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="compare-the-traces-from-jaeger-and-zipkin">Compare the traces from Jaeger and Zipkin</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Jaeger and Zipkin are both tracing systems used to monitor and troubleshoot microservices-based distributed systems by visualizing and analyzing traces. Jaeger is a CNCF project, while Zipkin is an open-source project. Jaeger integrates well with OpenTelemetry, and Zipkin works well with Spring Cloud Micrometer.</p>
+</div>
+<div class="paragraph">
+<p>In this series of articles, I&#8217;ve demonstrated distributed tracing using both Jaeger and Zipkin. For a production environment, I would likely choose Jaeger because it is a CNCF project and integrates well with OpenTelemetry. However, Zipkin is also a good choice for monitoring and troubleshooting microservices-based distributed systems. And we can see that the traces from Jaeger and Zipkin are similar in terms of the duration of each span and the tags associated with each span.</p>
+</div>
+<div class="sect2">
+<h3 id="jaeger-ui">Jaeger UI</h3>
+<div class="paragraph">
+<p>To access the Jaeger UI, use the following command.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 port-forward service/jaeger-query 16686:80</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Note that the container port for Jaeger Query is <code>80</code> instead of <code>16686</code>.</p>
+</div>
+<div class="paragraph">
+<p>And then open a browser and navigate to <a href="http://localhost:16686" class="bare">http://localhost:16686</a></p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="./images/jaeger-ui-1.png" alt="jaeger ui 1" width="1000">
+</div>
+<div class="title">Figure 2. Jaeger UI - Search</div>
+</div>
+<div class="paragraph">
+<p>Select the <code>nsa2-opentelemetry-example</code> service and then click on the <code>Find Traces</code> button to see the traces.
+And the click on the trace to see the details of the trace.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="./images/jaeger-ui-2.png" alt="jaeger ui 2" width="1000">
+</div>
+<div class="title">Figure 3. Jaeger UI - Trace</div>
+</div>
+<div class="paragraph">
+<p>We can see all spans in the trace. We can see the duration of each span and the tags associated with each span.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="./images/jaeger-ui-3.png" alt="jaeger ui 3" width="1000">
+</div>
+<div class="title">Figure 4. Jaeger UI - Details</div>
+</div>
+<div class="paragraph">
+<p>We can see the details of each span by clicking on the span. We can see SQL queries for example.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="zipkin-ui">Zipkin UI</h3>
+<div class="paragraph">
+<p>To access the Zipkin UI, use the following command.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 port-forward service/zipkin 9411:9411</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>And then open a browser and navigate to <a href="http://localhost:9411" class="bare">http://localhost:9411</a></p>
+</div>
+<div class="paragraph">
+<p>Click on the RUN QUERY button to see the traces.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="./images/zipkin-ui-1.png" alt="zipkin ui 1" width="1000">
+</div>
+<div class="title">Figure 5. Zipkin UI - Search</div>
+</div>
+<div class="paragraph">
+<p>And the click on the trace to see the details of the trace.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="./images/zipkin-ui-2.png" alt="zipkin ui 2" width="1000">
+</div>
+<div class="title">Figure 6. Zipkin UI - Trace</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this article, we discussed how to set up Jaeger and OpenTelemetry Collector to demonstrate distributed tracing. We also compared the traces from Jaeger and Zipkin.</p>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>

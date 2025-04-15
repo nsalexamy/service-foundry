@@ -1,0 +1,508 @@
+---
+layout: documents
+title: Collecting Metrics using OpenTelemetry Collector and Visualizing them using Prometheus and Grafana on Kubernetes
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+// docs/metrics/part3-otel-collector/index.adoc
+
+= Part 3 - Metrics in Microservices - Collecting Metrics using OpenTelemetry Collector and Visualizing them using Prometheus and Grafana on Kubernetes
+
+:imagesdir: images
+
+== Introduction
+
+This article is part of a series of articles on Metrics in Microservices. In this article, we will discuss how to collect metrics from a Spring Boot application using OpenTelemetry Collector and how to visualize them using Prometheus and Grafana on Kubernetes.
+
+. Part 1 - link:https://www.linkedin.com/pulse/metrics-microservices-young-gyu-kim-9rcuc/[Metrics in Microservices - Collecting Metrics using Spring Boot Actuator and Visualizing them using Prometheus and Grafana]
+. Part 2 - link:https://www.linkedin.com/pulse/part-2-metrics-microservices-collecting-using-visualizing-kim-yeexc[Metrics in Microservices - Collecting Metrics using OpenTelemetry Instrumentation and Visualizing them using Prometheus and Grafana on Kubernetes]
+. Part 3 - link:https://www.linkedin.com/pulse/part-3-metrics-microservices-collecting-using-collector-kim-zuqoc/[Metrics in Microservices - Collecting Metrics using OpenTelemetry Collector and Visualizing them using Prometheus and Grafana on Kubernetes]
+
+This article is the third part of the series.
+
+In this article, we will discuss how to collect metrics from a Spring Boot application using OpenTelemetry Collector and Target Allocator. OpenTelemetry Instrumentation provides metrics data from a dedicated endpoint. Prometheus ServiceMonitor will discover the target endpoints and Prometheus target allocator will scrape the metrics data from the target endpoints. The metrics data will be exported to Prometheus using the Prometheus Remote Write Exporter. OTLP HTTP Exporter can replace the Prometheus Remote Write Exporter to export metrics data to an OTLP HTTP endpoint. We are going to use both exporters in this article.
+
+[#otel-collector]
+=== OpenTelemetry Collector
+
+OpenTelemetry Collector is a vendor-agnostic, open-source telemetry collector that is used to collect, process, and export telemetry data. It is a powerful tool that can be used to collect metrics, traces, and logs from various sources and export them to various destinations.
+
+=== Target Allocator
+
+[quote, OpenTelemetry, Target Allocator]
+____
+A tool to distribute targets of the PrometheusReceiver on all deployed Collector instances
+____
+
+The OpenTelemetry Operator comes with an optional component, the Target Allocator (TA). In a nutshell, the TA is a mechanism for decoupling the service discovery and metric collection functions of Prometheus such that they can be scaled independently. The Collector manages Prometheus metrics without needing to install Prometheus. The TA manages the configuration of the Collector’s Prometheus Receiver.
+
+The TA serves two primary functions:
+
+. Even distribution of Prometheus targets among a pool of Collectors
+. Discovery of Prometheus Custom Resources like ServiceMonitors and PodMonitors
+
+
+For more information on Target Allocator, refer to the link below:
+
+* https://opentelemetry.io/docs/kubernetes/operator/target-allocator/
+
+=== Prometheus Remote Write Exporter
+
+Prometheus Remote Write Exporter is an exporter that is used to export metrics to Prometheus. It is a powerful tool that can be used to export metrics from various sources to Prometheus. This feature is available when remote-write-receiver is enabled in Prometheus.
+
+=== OTLP HTTP Exporter
+
+OTLP HTTP Exporter is an exporter that is used to export metrics to an OTLP HTTP endpoint. It is a powerful tool that can be used to export metrics from various sources to an OTLP HTTP endpoint. This feature is available when otlp-write-receiver is enabled in Prometheus.
+
+== Create a ServiceAccount
+
+To use Target Allocator, we need permission to access the Kubernetes API. We are going to create a ServiceAccount named `opentelemetry-targetallocator-sa` in nsa2 namespace to be used by the OpenTelemetry Collector.
+
+The two roles are being bound to the ServiceAccount:
+
+* opentelemetry-targetallocator-role
+* opentelemetry-targetallocator-cr-role
+
+Here is the RBAC configuration for the ServiceAccount:
+
+.opentelemetry-targetallocator-sa.yaml
+[source,yaml]
+----
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: opentelemetry-targetallocator-sa
+  namespace: nsa2
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: opentelemetry-targetallocator-role
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/metrics
+      - services
+      - endpoints
+      - pods
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources:
+      - configmaps
+    verbs: ["get"]
+  - apiGroups:
+      - discovery.k8s.io
+    resources:
+      - endpointslices
+    verbs: ["get", "list", "watch"]
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - ingresses
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: opentelemetry-targetallocator-cr-role
+rules:
+  - apiGroups:
+      - monitoring.coreos.com
+    resources:
+      - servicemonitors
+      - podmonitors
+    verbs:
+      - '*'
+  - apiGroups: [""]
+    resources:
+      - namespaces
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: opentelemetry-targetallocator-rb
+subjects:
+  - kind: ServiceAccount
+    name: opentelemetry-targetallocator-sa
+    namespace: nsa2
+roleRef:
+  kind: ClusterRole
+  name: opentelemetry-targetallocator-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: opentelemetry-targetallocator-cr-rb
+subjects:
+  - kind: ServiceAccount
+    name: opentelemetry-targetallocator-sa
+    namespace: nsa2
+roleRef:
+  kind: ClusterRole
+  name: opentelemetry-targetallocator-cr-role
+  apiGroup: rbac.authorization.k8s.io
+----
+
+To create the ServiceAccount, Roles, and RoleBindings, run the following command:
+
+[source,shell]
+----
+$ kubectl -n nsa2 apply -f opentelemetry-targetallocator-sa.yaml
+----
+
+// == Create a Secret
+//
+// [source,shell]
+// ----
+// $  kubectl create secret generic prometheus-basicauth-credentials --from-literal=username=prometheus --from-literal=password=changeme --dry-run=client -o yaml -n nsa2 > prometheus-basicauth-credentials-secret.yaml
+// ----
+
+== OpenTelemetry Collector
+
+In this section, we are going to deploy the OpenTelemetry Collector to collect metrics from the Spring Boot application. The OpenTelemetry Collector will scrape metrics data from the Spring Boot application using the Prometheus Receiver. The metrics data will be exported to Prometheus using the Prometheus Remote Write Exporter.
+
+
+.otel-collector.yaml
+[source,yaml]
+----
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel
+  namespace: nsa2
+
+spec:
+  mode: statefulset
+  targetAllocator:
+    enabled: true
+    serviceAccount: opentelemetry-targetallocator-sa
+    prometheusCR:
+      enabled: true
+      serviceMonitorSelector: {}
+      podMonitorSelector: {}
+
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: 'otel-collector'
+              scrape_interval: 30s
+              static_configs:
+                - targets: ['0.0.0.0:8888']
+
+
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 15
+      batch:
+        send_batch_size: 10000
+        timeout: 10s
+
+
+    exporters:
+      debug: {}
+      zipkin:
+        endpoint: http://zipkin-server:9411/api/v2/spans
+        format: proto
+      prometheusremotewrite:
+        # https://prometheus.io/docs/prometheus/latest/querying/api/#remote-write-receiver
+        endpoint: http://prometheus:9090/api/v1/write
+      otlphttp:
+#        endpoint: http://otel-collector:4318
+        # https://prometheus.io/docs/prometheus/latest/querying/api/#otlp-receiver
+        metrics_endpoint: http://prometheus:9090/api/v1/otlp/v1/metrics
+
+
+
+
+    service:
+#      extensions: [health_check, pprof, zpages]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [zipkin]
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: []
+          exporters: [otlphttp]
+
+
+
+----
+
+I added the following configuration to the OpenTelemetry Collector configuration file to enable the Target Allocator:
+
+----
+  mode: statefulset
+  targetAllocator:
+    enabled: true
+    serviceAccount: opentelemetry-targetallocator-sa
+    prometheusCR:
+      enabled: true
+      serviceMonitorSelector: {}
+      podMonitorSelector: {}
+----
+
+To filter the ServiceMonitors and PodMonitors, we can use the `serviceMonitorSelector` and `podMonitorSelector` fields. If we want to filter the ServiceMonitors and PodMonitors, we can add the labels to the fields.
+----
+      serviceMonitorSelector:
+        matchLabels:
+          team: nsa2
+----
+
+I added `prometheus` to the `receivers` section to enable the Prometheus Receiver. It scrapes metrics data according to the configuration in the `config` section.
+
+.prometheus receiver
+[source,yaml]
+----
+    receiver:
+
+# omitted
+
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: 'otel-collector'
+              scrape_interval: 30s
+              static_configs:
+                - targets: ['0.0.0.0:8888']
+----
+
+.exporters
+[source,yaml]
+----
+    exporters:
+
+      prometheusremotewrite:
+        endpoint: http://prometheus:9090/api/v1/write
+
+      otlphttp:
+        metrics_endpoint: http://prometheus:9090/api/v1/otlp/v1/metrics
+----
+
+There are two exporters in the configuration file:
+
+* prometheusremotewrite
+* otlphttp
+
+The `prometheusremotewrite` exporter exports metrics data to the Prometheus Remote Write endpoint. The `otlphttp` exporter exports metrics data to the OTLP HTTP endpoint.
+
+For more information on the Prometheus Remote Write Exporter, refer to the link below:
+
+* https://prometheus.io/docs/prometheus/latest/querying/api/#remote-write-receiver
+
+For more information on the OTLP HTTP Exporter, refer to the link below:
+
+* https://prometheus.io/docs/prometheus/latest/querying/api/#otlp-receiver
+
+.metrics pipeline
+[source,yaml]
+----
+    service:
+      pipelines:
+
+# omitted
+
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: []
+          exporters: [prometheusremotewrite]
+          # exporters: [otlphttp]
+----
+
+I added prometheus to the `receivers` field to enable the Prometheus Receiver. I added `prometheusremotewrite` to the `exporters` field to export metrics data to the Prometheus Remote Write endpoint.
+
+
+To apply the configuration, run the following command:
+
+[source,shell]
+----
+$ kubectl -n nsa2 apply -f otel-collector.yaml
+----
+
+=== otel-targetallocator service
+
+If all the configurations are correct, the OpenTelemetry Collector will create a service named `otel-targetallocator` in the nsa2 namespace. The service will have the following endpoints:
+
+.port-forward otel-targetallocator service
+[source,shell]
+----
+$ kubectl -n nsa2 port-forward service/otel-targetallocator 18080:8080
+----
+
+To check the endpoints, open the following URL in a browser:
+
+* http://localhost:18080/jobs
+
+[source,json]
+----
+{
+  "otel-collector": {
+    "_link": "/jobs/otel-collector/targets"
+  },
+  "serviceMonitor/nsa2/nsa2-opentelemetry-example-servicemonitor/0": {
+    "_link": "/jobs/serviceMonitor%2Fnsa2%2Fnsa2-opentelemetry-example-servicemonitor%2F0/targets"
+  }
+}
+----
+
+If you click on the `_link` field, you will see the targets that the OpenTelemetry Collector is scraping metrics data from.
+
+=== Scale out
+
+----
+$ kubectl -n nsa2 scale --replicas=2 deployment nsa2-opentelemetry-example
+----
+
+If you scale out the Spring Boot application, the new pod will be added to the target list of the OpenTelemetry Collector.
+
+== Prometheus
+
+We are going to comment out the `serviceMonitorSelector` section in the `prometheus.yaml` file because we are going to use the Target Allocator to manage the ServiceMonitors. Instead, I enabled two features in the `prometheus.yaml` file:
+
+* remote-write-receiver
+* otlp-write-receiver
+
+For more information on feature flags, refer to the link below:
+
+* https://prometheus.io/docs/prometheus/latest/feature_flags/
+
+.prometheus.yaml
+[source,yaml]
+----
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: prometheus
+  namespace: nsa2
+spec:
+  serviceAccountName: prometheus
+
+  resources:
+    requests:
+      memory: 400Mi
+  enableAdminAPI: false
+
+  # for more information on the following configuration,
+  #  see
+  # - https://prometheus-operator.dev/docs/api-reference/api/
+  # - https://prometheus.io/docs/prometheus/latest/querying/api/#remote-write-receiver
+  # /api/v1/write (web.enable-remote-write-receiver)
+  # /api/v1/otlp/v1/metrics (web.enable-otlp-receiver)
+  additionalArgs:
+    - name: "web.enable-remote-write-receiver"
+      value: ""
+    - name: "web.enable-otlp-receiver"
+      value: ""
+
+
+
+
+
+----
+
+To apply the configuration, run the following command:
+
+[source,shell]
+----
+$ kubectl -n nsa2 apply -f prometheus.yaml
+----
+
+.port-forward Prometheus service
+[source,shell]
+----
+$ kubectl -n nsa2 port-forward service/prometheus 9090:9090
+----
+
+To check the Prometheus UI, open the following URL in a browser:
+
+* http://localhost:9090
+
+If you click on the `Targets` menu, you will not see any targets because the Target Allocator is managing the targets.
+
+image::./prometheus-no-target.png[]
+
+However, if you execute the following query in the Prometheus UI, you will see the metrics data from the Spring Boot application:
+
+[source,shell]
+----
+jvm_cpu_recent_utilization_ratio
+----
+
+image::./prometheus-query.png[]
+
+This is because the OpenTelemetry Collector is scraping metrics data from the Spring Boot application and exporting it to Prometheus.
+
+== Use OTLP HTTP Exporter
+
+image::./intro-otlp-http.png[]
+
+To use the OTLP HTTP Exporter, you need to comment out the `prometheusremotewrite` exporter and uncomment the `otlphttp` exporter in the OpenTelemetry Collector configuration file.
+
+[source,yaml]
+----
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: []
+          #exporters: [prometheusremotewrite]
+          exporters: [otlphttp]
+----
+
+To apply the configuration, run the following command:
+[source,shell]
+----
+$ kubectl -n nsa2 apply -f otel-collector.yaml
+----
+
+The output is almost the same as the Prometheus Remote Write Exporter. The only difference is that the metrics data is exported to the OTLP HTTP endpoint.
+
+== Benefits of using OpenTelemetry Collector and Target Allocator
+
+The OpenTelemetry Collector and Target Allocator provide the following benefits:
+
+* Scalability: The OpenTelemetry Collector and Target Allocator can be scaled independently.
+* Service Discovery: The Target Allocator manages the configuration of the Collector’s Prometheus Receiver.
+* Centralized Configuration: The OpenTelemetry Collector and Target Allocator provide a centralized configuration for managing Prometheus Custom Resources like ServiceMonitors and PodMonitors.
+
+== Grafana
+
+As for Grafana, we are going to use the same configuration as in the previous article.
+
+image::./grafana-query.png[]
+
+== Conclusion
+
+In this article, we discussed how to collect metrics from a Spring Boot application using OpenTelemetry Collector and how to visualize them using Prometheus and Grafana on Kubernetes. We also discussed how to use the Target Allocator to manage the configuration of the Collector’s Prometheus Receiver.
+
+
+== Reference
+
+* https://geekingoutpodcast.substack.com/p/prometheus-and-opentelemetry-better
+* https://github.com/open-telemetry/opentelemetry-operator/blob/main/cmd/otel-allocator/README.md
+* https://www.anyflow.net/sw-engineer/prometheus-opentelemetry-collector
+* https://prometheus.io/docs/prometheus/latest/feature_flags/

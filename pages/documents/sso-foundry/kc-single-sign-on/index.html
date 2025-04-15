@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Single Sign-On (SSO) with Keycloak, Traefik, and OAuth2 Proxy</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre,
+    pre code {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre;
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+    <div class="logo text-xl font-semibold">Service Foundry</div>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/sso-foundry/">SSO Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a>
+<ul class="sectlevel2">
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#related-articles">Related Articles</a></li>
+</ul>
+</li>
+<li><a href="#target-services">Target Services</a></li>
+<li><a href="#keycloak">Keycloak</a>
+<ul class="sectlevel2">
+<li><a href="#keycloak-configuration-summary">Keycloak Configuration Summary</a></li>
+</ul>
+</li>
+<li><a href="#oauth2-proxy-as-authentication-middleware">OAuth2 Proxy as Authentication Middleware</a>
+<ul class="sectlevel2">
+<li><a href="#install-oauth2-proxy">Install OAuth2 Proxy</a></li>
+<li><a href="#create-oauth2-proxy-secret">Create OAuth2 Proxy Secret</a></li>
+<li><a href="#oauth2-proxy-ingress">OAuth2 Proxy Ingress</a></li>
+</ul>
+</li>
+<li><a href="#traefik-ingress-controller">Traefik Ingress Controller</a>
+<ul class="sectlevel2">
+<li><a href="#forward-auth-middleware">forward-auth Middleware</a></li>
+<li><a href="#protected-ingress-for-observability-tools">Protected Ingress for Observability Tools</a></li>
+</ul>
+</li>
+<li><a href="#authentication-flow">Authentication Flow</a></li>
+<li><a href="#sso-foundry">SSO Foundry</a>
+<ul class="sectlevel2">
+<li><a href="#1-create-sso-foundry">1. Create SSO Foundry</a></li>
+<li><a href="#2-update-sso-foundry-configuration">2. Update SSO Foundry Configuration</a></li>
+<li><a href="#3-generate-kubernetes-resource-files">3. Generate Kubernetes Resource Files</a></li>
+<li><a href="#4-build-sso-foundry-locally">4. Build SSO Foundry Locally</a></li>
+<li><a href="#5-deploy-sso-foundry">5. Deploy SSO Foundry</a></li>
+<li><a href="#6-undeploy-sso-foundry">6. Undeploy SSO Foundry</a></li>
+</ul>
+</li>
+<li><a href="#test-single-sign-on">Test Single Sign-On</a></li>
+<li><a href="#logout">Logout</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/single-sign-on-introduction.png" alt="single sign on introduction" width="1000">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide walks you through setting up Single Sign-On (SSO) using Keycloak as the Identity Provider (IdP), OAuth2 Proxy as the authentication middleware, and Traefik as the Ingress controller. This SSO configuration secures access to observability tools such as:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Jaeger – No native authentication</p>
+</li>
+<li>
+<p>Prometheus – No native authentication</p>
+</li>
+<li>
+<p>Grafana – Built-in OIDC support</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Once configured, users can authenticate once through Keycloak and access all integrated services without repeated logins.</p>
+</div>
+<div class="sect2">
+<h3 id="prerequisites">Prerequisites</h3>
+<div class="paragraph">
+<p>Ensure the following components are installed in your Kubernetes cluster:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Kubernetes cluster</p>
+</li>
+<li>
+<p>Traefik Ingress Controller</p>
+</li>
+<li>
+<p>Keycloak</p>
+</li>
+<li>
+<p>Jaeger Collector installed</p>
+</li>
+<li>
+<p>Prometheus installed</p>
+</li>
+<li>
+<p>Grafana installed</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="related-articles">Related Articles</h3>
+<div class="paragraph">
+<p>This guide builds upon the following previous works:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://www.linkedin.com/pulse/traefik-oauth2-proxy-using-authentication-middleware-young-gyu-kim-fzd2c/">Traefik OAuth2 Proxy using Authentication Middleware</a></p>
+</li>
+<li>
+<p><a href="https://www.linkedin.com/pulse/oauth2-authentication-grafana-young-gyu-kim-oxg4c/">OAuth2 Authentication for Grafana</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="target-services">Target Services</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The Single Sign On will be applied to the following services:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>jaeger-collector</strong> - port name: jaeger, port: 16686</p>
+</li>
+<li>
+<p><strong>prometheus</strong> - port name: web, port: 9090</p>
+</li>
+<li>
+<p><strong>grafana</strong> - port name: service, port: 80</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Use the following commands to verify service port configurations:</p>
+</div>
+<div class="listingblock">
+<div class="title">Jaeger-Collector</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> o11y get svc jaeger-collector <span class="nt">-o</span> yaml | yq <span class="s1">'.metadata.name, .spec.ports'</span>
+
+<span class="c"># Example Output</span>
+jaeger-collector
+- name: jaeger
+  port: 16686
+  protocol: TCP
+  targetPort: 16686
+- appProtocol: grpc
+  name: otlp-grpc
+  port: 4317
+  protocol: TCP
+  targetPort: 4317
+- appProtocol: http
+  name: otlp-http
+  port: 4318
+  protocol: TCP
+  targetPort: 4318</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">Prometheus</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> o11y get svc prometheus <span class="nt">-o</span> yaml | yq <span class="s1">'.metadata.name, .spec.ports'</span>
+
+<span class="c"># Example Output</span>
+
+prometheus
+- name: web
+  nodePort: 30796
+  port: 9090
+  protocol: TCP
+  targetPort: web</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">Grafana</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> o11y get svc grafana <span class="nt">-o</span> yaml | yq <span class="s1">'.metadata.name, .spec.ports'</span>
+
+<span class="c"># Example Output</span>
+grafana
+- name: service
+  port: 80
+  protocol: TCP
+  targetPort: 3000</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="keycloak">Keycloak</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Keycloak is an open-source Identity and Access Management solution that supports user federation, identity brokering, and social login.</p>
+</div>
+<div class="paragraph">
+<p>For more information on how to set up Keycloak, please refer to the following documentation:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://www.linkedin.com/pulse/oauth2-proxy-standalone-reverse-kubernetes-young-gyu-kim-sghsc/">OAuth2 Proxy as a Standalone Reverse Proxy in Kubernetes</a></p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="keycloak-configuration-summary">Keycloak Configuration Summary</h3>
+<div class="ulist">
+<ul>
+<li>
+<p>Realm: nsa2-realm</p>
+</li>
+<li>
+<p>Client ID: nsa2-o11y</p>
+</li>
+<li>
+<p>User: devops</p>
+</li>
+<li>
+<p>Password: password</p>
+</li>
+<li>
+<p>Realm Roles: grafana-admin</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Valid redirect URIs:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="http://jaeger.nsa2.com/*" class="bare">http://jaeger.nsa2.com/*</a></p>
+</li>
+<li>
+<p><a href="http://prometheus.nsa2.com/*" class="bare">http://prometheus.nsa2.com/*</a></p>
+</li>
+<li>
+<p><a href="http://grafana.nsa2.com/*" class="bare">http://grafana.nsa2.com/*</a></p>
+</li>
+<li>
+<p><a href="http://oauth2-proxy.nsa2.com/*" class="bare">http://oauth2-proxy.nsa2.com/*</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Valid post logout redirect URIs:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="http://jaeger.nsa2.com/*" class="bare">http://jaeger.nsa2.com/*</a></p>
+</li>
+<li>
+<p><a href="http://prometheus.nsa2.com/*" class="bare">http://prometheus.nsa2.com/*</a></p>
+</li>
+<li>
+<p><a href="http://grafana.nsa2.com/*" class="bare">http://grafana.nsa2.com/*</a></p>
+</li>
+<li>
+<p><a href="http://oauth2-proxy.nsa2.com/*" class="bare">http://oauth2-proxy.nsa2.com/*</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Web Origins:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="http://jaeger.nsa2.com" class="bare">http://jaeger.nsa2.com</a></p>
+</li>
+<li>
+<p><a href="http://prometheus.nsa2.com" class="bare">http://prometheus.nsa2.com</a></p>
+</li>
+<li>
+<p><a href="http://grafana.nsa2.com" class="bare">http://grafana.nsa2.com</a></p>
+</li>
+<li>
+<p><a href="http://oauth2-proxy.nsa2.com" class="bare">http://oauth2-proxy.nsa2.com</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="oauth2-proxy-as-authentication-middleware">OAuth2 Proxy as Authentication Middleware</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>OAuth2 Proxy handles authentication and forwards validated requests to backend services. It integrates seamlessly with Keycloak and Traefik.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/oauth2-proxy-authentication-middleware.png" alt="oauth2 proxy authentication middleware" width="1000">
+</div>
+<div class="title">Figure 1. oauth2 proxy as authentication middleware</div>
+</div>
+<div class="paragraph">
+<p>For more information on how to set up OAuth2 Proxy, please refer to the following documentation:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://www.linkedin.com/pulse/traefik-oauth2-proxy-using-authentication-middleware-young-gyu-kim-fzd2c/">Traefik OAuth2 Proxy using Authentication Middleware</a></p>
+</li>
+<li>
+<p><a href="https://oauth2-proxy.github.io/oauth2-proxy/" class="bare">https://oauth2-proxy.github.io/oauth2-proxy/</a></p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="install-oauth2-proxy">Install OAuth2 Proxy</h3>
+<div class="paragraph">
+<p>Here is an example of the custom values file for the OAuth2 Proxy Helm chart. You can use this file to customize the OAuth2 Proxy installation.</p>
+</div>
+<div class="listingblock">
+<div class="title">oauth2 proxy custom values</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">config</span><span class="pi">:</span>
+  <i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="na">existingSecret</span><span class="pi">:</span> <span class="s">oauth2-proxy-secret</span>
+
+  <span class="na">configFile</span><span class="pi">:</span> <span class="pi">|</span>
+    <span class="s">provider = "oidc"</span>
+    <i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="s">oidc_issuer_url = "http://{keycloak-service-url}/realms/nsa2-realm"</span>
+    <span class="s">email_domains = ["*"]</span>
+    <span class="s">cookie_secure = false</span>
+    <span class="s">upstreams = ["static://200"]</span>
+    <i class="conum" data-value="3"></i><b>(3)</b>
+    <span class="s">redirect_url = "http://oauth2-proxy.nsa2.com/oauth2/callback"</span>
+    <span class="s">scope = "openid email profile"</span>
+    <span class="s">pass_access_token = true</span>
+    <span class="s">pass_authorization_header = true</span>
+    <span class="s">pass_user_headers = true</span>
+    <span class="s">set_authorization_header = true</span>
+    <span class="s">cookie_domains = ".nsa2.com"</span>
+    <span class="s">cookie_name = "_oauth2_proxy"</span>
+    <span class="s">cookie_refresh = "2m"</span>
+    <span class="s">cookie_expire = "24h"</span>
+    <span class="s">whitelist_domains = [".nsa2.com"]</span>
+    <span class="s"># return authenticated user to nginx</span>
+    <span class="s">set_xauthrequest = true</span>
+
+<span class="c1"># 94</span>
+<span class="na">extraArgs</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">--cookie-secure=false</span>
+  <span class="pi">-</span> <span class="s">--skip-provider-button</span>
+  <span class="pi">-</span> <span class="s">--ssl-insecure-skip-verify</span>
+  <span class="pi">-</span> <span class="s">--reverse-proxy</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Use the existing secret to store the Keycloak client secret.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Set the Keycloak issuer URL.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Set the redirect URL to the OAuth2 Proxy callback URL. We will create the Ingress resource for the OAuth2 Proxy later.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>To install OAuth2 Proxy, you can use the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm upgrade <span class="nt">--install</span> oauth2-proxy <span class="se">\</span>
+  <span class="nt">--namespace</span> o11y <span class="se">\</span>
+  <span class="nt">--create-namespace</span> <span class="se">\</span>
+  <span class="nt">-f</span> oauth2-proxy/custom-values.yaml <span class="se">\</span>
+  oauth2-proxy/oauth2-proxy <span class="nt">--version</span> 7.12.6</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-oauth2-proxy-secret">Create OAuth2 Proxy Secret</h3>
+<div class="paragraph">
+<p>Here is an example of how to create the OAuth2 Proxy secret. You can use the <code>kubectl create secret</code> command to create the secret in the <code>o11y</code> namespace.</p>
+</div>
+<div class="listingblock">
+<div class="title">oauth2 proxy secret</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">data</span><span class="pi">:</span>
+  <span class="na">client-id</span><span class="pi">:</span> <span class="s">your-client-id</span>
+  <span class="na">client-secret</span><span class="pi">:</span> <span class="s">your-client-secret</span>
+  <span class="na">cookie-secret</span><span class="pi">:</span> <span class="s">your-cookie-secret</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Secret</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">oauth2-proxy-secret</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>You can generate the YAML file using the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ CLIENT_ID</span><span class="o">=</span>YOUR_CLIENT_ID
+<span class="nv">$ CLIENT_SECRET</span><span class="o">=</span>YOUR_CLIENT_SECRET
+<span class="nv">$ COOKIE_SECRET</span><span class="o">=</span><span class="si">$(</span> openssl rand <span class="nt">-base64</span> 32 | <span class="nb">head</span> <span class="nt">-c</span> 32 | <span class="nb">base64</span><span class="si">)</span>
+
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> o11y create secret generic oauth2-proxy-secret <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span>client-id<span class="o">=</span><span class="nv">$CLIENT_ID</span> <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span>client-secret<span class="o">=</span><span class="nv">$CLIENT_SECRET</span> <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span>cookie-secret<span class="o">=</span><span class="nv">$COOKIE_SECRET</span> <span class="se">\</span>
+  <span class="nt">--dry-run</span><span class="o">=</span>client <span class="nt">-o</span> yaml | yq <span class="nb">eval</span> <span class="s1">'del(.metadata.creationTimestamp)'</span> <span class="o">&gt;</span> oauth2-proxy-secret.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="oauth2-proxy-ingress">OAuth2 Proxy Ingress</h3>
+<div class="paragraph">
+<p>oauth2 proxy ingress</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">networking.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Ingress</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">oauth2-proxy-ingress</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="na">kubernetes.io/ingress.class</span><span class="pi">:</span> <span class="s">traefik</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">ingressClassName</span><span class="pi">:</span> <span class="s">traefik</span>
+  <span class="na">rules</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">host</span><span class="pi">:</span> <span class="s">oauth2-proxy.nsa2.com</span>
+      <span class="na">http</span><span class="pi">:</span>
+        <span class="na">paths</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">path</span><span class="pi">:</span> <span class="s">/</span>
+            <span class="na">pathType</span><span class="pi">:</span> <span class="s">Prefix</span>
+            <span class="na">backend</span><span class="pi">:</span>
+              <span class="na">service</span><span class="pi">:</span>
+                <span class="na">name</span><span class="pi">:</span> <span class="s">oauth2-proxy</span>
+                <span class="na">port</span><span class="pi">:</span>
+                  <span class="na">name</span><span class="pi">:</span> <span class="s">http</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="traefik-ingress-controller">Traefik Ingress Controller</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The Traefik Ingress Controller is a Kubernetes-native ingress controller that provides a reverse proxy and load balancer for your applications. It can be used to route traffic to different services based on the request URL, headers, and other criteria.</p>
+</div>
+<div class="sect2">
+<h3 id="forward-auth-middleware">forward-auth Middleware</h3>
+<div class="paragraph">
+<p>The forward-auth middleware is used to authenticate requests before they reach the backend service. It works by forwarding the request to the OAuth2 Proxy, which handles the authentication process.</p>
+</div>
+<div class="listingblock">
+<div class="title">forward-auth Middleware</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">traefik.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Middleware</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">forward-auth</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">forwardAuth</span><span class="pi">:</span>
+    <i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="na">address</span><span class="pi">:</span> <span class="s">http://oauth2-proxy.o11y.svc.cluster.local/oauth2/</span>
+    <span class="na">trustForwardHeader</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">authResponseHeaders</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">X-Auth-Request-User"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">X-Auth-Request-Email"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">Authorization"</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Set the address of the OAuth2 Proxy service. The <code>trustForwardHeader</code> option is set to true to trust the forwarded headers from the Ingress controller.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="protected-ingress-for-observability-tools">Protected Ingress for Observability Tools</h3>
+<div class="paragraph">
+<p>The Ingress resources for Jaeger, Prometheus, and Grafana are configured to use the forward-auth middleware. This means that all requests to these services will be authenticated by the OAuth2 Proxy before being forwarded to the backend service.</p>
+</div>
+<div class="listingblock">
+<div class="title">ingress for Single Sign-On for Jaeger, Prometheus, and Grafana</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># using EJS templating. using ingress variable</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">networking.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Ingress</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">o11y-sso-ingress</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="na">kubernetes.io/ingress.class</span><span class="pi">:</span> <span class="s">traefik</span>
+    <i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="na">traefik.ingress.kubernetes.io/router.middlewares</span><span class="pi">:</span> <span class="s2">"</span><span class="s">o11y-forward-auth@kubernetescrd"</span>
+
+<span class="na">spec</span><span class="pi">:</span>
+  <i class="conum" data-value="2"></i><b>(2)</b>
+  <span class="na">ingressClassName</span><span class="pi">:</span> <span class="s">traefik</span>
+  <span class="na">rules</span><span class="pi">:</span>
+    <i class="conum" data-value="3"></i><b>(3)</b>
+    <span class="pi">-</span> <span class="na">host</span><span class="pi">:</span> <span class="s">jaeger.nsa2.com</span>
+      <span class="na">http</span><span class="pi">:</span>
+        <span class="na">paths</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">path</span><span class="pi">:</span> <span class="s">/</span>
+            <span class="na">pathType</span><span class="pi">:</span> <span class="s">Prefix</span>
+            <span class="na">backend</span><span class="pi">:</span>
+              <span class="na">service</span><span class="pi">:</span>
+                <span class="na">name</span><span class="pi">:</span> <span class="s">jaeger-collector</span>
+                <span class="na">port</span><span class="pi">:</span>
+                  <span class="na">name</span><span class="pi">:</span> <span class="s">jaeger</span>
+
+    <i class="conum" data-value="4"></i><b>(4)</b>
+    <span class="pi">-</span> <span class="na">host</span><span class="pi">:</span> <span class="s">prometheus.nsa2.com</span>
+      <span class="na">http</span><span class="pi">:</span>
+        <span class="na">paths</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">path</span><span class="pi">:</span> <span class="s">/</span>
+            <span class="na">pathType</span><span class="pi">:</span> <span class="s">Prefix</span>
+            <span class="na">backend</span><span class="pi">:</span>
+              <span class="na">service</span><span class="pi">:</span>
+                <span class="na">name</span><span class="pi">:</span> <span class="s">prometheus</span>
+                <span class="na">port</span><span class="pi">:</span>
+                  <span class="na">name</span><span class="pi">:</span> <span class="s">web</span>
+
+    <i class="conum" data-value="5"></i><b>(5)</b>
+    <span class="pi">-</span> <span class="na">host</span><span class="pi">:</span> <span class="s">grafana.nsa2.com</span>
+      <span class="na">http</span><span class="pi">:</span>
+        <span class="na">paths</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">path</span><span class="pi">:</span> <span class="s">/</span>
+            <span class="na">pathType</span><span class="pi">:</span> <span class="s">Prefix</span>
+            <span class="na">backend</span><span class="pi">:</span>
+              <span class="na">service</span><span class="pi">:</span>
+                <span class="na">name</span><span class="pi">:</span> <span class="s">grafana</span>
+                <span class="na">port</span><span class="pi">:</span>
+                  <span class="na">name</span><span class="pi">:</span> <span class="s">service</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Set the middleware to use the forward-auth middleware.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Set the Ingress class to use the Traefik Ingress controller.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Set the host for the Jaeger service.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>Set the host for the Prometheus service.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td>Set the host for the Grafana service.</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="authentication-flow">Authentication Flow</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The authentication flow works as follows:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>The user accesses the observability tool (e.g., Jaeger, Prometheus, Grafana) via the Ingress URL.</p>
+</li>
+<li>
+<p>The Ingress controller (Traefik) forwards the request to the OAuth2 Proxy.</p>
+</li>
+<li>
+<p>The OAuth2 Proxy checks if the user is authenticated. If not, it redirects the user to the Keycloak login page.</p>
+</li>
+<li>
+<p>The user enters their credentials and logs in.</p>
+</li>
+<li>
+<p>Keycloak redirects the user back to the OAuth2 Proxy with an authorization code.</p>
+</li>
+<li>
+<p>The OAuth2 Proxy exchanges the authorization code for an access token and ID token.</p>
+</li>
+<li>
+<p>The OAuth2 Proxy sets the access token and ID token in the request headers and forwards the request to the backend service (e.g., Jaeger, Prometheus, Grafana).</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="sso-foundry">SSO Foundry</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The SSO Foundry is a submodule of Service Foundry, designed to automate SSO setup for observability platforms or other applications. It simplifies the process of configuring SSO by generating the necessary Kubernetes resources and Helm charts.</p>
+</div>
+<div class="sect2">
+<h3 id="1-create-sso-foundry">1. Create SSO Foundry</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>yo nsa2:sso-foundry init
+
+? Namespace o11y
+? Root Domain<span class="o">(</span>eg. example.com<span class="o">)</span> nsa2.com</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The prompt will ask for the namespace and root domain. The namespace is the Kubernetes namespace where the SSO Foundry will be deployed. The root domain is the domain name that will be used for the SSO Foundry.</p>
+</div>
+<div class="paragraph">
+<p>The command will create a configuration file called <code>sso-foundry-config.yaml</code> in the current directory. This file contains the configuration for the SSO Foundry.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="2-update-sso-foundry-configuration">2. Update SSO Foundry Configuration</h3>
+<div class="listingblock">
+<div class="title">sso-foundry-config.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">common</span><span class="pi">:</span>
+
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+  <span class="na">root-domain</span><span class="pi">:</span> <span class="s">nsa2.com</span>
+
+<span class="na">oauth2</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="na">oidc-issuer-url</span><span class="pi">:</span> <span class="s2">"</span><span class="s">http://keycloak-service-url/realms/nsa2-realm"</span>
+  <span class="na">client_id</span><span class="pi">:</span> <span class="s2">"</span><span class="s">your-client-id"</span>
+  <span class="na">client_secret</span><span class="pi">:</span> <span class="s2">"</span><span class="s">your-client-secret"</span>
+
+<span class="na">oauth2-proxy</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+  <span class="na">release-name</span><span class="pi">:</span> <span class="s">oauth2-proxy</span>  <span class="c1"># release name for helm</span>
+  <span class="na">ingresses</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">o11y-sso-ingress</span>
+      <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+      <span class="na">services</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">service-name</span><span class="pi">:</span> <span class="s">jaeger-collector</span>
+          <span class="na">port-name</span><span class="pi">:</span> <span class="s">jaeger</span>
+          <span class="na">subdomain</span><span class="pi">:</span> <span class="s">jaeger</span>
+        <span class="pi">-</span> <span class="na">service-name</span><span class="pi">:</span> <span class="s">prometheus</span>
+          <span class="na">port-name</span><span class="pi">:</span> <span class="s">web</span>
+          <span class="na">subdomain</span><span class="pi">:</span> <span class="s">prometheus</span>
+        <span class="pi">-</span> <span class="na">service-name</span><span class="pi">:</span> <span class="s">grafana</span>
+          <span class="na">port-name</span><span class="pi">:</span> <span class="s">service</span>
+          <span class="na">subdomain</span><span class="pi">:</span> <span class="s">grafana</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="3-generate-kubernetes-resource-files">3. Generate Kubernetes Resource Files</h3>
+<div class="paragraph">
+<p>After updating the <code>sso-foundry-config.yaml</code> file, you can generate the Kubernetes resource files using the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>yo nsa2:sso-foundry generate</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The command above will generate the following files:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>tree <span class="nb">.</span>
+<span class="nb">.</span>
+├── build-sso-foundry.sh
+├── deploy-sso-foundry.sh
+├── helm-charts
+│   └── oauth2-proxy
+│       ├── custom-values.yaml
+│       └── oauth2-proxy-7.12.6.tgz
+├── k8s
+│   ├── oauth2-proxy
+│   │   ├── kustomization.yaml
+│   │   └── oauth2-proxy-secret.yaml
+│   └── traefik
+│       ├── forward-auth-middleware.yaml
+│       ├── kustomization.yaml
+│       ├── o11y-sso-ingress.yaml
+│       └── oauth2-proxy-ingress.yaml
+├── sso-foundry-config.yaml
+└── undeploy-sso-foundry.sh</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="4-build-sso-foundry-locally">4. Build SSO Foundry Locally</h3>
+<div class="paragraph">
+<p>Unlike other foundries, the SSO Foundry does not require a build step. It is a simple SSO solution that can be deployed directly to the Kubernetes cluster.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>./build-sso-foundry.sh
+
+<span class="c"># Example Output</span>
+
+Building SSO Foundry <span class="k">for </span>Cloud Foundry
+Nothing to build locally <span class="k">for </span>SSO Foundry</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="5-deploy-sso-foundry">5. Deploy SSO Foundry</h3>
+<div class="paragraph">
+<p>To deploy the SSO Foundry, I used Helm charts and Kustomize to manage the Kubernetes resources. The deployment script will install the OAuth2 Proxy and Traefik Ingresses.</p>
+</div>
+<div class="paragraph">
+<p>This script file is created in the Generate step based on the <code>sso-foundry-config.yaml</code> file. The script will install the OAuth2 Proxy and Traefik Ingresses.</p>
+</div>
+<div class="listingblock">
+<div class="title">deploy-sso-foundry.sh</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c">#!/bin/bash</span>
+
+<span class="nb">echo</span> <span class="s2">"Deploying SSO Foundry to Cloud Foundry"</span>
+
+<span class="nv">K8S_NAMESPACE</span><span class="o">=</span><span class="s2">"o11y"</span>
+<span class="nv">OAUTH2_PROXY_HELM_REPO</span><span class="o">=</span><span class="s2">"helm-charts/oauth2-proxy/oauth2-proxy-7.12.6.tgz"</span>
+<span class="nv">OAUTH2_PROXY_HELM_RELEASE_NAME</span><span class="o">=</span><span class="s2">"oauth2-proxy"</span>
+<span class="nv">OAUTH2_PROXY_HELM_CUSTOM_VALUES_FILE</span><span class="o">=</span><span class="s2">"helm-charts/oauth2-proxy/custom-values.yaml"</span>
+
+<span class="c"># Check if treafik is installed</span>
+<span class="k">if</span> <span class="o">!</span> kubectl <span class="nt">-n</span> traefik get deployment traefik<span class="p">;</span> <span class="k">then
+  </span><span class="nb">echo</span> <span class="s2">"Traefik is not installed. Please install Traefik first."</span>
+  <span class="nb">exit </span>1
+<span class="k">fi</span>
+
+<span class="c"># Install OAuth2 Proxy</span>
+<span class="nb">echo</span> <span class="s2">"Installing OAuth2 Proxy"</span>
+kubectl apply <span class="nt">-k</span> k8s/oauth2-proxy
+helm upgrade <span class="nt">--install</span> <span class="nv">$OAUTH2_PROXY_HELM_RELEASE_NAME</span> <span class="nv">$OAUTH2_PROXY_HELM_REPO</span> <span class="se">\</span>
+  <span class="nt">-f</span> <span class="nv">$OAUTH2_PROXY_HELM_CUSTOM_VALUES_FILE</span> <span class="se">\</span>
+  <span class="nt">--namespace</span> <span class="nv">$K8S_NAMESPACE</span> <span class="nt">--create-namespace</span>
+
+<span class="c"># Install Traefik Ingresses</span>
+<span class="nb">echo</span> <span class="s2">"Installing Traefik Ingresses"</span>
+kubectl apply <span class="nt">-k</span> k8s/traefik</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To deploy the SSO Foundry, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>./deploy-sso-foundry.sh</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="6-undeploy-sso-foundry">6. Undeploy SSO Foundry</h3>
+<div class="paragraph">
+<p>This script file is created in the Generate step based on the <code>sso-foundry-config.yaml</code> file. The script will uninstall the OAuth2 Proxy and Traefik Ingresses.</p>
+</div>
+<div class="listingblock">
+<div class="title">undeploy-sso-foundry.sh</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c">#!/bin/bash</span>
+
+<span class="nb">echo</span> <span class="s2">"Undeploying SSO Foundry to Cloud Foundry"</span>
+
+<span class="nv">K8S_NAMESPACE</span><span class="o">=</span><span class="s2">"o11y"</span>
+<span class="c">#OAUTH2_PROXY_HELM_REPO="helm-charts/oauth2-proxy/oauth2-proxy-7.12.6.tgz"</span>
+<span class="nv">OAUTH2_PROXY_HELM_RELEASE_NAME</span><span class="o">=</span><span class="s2">"oauth2-proxy"</span>
+<span class="nv">OAUTH2_PROXY_HELM_CUSTOM_VALUES_FILE</span><span class="o">=</span><span class="s2">"k8s/oauth2-proxy/custom-values.yaml"</span>
+
+
+
+<span class="c"># Uninstall Traefik Ingresses</span>
+<span class="nb">echo</span> <span class="s2">"Uninstalling Traefik Ingresses"</span>
+kubectl delete <span class="nt">-k</span> k8s/traefik
+
+<span class="c"># Install OAuth2 Proxy</span>
+<span class="nb">echo</span> <span class="s2">"Uninstalling OAuth2 Proxy"</span>
+helm delete <span class="nv">$OAUTH2_PROXY_HELM_RELEASE_NAME</span> <span class="nt">--namespace</span> <span class="nv">$K8S_NAMESPACE</span>
+kubectl delete <span class="nt">-k</span> k8s/oauth2-proxy</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To undeploy the SSO Foundry, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>./undeploy-sso-foundry.sh</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="test-single-sign-on">Test Single Sign-On</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Visit the following URLs in your browser:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="http://jaeger.nsa2.com" class="bare">http://jaeger.nsa2.com</a></p>
+</li>
+<li>
+<p><a href="http://prometheus.nsa2.com" class="bare">http://prometheus.nsa2.com</a></p>
+</li>
+<li>
+<p><a href="http://grafana.nsa2.com" class="bare">http://grafana.nsa2.com</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>You will be redirected to the Keycloak login screen.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/kc-login.png" alt="kc login" width="1000">
+</div>
+<div class="title">Figure 2. Keycloak Login Page</div>
+</div>
+<div class="paragraph">
+<p>Use:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>User: devops</p>
+</li>
+<li>
+<p>Password: password</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>After authentication, you will be redirected to the requested service.</p>
+</div>
+<div class="paragraph">
+<p>Once logged in, you will see the following page:</p>
+</div>
+<div class="paragraph">
+<p><a href="http://jaeger.nsa2.com" class="bare">http://jaeger.nsa2.com</a></p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/jaeger-ui.png" alt="jaeger ui" width="1000">
+</div>
+<div class="title">Figure 3. Jaeger UI</div>
+</div>
+<div class="paragraph">
+<p><a href="http://prometheus.nsa2.com" class="bare">http://prometheus.nsa2.com</a></p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/prometheus-ui.png" alt="prometheus ui" width="1000">
+</div>
+<div class="title">Figure 4. Prometheus UI</div>
+</div>
+<div class="paragraph">
+<p><a href="http://grafana.nsa2.com" class="bare">http://grafana.nsa2.com</a></p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/grafana-ui.png" alt="grafana ui" width="1000">
+</div>
+<div class="title">Figure 5. Grafana UI</div>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/grafana-admin-profile.png" alt="grafana admin profile" width="1000">
+</div>
+<div class="title">Figure 6. Grafana Admin Profile</div>
+</div>
+<div class="paragraph">
+<p>You can check the user profile in Grafana. The user is authenticated via Keycloak and has the <code>grafana-admin</code> role.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="logout">Logout</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p>Grafana provides a “Sign out” option.</p>
+</li>
+<li>
+<p>For Jaeger and Prometheus, logout is not available via UI.</p>
+</li>
+</ul>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/grafana-sign-out-button.png" alt="grafana sign out button" width="1000">
+</div>
+<div class="title">Figure 7. Grafana Sign Out</div>
+</div>
+<div class="paragraph">
+<p>After clicking on the "Sign out" button, you will be redirected to the Keycloak logout page.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/kc-logout.png" alt="kc logout" width="1000">
+</div>
+<div class="title">Figure 8. Keycloak Logout Page</div>
+</div>
+<div class="paragraph">
+<p>Use the following manual logout URL to clear Keycloak session:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="http://a5ce4cf2c1286439fba85862488c3b12-803991664.ca-west-1.elb.amazonaws.com/realms/nsa2-realm/protocol/openid-connect/logout?redirect_uri=http://oauth2-proxy.nsa2.com/" class="bare">http://a5ce4cf2c1286439fba85862488c3b12-803991664.ca-west-1.elb.amazonaws.com/realms/nsa2-realm/protocol/openid-connect/logout?redirect_uri=http://oauth2-proxy.nsa2.com/</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide demonstrated how to configure a centralized SSO mechanism across Jaeger, Prometheus, and Grafana using Keycloak, Traefik, and OAuth2 Proxy. By leveraging OAuth2 Proxy as a reverse proxy and middleware, you ensure secure and seamless user authentication across your observability stack.</p>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>

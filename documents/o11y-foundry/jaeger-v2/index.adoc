@@ -1,0 +1,445 @@
+---
+layout: documents
+title:  Jaeger v2 with OpenTelemetry on Kubernetes
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+// docs/distributed-tracing/part7-jaeger-v2-otel/index.adoc
+
+= Jaeger v2 with OpenTelemetry on Kubernetes
+
+:imagesdir: images
+
+image::introduction.png[width=1000, align="center"]
+== Introduction
+
+Jaeger v1 is scheduled for end-of-life on December 31, 2025. On November 12, 2024, Jaeger v2 was released as a major upgrade, built on the OpenTelemetry Collector framework.
+
+This guide provides step-by-step instructions on setting up Jaeger v2 with OpenTelemetry on Kubernetes.
+
+For more details on Jaeger v2, refer to the official release notes:  link:https://medium.com/jaegertracing/jaeger-v2-released-09a6033d1b10[Jaeger v2 Released]
+
+== Pre-requisites
+
+* kubectl
+* Helm
+* cert-manager
+* OpenTelemetryOperator
+* Prometheus Operator
+
+// == Install Dependencies
+//
+// [source,shell]
+// ----
+// $ ./install-dependencies.sh
+// ----
+== Jaeger v1 working with OpenTelemetry
+
+Jaeger v1 can work with OpenTelemetry Collector, as illustrated below:
+
+.Jaeger v1 Architecture
+image::jaeger-v1-architecture.png[width=1000, align="center"]
+
+However, in Jaeger v1, the collector is simply one of the exporters within the OpenTelemetry Collector. Jaeger v1 itself is not based on the OpenTelemetry Collector, whereas Jaeger v2 is fully integrated with it.
+
+
+== Deploying Jaeger v2 Operator
+
+Jaeger v2 is designed to be deployed on Kubernetes using the OpenTelemetry Operator, benefiting both Jaeger and OpenTelemetry users.
+
+[quote,Jaeger Operator v2]
+____
+As the Jaeger V2 is released, it is decided that Jaeger V2 will deployed on Kubernetes using OpenTelemetry Operator. This will benefit both the users of Jaeger and OpenTelemetry. To use Jaeger V2 with OpenTelemetry Operator, the steps are as follows:
+____
+
+To install Jaeger v2, you need to deploy the following components:
+
+. cert-manager
+. OpenTelemetry Operator
+
+=== Install cert-manager
+
+Run the following command to install cert-manager:
+
+[source,shell]
+----
+$ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.1/cert-manager.yaml
+----
+
+Verify that all resources are in a ready state within the cert-manager namespace.
+
+=== Install OpenTelemetry Operator
+
+Install the OpenTelemetry Operator by running the command below:
+
+[source,shell]
+----
+kubectl apply -f https://github.com/open-telemetry/opentelemetry-operator/releases/latest/download/opentelemetry-operator.yaml
+----
+
+Verify that all resources are in a ready state within the opentelemetry-operator-system namespace.
+
+
+
+== Installing Jaeger Operator v2 with In Memory Storage
+
+For testing purposes, Jaeger v2 can be installed with in-memory storage, eliminating the need for an external database.
+
+
+.jaeger-inmemory-instance.yaml
+[source,yaml]
+----
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: jaeger-inmemory-instance  # <1>
+  namespace: o11y # <2>
+spec:
+  image: jaegertracing/jaeger:latest
+  ports:
+    - name: jaeger
+      port: 16686     # <3>
+  config:
+    service:
+      extensions: [jaeger_storage, jaeger_query]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          exporters: [jaeger_storage_exporter]
+    extensions:
+      jaeger_query:
+        storage:
+          traces: memstore
+      jaeger_storage:
+        backends:
+          memstore:
+            memory:
+              max_traces: 100000
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    exporters:
+      jaeger_storage_exporter:
+        trace_storage: memstore
+----
+
+<1> The name of the OpenTelemetryCollector instance. Make sure that the suffix '-collector' is added to the name. So the name of Kubernetes service and deployment will be jaeger-inmemory-instance-collector.
+<2> The namespace where the OpenTelemetryCollector instance will be deployed.
+<3> The port where the Jaeger UI will be exposed.
+
+Apply the configuration:
+[source,shell]
+----
+$ kubectl apply -f jaeger-inmemory-instance.yaml
+----
+
+Check the deployed resources:
+[source,shell]
+----
+$ kubectl get all -n o11y -o name
+----
+
+To access the Jaeger UI, port-forward the service:
+
+[source,shell]
+----
+$ kubectl port-forward svc/jaeger-inmemory-instance-collector 16686:16686 -n o11y
+----
+
+Then open a browser and navigate to http://localhost:16686.
+
+.Jaeger UI - In Memory Storage
+image::jaeger-ui-memory.png[width=1000, align="center"]
+
+// === o11y-otel-spring-example Application
+//
+// To test the Jaeger with in-memory storage, you can use the o11y-otel-spring-example application. This application is a Spring Boot application that uses OpenTelemetry Instrumentation to send traces to OpenTelemetry Collector. Because the OTEL_EXPORTER_OTLP_ENDPOINT environment variable is set to 'http://otel-collector:4318, I will deploy the OpenTelemetry Collector with the name otel-collector.
+//
+// .delete jaege-inmemory-instance before applying the changes
+// [source,shell]
+// ----
+// $ kubectl delete -f jaeger-inmemory-instance.yaml
+// ----
+//
+// .jaeger-inmemory-instance.yaml - Modified
+// [source,yaml]
+// ----
+// apiVersion: opentelemetry.io/v1beta1
+// kind: OpenTelemetryCollector
+// metadata:
+//   name: otel  # <1>
+//   namespace: o11y
+//
+// # omitted for brevity
+// ----
+//
+// <1> The name will be otel-collector and o11y-otel-spring-example will send traces to otel-collector.
+//
+//
+// .apply changes
+// [source,shell]
+// ----
+// $ kubectl apply -f jaeger-inmemory-instance.yaml
+// ----
+//
+// Call the endpoint below to generate traces.
+//
+// [source,shell]
+// ----
+// $ kubectl -n o11y port-forward svc/o11y-otel-spring-example 8080:8080
+// ----
+//
+// To access the Jaeger UI, you can port-forward the service to your local machine.
+//
+// [source,shell]
+// ----
+// $ curl http://localhost:8080/otel | jq
+// ----
+//
+// .Output of the command above
+// [source,shell]
+// ----
+// {
+//   "status": "success",
+//   "results": [
+//     {
+//       "status": "success",
+//       "message": "Slept for 5 seconds"
+//     },
+//     {
+//       "status": "success",
+//       "message": "Slept for 4 seconds"
+//     },
+//     {
+//       "status": "success",
+//       "message": "Slept for 2 seconds"
+//     },
+//     {
+//       "status": "success",
+//       "message": "Slept for 3 seconds"
+//     }
+//   ]
+// }
+// ----
+//
+// To access the Jaeger UI, you can port-forward the service to your local machine.
+// [source,shell]
+// ----
+// $ kubectl port-forward svc/otel-collector 16686:16686 -n o11y
+// ----
+//
+// Open a browser and go to http://localhost:16686 to access the Jaeger UI.
+//
+// .Jaeger UI - In Memory Storage - Search
+// image::jaeger-ui-memory-search.png[width=1000, align="center"]
+//
+// .Jaeger UI - In Memory Storage - Trace
+// image::jaeger-ui-memory-details.png[width=1000, align="center"]
+//
+// We looked at how to install Jaeger with in-memory storage and how to send traces from the o11y-otel-spring-example application to Jaeger.
+//
+// Before moving to the next section, delete the Jaeger instance.
+// [source,shell]
+// ----
+// $ kubectl delete -f jaeger-inmemory-instance.yaml
+// ----
+
+== Installing Jaeger v2 with Cassandra Storage
+
+For production environments, it is recommended to use persistent storage such as Cassandra. Follow the steps below to install Jaeger with Cassandra storage.
+
+=== Install Cassandra
+
+Create the necessary configuration files:
+
+* cassandra-credentials.yaml - This file contains the Cassandra credentials.
+* cassandra-initdb-configmap.yaml - This file contains the Cassandra initdb configmap.
+* cassandra-values.yaml - This file contains the custom Cassandra values.
+
+.cassandra-credentials.yaml
+[source,yaml]
+----
+apiVersion: v1
+data:
+  password: Y2hhbmdlbWU= $ <1>
+kind: Secret
+metadata:
+  name: cassandra-credentials
+  namespace: o11y
+----
+<1> The password for the Cassandra database.
+
+
+.cassandra-initdb-configmap.yaml
+[source,yaml]
+----
+apiVersion: v1
+data:
+  # <1>
+  create-keyspace.cql: |-
+    CREATE KEYSPACE IF NOT EXISTS jaeger_tracing
+    WITH REPLICATION = {
+      'class': 'NetworkTopologyStrategy',
+      'replication_factor': 2
+    };
+kind: ConfigMap
+metadata:
+  name: cassandra-initdb-configmap
+  namespace: o11y
+----
+<1> The CQL script to create the keyspace for the Jaeger tracing.
+
+Apply the configurations:
+[source,shell]
+----
+$ kubectl apply -f cassandra-credentials.yaml
+$ kubectl apply -f cassandra-initdb-configmap.yaml
+----
+
+The cassandra-credentials secret and cassandra-initdb-configmap configmap are created and used in the Cassandra Helm chart.
+
+.cassandra-values.yaml
+[source,yaml]
+----
+dbUser:
+  user: cassandra
+  existingSecret:
+    name: cassandra-credentials # <1>
+    keyMapping:
+      cassandra-password: password # <2>
+
+initDBConfigMap: "cassandra-initdb-configmap" # <3>
+
+replicaCount: 3
+----
+
+<1> The name of the secret that contains the Cassandra credentials.
+<2> The key in the secret that contains the Cassandra password.
+<3> The name of the configmap that contains the CQL script to create the keyspace for the Jaeger tracing.
+
+Install Cassandra using Helm:
+
+[source,shell]
+----
+#$ helm upgrade --install cassandra ./cassandra-12.1.1.tgz -f cassandra-values.yaml --namespace o11y --create-namespace
+$ helm upgrade --install cassandra bitnami/cassandra -f cassandra-values.yaml --namespace o11y --create-namespace --version 12.1.1
+----
+
+=== Install Jaeger Operator v2 with Cassandra Storage
+
+Create otel-collector.yaml
+
+.otel-collector.yaml
+[source,yaml]
+----
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel  # <1>
+  namespace: o11y
+spec:
+  image: jaegertracing/jaeger:latest
+  ports:
+    - name: jaeger
+      port: 16686
+  config:
+    service:
+      extensions: [jaeger_storage, jaeger_query]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          exporters: [jaeger_storage_exporter]
+    extensions:
+      jaeger_query:
+        storage:
+          traces: cassandra_storage
+      jaeger_storage:
+        backends:
+          cassandra_storage:
+            cassandra:
+              schema:
+                keyspace: "jaeger_tracing"  # <2>
+                create: "${env:CASSANDRA_CREATE_SCHEMA:-true}"
+              connection:
+                auth:
+                  basic:
+                    username: "${env:CASSANDRA_USERNAME:-cassandra}" # <3>
+                    password: "${env:CASSANDRA_PASSWORD:-changeme}"   # <4>
+                tls:
+                  insecure: true
+                servers: ["cassandra:9042"] # <5>
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    exporters:
+      jaeger_storage_exporter:
+        trace_storage: cassandra_storage
+----
+<1> The name of the OpenTelemetryCollector instance. Make sure that the suffix '-collector' is added to the name. So the name of Kubernetes service and deployment will be otel-collector.
+<2> The keyspace for the Jaeger tracing.
+<3> The username for the Cassandra database.
+<4> The password for the Cassandra database.
+<5> The servers for the Cassandra database.
+
+
+Apply the configuration:
+[source,shell]
+----
+$ kubectl apply -f otel-collector.yaml
+----
+
+// You can test the Jaeger with Cassandra storage by sending traces from the o11y-otel-spring-example application to Jaeger as shown in the previous section.
+
+To access the Jaeger UI, port-forward the service:
+
+[source,shell]
+----
+$ kubectl port-forward svc/otel-collector 16686:16686 -n o11y
+----
+
+And call the endpoint below to generate traces:
+----
+$ kubectl -n o11y port-forward svc/o11y-otel-spring-example 8080:8080
+$ curl http://localhost:8080/otel | jq
+----
+
+Then open a browser and navigate to http://localhost:16686.
+
+.Jaeger UI - Cassandra Storage
+image::jaeger-ui-cassandra-search.png[width=1000, align="center"]
+
+.Jaeger UI - Cassandra Storage - Trace
+image::jaeger-ui-cassandra-details.png[width=1000, align="center"]
+
+
+== Conclusion
+
+In this guide, we showed you how to install Jaeger v2 with OpenTelemetry on Kubernetes. We installed Jaeger with in-memory storage and Cassandra storage. We also showed you how to send traces from the o11y-otel-spring-example application to Jaeger.
+
+In this guide, we demonstrated how to install Jaeger v2 with OpenTelemetry on Kubernetes using both in-memory and Cassandra storage. We also tested trace generation using a sample application.
+
+For further details, visit:
+
+* https://www.jaegertracing.io/docs/2.4/configuration/
+* https://github.com/jaegertracing/jaeger-operator#jager-v2-operator
+
+// == References
+//
+// * https://www.jaegertracing.io/docs/2.4/configuration/
+// * https://github.com/jaegertracing/jaeger-operator#jager-v2-operator
+// * link:https://github.com/jaegertracing/jaeger-operator?tab=readme-ov-file#jager-v2-operator[Jaeger Operator v2]

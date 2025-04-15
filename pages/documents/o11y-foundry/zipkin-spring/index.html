@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Distributed Tracing - Setup Zipkin and Sample Spring Boot Application</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre,
+    pre code {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre;
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+    <div class="logo text-xl font-semibold">Service Foundry</div>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#what-is-distributed-tracing">What is Distributed Tracing?</a></li>
+<li><a href="#what-is-zipkin">What is Zipkin?</a>
+<ul class="sectlevel2">
+<li><a href="#installing-zipkin-on-kubernetes">Installing Zipkin on Kubernetes</a></li>
+<li><a href="#docker-image">Docker Image</a></li>
+<li><a href="#create-secrets">Create Secrets</a></li>
+<li><a href="#helm-chart">Helm Chart</a></li>
+<li><a href="#install-zipkin">Install Zipkin</a></li>
+<li><a href="#access-zipkin-using-port-forwarding">Access Zipkin using Port Forwarding</a></li>
+</ul>
+</li>
+<li><a href="#sample-spring-boot-application">Sample Spring Boot Application</a>
+<ul class="sectlevel2">
+<li><a href="#scenario">Scenario</a></li>
+<li><a href="#source-files">Source Files</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This article is part of a series of articles on Distributed Tracing. In this article, we will discuss how to set up Zipkin and a sample Spring Boot application to demonstrate distributed tracing.</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Part 1 - <a href="https://www.linkedin.com/pulse/distributed-tracing-setup-zipkin-sample-spring-boot-young-gyu-kim-msaqc/">Distributed Tracing - Setup Zipkin and Sample Spring Boot Application</a></p>
+</li>
+<li>
+<p>Part 2 - <a href="https://www.linkedin.com/pulse/distributed-tracing-spring-boot-application-micrometer-kim-napzc">Distributed Tracing - Spring Boot Application with Micrometer and OpenTelemetry</a></p>
+</li>
+<li>
+<p>Part 3 - Distributed Tracing - Spring Boot Application with OpenTelemetry Instrumentation</p>
+</li>
+<li>
+<p>Part 4 - Distributed Tracing - Spring Boot Application with OpenTelemetry Collector</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>This article is the first part of the series.</p>
+</div>
+<div class="paragraph">
+<p>This post includes following topics:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>What is Zipkin?</p>
+</li>
+<li>
+<p>Installing Zipkin on Kubernetes</p>
+</li>
+<li>
+<p>Sample Spring Boot Application</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>The Zipkin server and the sample Spring Boot application will be used in the next articles to demonstrate distributed tracing.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-is-distributed-tracing">What is Distributed Tracing?</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Distributed tracing is a method used to profile and monitor applications, especially those built using a microservices architecture. Distributed tracing helps pinpoint where failures occur and what causes poor performance.</p>
+</div>
+<div class="paragraph">
+<p>In this post, we will discuss two popular distributed tracing tools, OpenTelemetry and Zipkin and learn how they can work together to provide distributed tracing capabilities.</p>
+</div>
+<div class="paragraph">
+<p>The performance monitoring of this sample application includes:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>calling REST APIs</p>
+</li>
+<li>
+<p>executing SQL queries</p>
+</li>
+<li>
+<p>sending messages to RabbitMQ</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-is-zipkin">What is Zipkin?</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Zipkin is a distributed tracing system that helps gather timing data needed to troubleshoot latency problems in microservice architectures. It manages both the collection and lookup of this data. Zipkin’s design is based on the Google Dapper paper.</p>
+</div>
+<div class="paragraph">
+<p>We are going to use ElasticSearch as the storage backend for Zipkin. However, this post does not cover the installation of ElasticSearch.</p>
+</div>
+<div class="sect2">
+<h3 id="installing-zipkin-on-kubernetes">Installing Zipkin on Kubernetes</h3>
+<div class="paragraph">
+<p>For more information on how to install Zipkin on Kubernetes, refer to the link below:</p>
+</div>
+<div class="paragraph">
+<p><a href="https://zipkin.io/pages/quickstart.html" class="bare">https://zipkin.io/pages/quickstart.html</a></p>
+</div>
+<div class="paragraph">
+<p>I decided to install Zipkin using the latest source code because I was having issues connecting to Elasticsearch over HTTPS, particularly when resolving hostnames on Kubernetes. I wanted to modify the source code to skip hostname verification when connecting to Elasticsearch.</p>
+</div>
+<div class="listingblock">
+<div class="title">ZipkinElasticsearchStorageConfiguration.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="c1">// exposed as a bean so that we can test TLS by swapping it out.</span>
+  <span class="c1">// TODO: see if we can override the TLS via properties instead as that has less surface area.</span>
+  <span class="nd">@Bean</span> <span class="nd">@Qualifier</span><span class="o">(</span><span class="no">QUALIFIER</span><span class="o">)</span> <span class="nd">@ConditionalOnMissingBean</span> <span class="nc">ClientFactory</span> <span class="nf">esClientFactory</span><span class="o">(</span>
+    <span class="nc">ZipkinElasticsearchStorageProperties</span> <span class="n">es</span><span class="o">,</span>
+    <span class="nc">MeterRegistry</span> <span class="n">meterRegistry</span><span class="o">)</span> <span class="kd">throws</span> <span class="nc">Exception</span> <span class="o">{</span>
+    <span class="nc">ClientFactoryBuilder</span> <span class="n">builder</span> <span class="o">=</span> <span class="nc">ClientFactory</span><span class="o">.</span><span class="na">builder</span><span class="o">();</span>
+
+    <span class="nc">Ssl</span> <span class="n">ssl</span> <span class="o">=</span> <span class="n">es</span><span class="o">.</span><span class="na">getSsl</span><span class="o">();</span>
+    <span class="k">if</span> <span class="o">(</span><span class="n">ssl</span><span class="o">.</span><span class="na">isNoVerify</span><span class="o">())</span> <span class="n">builder</span><span class="o">.</span><span class="na">tlsNoVerify</span><span class="o">();</span>
+    <span class="c1">// Allow use of a custom KeyStore or TrustStore when connecting to Elasticsearch</span>
+    <span class="k">if</span> <span class="o">(</span><span class="n">ssl</span><span class="o">.</span><span class="na">getKeyStore</span><span class="o">()</span> <span class="o">!=</span> <span class="kc">null</span> <span class="o">||</span> <span class="n">ssl</span><span class="o">.</span><span class="na">getTrustStore</span><span class="o">()</span> <span class="o">!=</span> <span class="kc">null</span><span class="o">)</span> <span class="n">configureSsl</span><span class="o">(</span><span class="n">builder</span><span class="o">,</span> <span class="n">ssl</span><span class="o">);</span>
+
+
+    <span class="nc">String</span> <span class="n">esHost</span> <span class="o">=</span> <span class="k">new</span> <span class="n">java</span><span class="o">.</span><span class="na">net</span><span class="o">.</span><span class="na">URL</span><span class="o">(</span><span class="n">es</span><span class="o">.</span><span class="na">getHosts</span><span class="o">()).</span><span class="na">getHost</span><span class="o">();</span>
+
+
+    <span class="c1">// Elasticsearch 7 never returns a response when receiving an HTTP/2 preface instead of the more</span>
+    <span class="c1">// valid behavior of returning a bad request response, so we can't use the preface.</span>
+    <span class="c1">// TODO: find or raise a bug with Elastic</span>
+    <span class="k">return</span> <span class="n">builder</span><span class="o">.</span><span class="na">useHttp2Preface</span><span class="o">(</span><span class="kc">false</span><span class="o">)</span>
+      <span class="o">.</span><span class="na">connectTimeoutMillis</span><span class="o">(</span><span class="n">es</span><span class="o">.</span><span class="na">getTimeout</span><span class="o">())</span>
+      <span class="o">.</span><span class="na">tlsNoVerifyHosts</span><span class="o">(</span><span class="n">esHost</span><span class="o">)</span>
+      <span class="o">.</span><span class="na">meterRegistry</span><span class="o">(</span><span class="n">meterRegistry</span><span class="o">)</span>
+      <span class="o">.</span><span class="na">build</span><span class="o">();</span>
+  <span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>I added tlsNoVerifyHosts(esHost) to the ClientFactoryBuilder to skip hostname verification.</p>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+If you do not need to modify the source code, you can use the Docker image provided by the Zipkin project.
+</td>
+</tr>
+</table>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Clone the Zipkin repository</p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ git clone https://github.com/openzipkin/zipkin</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>I used Java 21 to build the Zipkin server. Java 17 or higher is required.</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Build and run the Zipkin server</p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre># Java 21 used. Java 17 or higher is required.
+$ cd zipkin
+$ ./mvnw -T1C -q --batch-mode -DskipTests --also-make -pl zipkin-server clean package
+
+$ java -jar ./zipkin-server/target/zipkin-server-3.4.1-SNAPSHOT-exec.jar</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The Zipkin server will be running on <a href="http://localhost:9411" class="bare">http://localhost:9411</a>. And the storage type is memory by default.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="docker-image">Docker Image</h3>
+<div class="paragraph">
+<p>I created a Docker image for the Zipkin server to make it easier to deploy on Kubernetes.</p>
+</div>
+<div class="listingblock">
+<div class="title">Dockerfile</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="dockerfile"><span class="k">FROM</span><span class="s"> openjdk:21-jdk-bullseye</span>
+<span class="k">WORKDIR</span><span class="s"> /usr/app</span>
+
+<span class="k">COPY</span><span class="s"> ./zipkin-server-3.4.1-SNAPSHOT-exec.jar /usr/app/zipkin-server.jar</span>
+<span class="k">COPY</span><span class="s"> ./run-app.sh /usr/app/run-app.sh</span>
+
+<span class="k">RUN </span><span class="nb">chmod</span> +x /usr/app/run-app.sh
+
+<span class="k">EXPOSE</span><span class="s"> 9411</span>
+<span class="k">ENTRYPOINT</span><span class="s"> ["./run-app.sh"]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The following is the run-app.sh script used in the Docker image.</p>
+</div>
+<div class="listingblock">
+<div class="title">run-app.sh</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c">#!/bin/bash</span>
+
+<span class="nb">exec </span>java <span class="nv">$JAVA_OPTS</span> <span class="se">\</span>
+  <span class="nt">-Djavax</span>.net.ssl.trustStore<span class="o">=</span><span class="nv">$ES_TRUSTSTORE_PATH</span> <span class="se">\</span>
+  <span class="nt">-Djavax</span>.net.ssl.trustStorePassword<span class="o">=</span><span class="nv">$ES_TRUSTSTORE_PASSWORD</span> <span class="se">\</span>
+  <span class="nt">-jar</span> ./zipkin-server.jar <span class="se">\</span>
+  <span class="nt">--spring</span>.cloud.bootstrap.enabled<span class="o">=</span><span class="nb">true</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This includes the truststore path and password for connecting to ElasticSearch using HTTPS.</p>
+</div>
+<div class="paragraph">
+<p>ES_TRUSTSTORE_PATH and ES_TRUSTSTORE_PASSWORD are environment variables that are passed to the Docker container. These environment variables are set in the Kubernetes deployment.yaml file.</p>
+</div>
+<div class="paragraph">
+<p>Push the Docker image to the Docker registry so that it can be used in the Helm chart later.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-secrets">Create Secrets</h3>
+<div class="paragraph">
+<p>Two secrets are required below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>elasticsearch-truststore</p>
+</li>
+<li>
+<p>elasticsearch-credentials</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>The elasticsearch-truststore secret contains the http.p12 file. The elasticsearch-credentials secret contains the password for the http.p12 file and the password for the elasticsearch user.</p>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+The http.p12 file came from the ElasticSearch installation.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Create the elasticsearch-truststore secret:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 create secret generic elasticsearch-truststore <span class="nt">--from-file</span><span class="o">=</span>http.p12</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Create the elasticsearch-credentials secret:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 create secret generic elasticsearch-credentials <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span>truststore-password<span class="o">=</span>your-trust-store-password <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span>elasticsearch-password<span class="o">=</span>your-es-password <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span>elasticsearch-username<span class="o">=</span>your-es-username</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="helm-chart">Helm Chart</h3>
+<div class="paragraph">
+<p>I created my own Helm chart for Zipkin to make it easier to meet our own requirements.</p>
+</div>
+<div class="listingblock">
+<div class="title">values.yaml file</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># omitted...</span>
+
+<span class="na">zipkin</span><span class="pi">:</span>
+  <span class="na">logLevel</span><span class="pi">:</span> <span class="s">DEBUG</span>
+  <span class="na">storage</span><span class="pi">:</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">elasticsearch</span>
+    <span class="na">elasticsearch</span><span class="pi">:</span>
+      <span class="na">hosts</span><span class="pi">:</span> <span class="s">https://elasticsearch-master.elastic:9200</span>
+
+
+<span class="na">volumes</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">elasticsearch-truststore</span>
+    <span class="na">secret</span><span class="pi">:</span>
+      <span class="na">secretName</span><span class="pi">:</span> <span class="s">elasticsearch-truststore</span>
+
+<span class="c1"># Additional volumeMounts on the output Deployment definition.</span>
+<span class="na">volumeMounts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">elasticsearch-truststore</span>
+    <span class="na">mountPath</span><span class="pi">:</span> <span class="s2">"</span><span class="s">/usr/app/certs"</span>
+    <span class="na">readOnly</span><span class="pi">:</span> <span class="kc">true</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The values.yaml file includes the truststore path and password for connecting to ElasticSearch using HTTPS. The truststore path is mounted as a volume in the deployment.yaml file.</p>
+</div>
+<div class="listingblock">
+<div class="title">templates/deployment.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># omitted...</span>
+
+      <span class="na">containers</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="pi">{{</span> <span class="nv">.Chart.Name</span> <span class="pi">}}</span>
+          <span class="na">securityContext</span><span class="pi">:</span>
+            <span class="pi">{{</span><span class="nv">- toYaml .Values.securityContext | nindent 12</span> <span class="pi">}}</span>
+          <span class="na">image</span><span class="pi">:</span> <span class="s2">"</span><span class="s">{{</span><span class="nv"> </span><span class="s">.Values.image.repository</span><span class="nv"> </span><span class="s">}}:{{</span><span class="nv"> </span><span class="s">.Values.image.tag</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">default</span><span class="nv"> </span><span class="s">.Chart.AppVersion</span><span class="nv"> </span><span class="s">}}"</span>
+          <span class="na">imagePullPolicy</span><span class="pi">:</span> <span class="pi">{{</span> <span class="nv">.Values.image.pullPolicy</span> <span class="pi">}}</span>
+          <span class="na">env</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">value</span><span class="pi">:</span> <span class="pi">{{</span> <span class="nv">.Values.zipkin.storage.type</span> <span class="pi">}}</span>
+              <span class="na">name</span><span class="pi">:</span> <span class="s">STORAGE_TYPE</span>
+            <span class="pi">-</span> <span class="na">value</span><span class="pi">:</span> <span class="pi">{{</span> <span class="nv">.Values.zipkin.storage.elasticsearch.hosts</span> <span class="pi">}}</span>
+              <span class="na">name</span><span class="pi">:</span> <span class="s">ES_HOSTS</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">ES_USERNAME</span>
+              <span class="na">valueFrom</span><span class="pi">:</span>
+                <span class="na">secretKeyRef</span><span class="pi">:</span>
+                  <span class="na">name</span><span class="pi">:</span> <span class="s">elasticsearch-credentials</span>
+                  <span class="na">key</span><span class="pi">:</span> <span class="s">elasticsearch-username</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">ES_PASSWORD</span>
+              <span class="na">valueFrom</span><span class="pi">:</span>
+                <span class="na">secretKeyRef</span><span class="pi">:</span>
+                  <span class="na">name</span><span class="pi">:</span> <span class="s">elasticsearch-credentials</span>
+                  <span class="na">key</span><span class="pi">:</span> <span class="s">elasticsearch-password</span>
+            <span class="pi">-</span> <span class="na">value</span><span class="pi">:</span> <span class="pi">{{</span> <span class="nv">.Values.zipkin.logLevel</span> <span class="pi">}}</span>
+              <span class="na">name</span><span class="pi">:</span> <span class="s">ZIPKIN_LOG_LEVEL</span>
+
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">ES_TRUSTSTORE_PATH</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s">/usr/app/certs/http.p12</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">ES_TRUSTSTORE_PASSWORD</span>
+              <span class="na">valueFrom</span><span class="pi">:</span>
+                <span class="na">secretKeyRef</span><span class="pi">:</span>
+                  <span class="na">name</span><span class="pi">:</span> <span class="s">elasticsearch-credentials</span>
+                  <span class="na">key</span><span class="pi">:</span> <span class="s">truststore-password</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The deployment.yaml file includes the environment variables for connecting to ElasticSearch using HTTPS.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-zipkin">Install Zipkin</h3>
+<div class="paragraph">
+<p>Install the Zipkin server using the Helm chart.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nt">-n</span> nsa2 <span class="nb">install </span>zipkin-server ./zipkin-server <span class="nt">--values</span> opensearch-values.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="access-zipkin-using-port-forwarding">Access Zipkin using Port Forwarding</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 port-forward svc/zipkin-server 9411:9411</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Access Zipkin using <a href="http://localhost:9411" class="bare">http://localhost:9411</a>.</p>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="images/zipkin-localhost-1.png" alt="zipkin localhost 1">
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="sample-spring-boot-application">Sample Spring Boot Application</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We are going to create a simple Web application using Spring Boot. It executes SQL queries, calls other microservices, and  sends messages to RabbitMQ. There is no tracing related code in the application at all.
+However, we will see the tracing data generated when a request is made to the application by:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Calling a REST API</p>
+</li>
+<li>
+<p>Executing a SQL Query</p>
+</li>
+<li>
+<p>Sending a message to RabbitMQ</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="scenario">Scenario</h3>
+<div class="paragraph">
+<p>Here is the scenario of the sample Spring Boot application.</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>ErrorLogController receives a request from the client.</p>
+</li>
+<li>
+<p>ErrorLogController calls ErrorLogNotificationService to get the error log notification data from the database.</p>
+</li>
+<li>
+<p>ErrorLogNotificationService calls ErrorLogNotificationRepository to get the error log notification data from the database.</p>
+</li>
+<li>
+<p>ErrorLogController calls NotificationSenderController to send the error log notification data to the RabbitMQ server like calling another microservice for demo purposes.</p>
+</li>
+<li>
+<p>NotificationSenderController calls NotificationSenderService to send the error log notification data to the RabbitMQ server.</p>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect2">
+<h3 id="source-files">Source Files</h3>
+<div class="paragraph">
+<p>The application name is <code>nsa2-opentelemetry-example</code>.</p>
+</div>
+<div class="paragraph">
+<p>Here are the source files of the sample Spring Boot application:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>build.gradle.kts</p>
+</li>
+<li>
+<p>application.properties</p>
+</li>
+<li>
+<p>RabbitConfig.java</p>
+</li>
+<li>
+<p>ErrorLogNotificationEntity.java</p>
+</li>
+<li>
+<p>ErrorLogNotificationRepository.java</p>
+</li>
+<li>
+<p>ErrorLogNotificationService.java</p>
+</li>
+<li>
+<p>ErrorLogNotificationServiceImpl.java</p>
+</li>
+<li>
+<p>ErrorLogController.java</p>
+</li>
+<li>
+<p>NotificationSenderService.java</p>
+</li>
+<li>
+<p>NotificationSenderServiceImpl.java</p>
+</li>
+<li>
+<p>NotificationSenderController.java</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>We are going to look at some source files of the sample Spring Boot application.</p>
+</div>
+<div class="sect3">
+<h4 id="controller-classes">Controller classes</h4>
+<div class="paragraph">
+<p>Let&#8217;s first look at the two main controller classes to understand the scenario.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>ErrorLogController.java</p>
+</li>
+<li>
+<p>NotificationSenderController.java</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="errorlogcontroller-java">ErrorLogController.java</h4>
+<div class="paragraph">
+<p>ErrorLogController is a REST controller class that receives a request from the client. It calls the ErrorLogNotificationService to get the error log notification data from the database and call the NotificationSenderController to send the error log notification data to the RabbitMQ server.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@RestController</span>
+<span class="nd">@RequestMapping</span><span class="o">(</span><span class="s">"/error-logs"</span><span class="o">)</span>
+<span class="nd">@RequiredArgsConstructor</span>
+<span class="nd">@Slf4j</span>
+
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">ErrorLogController</span> <span class="o">{</span>
+
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nc">ErrorLogNotificationService</span> <span class="n">errorLogNotificationService</span><span class="o">;</span>
+
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nc">RestTemplate</span> <span class="n">restTemplate</span><span class="o">;</span>
+
+    <span class="nd">@Value</span><span class="o">(</span><span class="s">"${app.notification.url}"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">notificationUrl</span><span class="o">;</span>
+
+
+    <span class="nd">@GetMapping</span><span class="o">(</span><span class="s">"/notify"</span><span class="o">)</span>
+    <span class="kd">public</span> <span class="kt">int</span> <span class="nf">sendNotifications</span><span class="o">()</span> <span class="o">{</span>
+        <span class="nc">List</span><span class="o">&lt;</span><span class="nc">ErrorLogNotification</span><span class="o">&gt;</span> <span class="n">notifications</span> <span class="o">=</span> <span class="n">errorLogNotificationService</span><span class="o">.</span><span class="na">getAllErrorLogs</span><span class="o">();</span>
+
+        <span class="kt">var</span> <span class="n">targetUrl</span> <span class="o">=</span> <span class="n">notificationUrl</span> <span class="o">+</span> <span class="s">"/send"</span><span class="o">;</span>
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"Sending notifications to {}"</span><span class="o">,</span> <span class="n">targetUrl</span><span class="o">);</span>
+
+        <span class="nc">AtomicInteger</span> <span class="n">atomicInteger</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">AtomicInteger</span><span class="o">(</span><span class="mi">0</span><span class="o">);</span>
+
+        <span class="n">notifications</span><span class="o">.</span><span class="na">forEach</span><span class="o">(</span><span class="n">notification</span> <span class="o">-&gt;</span> <span class="o">{</span>
+            <span class="nc">Boolean</span> <span class="n">succeeded</span> <span class="o">=</span>
+                    <span class="n">restTemplate</span><span class="o">.</span><span class="na">postForObject</span><span class="o">(</span><span class="n">targetUrl</span><span class="o">,</span> <span class="n">notification</span><span class="o">,</span> <span class="nc">Boolean</span><span class="o">.</span><span class="na">class</span><span class="o">);</span>
+
+            <span class="k">if</span> <span class="o">(</span><span class="nc">Boolean</span><span class="o">.</span><span class="na">TRUE</span><span class="o">.</span><span class="na">equals</span><span class="o">(</span><span class="n">succeeded</span><span class="o">))</span> <span class="o">{</span>
+               <span class="n">atomicInteger</span><span class="o">.</span><span class="na">incrementAndGet</span><span class="o">();</span>
+            <span class="o">}</span>
+
+        <span class="o">});</span>
+
+        <span class="k">return</span> <span class="n">atomicInteger</span><span class="o">.</span><span class="na">get</span><span class="o">();</span>
+    <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="notificationsendercontroller-java">NotificationSenderController.java</h4>
+<div class="paragraph">
+<p>NotificationSenderController is a REST controller class that sends the error log notification data to the RabbitMQ server. The notification data is passed as a request body from the ErrorLogController.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@RestController</span>
+<span class="nd">@RequestMapping</span><span class="o">(</span><span class="s">"/notifications"</span><span class="o">)</span>
+<span class="nd">@AllArgsConstructor</span>
+<span class="nd">@Slf4j</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">NotificationController</span> <span class="o">{</span>
+
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nc">NotificationSenderService</span> <span class="n">notificationSenderService</span><span class="o">;</span>
+
+    <span class="nd">@PostMapping</span><span class="o">(</span><span class="s">"/send"</span><span class="o">)</span>
+    <span class="kd">public</span> <span class="kt">boolean</span> <span class="nf">sendNotification</span><span class="o">(</span><span class="nd">@RequestBody</span> <span class="nc">ErrorLogNotification</span> <span class="n">notification</span><span class="o">)</span> <span class="o">{</span>
+        <span class="k">try</span> <span class="o">{</span>
+            <span class="n">notificationSenderService</span><span class="o">.</span><span class="na">sendNotification</span><span class="o">(</span><span class="n">notification</span><span class="o">);</span>
+            <span class="k">return</span> <span class="kc">true</span><span class="o">;</span>
+        <span class="o">}</span> <span class="k">catch</span> <span class="o">(</span><span class="nc">Exception</span> <span class="n">e</span><span class="o">)</span> <span class="o">{</span>
+            <span class="n">log</span><span class="o">.</span><span class="na">error</span><span class="o">(</span><span class="s">"Error sending notification"</span><span class="o">,</span> <span class="n">e</span><span class="o">);</span>
+            <span class="k">return</span> <span class="kc">false</span><span class="o">;</span>
+        <span class="o">}</span>
+    <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="build-gradle-kts">build.gradle.kts</h4>
+<div class="paragraph">
+<p>The build.gradle.kts file includes the dependencies for the Spring Boot application.</p>
+</div>
+<div class="listingblock">
+<div class="title">build.gradle.kts</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="kotlin"><span class="nf">plugins</span> <span class="p">{</span>
+    <span class="n">java</span>
+    <span class="nf">id</span><span class="p">(</span><span class="s">"org.springframework.boot"</span><span class="p">)</span> <span class="n">version</span> <span class="s">"3.3.2"</span>
+    <span class="nf">id</span><span class="p">(</span><span class="s">"io.spring.dependency-management"</span><span class="p">)</span> <span class="n">version</span> <span class="s">"1.1.6"</span>
+<span class="p">}</span>
+
+<span class="n">group</span> <span class="p">=</span> <span class="s">"com.alexamy.nsa2.example"</span>
+<span class="n">version</span> <span class="p">=</span> <span class="s">"0.0.1-SNAPSHOT"</span>
+
+<span class="nf">java</span> <span class="p">{</span>
+    <span class="nf">toolchain</span> <span class="p">{</span>
+        <span class="n">languageVersion</span> <span class="p">=</span> <span class="nc">JavaLanguageVersion</span><span class="p">.</span><span class="nf">of</span><span class="p">(</span><span class="mi">21</span><span class="p">)</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="nf">repositories</span> <span class="p">{</span>
+    <span class="nf">mavenCentral</span><span class="p">()</span>
+<span class="p">}</span>
+
+<span class="nf">configurations</span> <span class="p">{</span>
+    <span class="nf">compileOnly</span> <span class="p">{</span>
+        <span class="nf">extendsFrom</span><span class="p">(</span><span class="n">configurations</span><span class="p">.</span><span class="n">annotationProcessor</span><span class="p">.</span><span class="k">get</span><span class="p">())</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+
+<span class="nf">dependencies</span> <span class="p">{</span>
+    <span class="nf">implementation</span><span class="p">(</span><span class="s">"org.springframework.boot:spring-boot-starter-actuator"</span><span class="p">)</span>
+    <span class="nf">implementation</span><span class="p">(</span><span class="s">"org.springframework.boot:spring-boot-starter-web"</span><span class="p">)</span>
+    <span class="nf">implementation</span><span class="p">(</span><span class="s">"org.springframework.boot:spring-boot-starter-data-jpa"</span><span class="p">)</span>
+    <span class="nf">implementation</span><span class="p">(</span><span class="s">"org.springframework.boot:spring-boot-starter-json"</span><span class="p">)</span>
+    <span class="nf">runtimeOnly</span><span class="p">(</span><span class="s">"org.postgresql:postgresql"</span><span class="p">)</span>
+
+    <span class="nf">implementation</span><span class="p">(</span><span class="s">"org.springframework.boot:spring-boot-starter-amqp"</span><span class="p">)</span>
+
+    <span class="nf">compileOnly</span><span class="p">(</span><span class="s">"org.projectlombok:lombok"</span><span class="p">)</span>
+    <span class="nf">annotationProcessor</span><span class="p">(</span><span class="s">"org.projectlombok:lombok"</span><span class="p">)</span>
+    <span class="nf">testAnnotationProcessor</span><span class="p">(</span><span class="s">"org.projectlombok:lombok"</span><span class="p">)</span>
+
+    <span class="nf">implementation</span><span class="p">(</span><span class="s">"org.mapstruct:mapstruct:1.5.5.Final"</span><span class="p">)</span>
+    <span class="nf">compileOnly</span> <span class="p">(</span><span class="s">"org.mapstruct:mapstruct-processor:1.5.5.Final"</span><span class="p">)</span>
+    <span class="nf">annotationProcessor</span> <span class="p">(</span><span class="s">"org.mapstruct:mapstruct-processor:1.5.5.Final"</span><span class="p">)</span>
+    <span class="nf">testAnnotationProcessor</span> <span class="p">(</span><span class="s">"org.mapstruct:mapstruct-processor:1.5.5.Final"</span><span class="p">)</span>
+
+
+    <span class="nf">testImplementation</span><span class="p">(</span><span class="s">"org.springframework.boot:spring-boot-starter-test"</span><span class="p">)</span>
+    <span class="nf">testRuntimeOnly</span><span class="p">(</span><span class="s">"org.junit.platform:junit-platform-launcher"</span><span class="p">)</span>
+<span class="p">}</span>
+
+<span class="n">tasks</span><span class="p">.</span><span class="n">withType</span><span class="p">&lt;</span><span class="nc">Test</span><span class="p">&gt;</span> <span class="p">{</span>
+    <span class="nf">useJUnitPlatform</span><span class="p">()</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="application-yaml">application.yaml</h4>
+<div class="paragraph">
+<p>The application.yaml file includes the configuration for the Spring Boot application.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">spring.application.name</span><span class="pi">:</span> <span class="s">nsa2-opentelemetry-example</span>
+
+<span class="na">spring</span><span class="pi">:</span>
+  <span class="na">main</span><span class="pi">:</span>
+    <span class="na">banner-mode</span><span class="pi">:</span> <span class="s">off</span>
+
+  <span class="na">datasource</span><span class="pi">:</span>
+    <span class="na">driver-class-name</span><span class="pi">:</span> <span class="s">org.postgresql.Driver</span>
+    <span class="na">url</span><span class="pi">:</span> <span class="s">jdbc:postgresql://${NSA2_DB_HOST:localhost}:${NSA2_DB_PORT:5432}/${NSA2_DB_NAME:nsa2}</span>
+    <span class="na">username</span><span class="pi">:</span> <span class="s">${NSA2_DB_USERNAME:db-user}</span>
+    <span class="na">password</span><span class="pi">:</span> <span class="s">${NSA2_DB_PASSWORD:db-password}</span>
+
+
+  <span class="na">rabbitmq</span><span class="pi">:</span>
+    <span class="na">host</span><span class="pi">:</span> <span class="s">${RABBITMQ_HOST:localhost}</span>
+    <span class="na">port</span><span class="pi">:</span> <span class="s">${RABBITMQ_PORT:5672}</span>
+    <span class="na">username</span><span class="pi">:</span> <span class="s">${RABBITMQ_USERNAME:user}</span>
+    <span class="na">password</span><span class="pi">:</span> <span class="s">${RABBITMQ_PASSWORD:password}</span>
+    <span class="na">virtual-host</span><span class="pi">:</span> <span class="s">${RABBITMQ_VHOST:nsa2}</span>
+
+<span class="na">app</span><span class="pi">:</span>
+  <span class="na">notification</span><span class="pi">:</span>
+    <span class="na">url</span><span class="pi">:</span> <span class="s">${NOTIFICATION_URI:http://localhost:8080/notifications}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="rabbitconfig-java">RabbitConfig.java</h4>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@Configuration</span>
+<span class="nd">@AllArgsConstructor</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">RabbitConfig</span> <span class="o">{</span>
+    <span class="kd">public</span> <span class="kd">static</span> <span class="kd">final</span> <span class="nc">String</span> <span class="no">EXCHANGE_NAME</span> <span class="o">=</span> <span class="s">"error-log-exchange"</span><span class="o">;</span>
+    <span class="kd">public</span> <span class="kd">static</span> <span class="kd">final</span> <span class="nc">String</span> <span class="no">QUEUE_NAME</span> <span class="o">=</span> <span class="s">"error-log-queue"</span><span class="o">;</span>
+    <span class="kd">public</span> <span class="kd">static</span> <span class="kd">final</span> <span class="nc">String</span> <span class="no">ROUTING_KEY</span> <span class="o">=</span> <span class="s">"error-log"</span><span class="o">;</span>
+
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nc">ConnectionFactory</span> <span class="n">connectionFactory</span><span class="o">;</span>
+
+    <span class="nd">@Bean</span>
+    <span class="kd">public</span> <span class="nc">RabbitTemplate</span> <span class="nf">rabbitTemplate</span><span class="o">()</span> <span class="o">{</span>
+        <span class="kd">final</span> <span class="kt">var</span> <span class="n">rabbitTemplate</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">RabbitTemplate</span><span class="o">(</span><span class="n">connectionFactory</span><span class="o">);</span>
+
+        <span class="n">rabbitTemplate</span><span class="o">.</span><span class="na">setBeanName</span><span class="o">(</span><span class="s">"rabbitTemplate"</span><span class="o">);</span>
+        <span class="n">rabbitTemplate</span><span class="o">.</span><span class="na">setMessageConverter</span><span class="o">(</span><span class="n">jackson2JsonMessageConverter</span><span class="o">());</span>
+
+        <span class="k">return</span> <span class="n">rabbitTemplate</span><span class="o">;</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Bean</span>
+    <span class="kd">public</span> <span class="nc">Jackson2JsonMessageConverter</span> <span class="nf">jackson2JsonMessageConverter</span><span class="o">()</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="k">new</span> <span class="nf">Jackson2JsonMessageConverter</span><span class="o">();</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Bean</span>
+    <span class="kd">public</span> <span class="nc">TopicExchange</span> <span class="nf">errorLogExchange</span><span class="o">()</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="k">new</span> <span class="nf">TopicExchange</span><span class="o">(</span><span class="no">EXCHANGE_NAME</span><span class="o">);</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Bean</span>
+    <span class="nc">Queue</span> <span class="nf">errorLogQueue</span><span class="o">()</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="k">new</span> <span class="nf">Queue</span><span class="o">(</span><span class="no">QUEUE_NAME</span><span class="o">);</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Bean</span>
+    <span class="nc">Binding</span> <span class="nf">declareBindingErrorLog</span><span class="o">()</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="nc">BindingBuilder</span><span class="o">.</span><span class="na">bind</span><span class="o">(</span><span class="n">errorLogQueue</span><span class="o">()).</span><span class="na">to</span><span class="o">(</span><span class="n">errorLogExchange</span><span class="o">()).</span><span class="na">with</span><span class="o">(</span><span class="no">ROUTING_KEY</span><span class="o">);</span>
+    <span class="o">}</span>
+
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="sect4">
+<h5 id="errorlognotificationrepository-java">ErrorLogNotificationRepository.java</h5>
+<div class="paragraph">
+<p>ErrorLogNotificationRepository is a Spring Data JPA repository interface.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@Repository</span>
+<span class="kd">public</span> <span class="kd">interface</span> <span class="nc">ErrorLogNotificationRepository</span> <span class="kd">extends</span> <span class="nc">JpaRepository</span><span class="o">&lt;</span><span class="nc">ErrorLogNotificationEntity</span><span class="o">,</span> <span class="nc">Long</span><span class="o">&gt;</span> <span class="o">{</span>
+
+    <span class="nc">List</span><span class="o">&lt;</span><span class="nc">ErrorLogNotificationEntity</span><span class="o">&gt;</span> <span class="nf">findAllByLogLevel</span><span class="o">(</span><span class="nc">String</span> <span class="n">logLevel</span><span class="o">);</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect4">
+<h5 id="errorlognotificationserviceimpl-java">ErrorLogNotificationServiceImpl.java</h5>
+<div class="paragraph">
+<p>ErrorLogNotificationServiceImpl is a service class that implements ErrorLogNotificationService.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@Service</span>
+<span class="nd">@RequiredArgsConstructor</span>
+<span class="nd">@Slf4j</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">ErrorLogNotificationServiceImpl</span> <span class="kd">implements</span> <span class="nc">ErrorLogNotificationService</span> <span class="o">{</span>
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nc">ErrorLogNotificationRepository</span> <span class="n">errorLogNotificationRepository</span><span class="o">;</span>
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nc">ErrorLogNotificationMapper</span> <span class="n">errorLogNotificationMapper</span><span class="o">;</span>
+
+    <span class="nd">@Transactional</span>
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="nc">List</span><span class="o">&lt;</span><span class="nc">ErrorLogNotification</span><span class="o">&gt;</span> <span class="nf">getAllErrorLogs</span><span class="o">()</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="n">errorLogNotificationRepository</span><span class="o">.</span><span class="na">findAllByLogLevel</span><span class="o">(</span><span class="s">"ERROR"</span><span class="o">).</span><span class="na">stream</span><span class="o">()</span>
+                <span class="o">.</span><span class="na">map</span><span class="o">(</span><span class="nl">errorLogNotificationMapper:</span><span class="o">:</span><span class="n">entityToDto</span><span class="o">)</span>
+                <span class="o">.</span><span class="na">toList</span><span class="o">();</span>
+    <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="notificationsenderserviceimpl-java">NotificationSenderServiceImpl.java</h4>
+<div class="paragraph">
+<p>NotificationSenderServiceImpl is a service class that implements NotificationSenderService.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@AllArgsConstructor</span>
+<span class="nd">@Service</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">NotificationSenderServiceImpl</span> <span class="kd">implements</span> <span class="nc">NotificationSenderService</span> <span class="o">{</span>
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nc">RabbitTemplate</span> <span class="n">rabbitTemplate</span><span class="o">;</span>
+
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="kt">void</span> <span class="nf">sendNotification</span><span class="o">(</span><span class="nc">ErrorLogNotification</span> <span class="n">errorLogNotification</span><span class="o">)</span> <span class="o">{</span>
+        <span class="n">rabbitTemplate</span><span class="o">.</span><span class="na">convertAndSend</span><span class="o">(</span><span class="nc">RabbitConfig</span><span class="o">.</span><span class="na">EXCHANGE_NAME</span><span class="o">,</span> <span class="nc">RabbitConfig</span><span class="o">.</span><span class="na">ROUTING_KEY</span><span class="o">,</span> <span class="n">errorLogNotification</span><span class="o">);</span>
+    <span class="o">}</span>
+
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This is typical Spring Boot application code that uses Spring Data JPA, Spring AMQP, and Spring Web.</p>
+</div>
+<div class="paragraph">
+<p>Run the command to build and run the Spring Boot application:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>./gradlew clean bootRun</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Test the application by sending a request to the REST API:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>curl http://localhost:8080/error-logs/notify
+
+<span class="c"># it returns the number of notifications sent to the RabbitMQ server</span>
+4</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The endpoint /error-logs/notify is called to send notifications to the RabbitMQ server. The number of notifications sent to the RabbitMQ server is returned. But we do not see any tracing data yet on the Zipkin server.</p>
+</div>
+<div class="paragraph">
+<p>Let&#8217;s add tracing to the Spring Boot application in the next article.</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this article, we discussed how to set up Zipkin and a sample Spring Boot application that uses JPARepository, RestTemplate and RabbitTemplate. We will use the Zipkin server and the sample Spring Boot application in the next articles to demonstrate distributed tracing.</p>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>

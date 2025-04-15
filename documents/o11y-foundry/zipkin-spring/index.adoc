@@ -1,0 +1,624 @@
+---
+layout: documents
+title: Distributed Tracing - Setup Zipkin and Sample Spring Boot Application
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+//  docs/distributed-tracing/part1-overview/index.adoc
+
+= Distributed Tracing - Setup Zipkin and Sample Spring Boot Application
+
+:imagesdir: images
+== Introduction
+
+This article is part of a series of articles on Distributed Tracing. In this article, we will discuss how to set up Zipkin and a sample Spring Boot application to demonstrate distributed tracing.
+
+1. Part 1 - link:https://www.linkedin.com/pulse/distributed-tracing-setup-zipkin-sample-spring-boot-young-gyu-kim-msaqc/[Distributed Tracing - Setup Zipkin and Sample Spring Boot Application]
+2. Part 2 - link:https://www.linkedin.com/pulse/distributed-tracing-spring-boot-application-micrometer-kim-napzc[Distributed Tracing - Spring Boot Application with Micrometer and OpenTelemetry]
+3. Part 3 - Distributed Tracing - Spring Boot Application with OpenTelemetry Instrumentation
+4. Part 4 - Distributed Tracing - Spring Boot Application with OpenTelemetry Collector
+
+This article is the first part of the series.
+
+This post includes following topics:
+
+* What is Zipkin?
+* Installing Zipkin on Kubernetes
+* Sample Spring Boot Application
+
+The Zipkin server and the sample Spring Boot application will be used in the next articles to demonstrate distributed tracing.
+
+== What is Distributed Tracing?
+
+Distributed tracing is a method used to profile and monitor applications, especially those built using a microservices architecture. Distributed tracing helps pinpoint where failures occur and what causes poor performance.
+
+In this post, we will discuss two popular distributed tracing tools, OpenTelemetry and Zipkin and learn how they can work together to provide distributed tracing capabilities.
+
+The performance monitoring of this sample application includes:
+
+* calling REST APIs
+* executing SQL queries
+* sending messages to RabbitMQ
+
+
+== What is Zipkin?
+
+Zipkin is a distributed tracing system that helps gather timing data needed to troubleshoot latency problems in microservice architectures. It manages both the collection and lookup of this data. Zipkin’s design is based on the Google Dapper paper.
+
+We are going to use ElasticSearch as the storage backend for Zipkin. However, this post does not cover the installation of ElasticSearch.
+
+=== Installing Zipkin on Kubernetes
+
+For more information on how to install Zipkin on Kubernetes, refer to the link below:
+
+https://zipkin.io/pages/quickstart.html
+
+I decided to install Zipkin using the latest source code because I was having issues connecting to Elasticsearch over HTTPS, particularly when resolving hostnames on Kubernetes. I wanted to modify the source code to skip hostname verification when connecting to Elasticsearch.
+
+.ZipkinElasticsearchStorageConfiguration.java
+[source,java]
+----
+// exposed as a bean so that we can test TLS by swapping it out.
+  // TODO: see if we can override the TLS via properties instead as that has less surface area.
+  @Bean @Qualifier(QUALIFIER) @ConditionalOnMissingBean ClientFactory esClientFactory(
+    ZipkinElasticsearchStorageProperties es,
+    MeterRegistry meterRegistry) throws Exception {
+    ClientFactoryBuilder builder = ClientFactory.builder();
+
+    Ssl ssl = es.getSsl();
+    if (ssl.isNoVerify()) builder.tlsNoVerify();
+    // Allow use of a custom KeyStore or TrustStore when connecting to Elasticsearch
+    if (ssl.getKeyStore() != null || ssl.getTrustStore() != null) configureSsl(builder, ssl);
+
+
+    String esHost = new java.net.URL(es.getHosts()).getHost();
+
+
+    // Elasticsearch 7 never returns a response when receiving an HTTP/2 preface instead of the more
+    // valid behavior of returning a bad request response, so we can't use the preface.
+    // TODO: find or raise a bug with Elastic
+    return builder.useHttp2Preface(false)
+      .connectTimeoutMillis(es.getTimeout())
+      .tlsNoVerifyHosts(esHost)
+      .meterRegistry(meterRegistry)
+      .build();
+  }
+----
+
+I added tlsNoVerifyHosts(esHost) to the ClientFactoryBuilder to skip hostname verification.
+
+
+
+NOTE: If you do not need to modify the source code, you can use the Docker image provided by the Zipkin project.
+
+. Clone the Zipkin repository
+[source,shell]
+----
+$ git clone https://github.com/openzipkin/zipkin
+----
+
+I used Java 21 to build the Zipkin server. Java 17 or higher is required.
+
+. Build and run the Zipkin server
+[source,shell]
+----
+# Java 21 used. Java 17 or higher is required.
+$ cd zipkin
+$ ./mvnw -T1C -q --batch-mode -DskipTests --also-make -pl zipkin-server clean package
+
+$ java -jar ./zipkin-server/target/zipkin-server-3.4.1-SNAPSHOT-exec.jar
+----
+
+The Zipkin server will be running on http://localhost:9411. And the storage type is memory by default.
+
+
+=== Docker Image
+
+I created a Docker image for the Zipkin server to make it easier to deploy on Kubernetes.
+
+.Dockerfile
+[source,dockerfile]
+----
+FROM openjdk:21-jdk-bullseye
+WORKDIR /usr/app
+
+COPY ./zipkin-server-3.4.1-SNAPSHOT-exec.jar /usr/app/zipkin-server.jar
+COPY ./run-app.sh /usr/app/run-app.sh
+
+RUN chmod +x /usr/app/run-app.sh
+
+EXPOSE 9411
+ENTRYPOINT ["./run-app.sh"]
+----
+
+The following is the run-app.sh script used in the Docker image.
+
+.run-app.sh
+[source,bash]
+----
+#!/bin/bash
+
+exec java $JAVA_OPTS \
+  -Djavax.net.ssl.trustStore=$ES_TRUSTSTORE_PATH \
+  -Djavax.net.ssl.trustStorePassword=$ES_TRUSTSTORE_PASSWORD \
+  -jar ./zipkin-server.jar \
+  --spring.cloud.bootstrap.enabled=true
+----
+
+This includes the truststore path and password for connecting to ElasticSearch using HTTPS.
+
+ES_TRUSTSTORE_PATH and ES_TRUSTSTORE_PASSWORD are environment variables that are passed to the Docker container. These environment variables are set in the Kubernetes deployment.yaml file.
+
+Push the Docker image to the Docker registry so that it can be used in the Helm chart later.
+
+=== Create Secrets
+
+Two secrets are required below:
+
+* elasticsearch-truststore
+* elasticsearch-credentials
+
+The elasticsearch-truststore secret contains the http.p12 file. The elasticsearch-credentials secret contains the password for the http.p12 file and the password for the elasticsearch user.
+
+NOTE: The http.p12 file came from the ElasticSearch installation.
+
+Create the elasticsearch-truststore secret:
+
+[source,shell]
+----
+$ kubectl -n nsa2 create secret generic elasticsearch-truststore --from-file=http.p12
+----
+
+Create the elasticsearch-credentials secret:
+[source,shell]
+----
+$ kubectl -n nsa2 create secret generic elasticsearch-credentials \
+  --from-literal=truststore-password=your-trust-store-password \
+  --from-literal=elasticsearch-password=your-es-password \
+  --from-literal=elasticsearch-username=your-es-username
+----
+
+
+=== Helm Chart
+
+I created my own Helm chart for Zipkin to make it easier to meet our own requirements.
+
+.values.yaml file
+[source,yaml]
+----
+# omitted...
+
+zipkin:
+  logLevel: DEBUG
+  storage:
+    type: elasticsearch
+    elasticsearch:
+      hosts: https://elasticsearch-master.elastic:9200
+
+
+volumes:
+  - name: elasticsearch-truststore
+    secret:
+      secretName: elasticsearch-truststore
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts:
+  - name: elasticsearch-truststore
+    mountPath: "/usr/app/certs"
+    readOnly: true
+----
+
+The values.yaml file includes the truststore path and password for connecting to ElasticSearch using HTTPS. The truststore path is mounted as a volume in the deployment.yaml file.
+
+.templates/deployment.yaml
+[source,yaml]
+----
+
+# omitted...
+
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - value: {{ .Values.zipkin.storage.type }}
+              name: STORAGE_TYPE
+            - value: {{ .Values.zipkin.storage.elasticsearch.hosts }}
+              name: ES_HOSTS
+            - name: ES_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-credentials
+                  key: elasticsearch-username
+            - name: ES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-credentials
+                  key: elasticsearch-password
+            - value: {{ .Values.zipkin.logLevel }}
+              name: ZIPKIN_LOG_LEVEL
+
+            - name: ES_TRUSTSTORE_PATH
+              value: /usr/app/certs/http.p12
+            - name: ES_TRUSTSTORE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-credentials
+                  key: truststore-password
+----
+
+The deployment.yaml file includes the environment variables for connecting to ElasticSearch using HTTPS.
+
+=== Install Zipkin
+
+Install the Zipkin server using the Helm chart.
+
+[source,shell]
+----
+$ helm -n nsa2 install zipkin-server ./zipkin-server --values opensearch-values.yaml
+----
+
+=== Access Zipkin using Port Forwarding
+
+[source,shell]
+----
+$ kubectl -n nsa2 port-forward svc/zipkin-server 9411:9411
+----
+
+Access Zipkin using http://localhost:9411.
+
+image::./zipkin-localhost-1.png[]
+
+== Sample Spring Boot Application
+
+We are going to create a simple Web application using Spring Boot. It executes SQL queries, calls other microservices, and  sends messages to RabbitMQ. There is no tracing related code in the application at all.
+However, we will see the tracing data generated when a request is made to the application by:
+
+* Calling a REST API
+* Executing a SQL Query
+* Sending a message to RabbitMQ
+
+=== Scenario
+
+Here is the scenario of the sample Spring Boot application.
+
+1. ErrorLogController receives a request from the client.
+2. ErrorLogController calls ErrorLogNotificationService to get the error log notification data from the database.
+3. ErrorLogNotificationService calls ErrorLogNotificationRepository to get the error log notification data from the database.
+4. ErrorLogController calls NotificationSenderController to send the error log notification data to the RabbitMQ server like calling another microservice for demo purposes.
+5. NotificationSenderController calls NotificationSenderService to send the error log notification data to the RabbitMQ server.
+
+
+=== Source Files
+The application name is `nsa2-opentelemetry-example`.
+
+Here are the source files of the sample Spring Boot application:
+
+* build.gradle.kts
+* application.properties
+* RabbitConfig.java
+* ErrorLogNotificationEntity.java
+* ErrorLogNotificationRepository.java
+* ErrorLogNotificationService.java
+* ErrorLogNotificationServiceImpl.java
+* ErrorLogController.java
+* NotificationSenderService.java
+* NotificationSenderServiceImpl.java
+* NotificationSenderController.java
+
+We are going to look at some source files of the sample Spring Boot application.
+
+==== Controller classes
+
+Let's first look at the two main controller classes to understand the scenario.
+
+* ErrorLogController.java
+* NotificationSenderController.java
+
+==== ErrorLogController.java
+
+ErrorLogController is a REST controller class that receives a request from the client. It calls the ErrorLogNotificationService to get the error log notification data from the database and call the NotificationSenderController to send the error log notification data to the RabbitMQ server.
+
+[source,java]
+----
+
+@RestController
+@RequestMapping("/error-logs")
+@RequiredArgsConstructor
+@Slf4j
+
+public class ErrorLogController {
+
+    private final ErrorLogNotificationService errorLogNotificationService;
+
+    private final RestTemplate restTemplate;
+
+    @Value("${app.notification.url}")
+    private String notificationUrl;
+
+
+    @GetMapping("/notify")
+    public int sendNotifications() {
+        List<ErrorLogNotification> notifications = errorLogNotificationService.getAllErrorLogs();
+
+        var targetUrl = notificationUrl + "/send";
+        log.info("Sending notifications to {}", targetUrl);
+
+        AtomicInteger atomicInteger = new AtomicInteger(0);
+
+        notifications.forEach(notification -> {
+            Boolean succeeded =
+                    restTemplate.postForObject(targetUrl, notification, Boolean.class);
+
+            if (Boolean.TRUE.equals(succeeded)) {
+               atomicInteger.incrementAndGet();
+            }
+
+        });
+
+        return atomicInteger.get();
+    }
+}
+----
+
+==== NotificationSenderController.java
+
+NotificationSenderController is a REST controller class that sends the error log notification data to the RabbitMQ server. The notification data is passed as a request body from the ErrorLogController.
+
+[source,java]
+----
+
+@RestController
+@RequestMapping("/notifications")
+@AllArgsConstructor
+@Slf4j
+public class NotificationController {
+
+    private final NotificationSenderService notificationSenderService;
+
+    @PostMapping("/send")
+    public boolean sendNotification(@RequestBody ErrorLogNotification notification) {
+        try {
+            notificationSenderService.sendNotification(notification);
+            return true;
+        } catch (Exception e) {
+            log.error("Error sending notification", e);
+            return false;
+        }
+    }
+}
+----
+
+
+==== build.gradle.kts
+
+The build.gradle.kts file includes the dependencies for the Spring Boot application.
+
+.build.gradle.kts
+[source,kotlin]
+----
+plugins {
+    java
+    id("org.springframework.boot") version "3.3.2"
+    id("io.spring.dependency-management") version "1.1.6"
+}
+
+group = "com.alexamy.nsa2.example"
+version = "0.0.1-SNAPSHOT"
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+configurations {
+    compileOnly {
+        extendsFrom(configurations.annotationProcessor.get())
+    }
+}
+
+
+dependencies {
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+    implementation("org.springframework.boot:spring-boot-starter-json")
+    runtimeOnly("org.postgresql:postgresql")
+
+    implementation("org.springframework.boot:spring-boot-starter-amqp")
+
+    compileOnly("org.projectlombok:lombok")
+    annotationProcessor("org.projectlombok:lombok")
+    testAnnotationProcessor("org.projectlombok:lombok")
+
+    implementation("org.mapstruct:mapstruct:1.5.5.Final")
+    compileOnly ("org.mapstruct:mapstruct-processor:1.5.5.Final")
+    annotationProcessor ("org.mapstruct:mapstruct-processor:1.5.5.Final")
+    testAnnotationProcessor ("org.mapstruct:mapstruct-processor:1.5.5.Final")
+
+
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+tasks.withType<Test> {
+    useJUnitPlatform()
+}
+
+----
+
+==== application.yaml
+
+The application.yaml file includes the configuration for the Spring Boot application.
+
+[source,yaml]
+----
+spring.application.name: nsa2-opentelemetry-example
+
+spring:
+  main:
+    banner-mode: off
+
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: jdbc:postgresql://${NSA2_DB_HOST:localhost}:${NSA2_DB_PORT:5432}/${NSA2_DB_NAME:nsa2}
+    username: ${NSA2_DB_USERNAME:db-user}
+    password: ${NSA2_DB_PASSWORD:db-password}
+
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:user}
+    password: ${RABBITMQ_PASSWORD:password}
+    virtual-host: ${RABBITMQ_VHOST:nsa2}
+
+app:
+  notification:
+    url: ${NOTIFICATION_URI:http://localhost:8080/notifications}
+----
+
+==== RabbitConfig.java
+
+[source,java]
+----
+@Configuration
+@AllArgsConstructor
+public class RabbitConfig {
+    public static final String EXCHANGE_NAME = "error-log-exchange";
+    public static final String QUEUE_NAME = "error-log-queue";
+    public static final String ROUTING_KEY = "error-log";
+
+    private final ConnectionFactory connectionFactory;
+
+    @Bean
+    public RabbitTemplate rabbitTemplate() {
+        final var rabbitTemplate = new RabbitTemplate(connectionFactory);
+
+        rabbitTemplate.setBeanName("rabbitTemplate");
+        rabbitTemplate.setMessageConverter(jackson2JsonMessageConverter());
+
+        return rabbitTemplate;
+    }
+
+    @Bean
+    public Jackson2JsonMessageConverter jackson2JsonMessageConverter() {
+        return new Jackson2JsonMessageConverter();
+    }
+
+    @Bean
+    public TopicExchange errorLogExchange() {
+        return new TopicExchange(EXCHANGE_NAME);
+    }
+
+    @Bean
+    Queue errorLogQueue() {
+        return new Queue(QUEUE_NAME);
+    }
+
+    @Bean
+    Binding declareBindingErrorLog() {
+        return BindingBuilder.bind(errorLogQueue()).to(errorLogExchange()).with(ROUTING_KEY);
+    }
+
+}
+----
+
+===== ErrorLogNotificationRepository.java
+
+ErrorLogNotificationRepository is a Spring Data JPA repository interface.
+
+[source,java]
+----
+@Repository
+public interface ErrorLogNotificationRepository extends JpaRepository<ErrorLogNotificationEntity, Long> {
+
+    List<ErrorLogNotificationEntity> findAllByLogLevel(String logLevel);
+}
+----
+
+===== ErrorLogNotificationServiceImpl.java
+
+ErrorLogNotificationServiceImpl is a service class that implements ErrorLogNotificationService.
+
+[source,java]
+----
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class ErrorLogNotificationServiceImpl implements ErrorLogNotificationService {
+    private final ErrorLogNotificationRepository errorLogNotificationRepository;
+    private final ErrorLogNotificationMapper errorLogNotificationMapper;
+
+    @Transactional
+    @Override
+    public List<ErrorLogNotification> getAllErrorLogs() {
+        return errorLogNotificationRepository.findAllByLogLevel("ERROR").stream()
+                .map(errorLogNotificationMapper::entityToDto)
+                .toList();
+    }
+}
+----
+
+
+==== NotificationSenderServiceImpl.java
+
+NotificationSenderServiceImpl is a service class that implements NotificationSenderService.
+
+[source,java]
+----
+
+@AllArgsConstructor
+@Service
+public class NotificationSenderServiceImpl implements NotificationSenderService {
+    private final RabbitTemplate rabbitTemplate;
+
+    @Override
+    public void sendNotification(ErrorLogNotification errorLogNotification) {
+        rabbitTemplate.convertAndSend(RabbitConfig.EXCHANGE_NAME, RabbitConfig.ROUTING_KEY, errorLogNotification);
+    }
+
+}
+----
+
+This is typical Spring Boot application code that uses Spring Data JPA, Spring AMQP, and Spring Web.
+
+Run the command to build and run the Spring Boot application:
+
+[source,shell]
+----
+$ ./gradlew clean bootRun
+----
+
+Test the application by sending a request to the REST API:
+
+[source,shell]
+----
+$ curl http://localhost:8080/error-logs/notify
+
+# it returns the number of notifications sent to the RabbitMQ server
+4
+----
+
+The endpoint /error-logs/notify is called to send notifications to the RabbitMQ server. The number of notifications sent to the RabbitMQ server is returned. But we do not see any tracing data yet on the Zipkin server.
+
+Let's add tracing to the Spring Boot application in the next article.
+
+== Conclusion
+
+In this article, we discussed how to set up Zipkin and a sample Spring Boot application that uses JPARepository, RestTemplate and RabbitTemplate. We will use the Zipkin server and the sample Spring Boot application in the next articles to demonstrate distributed tracing.

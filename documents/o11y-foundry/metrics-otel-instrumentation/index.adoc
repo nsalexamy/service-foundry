@@ -1,0 +1,626 @@
+---
+layout: documents
+title:  Collecting Metrics using OpenTelemetry Instrumentation and Visualizing them using Prometheus and Grafana on Kubernetes
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+// docs/metrics/part2-otel-instrumetation/index.adoc
+
+= Part 2 - Metrics in Microservices - Collecting Metrics using OpenTelemetry Instrumentation and Visualizing them using Prometheus and Grafana on Kubernetes
+
+:imagesdir: images
+
+== Introduction
+
+This article is part of a series of articles on Metrics in Microservices. In this article, we will discuss how to collect metrics from a Spring Boot application and how to visualize them using Prometheus and Grafana.
+
+. Part 1 - link:https://www.linkedin.com/pulse/metrics-microservices-young-gyu-kim-9rcuc/[Metrics in Microservices - Collecting Metrics using Spring Boot Actuator and Visualizing them using Prometheus and Grafana]
+. Part 2 - link:https://www.linkedin.com/pulse/part-2-metrics-microservices-collecting-using-visualizing-kim-yeexc[Metrics in Microservices - Collecting Metrics using OpenTelemetry Instrumentation and Visualizing them using Prometheus and Grafana on Kubernetes]
+. Part 3 - link:https://www.linkedin.com/pulse/part-3-metrics-microservices-collecting-using-collector-kim-zuqoc/[Metrics in Microservices - Collecting Metrics using OpenTelemetry Collector and Visualizing them using Prometheus and Grafana on Kubernetes]
+
+This article is the second part of the series.
+
+As for Prometheus and Grafana, we will use the same Prometheus and Grafana that we used in the previous article.
+
+In this article, we will look at how to collect metrics from a Spring Boot application using OpenTelemetry Instrumentation and how to visualize them using Prometheus and Grafana on Kubernetes. Unlike when using Spring Boot Actuator, we will not need to add any dependencies to the Spring Boot application. We will use OpenTelemetry Java Agent to collect metrics from the Spring Boot application.
+
+=== OpenTelemetry Instrumentation for Metrics
+
+When *OTEL_METRICS_EXPORTER* is set to *prometheus*, the OpenTelemetry Java Agent will expose metrics at the endpoint `:9464/metrics` by default. We are going to use this endpoint to collect metrics instead of using the Spring Boot Actuator endpoint which is `:8080/actuator/prometheus`.
+
+
+== Spring Boot Application
+
+We still need to use Actuator endpoints to expose health check. We will use the same Spring Boot application that we used in the previous article.
+
+=== Remove Prometheus Dependency
+
+Since we are going to use OpenTelemetry Java Agent, we don't need to add any dependencies to the Spring Boot application.
+
+Remove the following dependencies from build.gradle.kts:
+
+.build.gradle.kts
+[source,kotlin]
+----
+    implementation("io.micrometer:micrometer-registry-prometheus")
+----
+
+
+
+=== Remove Prometheus Configuration
+
+Remove endpoint `prometheus` from `endpoints.web.exposure.include` in application.yaml.
+
+.application.yaml
+[source,yaml]
+----
+
+management:
+  endpoint.health.probes.enabled: true
+  health:
+    livenessstate.enabled: true
+    readinessstate.enabled: true
+
+  endpoints.web.exposure.include:
+    - health
+#    - metrics
+#    - prometheus
+----
+
+== Configure OpenTelemetry Java Agent
+
+* https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#prometheus-exporter
+
+[source,shell]
+----
+$ OTEL_METRICS_EXPORTER=prometheus
+
+# These are the default values, so you don't need to set them.
+$ OTEL_EXPORTER_PROMETHEUS_HOST=localhost
+$ OTEL_EXPORTER_PROMETHEUS_PORT=9464
+----
+
+== Run the Spring Boot Application locally
+
+After configuring the OpenTelemetry Java Agent, run the Spring Boot application.
+
+[source,shell]
+----
+$ java -javaagent:./javaagent/opentelemetry-javaagent.jar \
+  -Dotel.javaagent.extensions=./javaagent/nsa2-otel-extension-1.0-all.jar \
+  -jar build/libs/nsa2-opentelemetry-example-0.0.1-SNAPSHOT.jar --server.port=8080
+----
+
+The port that the Spring Boot application is running on is 8080. In addition to this, the OpenTelemetry Instrumentation will expose metrics at the endpoint `:9464/metrics`.
+
+Let's access the Actuator health check endpoint and the metrics endpoint.
+
+.8080/actuator/health
+[source,shell]
+----
+$ curl http://localhost:8080/actuator/health
+{"status":"UP"}
+----
+
+.9464/metrics
+[source,shell]
+----
+$ curl http://localhost:9464/metrics
+
+# metrics data will be shown
+----
+
+== Dockerfile
+
+[source,dockerfile]
+----
+FROM openjdk:21-jdk-bullseye
+COPY ./nsa2-opentelemetry-example-0.0.1-SNAPSHOT.jar /usr/app/nsa2-opentelemetry-example.jar
+COPY ./opentelemetry-javaagent.jar /usr/app/javaagent/opentelemetry-javaagent.jar
+COPY ./nsa2-otel-extension-1.0-all.jar /usr/app/javaagent/nsa2-otel-extension-1.0-all.jar
+WORKDIR /usr/app
+EXPOSE 8080
+EXPOSE 9496
+
+
+ENTRYPOINT ["java", "-Xshare:off",
+"-Dotel.javaagent.extensions=/usr/app/javaagent/nsa2-otel-extension-1.0-all.jar", "-jar",
+"nsa2-opentelemetry-example.jar"]
+----
+
+=== Deploy Docker Image to Container Registry
+
+=== Deploy to Kubernetes using Helm Chart
+
+.values.yaml
+[source,yaml]
+----
+service:
+  type: ClusterIP
+  port: 8080
+
+metrics:
+  port: 9464
+----
+
+I added `metrics.port` to the values.yaml file to expose the metrics endpoint.
+
+.templates/deployment.yaml
+[source,yaml]
+----
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "nsa2-opentelemetry-example.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+
+# omitted for brevity
+            - name: JAVA_TOOL_OPTIONS
+              value: "-javaagent:/usr/app/javaagent/opentelemetry-javaagent.jar"
+            - name: OTEL_METRICS_EXPORTER
+              value: prometheus
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+----
+I added an environment variable `OTEL_METRICS_EXPORTER` to the deployment.yaml file. The value is set to `prometheus`.
+
+I added a new port for the metrics endpoint in the deployment.yaml file. The port value configured in the values.yaml file is used.
+
+.templates/service.yaml
+[source,yaml]
+----
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ .Values.metrics.port }}
+      targetPort: http
+      protocol: TCP
+      name: metrics
+----
+
+I added a new port for the metrics endpoint in the service.yaml file. The port value configured in the values.yaml file is used.
+
+
+=== Access the Metrics using Port Forwarding
+
+[source,shell]
+----
+$ kubectl -n nsa2 port-forward service/nsa2-opentelemetry-example 8080:8080 9464:9464
+----
+
+After port forwarding, access the metrics endpoint.
+
+http://localhost:9464/metrics
+
+
+== Prometheus Configuration
+
+.nsa2-opentelemetry-example-servicemonitor.yaml
+[source,yaml]
+----
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nsa2-opentelemetry-example-servicemonitor
+  labels:
+    team: nsa2
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nsa2-opentelemetry-example
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scheme: http
+      path: /metrics
+----
+
+Now we are using the endpoint that the OpenTelemetry Instrumentation exposes. We need to update the Prometheus configuration to scrape the metrics from the new endpoint.
+
+.Prometheus configuration
+image::./prometheus-targets.png[width=1000, align="center"]
+
+== Grafana Configuration
+
+As for Grafana, no configuration changes are needed. We can simply use the same Grafana dashboard from the previous article.
+
+== Comparison between Spring Boot Actuator and OpenTelemetry Instrumentation
+
+When using Spring Boot Actuator, we need to add dependencies to the Spring Boot application and configure the application to expose metrics. We also need to install Prometheus and Grafana to collect and visualize metrics.
+
+When using OpenTelemetry Instrumentation, we don't need to add dependencies to the Spring Boot application. We only need to download the OpenTelemetry Java Agent and configure the application to use the Java Agent. We also need to install Prometheus and Grafana to collect and visualize metrics. Using OpenTelemetry Instrumentation is more language agnostic and doesn't require any changes to the application code.
+
+=== Differences of Prometheus metrics
+
+We can compare the metrics exposed by Spring Boot Actuator and OpenTelemetry Instrumentation.
+
+We have to make sure that the metrics exposed by OpenTelemetry Instrumentation are NOT same as the metrics exposed by Spring Boot Actuator. For example, `process_cpu_usage` is exposed by Spring Boot Actuator but not by OpenTelemetry Instrumentation.
+
+Here is a screen capture of a graph that shows `jvm_cpu_recent_utilization_ratio`. This metric is exposed by OpenTelemetry Instrumentation.
+
+.Prometheus Graph
+image::./prometheus-graph1.png[width=1000, align="center"]
+
+OpenTelemetry Instrumentation offers different metrics than Spring Boot Actuator. We should compare them carefully to determine which metrics are most useful for our application.
+
+Here are the whole metrics exposed by Spring Actuator and OpenTelemetry Instrumentation so that we can compare them.
+
+.:8080/actuator/prometheus
+[source]
+----
+# HELP application_ready_time_seconds Time taken for the application to be ready to service requests
+# TYPE application_ready_time_seconds gauge
+application_ready_time_seconds
+{main_application_class="com.alexamy.nsa2.example.opentelemetry.Nsa2OpentelemetryExampleApplication"} 16.046
+# HELP application_started_time_seconds Time taken to start the application
+# TYPE application_started_time_seconds gauge
+application_started_time_seconds
+{main_application_class="com.alexamy.nsa2.example.opentelemetry.Nsa2OpentelemetryExampleApplication"} 15.861
+# HELP disk_free_bytes Usable space for path
+# TYPE disk_free_bytes gauge
+disk_free_bytes{path="/Users/younggyukim/Dev/alexamy/examples/nsa2-opentelemetry-example/."} 2.19574505472E11
+# HELP disk_total_bytes Total space for path
+# TYPE disk_total_bytes gauge
+disk_total_bytes{path="/Users/younggyukim/Dev/alexamy/examples/nsa2-opentelemetry-example/."} 9.9466258432E11
+# HELP executor_active_threads The approximate number of threads that are actively executing tasks
+# TYPE executor_active_threads gauge
+executor_active_threads{name="applicationTaskExecutor"} 0.0
+# HELP executor_completed_tasks_total The approximate total number of tasks that have completed execution
+# TYPE executor_completed_tasks_total counter
+executor_completed_tasks_total{name="applicationTaskExecutor"} 0.0
+# HELP executor_pool_core_threads The core number of threads for the pool
+# TYPE executor_pool_core_threads gauge
+executor_pool_core_threads{name="applicationTaskExecutor"} 8.0
+# HELP executor_pool_max_threads The maximum allowed number of threads in the pool
+# TYPE executor_pool_max_threads gauge
+executor_pool_max_threads{name="applicationTaskExecutor"} 2.147483647E9
+# HELP executor_pool_size_threads The current number of threads in the pool
+# TYPE executor_pool_size_threads gauge
+executor_pool_size_threads{name="applicationTaskExecutor"} 0.0
+# HELP executor_queue_remaining_tasks The number of additional elements
+that this queue can ideally accept without blocking
+# TYPE executor_queue_remaining_tasks gauge
+executor_queue_remaining_tasks{name="applicationTaskExecutor"} 2.147483647E9
+# HELP executor_queued_tasks The approximate number of tasks that are queued for execution
+# TYPE executor_queued_tasks gauge
+executor_queued_tasks{name="applicationTaskExecutor"} 0.0
+# HELP hikaricp_connections Total connections
+# TYPE hikaricp_connections gauge
+hikaricp_connections{pool="HikariPool-1"} 10.0
+# HELP hikaricp_connections_acquire_seconds Connection acquire time
+# TYPE hikaricp_connections_acquire_seconds summary
+hikaricp_connections_acquire_seconds_count{pool="HikariPool-1"} 0
+hikaricp_connections_acquire_seconds_sum{pool="HikariPool-1"} 0.0
+# HELP hikaricp_connections_acquire_seconds_max Connection acquire time
+# TYPE hikaricp_connections_acquire_seconds_max gauge
+hikaricp_connections_acquire_seconds_max{pool="HikariPool-1"} 0.0
+# HELP hikaricp_connections_active Active connections
+# TYPE hikaricp_connections_active gauge
+hikaricp_connections_active{pool="HikariPool-1"} 0.0
+# HELP hikaricp_connections_creation_seconds Connection creation time
+# TYPE hikaricp_connections_creation_seconds summary
+hikaricp_connections_creation_seconds_count{pool="HikariPool-1"} 0
+hikaricp_connections_creation_seconds_sum{pool="HikariPool-1"} 0.0
+# HELP hikaricp_connections_creation_seconds_max Connection creation time
+# TYPE hikaricp_connections_creation_seconds_max gauge
+hikaricp_connections_creation_seconds_max{pool="HikariPool-1"} 0.0
+# HELP hikaricp_connections_idle Idle connections
+# TYPE hikaricp_connections_idle gauge
+hikaricp_connections_idle{pool="HikariPool-1"} 10.0
+# HELP hikaricp_connections_max Max connections
+# TYPE hikaricp_connections_max gauge
+hikaricp_connections_max{pool="HikariPool-1"} 10.0
+# HELP hikaricp_connections_min Min connections
+# TYPE hikaricp_connections_min gauge
+hikaricp_connections_min{pool="HikariPool-1"} 10.0
+# HELP hikaricp_connections_pending Pending threads
+# TYPE hikaricp_connections_pending gauge
+hikaricp_connections_pending{pool="HikariPool-1"} 0.0
+# HELP hikaricp_connections_timeout_total Connection timeout total count
+# TYPE hikaricp_connections_timeout_total counter
+hikaricp_connections_timeout_total{pool="HikariPool-1"} 0.0
+# HELP hikaricp_connections_usage_seconds Connection usage time
+# TYPE hikaricp_connections_usage_seconds summary
+hikaricp_connections_usage_seconds_count{pool="HikariPool-1"} 0
+hikaricp_connections_usage_seconds_sum{pool="HikariPool-1"} 0.0
+# HELP hikaricp_connections_usage_seconds_max Connection usage time
+# TYPE hikaricp_connections_usage_seconds_max gauge
+hikaricp_connections_usage_seconds_max{pool="HikariPool-1"} 0.0
+# HELP http_server_requests_active_seconds
+# TYPE http_server_requests_active_seconds summary
+http_server_requests_active_seconds_count
+{exception="none",method="GET",outcome="SUCCESS",status="200",uri="UNKNOWN"} 1
+http_server_requests_active_seconds_sum
+{exception="none",method="GET",outcome="SUCCESS",status="200",uri="UNKNOWN"} 0.098384125
+# HELP http_server_requests_active_seconds_max
+# TYPE http_server_requests_active_seconds_max gauge
+http_server_requests_active_seconds_max
+{exception="none",method="GET",outcome="SUCCESS",status="200",uri="UNKNOWN"} 0.098404167
+# HELP http_server_requests_seconds
+# TYPE http_server_requests_seconds summary
+http_server_requests_seconds_count
+{error="none",exception="none",method="GET",outcome="CLIENT_ERROR",status="404",uri="/**"} 1
+http_server_requests_seconds_sum
+{error="none",exception="none",method="GET",outcome="CLIENT_ERROR",status="404",uri="/**"} 0.07982925
+# HELP http_server_requests_seconds_max
+# TYPE http_server_requests_seconds_max gauge
+http_server_requests_seconds_max
+{error="none",exception="none",method="GET",outcome="CLIENT_ERROR",status="404",uri="/**"} 0.07982925
+# HELP jdbc_connections_active Current number of active connections that have been allocated from the data source.
+# TYPE jdbc_connections_active gauge
+jdbc_connections_active{name="dataSource"} 0.0
+# HELP jdbc_connections_idle Number of established but idle connections.
+# TYPE jdbc_connections_idle gauge
+jdbc_connections_idle{name="dataSource"} 10.0
+# HELP jdbc_connections_max Maximum number of active connections that can be allocated at the same time.
+# TYPE jdbc_connections_max gauge
+jdbc_connections_max{name="dataSource"} 10.0
+# HELP jdbc_connections_min Minimum number of idle connections in the pool.
+# TYPE jdbc_connections_min gauge
+jdbc_connections_min{name="dataSource"} 10.0
+# HELP jvm_info JVM version info
+# TYPE jvm_info gauge
+jvm_info{runtime="OpenJDK Runtime Environment",vendor="Eclipse Adoptium",version="21.0.3+9-LTS"} 1
+# HELP jvm_buffer_count_buffers An estimate of the number of buffers in the pool
+# TYPE jvm_buffer_count_buffers gauge
+jvm_buffer_count_buffers{id="direct"} 5.0
+jvm_buffer_count_buffers{id="mapped"} 0.0
+jvm_buffer_count_buffers{id="mapped - 'non-volatile memory'"} 0.0
+# HELP jvm_buffer_memory_used_bytes An estimate of the memory that the Java virtual machine is using for this buffer pool
+# TYPE jvm_buffer_memory_used_bytes gauge
+jvm_buffer_memory_used_bytes{id="direct"} 43008.0
+jvm_buffer_memory_used_bytes{id="mapped"} 0.0
+jvm_buffer_memory_used_bytes{id="mapped - 'non-volatile memory'"} 0.0
+# HELP jvm_buffer_total_capacity_bytes An estimate of the total capacity of the buffers in this pool
+# TYPE jvm_buffer_total_capacity_bytes gauge
+jvm_buffer_total_capacity_bytes{id="direct"} 43008.0
+jvm_buffer_total_capacity_bytes{id="mapped"} 0.0
+jvm_buffer_total_capacity_bytes{id="mapped - 'non-volatile memory'"} 0.0
+# HELP jvm_classes_loaded_classes The number of classes that are currently loaded in the Java virtual machine
+# TYPE jvm_classes_loaded_classes gauge
+jvm_classes_loaded_classes 20234.0
+# HELP jvm_classes_unloaded_classes_total The total number of classes unloaded
+since the Java virtual machine has started execution
+# TYPE jvm_classes_unloaded_classes_total counter
+jvm_classes_unloaded_classes_total 1.0
+# HELP jvm_compilation_time_ms_total The approximate accumulated elapsed time spent in compilation
+# TYPE jvm_compilation_time_ms_total counter
+jvm_compilation_time_ms_total{compiler="HotSpot 64-Bit Tiered Compilers"} 19733.0
+# HELP jvm_gc_live_data_size_bytes Size of long-lived heap memory pool after reclamation
+# TYPE jvm_gc_live_data_size_bytes gauge
+jvm_gc_live_data_size_bytes 0.0
+# HELP jvm_gc_max_data_size_bytes Max size of long-lived heap memory pool
+# TYPE jvm_gc_max_data_size_bytes gauge
+jvm_gc_max_data_size_bytes 8.589934592E9
+# HELP jvm_gc_memory_allocated_bytes_total Incremented for an increase
+in the size of the (young) heap memory pool after one GC to before the next
+# TYPE jvm_gc_memory_allocated_bytes_total counter
+jvm_gc_memory_allocated_bytes_total 6.7108864E7
+# HELP jvm_gc_memory_promoted_bytes_total Count of positive increases
+in the size of the old generation memory pool before GC to after GC
+# TYPE jvm_gc_memory_promoted_bytes_total counter
+jvm_gc_memory_promoted_bytes_total 2371752.0
+# HELP jvm_gc_overhead An approximation of the percent of CPU time used
+by GC activities over the last lookback period or
+since monitoring began, whichever is shorter, in the range [0..1]
+# TYPE jvm_gc_overhead gauge
+jvm_gc_overhead 1.8017326593718715E-4
+# HELP jvm_gc_pause_seconds Time spent in GC pause
+# TYPE jvm_gc_pause_seconds summary
+jvm_gc_pause_seconds_count{action="end of minor GC",cause="G1 Evacuation Pause",gc="G1 Young Generation"} 1
+jvm_gc_pause_seconds_sum{action="end of minor GC",cause="G1 Evacuation Pause",gc="G1 Young Generation"} 0.021
+# HELP jvm_gc_pause_seconds_max Time spent in GC pause
+# TYPE jvm_gc_pause_seconds_max gauge
+jvm_gc_pause_seconds_max{action="end of minor GC",cause="G1 Evacuation Pause",gc="G1 Young Generation"} 0.021
+# HELP jvm_memory_committed_bytes The amount of memory in bytes that is committed for the Java virtual machine to use
+# TYPE jvm_memory_committed_bytes gauge
+jvm_memory_committed_bytes{area="heap",id="G1 Eden Space"} 6.7108864E7
+jvm_memory_committed_bytes{area="heap",id="G1 Old Gen"} 6.291456E7
+jvm_memory_committed_bytes{area="heap",id="G1 Survivor Space"} 1.2582912E7
+jvm_memory_committed_bytes{area="nonheap",id="CodeHeap 'non-nmethods'"} 2555904.0
+jvm_memory_committed_bytes{area="nonheap",id="CodeHeap 'non-profiled nmethods'"} 9175040.0
+jvm_memory_committed_bytes{area="nonheap",id="CodeHeap 'profiled nmethods'"} 1.998848E7
+jvm_memory_committed_bytes{area="nonheap",id="Compressed Class Space"} 1.4811136E7
+jvm_memory_committed_bytes{area="nonheap",id="Metaspace"} 1.11542272E8
+# HELP jvm_memory_max_bytes The maximum amount of memory in bytes that can be used for memory management
+# TYPE jvm_memory_max_bytes gauge
+jvm_memory_max_bytes{area="heap",id="G1 Eden Space"} -1.0
+jvm_memory_max_bytes{area="heap",id="G1 Old Gen"} 8.589934592E9
+jvm_memory_max_bytes{area="heap",id="G1 Survivor Space"} -1.0
+jvm_memory_max_bytes{area="nonheap",id="CodeHeap 'non-nmethods'"} 5840896.0
+jvm_memory_max_bytes{area="nonheap",id="CodeHeap 'non-profiled nmethods'"} 1.22908672E8
+jvm_memory_max_bytes{area="nonheap",id="CodeHeap 'profiled nmethods'"} 1.22908672E8
+jvm_memory_max_bytes{area="nonheap",id="Compressed Class Space"} 1.073741824E9
+jvm_memory_max_bytes{area="nonheap",id="Metaspace"} -1.0
+# HELP jvm_memory_usage_after_gc The percentage of long-lived heap pool used after the last GC event, in the range [0..1]
+# TYPE jvm_memory_usage_after_gc gauge
+jvm_memory_usage_after_gc{area="heap",pool="long-lived"} 0.004481658339500427
+# HELP jvm_memory_used_bytes The amount of used memory
+# TYPE jvm_memory_used_bytes gauge
+jvm_memory_used_bytes{area="heap",id="G1 Eden Space"} 3.7748736E7
+jvm_memory_used_bytes{area="heap",id="G1 Old Gen"} 3.8497152E7
+jvm_memory_used_bytes{area="heap",id="G1 Survivor Space"} 9024656.0
+jvm_memory_used_bytes{area="nonheap",id="CodeHeap 'non-nmethods'"} 1853312.0
+jvm_memory_used_bytes{area="nonheap",id="CodeHeap 'non-profiled nmethods'"} 9127936.0
+jvm_memory_used_bytes{area="nonheap",id="CodeHeap 'profiled nmethods'"} 1.9715968E7
+jvm_memory_used_bytes{area="nonheap",id="Compressed Class Space"} 1.4331032E7
+jvm_memory_used_bytes{area="nonheap",id="Metaspace"} 1.10542936E8
+# HELP jvm_threads_daemon_threads The current number of live daemon threads
+# TYPE jvm_threads_daemon_threads gauge
+jvm_threads_daemon_threads 28.0
+# HELP jvm_threads_live_threads The current number of live threads including both daemon and non-daemon threads
+# TYPE jvm_threads_live_threads gauge
+jvm_threads_live_threads 32.0
+# HELP jvm_threads_peak_threads The peak live thread count since the Java virtual machine started or peak was reset
+# TYPE jvm_threads_peak_threads gauge
+jvm_threads_peak_threads 33.0
+# HELP jvm_threads_started_threads_total The total number of application threads started in the JVM
+# TYPE jvm_threads_started_threads_total counter
+jvm_threads_started_threads_total 37.0
+# HELP jvm_threads_states_threads The current number of threads
+# TYPE jvm_threads_states_threads gauge
+jvm_threads_states_threads{state="blocked"} 0.0
+jvm_threads_states_threads{state="new"} 0.0
+jvm_threads_states_threads{state="runnable"} 8.0
+jvm_threads_states_threads{state="terminated"} 0.0
+jvm_threads_states_threads{state="timed-waiting"} 11.0
+jvm_threads_states_threads{state="waiting"} 13.0
+# HELP logback_events_total Number of log events that were enabled by the effective log level
+# TYPE logback_events_total counter
+logback_events_total{level="debug"} 0.0
+logback_events_total{level="error"} 0.0
+logback_events_total{level="info"} 5.0
+logback_events_total{level="trace"} 0.0
+logback_events_total{level="warn"} 0.0
+# HELP process_cpu_time_ns_total The "cpu time" used by the Java Virtual Machine process
+# TYPE process_cpu_time_ns_total counter
+process_cpu_time_ns_total 4.3053116E10
+# HELP process_cpu_usage The "recent cpu usage" for the Java Virtual Machine process
+# TYPE process_cpu_usage gauge
+process_cpu_usage 0.0033893960264652057
+# HELP process_files_max_files The maximum file descriptor count
+# TYPE process_files_max_files gauge
+process_files_max_files 10240.0
+# HELP process_files_open_files The open file descriptor count
+# TYPE process_files_open_files gauge
+process_files_open_files 36.0
+# HELP process_start_time_seconds Start time of the process since unix epoch.
+# TYPE process_start_time_seconds gauge
+process_start_time_seconds 1.724603759504E9
+# HELP process_uptime_seconds The uptime of the Java virtual machine
+# TYPE process_uptime_seconds gauge
+process_uptime_seconds 138.065
+# HELP rabbitmq_acknowledged_total
+# TYPE rabbitmq_acknowledged_total counter
+rabbitmq_acknowledged_total{name="rabbit"} 0.0
+# HELP rabbitmq_acknowledged_published_total
+# TYPE rabbitmq_acknowledged_published_total counter
+rabbitmq_acknowledged_published_total{name="rabbit"} 0.0
+# HELP rabbitmq_channels
+# TYPE rabbitmq_channels gauge
+rabbitmq_channels{name="rabbit"} 0.0
+# HELP rabbitmq_connections
+# TYPE rabbitmq_connections gauge
+rabbitmq_connections{name="rabbit"} 0.0
+# HELP rabbitmq_consumed_total
+# TYPE rabbitmq_consumed_total counter
+rabbitmq_consumed_total{name="rabbit"} 0.0
+# HELP rabbitmq_failed_to_publish_total
+# TYPE rabbitmq_failed_to_publish_total counter
+rabbitmq_failed_to_publish_total{name="rabbit"} 0.0
+# HELP rabbitmq_not_acknowledged_published_total
+# TYPE rabbitmq_not_acknowledged_published_total counter
+rabbitmq_not_acknowledged_published_total{name="rabbit"} 0.0
+# HELP rabbitmq_published_total
+# TYPE rabbitmq_published_total counter
+rabbitmq_published_total{name="rabbit"} 0.0
+# HELP rabbitmq_rejected_total
+# TYPE rabbitmq_rejected_total counter
+rabbitmq_rejected_total{name="rabbit"} 0.0
+# HELP rabbitmq_unrouted_published_total
+# TYPE rabbitmq_unrouted_published_total counter
+rabbitmq_unrouted_published_total{name="rabbit"} 0.0
+# HELP system_cpu_count The number of processors available to the Java virtual machine
+# TYPE system_cpu_count gauge
+system_cpu_count 10.0
+# HELP system_cpu_usage The "recent cpu usage" of the system the application is running in
+# TYPE system_cpu_usage gauge
+system_cpu_usage 0.0
+# HELP system_load_average_1m The sum of the number of runnable entities queued to available processors and
+the number of runnable entities running on the available processors averaged over a period of time
+# TYPE system_load_average_1m gauge
+system_load_average_1m 1.9248046875
+# HELP tomcat_sessions_active_current_sessions
+# TYPE tomcat_sessions_active_current_sessions gauge
+tomcat_sessions_active_current_sessions 0.0
+# HELP tomcat_sessions_active_max_sessions
+# TYPE tomcat_sessions_active_max_sessions gauge
+tomcat_sessions_active_max_sessions 0.0
+# HELP tomcat_sessions_alive_max_seconds
+# TYPE tomcat_sessions_alive_max_seconds gauge
+tomcat_sessions_alive_max_seconds 0.0
+# HELP tomcat_sessions_created_sessions_total
+# TYPE tomcat_sessions_created_sessions_total counter
+tomcat_sessions_created_sessions_total 0.0
+# HELP tomcat_sessions_expired_sessions_total
+# TYPE tomcat_sessions_expired_sessions_total counter
+tomcat_sessions_expired_sessions_total 0.0
+# HELP tomcat_sessions_rejected_sessions_total
+# TYPE tomcat_sessions_rejected_sessions_total counter
+tomcat_sessions_rejected_sessions_total 0.0
+----
+
+.:9464/metrics
+[source]
+----
+# HELP db_client_connections_create_time_milliseconds The time it took to create a new connection.
+# TYPE db_client_connections_create_time_milliseconds histogram
+db_client_connections_create_time_milliseconds_bucket
+{otel_scope_name="io.opentelemetry.hikaricp-3.0",otel_scope_version="2.6.0-alpha",pool_name="HikariPool-1",le="0.0"} 0
+db_client_connections_create_time_milliseconds_bucket
+{otel_scope_name="io.opentelemetry.hikaricp-3.0",otel_scope_version="2.6.0-alpha",pool_name="HikariPool-1",le="5.0"} 0
+db_client_connections_create_time_milliseconds_bucket
+{otel_scope_name="io.opentelemetry.hikaricp-3.0",otel_scope_version="2.6.0-alpha",pool_name="HikariPool-1",le="10.0"} 0
+db_client_connections_create_time_milliseconds_bucket
+{otel_scope_name="io.opentelemetry.hikaricp-3.0",otel_scope_version="2.6.0-alpha",pool_name="HikariPool-1",le="25.0"} 0
+db_client_connections_create_time_milliseconds_bucket
+{otel_scope_name="io.opentelemetry.hikaricp-3.0",otel_scope_version="2.6.0-alpha",pool_name="HikariPool-1",le="50.0"} 0
+db_client_connections_create_time_milliseconds_bucket
+{otel_scope_name="io.opentelemetry.hikaricp-3.0",otel_scope_version="2.6.0-alpha",pool_name="HikariPool-1",le="75.0"} 0
+db_client_connections_create_time_milliseconds_bucket
+{otel_scope_name="io.opentelemetry.hikaricp-3.0",otel_scope_version="2.6.0-alpha",pool_name="HikariPool-1",le="100.0"} 0
+db_client_connections_create_time_milliseconds_bucket
+{otel_scope_name="io.opentelemetry.hikaricp-3.0",otel_scope_version="2.6.0-alpha",pool_name="HikariPool-1",le="250.0"} 0
+db_client_connections_create_time_milliseconds_bucket
+{otel_scope_name="io.opentelemetry.hikaricp-3.0",otel_scope_version="2.6.0-alpha",pool_name="HikariPool-1",le="500.0"} 9
+db_client_connections_create_time_milliseconds_bucket
+{otel_scope_name="io.opentelemetry.hikaricp-3.0",otel_scope_version="2.6.0-alpha",pool_name="HikariPool-1",le="750.0"} 9
+db_client_connections_create_time_milliseconds_bucket
+{otel_scope_name="io.opentelemetry.hikaricp-3.0",otel_scope_version="2.6.0-alpha",pool_name="HikariPool-1",le="1000.0"} 9
+db_client_connections_create_time_milliseconds_bucket
+{otel_scope_name="io.opentelemetry.hikaricp-3.0",otel_scope_version="2.6.0-alpha",pool_name="HikariPool-1",le="2500.0"} 9
+db_client_connections_create_time_milliseconds_bucket
+{otel_scope_name="io.opentelemetry.hikaricp-3.0",otel_scope_version="2.6.0-alpha",pool_name="HikariPool-1",le="5000.0"} 9
+db_client_connections_create_time_milliseconds_bucket
+{otel_scope_name="io.opentelemetry.hikaricp-3.0",otel_scope_version="2.6.0-alpha",pool_name="HikariPool-1",le="7500.0"} 9
+db_client_connections_create_time_milliseconds_bucket
+{otel_scope_name="io.opentelemetry.hikaricp-3.0",otel_scope_version="2.6.0-alpha",pool_name="HikariPool-1",le="10000.0"} 9
+db_client_connections_create_time_milliseconds_bucket
+{otel_scope_name="io.opentelemetry.hikaricp-3.0",otel_scope_version="2.6.0-alpha",pool_name="HikariPool-1",le="+Inf"} 9
+db_client_connections_create_time_milliseconds_count
+{otel_scope_name="io.opentelemetry.hikaricp-3.0",otel_scope_version="2.6.0-alpha",pool_name="HikariPool-1"} 9
+db_client_connections_create_time_milliseconds_sum
+{otel_scope_name="io.opentelemetry.hikaricp-3.0",otel_scope_version="2.6.0-alpha",pool_name="HikariPool-1"} 3922.0
+...
+
+----
+
+== Conclusion
+
+In this article, we have learned how to instrument a Spring Boot application with OpenTelemetry Instrumentation and how to export the telemetry data to Prometheus. We also compared the OpenTelemetry Instrumentation with the Spring Boot Actuator. OpenTelemetry Instrumentation is more language agnostic and provides more flexibility in terms of exporting telemetry data to various backends.

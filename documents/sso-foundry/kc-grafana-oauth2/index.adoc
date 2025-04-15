@@ -1,0 +1,434 @@
+---
+layout: documents
+title: OAuth2 Authentication for Grafana with Keycloak
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: SSO Foundry
+    url: /documents/sso-foundry/
+
+# docs/keycloak/02-grafana-oauth2/index.adoc
+---
+= OAuth2 Authentication for Grafana with Keycloak
+
+:imagesdir: images
+
+image::grafana-oauth-introduction.png[width=1000, align="center"]
+== Overview
+
+Grafana is a core component of the Observability stack. This guide provides a step-by-step walkthrough to integrate OAuth2 authentication in Grafana using *Keycloak* as the Identity Provider (IdP).
+
+Unlike Grafana, tools like *Jaeger* and *Prometheus* don’t support OAuth2 natively. They require OAuth2 Proxy as a middleware. Grafana, however, includes native support for OAuth2 authentication, making integration simpler.
+
+
+=== Prerequisites
+
+Before proceeding, ensure the following components are already deployed in your Kubernetes cluster:
+
+* **Traefik**: Ingress Controller
+* **Keycloak**: Identity Provider
+
+Related Guides:
+
+* link:https://www.linkedin.com/pulse/traefik-oauth2-proxy-using-authentication-middleware-young-gyu-kim-fzd2c[Traefik & OAuth2 Proxy - Using OAuth2 Proxy as Authentication Middleware]
+
+
+// == Install Keycloak
+//
+// Create Namespace
+// [source,shell]
+// ----
+// $ kubectl create namespace keycloak
+// ----
+//
+// Create Secret for admin Credential
+// [source,shell]
+// ----
+// $ kubectl create -f keycloak/keycloak-credentials-secret.yaml
+// ----
+//
+// Install Keycload using Helmcart
+// [source,shell]
+// ----
+// $ helm upgrade --install keycloak bitnami/keycloak --version 24.4.13 \
+//   -f keycloak/custom-values.yaml --namespace keycloak --create-namespace
+// ----
+//
+//
+//
+// == Install Traefik
+//
+// For more information on Traefik, see link:https://www.linkedin.com/pulse/traefik-kubernetes-ingress-controller-young-gyu-kim-mwvkc[Traefik & Kubernetes].
+//
+// Create a namespace for Traefik:
+// [source,shell]
+// ----
+// $ kubectl create namespace traefik
+// ----
+//
+// Install Traefik using Helm:
+// [source,shell]
+// ----
+// $ helm upgrade --install traefik traefik/traefik -f traefik/custom-values.yaml -n traefik
+// ----
+
+
+== Installing Grafana
+
+=== Using the Latest Helm Chart
+
+Grafana Helm charts are available at:
+
+* link:https://grafana.github.io/helm-charts[https://grafana.github.io/helm-charts]
+
+=== Add and Update the Helm Repository
+
+[source,shell]
+----
+$ helm repo add grafana https://grafana.github.io/helm-charts
+$ helm repo update grafana
+----
+
+=== Pull the Helm Chart
+
+To use a specific version (e.g., 8.10.4), download it to a dedicated directory:
+
+
+.Pull the Grafana Helm chart to the directory $HOME/Dev/helm/charts/grafana
+[source,shell]
+----
+$ mkdir -p $HOME/Dev/helm/charts/grafana
+$ helm pull grafana/grafana -d $HOME/Dev/helm/charts/grafana
+----
+
+.Pull the Grafana Helm chart to the current directory
+[source,shell]
+----
+$ helm pull grafana/grafana
+----
+
+.Verify the download:
+[source,shell]
+----
+$ ls -l
+
+# Example output
+-rw-r--r--@ 1 young  staff  131387 Mar 19 10:49 grafana-8.10.4.tgz
+----
+
+This document will use the Grafana Helm chart version 8.10.4.
+
+=== Inspect Default values
+
+To better understand the configuration options of the Grafana Helm chart, you can view the values.yaml file.
+
+[source,shell]
+----
+$ helm show values grafana/grafana > values.yaml
+----
+
+== Kubernetes Setup
+
+=== Create Namespace
+
+[source,shell]
+----
+$ kubectl create namespace o11y
+----
+
+=== Create Secret for Admin Credentials
+
+In a previous document, I created a secret for Admin Credentials. However, I will configure to use accounts from Keycloak for authentication. Therefore, I will skip this step.
+
+// [source,shell]
+// ----
+// $ kubectl create -f grafana-admin-credentials.yaml
+// ----
+
+
+=== Create Secret for OAuth2 Client Secret
+
+We’ll store the *Keycloak client secret* securely in a Kubernetes secret.
+
+
+.Create secret for OAuth2 Client Secret
+[source,shell]
+----
+# use yq to remove the creationTimestamp
+$ kubectl -n o11y create secret generic grafana-client-secret \
+  --from-literal=GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET={your-keycloak-client-secret} --dry-run=client -o yaml | yq eval 'del(.metadata.creationTimestamp)' > grafana-client-secret.yaml
+
+----
+
+The variable `GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET` is used to set the OAuth2 Client Secret in the Grafana configuration.
+
+Apply the secret
+[source,shell]
+----
+$ kubectl apply -f grafana-client-secret.yaml
+----
+
+This secret is used in the custom-values.yaml file.
+
+.custom-values.yaml - envFromSecrets
+[source,yaml]
+----
+envFromSecrets:
+  - name: grafana-client-secret
+----
+
+=== Grafana Configuration custom-values.yaml
+
+.custom-values.yaml
+[source,yaml]
+----
+rbac:
+  namespaced: true
+
+# for resources and nodeSelector, use your own values
+resources: {}
+nodeSelector: {}
+
+persistence:
+  enabled: true
+
+# 561
+# <1>
+envFromSecrets:
+  - name: grafana-client-secret
+
+# 857
+# <2>
+grafana.ini:
+  server:
+    root_url: "http://grafana.nsa2.com"   # <3>
+  # <4>
+  log:
+    mode: console
+    level: debug
+    filters:
+      name:
+        - "oauth2"
+  auth:
+    disable_login_form: true # Redirects all users to OIDC login
+    disable_signout_menu: false
+  auth.generic_oauth:
+    enabled: true
+    name: Keycloak
+    allow_sign_up: true
+    client_id: "grafana"  # <5>
+    scopes: "openid profile email" # <6>
+    # <7>
+    auth_url: "http://{your-keycloak-url}/realms/nsa2-realm/protocol/openid-connect/auth"
+    token_url: "http://{your-keycloak-url}/realms/nsa2-realm/protocol/openid-connect/token"
+    api_url: "http://{your-keycloak-url}/realms/nsa2-realm/protocol/openid-connect/userinfo"
+    # <8>
+    role_attribute_path: "contains(realm_access.roles[*], 'grafana-admin') && 'Admin' || contains(realm_access.roles[*], 'grafana-editor') && 'Editor' || 'Viewer'"
+    tls_skip_verify_insecure: true
+    use_pkce: true
+----
+<1> use the secret to set the OAuth2 Client Secret
+<2> Grafana configuration
+<3> root_url: Grafana URL
+<4> log configuration
+<5> client_id: Grafana Client ID
+<6> scopes: OpenID Connect scopes
+<7> auth_url, token_url, and api_url: Keycloak URLs
+<8> role_attribute_path: Grafana Role Mapping.
+
+In ID Token, the roles are stored in the realm_access.roles array. The role_attribute_path is used to map the roles to Grafana roles. In this example, the roles are mapped to Grafana roles as follows:
+
+[source,json]
+----
+{
+    "realm_access": {
+        "roles": [
+            "grafana-admin"
+        ]
+    }
+}
+----
+
+In the above example, the role_attribute_path is set to 'Admin' if the user has the 'grafana-admin' role. If the user has the 'grafana-editor' role, the role_attribute_path is set to 'Editor'. Otherwise, the role_attribute_path is set to 'Viewer'.
+
+=== Keycloak Setup
+
+The configuration options in the custom-values.yaml file are as follows:
+
+* **Realm**: nsa2-realm
+* **Client ID**: grafana
+* **Client Secret**: Retrieve from Keycloak
+// * **Redirect URL**: http://grafana.nsa2.com/login/generic_oauth
+* **Valid Redirect URL**: http://grafana.nsa2.com/*
+* **Valid Post Logout URL**: http://grafana.nsa2.com/*
+
+For users, I created the following Realm roles in Keycloak:
+
+**Keycloak Realm Roles: **
+
+* **grafana-admin**: for Grafana Admin role
+* **grafana-editor**: for Grafana Editor role
+* **grafana-viewer**: for Grafana Viewer role
+
+.Keycloak Realm Roles
+image::kc-realm-roles.png[width=1000, align="center"]
+
+**Users:**
+
+* **grafana-admin**: having grafana-admin Realm role
+* **grafana-editor**: having grafana-editor Realm role
+* **grafana-viewer**: having grafana-viewer Realm role
+
+.Keycloak Users
+image::kc-users.png[width=1000, align="center"]
+
+Assign these roles to users in Keycloak.
+
+
+=== Deploy Grafana with Helm
+
+[source,shell]
+----
+$ helm upgrade --install -n o11y grafana grafana/grafana \
+  -f custom-values.yaml --version 8.10.4
+----
+
+=== Installing Grafana Ingress
+
+// Unless you configure the Ingress, you cannot access Grafana from the browser. The Ingress is a Kubernetes resource that exposes the service to the outside world.
+
+The annotation 'kubernetes.io/ingress.class' has been deprecated. Use 'ingressClassName' instead.
+
+Using Traefik Ingress Controller:
+
+.grafana-ingress.yaml
+[source,yaml]
+----
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana-ingress
+  namespace: o11y
+#  annotations:
+#    kubernetes.io/ingress.class: traefik
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: grafana.nsa2.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  name: service
+----
+
+Apply the Ingress
+
+[source,shell]
+----
+$ kubectl apply -f grafana-ingress.yaml
+----
+
+=== DNS Configuration
+
+Add the following entry to the /etc/hosts file:
+
+[source]
+----
+{traefik-service-ip-address}     grafana.nsa2.com
+----
+
+=== Inspect grafana.ini
+
+The grafana.ini section in the custom-values.yaml file is used to configure Grafana. You can find the grafana.ini file in the Grafana pod in the /etc/grafana directory. You can copy the grafana.ini file to the local directory.
+
+.Copy grafana.ini to the local directory
+[source,shell]
+----
+$ kubectl -n o11y cp "$(ko get pods  -l app.kubernetes.io/name=grafana | awk 'NR>1' | head -n 1 | awk '{print $1}'):etc/grafana/grafana.ini" grafana.ini
+----
+
+== Testing OIDC Authentication
+
+
+. Visit http://grafana.nsa2.com
+. Click 'Sign in with Keycloak'
+. Login with your Keycloak user(e.g., grafana-admin)
+. Navigate the Grafana Dashboard
+
+=== Role-Based Dashboard Access
+
+* **Admin**: Full access to dashboards, users, and settings.
+* **Editor**: Can edit dashboards.
+* **Viewer**: Read-only access.
+
+==== Example:
+
+* grafana-admin sees full dashboard features.
+* grafana-viewer has limited access.
+
+=== Screenshots
+
+.Grafana Sign In button
+image::grafana-sign-in.png[width=1000, align="center"]
+
+Click on the 'Sign in with Keycloak' button to sign in with the Keycloak account.
+
+.Keycloak Login
+image::keycloak-login-admin.png[width=1000, align="center"]
+
+Use the Keycloak account to sign in. In this example, I used the 'grafana-admin' account.
+
+=== Grafana Dashboard
+
+With different roles, you can access different menus in the Grafana Dashboard.
+
+==== Grafana Dashboard for Grafana Admin
+
+.Grafana Dashboard for Grafana Admin
+image::grafana-dashboard-admin.png[width=1000, align="center"]
+
+With Admin role, you can access the Grafana Dashboard. There are more menus available for the Admin role.
+
+==== Grafana Dashboard for Grafana Viewer
+
+.Grafana Dashboard for Grafana Viewer
+image::grafana-dashboard-viewer.png[width=1000, align="center"]
+
+Viewer role has limited access to the Grafana Dashboard.
+
+=== Grafana Profile
+
+To view the profile, click on the profile icon on the left side of the Grafana Dashboard.
+
+==== Grafana Profile - Admin
+
+.Grafana Profile - Admin
+image::grafana-profile-admin.png[width=1000, align="center"]
+
+==== Grafana Profile - Viewer
+
+.Grafana Profile - Viewer
+image::grafana-profile-viewer.png[width=1000, align="center"]
+
+== Conclusion
+
+This guide demonstrated how to secure Grafana using OAuth2 with Keycloak. After successful integration:
+
+* Users log in with Keycloak accounts.
+* Roles defined in Keycloak are automatically mapped to Grafana roles.
+* OIDC login provides a seamless and secure authentication experience.
+
+
+
+
+
+

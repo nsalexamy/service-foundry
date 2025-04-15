@@ -1,0 +1,342 @@
+---
+layout: documents
+title: Traefik & Kubernetes - The Kubernetes Ingress Controller
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: SSO Foundry
+    url: /documents/sso-foundry/
+---
+// docs/traefik/01-install-on-k8s/index.adoc
+= Traefik & Kubernetes - The Kubernetes Ingress Controller
+
+:imagesdir: images
+
+image::traefik-introduction.png[width=1000, align="center"]
+== Overview
+
+This guide walks you through installing Traefik on Kubernetes using Helm and configuring Ingresses for Jaeger, Prometheus, and Airflow. The goal is to help you understand how Traefik dynamically routes traffic to your services in a Kubernetes environment.
+
+
+== Whhat is Traefik?
+
+[quote, Traefik, https://traefik.io/]
+____
+Traefik is an open-source Edge Router that makes publishing your services a fun and easy experience. It receives requests on behalf of your system and finds out which components are responsible for handling them.
+____
+
+=== Key Concepts in Traefik
+
+Traefik revolves around four key building blocks:
+
+
+. **EntryPoints**: Define the network ports (e.g., HTTP/HTTPS) through which Traefik receives incoming traffic.
+. **Routers**: Match incoming requests and direct them to the appropriate service based on defined rules.
+. **Middlewares**: Transform requests or responses before they are processed by the service (e.g., adding headers, authentication, rate-limiting).
+. **Services**: Represent the actual backend services that respond to requests.
+
+For more information, see link:https://doc.traefik.io/traefik/getting-started/concepts/[Traefik Concepts].
+
+=== Limitations
+
+In this guide, we use the Community Edition of Traefik. Here’s a brief overview of the editions:k:
+
+* **Application Gateway** (Free): Ideal for small to medium workloads.
+* **API Gateway** (Paid): Suited for medium to large-scale applications.
+* **API Management** (Paid): Designed for large-scale environments with advanced management needs.
+
+Refer to the link:https://traefik.io/pricing/[Traefik Pricing] page for details.
+
+== Install Traefik on Kubernetes using Helm
+
+Official guide: link:https://doc.traefik.io/traefik/getting-started/install-traefik/[Traefik Installation Guide]
+
+=== Add Helm Repository
+
+[source,shell]
+----
+$ helm repo add traefik https://helm.traefik.io/traefik
+$ helm repo update traefik
+----
+
+=== Get Default Configuration
+
+[source,shell]
+----
+$ helm show values traefik/traefik > values.yaml
+----
+
+=== Pull the Traefik Chart
+
+Make target directory for the Traefik chart:
+
+[source,shell]
+----
+$ mkdir -p $HOME/Dev/helm/charts/traefik
+----
+
+Pull the Traefik chart:
+[source,shell]
+----
+$ helm pull traefik/traefik  --destination $HOME/Dev/helm/charts/traefik
+----
+
+=== Create Namespace for Traefik
+
+[source,shell]
+----
+$ kubectl create namespace traefik
+----
+
+// === Install Jaeger v2
+//
+// [source,shell]
+// ----
+// $ kubectl create namespace o11y
+// $ ./install-o11y-dependencies.sh
+// $ kubectl apply -f jaeger-inmemory-instance.yaml
+// ----
+//
+// === Install Prometheus
+//
+// [source,shell]
+// ----
+// $ kubectl apply -k prometheus
+// ----
+
+// === Install Keycloak
+//
+// [source,shell]
+// ----
+// # install keycloak in the keycloak namespace
+// ----
+
+=== Enable the Treafik Dashboard
+
+Create a custom values file(custom-values.yaml) with the content below:
+
+.custom-values.yaml
+[source,yaml]
+----
+ingressRoute:
+  dashboard:
+    enabled: true
+----
+
+=== Install Traefik
+
+
+[source,shell]
+----
+$ helm upgrade --install traefik traefik/traefik -f custom-values.yaml -n traefik
+----
+
+=== Verify Installation
+
+[source,shell]
+----
+$ kubectl -n traefik get services
+----
+
+**Example output**:
+[source,shell]
+----
+NAME      TYPE           CLUSTER-IP      EXTERNAL-IP                                                               PORT(S)                      AGE
+traefik   LoadBalancer   10.100.81.125   a8ae1e63c10c449a08e10a095efd839f-2062399949.ca-west-1.elb.amazonaws.com   80:31041/TCP,443:30228/TCP   41m
+----
+
+For External IP, we can see the DNS name `a8ae1e63c10c449a08e10a095efd839f-2062399949.ca-west-1.elb.amazonaws.com`. This DNS name will be automatically assigned to Ingresses with the annotation `kubernetes.io/ingress.class: traefik`.
+
+
+// === Unistall Traefik
+//
+// To uninstall Traefik, run the command below:
+//
+// [source,shell]
+// ----
+// $ helm -n traefik uninstall traefik
+// ----
+
+
+
+== Creating Ingresses
+
+=== Jaeger & Prometheus Ingress (o11y-ingress.yaml)
+
+.o11y-ingress.yaml
+[source,yaml]
+----
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: o11y-ingress
+  namespace: o11y
+  annotations:
+    # <1>
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+    # <2>
+    - host: jaeger-ui.nsa2.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: otel-collector
+                port:
+                  name: jaeger
+    # <3>
+    - host: prometheus.nsa2.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: prometheus
+                port:
+                  name: web
+----
+<1> Ingress class for Traefik. When the value is set to `traefik` or empty, Traefik will handle the Ingress.
+<2> Hostname for Jaeger UI. To access Jaeger UI, we need to add the hostname to the `/etc/hosts` file.
+<3> Hostname for Prometheus. To access Prometheus, we need to add the hostname to the `/etc/hosts` file.
+
+
+To apply the Ingress, run the command below:
+[source,shell]
+----
+$ kubectl apply -f o11y-ingress.yaml
+----
+
+To verify the Ingress, run the command below:
+[source,shell]
+----
+$ kubectl -n o11y get ingress
+
+# Example output
+NAME           CLASS     HOSTS                                    ADDRESS                                                                   PORTS   AGE
+o11y-ingress   traefik   jaeger-ui.nsa2.com,prometheus.nsa2.com   a8ae1e63c10c449a08e10a095efd839f-2062399949.ca-west-1.elb.amazonaws.com   80      37m
+
+----
+
+=== Airflow Ingress (airflow-ingress.yaml)
+
+.airflow-ingress.yaml
+[source,yaml]
+----
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: o11y-ingress
+  namespace: airflow
+  # <1>
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+    # <2>
+    - host: airflow.nsa2.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: airflow-webserver
+                port:
+                  name: airflow-ui
+----
+
+<1> Ingress class for Traefik. When the value is set to `traefik` or empty, Traefik will handle the Ingress.
+<2> Hostname for Airflow UI. To access Airflow UI, we need to add the hostname to the `/etc/hosts` file.
+
+To apply the Ingress, run the command below:
+[source,shell]
+----
+$ kubectl apply -f airflow-ingress.yaml
+----
+
+== Accessing the Services
+
+[source,shell]
+----
+kubectl -n traefik get service
+
+# Example output
+NAME      TYPE           CLUSTER-IP      EXTERNAL-IP                                                               PORT(S)                      AGE
+traefik   LoadBalancer   10.100.81.125   a8ae1e63c10c449a08e10a095efd839f-2062399949.ca-west-1.elb.amazonaws.com   80:31041/TCP,443:30228/TCP   21m
+----
+
+For External IP, we can see the DNS name `a8ae1e63c10c449a08e10a095efd839f-2062399949.ca-west-1.elb.amazonaws.com`
+
+To access hostnames we used in the Ingress, we need to add the DNS name to the `/etc/hosts` file.
+
+[source,shell]
+----
+40.176.3.88       jaeger-ui.nsa2.com
+40.176.3.88       prometheus.nsa2.com
+40.176.3.88       airflow.nsa2.com
+----
+
+You can get the External IP address of the Traefik service by running the command below:
+
+[source,shell]
+----
+$ ping a8ae1e63c10c449a08e10a095efd839f-2062399949.ca-west-1.elb.amazonaws.com
+----
+
+NOTE:: Optionally, use CNAME records in Route 53 or another DNS provider for production access.
+
+
+=== http://jaeger-ui.nsa2.com
+
+.Jaeger UI Screenshot
+image::jaeger-ui.png[width=1000, align="center"]
+
+
+=== http://prometheus.nsa2.com
+
+.Prometheus Screenshot
+image::prometheus-ui.png[width=1000, align="center"]
+
+
+=== http://airflow.nsa2.com
+
+.Airflow Screenshot
+image::airflow-ui.png[width=1000, align="center"]
+
+== Accessing the Traefik Dashboard
+
+Traefik’s dashboard is not exposed by default. Use port-forwarding to access it locally:
+
+[source,shell]
+----
+$ kubectl -n traefik port-forward deployment/traefik 8080:8080
+----
+
+To access the Traefik dashboard, open a browser and go to `http://localhost:8080/dashboard/`. Don’t forget the trailing / at the end.
+
+.Traefik Dashboard Screenshot
+image::traefik-dashboard.png[width=1000, align="center"]
+
+The dashboard provides real-time insights into routers, services, and middlewares.
+
+NOTE:: The open-source edition does not include built-in authentication or authorization for the dashboard.
+
+== Conclusion
+
+In this guide, you:
+
+ * Installed Traefik using Helm on Kubernetes
+ * Created Ingresses for Jaeger, Prometheus, and Airflow
+ * Exposed and accessed each service using DNS hostnames
+ * Explored the Traefik dashboard via port forwarding
+
+Traefik simplifies managing ingress traffic and is a powerful tool in cloud-native environments.
+
