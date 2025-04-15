@@ -1,0 +1,279 @@
+---
+layout: documents
+title: Apache Airflow - Managing DAGs with a Git Repository
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: BigData Foundry
+    url: /documents/bigdata-foundry/
+---
+// docs/airflow/git-repo-for-dags/index.adoc
+= Apache Airflow - Managing DAGs with a Git Repository
+
+:imagesdir: images
+
+
+[.img-wide]
+image::intro.png[]
+
+== Introduction
+
+In this guide, we explore how to use a **Git repository** to store and manage **Apache Airflow DAGs** instead of relying on **Persistent Volumes (PVs) with ReadWriteMany (RWX)** mode.
+
+By integrating Git Sync with Airflow, DAGs are automatically updated, allowing for seamless collaboration, version control, and CI/CD integration.
+
+
+=== Benefits of Using a Git Repository for DAGs
+
+Compared to using a **Persistent Volume (EFS)** for **DAG storage**, a Git-based approach offers several advantages:
+
+==== Version Control
+
+* Git enables tracking of changes, allowing you to revert to previous versions when needed.
+
+==== Collaboration
+
+* Multiple developers can work on DAGs simultaneously, committing and pushing updates to the repository.
+* Airflow automatically syncs the changes from Git.
+
+==== No Persistent Storage Required
+
+* No need to maintain PVCs or EFS volumes for DAG storage.
+* DAGs are stored in Git and automatically pulled by Airflow.
+
+==== CI/CD Integration
+
+* Git can be integrated with CI/CD pipelines to automatically test and deploy DAGs.
+
+
+
+== Setting Up a Private Git Repository for Airflow DAGs
+
+This section is based on the official documentation of Airflow below:
+
+* link:https://airflow.apache.org/docs/helm-chart/stable/manage-dags-files.html#using-git-sync[Using Git Sync]
+
+=== Step 1: Create a Git Repository
+
+. Create a new private repository on GitHub (e.g., airflow-dags-example).
+. Clone the repository to your local machine:
+
+[source,shell]
+----
+$ git clone git@github.com:your-org/airflow-dags-example.git
+$ cd airflow-dags-example
+----
+
+[start=3]
+. Create a sample DAG file (e.g., hello_world_dag.py) and push the changes:
+
+[source,shell]
+----
+$ git add dags/hello_world_dag.py
+$ git commit -m "Add hello_world DAG"
+$ git push origin main
+----
+
+Here is an example of Python project structure:
+
+.VS Code - airflow-dags-example project
+[.img-wide]
+image::airflow-dags-project.png[]
+
+== Mounting DAGs from a Private Git Repository Using Git Sync
+
+To allow Git Sync to fetch DAGs from a private Git repository, we need to configure SSH authentication.
+
+=== Step 2: Generate SSH Keys for Git Access
+
+Run the following command to generate an SSH key pair:
+
+[source,shell]
+----
+$ ssh-keygen -t rsa -b 4096 -C "your_email@example.com"
+----
+
+* Add the public key (.pub file) to your GitHub repository under:
+Settings → Deploy Keys → Add Key
+* Save the private key as a Kubernetes secret in Airflow.
+
+
+== Configuring Airflow to Use Git Sync
+
+=== Step 3: Update the Airflow Helm Values (custom-values.yaml)
+
+
+Modify your custom-values.yaml file to enable **Git Sync**:
+
+.custom-values.yaml - changes for Git Sync
+[source,yaml]
+----
+dags:
+  persistence:
+    enabled: false # <1>
+
+  gitSync:
+    enabled: true
+    repo: "git@github.com:your-org/airflow-dags-example.git" # <2>
+    branch: "main"
+    rev: HEAD
+    depth: 1
+    wait: 60  # Sync every 60 seconds
+    subPath: "dags" # <3>
+    containerName: "git-sync"
+    sshKeySecret: "airflow-git-ssh-key-secret" # <4>
+    # <5>
+    knownHosts: |
+      github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+      github.com ecdsa-sha2-nistp256 AAAAE2Vj...2YB/++Tpockg=
+      github.com ssh-rsa AAAAB3NzaC1y...+p1vN1/wsjk=
+
+    emptyDirConfig:
+      sizeLimit: 1Gi
+      medium: Memory
+    resources:
+      limits:
+        cpu: 400m
+        memory: 1024Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+----
+
+<1> Disable the persistence for the DAGs.
+<2> Provide the Git repository URL.
+<3> Provide the subpath where the DAGs are stored.
+<4> Provide the secret name that contains the SSH key.
+<5> Provide the known hosts for the Git repository.
+
+For more information on GitHub's SSH Key fingerprints, see link:https://docs.github.com/en/github/authenticating-to-github/githubs-ssh-key-fingerprints[GitHub's SSH Key fingerprints].
+
+=== Step 4: Create the SSH Key Kubernetes Secret
+
+Run the following command to create a Kubernetes secret for the SSH key:
+
+
+[source,shell]
+----
+#$ kubectl create secret generic airflow-git-ssh-key-secret \
+#  --from-file=ssh-privatekey=$HOME/.ssh/github-credemol \
+#  --namespace airflow
+
+$ kubectl create secret generic airflow-git-ssh-key-secret \
+  --from-file=gitSshKey={my-private-ssh-key-file} \
+  --namespace airflow
+
+$ kubectl create secret generic airflow-git-ssh-key-secret \
+  --from-file=gitSshKey=$HOME/.ssh/github-credemol \
+  --namespace airflow
+
+secret/airflow-git-ssh-key-secret created
+----
+
+== Deploying Airflow with Git Sync
+
+=== Step 5: Create secrets for fernet key and webserver password
+
+Like the previous installation, we need to create secrets for the Fernet key and webserver password.
+
+[source,shell]
+----
+$ kubectl apply -f airflow-fernet-key-secret.yaml -f airflow-webserver-secret.yaml
+----
+
+=== Add Label to node group on EKS
+
+To use nodeSelector in the Airflow deployment, we need to add a label to the node group.
+
+label: `agentpool=depnodes`
+
+
+=== Step 6: Install or Upgrade Airflow
+
+Now, install or update Airflow using Helm:
+
+[source,shell]
+----
+#$ helm upgrade --install airflow apache-airflow/airflow -f custom-values.yaml --namespace airflow
+$ helm upgrade --install airflow $HOME/Dev/helm/charts/apache-airflow/airflow-1.15.0.tgz -f custom-values.yaml --namespace airflow
+----
+
+== Testing Git Sync in Airflow
+
+hello_world_dag.py is the same as the previous example. It has three tasks: `hello_world`, `sleep`, and `done`.
+
+.Before Git Sync
+[.img-wide]
+image::git-sync-1.png[]
+
+We are going to add a new task `goodbye_world` between the `sleep` and `done` tasks.
+
+.hello_world_dag.py
+[source,python]
+----
+    # <1>
+    @task(
+        task_id="goodbye_world",
+    )
+    def goodbye_world():
+        print('Goodbye World - From Github Repository')
+
+
+    hello_world_task = hello_world()
+    sleep_task = sleep_task()
+    goodbye_world_task = goodbye_world()    # <2>
+    done_task = done()
+
+    hello_world_task >> sleep_task >> goodbye_world_task >> done_task # <3>
+----
+
+<1> Define a new task `goodbye_world` that prints `Goodbye World - From Github Repository`.
+<2> Create a new task instance `goodbye_world_task`.
+<3> Define the task dependencies.
+
+And then commit and push the changes to the Github repository.
+
+.push the changes to the Github repository
+[source,shell]
+----
+$ git commit -a -m "Add goodbye_world task"
+$ git push
+----
+
+Once the changes are pushed to the repository, the Airflow will automatically sync the changes.
+
+Since Git Sync runs every 60 seconds, after a minute, the changes will be automatically reflected in the Airflow UI.
+
+
+.After Git Sync
+[.img-wide]
+image::git-sync-2.png[]
+
+We can see the new task 'goodbye_world' between sleep and done tasks.
+
+== Conclusion
+
+In this guide, we:
+
+* Created a private Git repository for DAGs.
+* Configured Apache Airflow to sync DAGs using Git Sync.
+* Used SSH keys for authentication.
+* Verified that Git Sync automatically updates DAGs in Airflow.
+
+With Git-based DAG management, development teams can work collaboratively, streamline deployments, and avoid storage dependencies like EFS or PVCs.
+
+Now, Airflow DAGs are managed efficiently through Git!
+
+
+
+All my LinkedIn articles can be found here:
+
+* link:https://www.linkedin.com/pulse/my-linkedin-article-library-young-gyu-kim-2jihc/[My LinkedIn Article Library]
+
+
+Internal Link: docs/airflow/git-repo-for-dags/index.adoc
+
