@@ -1,0 +1,278 @@
+---
+layout: documents
+title:  Distributed Tracing - Spring Boot Application with OpenTelemetry Collector
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+//  docs/distributed-tracing/part4-using-otel-collector/index.adoc
+= Distributed Tracing - Spring Boot Application with OpenTelemetry Collector
+
+:imagesdir: images
+== Introduction
+
+This article is part of a series of articles on Distributed Tracing. In this article, we will discuss how to set up Zipkin and a sample Spring Boot application to demonstrate distributed tracing.
+
+1. Part 1 - link:https://www.linkedin.com/pulse/distributed-tracing-setup-zipkin-sample-spring-boot-young-gyu-kim-msaqc/[Distributed Tracing - Setup Zipkin and Sample Spring Boot Application]
+2. Part 2 - link:https://www.linkedin.com/pulse/distributed-tracing-spring-boot-application-micrometer-kim-napzc[Distributed Tracing - Spring Boot Application with Micrometer and OpenTelemetry]
+3. Part 3 - link:https://www.linkedin.com/pulse/distributed-tracing-spring-boot-application-young-gyu-kim-cuuvc/[Distributed Tracing - Spring Boot Application with OpenTelemetry Instrumentation]
+4. Part 4 - link:https://www.linkedin.com/pulse/distributed-tracing-spring-boot-application-collector-young-gyu-kim-dq5hc/[Distributed Tracing - Spring Boot Application with OpenTelemetry Collector]
+
+This article is the last part of the series.
+
+=== OpenTelemetry Collector
+
+image::./otel-collector.svg[OpenTelemetry Collector]
+
+OpenTelemetry Collector is a vendor-agnostic agent for observability data. It is a powerful tool that can be used to collect, process, and export telemetry data. It can be used to collect traces, metrics, and logs from various sources and export them to various destinations.
+
+In this article, we will use OTLP as the receiver and Zipkin as the exporter. OTLP is a protocol that can be used to send telemetry data to the OpenTelemetry Collector. Zipkin is a distributed tracing system that can be used to visualize and analyze traces.
+
+In the previous article, we used OpenTelemetry Instrumentation to export traces to Zipkin directly shown in the following diagram.
+
+.OpenTelemetry Instrumentation to Zipkin
+image::otel-zipkin-uml.png[width=500, align="center"]
+
+In this article, we will use OpenTelemetry Collector to receive traces from OpenTelemetry Instrumentation and export them to Zipkin as shown in the following diagram. If needed, trace data can be processed and transformed before exporting it to Zipkin.
+
+
+.OpenTelemetry Collector to Zipkin
+image::otel-collector-zipkin-uml.png[width=500, align="center"]
+
+== Install OpenTelemetry Collector and Instrumentation
+
+When installing OpenTelemetry Operator, Some CDRs are created to install OpenTelemetry Collector and Instrumentation.
+
+CDR stands for Custom Resource Definition. It is a Kubernetes API extension that allows you to define custom resources. OpenTelemetry Operator uses CDRs to install OpenTelemetry Collector and Instrumentation.
+
+=== Install OpenTelemetry Collector
+
+.otel-collector.yaml
+[source,yaml]
+----
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel
+  namespace: nsa2
+spec:
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 15
+      batch:
+        send_batch_size: 10000
+        timeout: 10s
+
+
+    exporters:
+      debug: {}
+      zipkin:
+        endpoint: http://zipkin-server:9411/api/v2/spans
+        format: proto
+
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [filter/ottl, memory_limiter, batch]
+          exporters: [zipkin]
+
+
+----
+
+Please note that the name of the collector is otel instead of otel-collector. This will create a service and a deployment for the OpenTelemetry Collector, both named otel-collector.
+
+Run the following command to install the OpenTelemetry Collector.
+
+[source,shell]
+----
+$ kubectl apply -f otel-collector.yaml
+
+$ kubectl get all -n nsa2 | grep otel
+
+pod/otel-collector-86b854bdfc-xvxjt                                   1/1     Running   0          26s
+service/otel-collector                                  ClusterIP   10.0.183.81    <none>        4317/TCP,4318/TCP   28s
+service/otel-collector-headless                         ClusterIP   None           <none>        4317/TCP,4318/TCP   27s
+service/otel-collector-monitoring                       ClusterIP   10.0.81.190    <none>        8888/TCP            27s
+deployment.apps/otel-collector                                             1/1     1            1           28s
+replicaset.apps/otel-collector-86b854bdfc                                             1         1         1       28s
+----
+
+We can find the OpenTelemetry Collector pod, service, and deployment in the nsa2 namespace and their names are prefixed with otel-collector.
+
+Without installing Instrumentation shown in the next section, OpenTelemetry Instrumentation can use the OpenTelemetry Collector as the receiver by setting the `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable to the OpenTelemetry Collector's endpoint.
+
+
+.templates/deployment.yaml
+[source,yaml]
+----
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-javaagent:/usr/app/javaagent/opentelemetry-javaagent.jar"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector:4318
+            - name: OTEL_METRICS_EXPORTER
+              value: none
+            - name: OTEL_LOGS_EXPORTER
+              value: none
+----
+
+Note that JAVA_TOOL_OPTIONS is set to use the OpenTelemetry Java agent. And OTEL_EXPORTER_OTLP_ENDPOINT is set to the OpenTelemetry Collector's HTTP endpoint.
+
+But when there are many applications are up and running, it is better to use Instrumentation to export traces to the OpenTelemetry Collector.
+
+=== Install OpenTelemetry Instrumentation
+
+We are going to install OpenTelemetry Instrumentation using the manifest file shown below. With OpenTelemetry Instrumentation, we can manage the configuration of the OpenTelemetry Java agent in a single place.
+
+.otel-instrumentation.yaml
+[source,yaml]
+----
+# https://opentelemetry.io/docs/kubernetes/operator/automatic/
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: otel-instrumentation
+  namespace: nsa2
+spec:
+  exporter:
+    endpoint: http://otel-collector:4317
+  propagators:
+    - tracecontext
+    - baggage
+#    - b3
+  sampler:
+    type: parentbased_traceidratio
+    argument: "1"
+#  env:
+#    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+#      value: http://otel-collector:4318
+  java:
+    env:
+      - name: JAVA_TOOL_OPTIONS
+        value: "-javaagent:/usr/app/javaagent/opentelemetry-javaagent.jar"
+      - name: OTEL_EXPORTER_OTLP_ENDPOINT
+        value: http://otel-collector:4318
+      - name: OTEL_METRICS_EXPORTER
+        value: none
+      - name: OTEL_LOGS_EXPORTER
+        value: none
+
+----
+
+In the manifest file, the default exporter for traces is OTLP. System variables set in java.env section are used to configure the OpenTelemetry Java agent for all Java applications. Using Instrumentation makes it easier to manage the configuration of the OpenTelemetry Java agent.
+
+[source,shell]
+----
+$ kubectl apply -f otel-instrumentation.yaml
+----
+
+Now all OpenTelemetry related configurations can be removed from the deployment manifest file.
+
+
+
+
+== Dockerfile
+
+The Dockerfile for the application is as follows:
+
+[source,dockerfile]
+----
+FROM openjdk:21-jdk-bullseye
+COPY ./nsa2-opentelemetry-example-0.0.1-SNAPSHOT.jar /usr/app/nsa2-opentelemetry-example.jar
+COPY ./opentelemetry-javaagent.jar /usr/app/javaagent/opentelemetry-javaagent.jar
+WORKDIR /usr/app
+EXPOSE 8080
+
+
+ENTRYPOINT ["java", "-Xshare:off", "-Dotel.javaagent.extensions=/usr/app/javaagent/nsa2-otel-extension-1.0-all.jar", "-jar", "nsa2-opentelemetry-example.jar"]
+----
+
+Please note that I do not use "-javaagent" option in the ENTRYPOINT. Instead, I set JAVA_TOOL_OPTIONS in the manifest file for OpenTelemetry Instrumentation. This way, Docker images can apply OpenTelemetry instrumentation without changing the Dockerfile.
+
+
+
+== Deployment manifest
+
+.templates/deployment.yaml
+[source,yaml]
+----
+# omitted for brevity
+
+          env:
+#            - name: JAVA_TOOL_OPTIONS
+#              value: "-javaagent:/usr/app/javaagent/opentelemetry-javaagent.jar"
+#            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+#              value: http://otel-collector:4318
+#            - name: OTEL_METRICS_EXPORTER
+#              value: none
+#            - name: OTEL_LOGS_EXPORTER
+#              value: none
+----
+
+In the deployment manifest file, OpenTelemetry related configurations are removed. The OpenTelemetry Java agent is configured in the OpenTelemetry Instrumentation manifest file.
+Only system variables required for the application are set in the deployment manifest file.
+
+
+== Auto Instrumentation Injection
+
+Please refer to the link below for more information on auto-instrumentation injection.
+
+* https://github.com/open-telemetry/opentelemetry-operator/blob/main/README.md
+
+To use OpenTelemetry Instrumentation, the following annotation should be set in the deployment manifest file or Helm Chart.
+----
+sidecar.opentelemetry.io/inject: "true"
+instrumentation.opentelemetry.io/inject-java: "true"
+----
+
+
+=== Helm Chart
+
+When using Helm Chart, the following values can be set in the values.yaml file.
+
+.values.yaml
+[source,yaml]
+----
+podAnnotations: {
+  sidecar.opentelemetry.io/inject: "true",
+  instrumentation.opentelemetry.io/inject-java: "true"
+}
+----
+
+=== Deployment manifest
+
+When using deployment manifest, the following annotation should be set in the deployment manifest file.
+
+.deployment manifest
+[source,yaml]
+----
+spec:
+# omitted for brevity
+  template:
+    metadata:
+      annotations:
+        sidecar.opentelemetry.io/inject: "true"
+        instrumentation.opentelemetry.io/inject-java: "true"
+----
+
+== Conclusion
+
+In this article, we discussed how to set up OpenTelemetry Collector and Instrumentation to export traces to Zipkin. OpenTelemetry Collector is a powerful tool that can be used to collect, process, and export telemetry data. It can be used to collect traces, metrics, and logs from various sources and export them to various destinations.

@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Collecting Metrics using Spring Boot Actuator and Visualizing them using Prometheus and Grafana</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre,
+    pre code {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre;
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+    <div class="logo text-xl font-semibold">Service Foundry</div>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#spring-boot-application">Spring Boot Application</a></li>
+<li><a href="#prometheus-operator">Prometheus Operator</a>
+<ul class="sectlevel2">
+<li><a href="#what-is-prometheus-operator">What is Prometheus Operator?</a></li>
+<li><a href="#install-prometheus-operator">Install Prometheus Operator</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+</ul>
+</li>
+<li><a href="#service-monitor">Service Monitor</a>
+<ul class="sectlevel2">
+<li><a href="#view-labels-and-port-name">View labels and port name</a></li>
+</ul>
+</li>
+<li><a href="#deploy-prometheus">Deploy Prometheus</a>
+<ul class="sectlevel2">
+<li><a href="#create-rbac">Create RBAC</a></li>
+<li><a href="#create-prometheus">Create Prometheus</a></li>
+<li><a href="#exposing-the-prometheus-service">Exposing the Prometheus service</a></li>
+<li><a href="#scale-out-the-target-service">Scale out the target service</a></li>
+<li><a href="#prometheus-graph">Prometheus Graph</a></li>
+</ul>
+</li>
+<li><a href="#references">References</a>
+<ul class="sectlevel2">
+<li><a href="#related">Related</a></li>
+</ul>
+</li>
+<li><a href="#grafana">Grafana</a>
+<ul class="sectlevel2">
+<li><a href="#what-is-grafana">What is Grafana?</a></li>
+<li><a href="#install-grafana-using-helm">Install Grafana using Helm</a></li>
+<li><a href="#expose-grafana">Expose Grafana</a></li>
+</ul>
+</li>
+<li><a href="#forced-to-change-the-password">Forced to change the password</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This article is part of a series of articles on Metrics in Microservices. In this article, we will discuss how to collect metrics from a Spring Boot application and how to visualize them using Prometheus and Grafana.</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Part 1 - <a href="https://www.linkedin.com/pulse/metrics-microservices-young-gyu-kim-9rcuc/">Metrics in Microservices - Collecting Metrics using Spring Boot Actuator and Visualizing them using Prometheus and Grafana</a></p>
+</li>
+<li>
+<p>Part 2 - <a href="https://www.linkedin.com/pulse/part-2-metrics-microservices-collecting-using-visualizing-kim-yeexc">Metrics in Microservices - Collecting Metrics using OpenTelemetry Instrumentation and Visualizing them using Prometheus and Grafana on Kubernetes</a></p>
+</li>
+<li>
+<p>Part 3 - <a href="https://www.linkedin.com/pulse/part-3-metrics-microservices-collecting-using-collector-kim-zuqoc/">Metrics in Microservices - Collecting Metrics using OpenTelemetry Collector and Visualizing them using Prometheus and Grafana on Kubernetes</a></p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>This article is the first part of the series.</p>
+</div>
+<div class="paragraph">
+<p>Metrics is one of main components of the observability stack. It is used to collect, store and visualize time series data. It is used to monitor the health of the system and to debug issues. It is used to track the performance of the system and to plan for capacity. It is used to understand the behavior of the system and to make informed decisions.</p>
+</div>
+<div class="paragraph">
+<p>In this article, we will look at how to collect metrics from a Spring Boot application and how to visualize them using Prometheus and Grafana.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="spring-boot-application">Spring Boot Application</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We need a Spring Boot application for this post. We are going to use the Spring Boot Application that is used for the distributed tracing.</p>
+</div>
+<div class="paragraph">
+<p>The application can be found at the link below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://www.linkedin.com/pulse/distributed-tracing-setup-zipkin-sample-spring-boot-young-gyu-kim-msaqc">Distributed Tracing - Setup Zipkin and Sample Spring Boot Application</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Make sure that the two dependencies below are added to build.gradle.kts:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>implementation("org.springframework.boot:spring-boot-starter-actuator")</p>
+</li>
+<li>
+<p>implementation("io.micrometer:micrometer-registry-prometheus")</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>I configured properties below to make it to be monitored by Prometheus.</p>
+</div>
+<div class="listingblock">
+<div class="title">application.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># omited for brevity</span>
+
+
+<span class="na">management</span><span class="pi">:</span>
+  <span class="na">endpoint.health.probes.enabled</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="na">health</span><span class="pi">:</span>
+    <span class="na">livenessstate.enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">readinessstate.enabled</span><span class="pi">:</span> <span class="kc">true</span>
+
+  <span class="na">endpoints.web.exposure.include</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">info</span>
+    <span class="pi">-</span> <span class="s">health</span>
+    <span class="pi">-</span> <span class="s">metrics</span>
+    <span class="pi">-</span> <span class="s">prometheus</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Please make sure the endpoint <code>/actuator/prometheus</code> is available.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="prometheus-operator">Prometheus Operator</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="what-is-prometheus-operator">What is Prometheus Operator?</h3>
+<div class="paragraph">
+<p>Prometheus Operator is a Kubernetes Operator that manages Prometheus and Grafana instances. It is a part of the Cloud Native Computing Foundation (CNCF) and is widely used for monitoring Kubernetes clusters.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-prometheus-operator">Install Prometheus Operator</h3>
+<div class="paragraph">
+<p>There are several ways to install the Prometheus Operator.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Install using YAML files</p>
+</li>
+<li>
+<p>Install using Kube-Prometheus</p>
+</li>
+<li>
+<p>Install using Helm Chart</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>In this article, we will use the YAML files provided by the Prometheus Operator GitHub repository.</p>
+</div>
+<div class="sect3">
+<h4 id="use-default-namespace">Use default namespace</h4>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Run the following commands to install the CRDs and deploy the operator in the default namespace:</p>
+</div>
+</blockquote>
+<div class="attribution">
+&#8212; Prometheus Operator User Guide<br>
+<cite>Install using YAML files</cite>
+</div>
+</div>
+<div class="paragraph">
+<p>It is recommended to install the Prometheus Operator in the <strong><em>default</em></strong> namespace.</p>
+</div>
+<div class="paragraph">
+<p>Run the following commands to install the Prometheus Operator in the default namespace. I downloaded the latest version of the Prometheus Operator bundle from the GitHub repository and saved it to a file named <code>prometheus-operator-bundle.yaml</code> to look at the contents. But you can apply it directly without saving it to a file.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ LATEST</span><span class="o">=</span><span class="si">$(</span>curl <span class="nt">-s</span> https://api.github.com/repos/prometheus-operator/prometheus-operator/releases/latest | jq <span class="nt">-cr</span> .tag_name<span class="si">)</span>
+<span class="nv">$ </span>curl <span class="nt">-sL</span> https://github.com/prometheus-operator/prometheus-operator/releases/download/<span class="k">${</span><span class="nv">LATEST</span><span class="k">}</span>/bundle.yaml <span class="o">&gt;</span> <span class="se">\</span>
+  prometheus-operator-bundle.yaml
+
+<span class="nv">$ </span>kubectl apply <span class="nt">--server-side</span><span class="o">=</span><span class="nb">true</span> <span class="nt">-f</span> prometheus-operator-bundle.yaml <span class="nt">-n</span> default
+
+customresourcedefinition.apiextensions.k8s.io/alertmanagerconfigs.monitoring.coreos.com serverside-applied
+customresourcedefinition.apiextensions.k8s.io/alertmanagers.monitoring.coreos.com serverside-applied
+customresourcedefinition.apiextensions.k8s.io/podmonitors.monitoring.coreos.com serverside-applied
+customresourcedefinition.apiextensions.k8s.io/probes.monitoring.coreos.com serverside-applied
+customresourcedefinition.apiextensions.k8s.io/prometheusagents.monitoring.coreos.com serverside-applied
+customresourcedefinition.apiextensions.k8s.io/prometheuses.monitoring.coreos.com serverside-applied
+customresourcedefinition.apiextensions.k8s.io/prometheusrules.monitoring.coreos.com serverside-applied
+customresourcedefinition.apiextensions.k8s.io/scrapeconfigs.monitoring.coreos.com serverside-applied
+customresourcedefinition.apiextensions.k8s.io/servicemonitors.monitoring.coreos.com serverside-applied
+customresourcedefinition.apiextensions.k8s.io/thanosrulers.monitoring.coreos.com serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/prometheus-operator serverside-applied
+clusterrole.rbac.authorization.k8s.io/prometheus-operator serverside-applied
+deployment.apps/prometheus-operator serverside-applied
+serviceaccount/prometheus-operator serverside-applied
+service/prometheus-operator serverside-applied</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>I used the <code>--server-side=true</code> flag to install the Prometheus Operator because the file size is greater than 262144 bytes.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="troubleshooting">Troubleshooting</h3>
+<div class="sect3">
+<h4 id="namespace-issue">Namespace issue</h4>
+<div class="exampleblock">
+<div class="content">
+<div class="paragraph">
+<p>If you try to install the Prometheus Operator in a namespace other than the default namespace, you will get the following error message:</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>the namespace from the provided object "default" does not match the namespace "monitoring". You must pass '--namespace=default' to perform this operation.</p>
+</div>
+</blockquote>
+</div>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="file-size-issue">File size issue</h4>
+<div class="exampleblock">
+<div class="content">
+<div class="paragraph">
+<p>Because the file size is greater than 262144 bytes, you need to use the <code>--server-side=true</code> flag to install the Prometheus Operator.
+If you try to install it without the <code>--server-side=true</code> flag, you will get the following error message:</p>
+</div>
+<div class="listingblock">
+<div class="title">install without the <code>--server-side=true</code> flag</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> prometheus-operator-bundle.yaml <span class="nt">-n</span> default</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">error message</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">Error from server <span class="o">(</span>Invalid<span class="o">)</span>: error when creating <span class="s2">"prometheus-operator-bundle.yaml"</span>:
+CustomResourceDefinition.apiextensions.k8s.io <span class="s2">"alertmanagerconfigs.monitoring.coreos.com"</span> is invalid:
+metadata.annotations: Too long: must have at most 262144 bytes
+
+...</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="service-monitor">Service Monitor</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This section is in reference to the link below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://prometheus-operator.dev/docs/developer/getting-started/" class="bare">https://prometheus-operator.dev/docs/developer/getting-started/</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>For more information about how to install ServiceMonitor, RBAC, Prometheus, refer to the link above.</p>
+</div>
+<div class="paragraph">
+<p>ServiceMonitor is a custom resource that is used to monitor the services running in the Kubernetes cluster. It is used to scrape the metrics data from the target service.</p>
+</div>
+<div class="paragraph">
+<p>We need some properties used for the service to create a ServiceMonitor.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>labels</p>
+</li>
+<li>
+<p>port name</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="view-labels-and-port-name">View labels and port name</h3>
+<div class="paragraph">
+<p>We used Helm chart to deploy the application, and it added labels to the service. We can use these labels to create a ServiceMonitor.</p>
+</div>
+<div class="listingblock">
+<div class="title">get labels from the target service</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ SVC_NAME</span><span class="o">=</span>nsa2-opentelemetry-example<span class="p">;</span> <span class="nv">NS</span><span class="o">=</span>nsa2<span class="p">;</span> kubectl <span class="nt">-n</span> <span class="nv">$NS</span> get service <span class="nv">$SVC_NAME</span> <span class="nt">-o</span> yaml | yq .metadata.labels
+
+app.kubernetes.io/instance: nsa2-opentelemetry-example
+app.kubernetes.io/managed-by: Helm
+app.kubernetes.io/name: nsa2-opentelemetry-example
+app.kubernetes.io/version: 1.16.0
+helm.sh/chart: nsa2-opentelemetry-example-0.1.0</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>I decided to use the <code>app.kubernetes.io/name</code> label to create the ServiceMonitor.</p>
+</div>
+<div class="paragraph">
+<p>And port information used in the application is also needed. We can get the port name from the service.</p>
+</div>
+<div class="listingblock">
+<div class="title">get service port name</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ SVC_NAME</span><span class="o">=</span>nsa2-opentelemetry-example<span class="p">;</span> <span class="nv">NS</span><span class="o">=</span>nsa2<span class="p">;</span> kubectl <span class="nt">-n</span> <span class="nv">$NS</span> get service <span class="nv">$SVC_NAME</span> <span class="nt">-o</span> yaml | yq <span class="s1">'.spec.ports | .[].name'</span>
+
+http</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We are going to use the <code>http</code> port name to create the ServiceMonitor for endpoints.</p>
+</div>
+<div class="listingblock">
+<div class="title">nsa2-opentelemetry-example-servicemonitor.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">monitoring.coreos.com/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceMonitor</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">nsa2-opentelemetry-example-servicemonitor</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">nsa2</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">team</span><span class="pi">:</span> <span class="s">nsa2</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">selector</span><span class="pi">:</span>
+    <span class="na">matchLabels</span><span class="pi">:</span>
+      <span class="na">app.kubernetes.io/name</span><span class="pi">:</span> <span class="s">nsa2-opentelemetry-example</span>
+  <span class="na">endpoints</span><span class="pi">:</span>
+<span class="c1">#    - port: http</span>
+<span class="c1">#      interval: 30s</span>
+<span class="c1">#      scheme: http</span>
+<span class="c1">#      path: /actuator/prometheus</span>
+    <span class="pi">-</span> <span class="na">port</span><span class="pi">:</span> <span class="s">metrics</span>
+      <span class="na">interval</span><span class="pi">:</span> <span class="s">30s</span>
+      <span class="na">scheme</span><span class="pi">:</span> <span class="s">http</span>
+      <span class="na">path</span><span class="pi">:</span> <span class="s">/metrics</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Note that we are using <code>/actuator/prometheus</code> as the target endpoint that provides the metrics data by the Spring Boot Actuator. You can see the labels and port name in the ServiceMonitor configuration. The <code>app.kubernetes.io/name</code> label is used to select the target service in matchLabels.</p>
+</div>
+<div class="listingblock">
+<div class="title">create ServiceMonitor</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-n</span> nsa2 <span class="nt">-f</span> nsa2-opentelemetry-example-servicemonitor.yaml
+
+servicemonitor.monitoring.coreos.com/nsa2-opentelemetry-example-servicemonitor created</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We created a ServiceMonitor named <code>nsa2-opentelemetry-example-servicemonitor</code> in the namespace <code>nsa2</code>. The ServiceMonitor is used to scrape the metrics data from the target service.</p>
+</div>
+<div class="paragraph">
+<p>I added a label <code>team: nsa2</code> to the ServiceMonitor to select the target service. Prometheus running on nsa2 namespace will scrape the metrics from all related services using ServiceMonitors having <code>team: nsa2</code> label.
+You can add more labels to the ServiceMonitor to select the target service.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deploy-prometheus">Deploy Prometheus</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Now that we have the ServiceMonitor, we can deploy Prometheus to scrape the metrics data from the target service.
+We need proper permissions to create Prometheus resources. We are going to create RBAC resources first.</p>
+</div>
+<div class="sect2">
+<h3 id="create-rbac">Create RBAC</h3>
+<div class="paragraph">
+<p>We need to create the following RBAC resources below.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>ServiceAccount</p>
+</li>
+<li>
+<p>ClusterRole</p>
+</li>
+<li>
+<p>ClusterRoleBinding</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">prometheus-rbac.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceAccount</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">prometheus</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">nsa2</span>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRole</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">prometheus-nsa2</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">nsa2</span>
+<span class="na">rules</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">apiGroups</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">"</span><span class="pi">]</span>
+    <span class="na">resources</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">nodes</span>
+      <span class="pi">-</span> <span class="s">nodes/metrics</span>
+      <span class="pi">-</span> <span class="s">services</span>
+      <span class="pi">-</span> <span class="s">endpoints</span>
+      <span class="pi">-</span> <span class="s">pods</span>
+    <span class="na">verbs</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">get"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">list"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">watch"</span><span class="pi">]</span>
+  <span class="pi">-</span> <span class="na">apiGroups</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">"</span><span class="pi">]</span>
+    <span class="na">resources</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">configmaps</span>
+    <span class="na">verbs</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">get"</span><span class="pi">]</span>
+  <span class="pi">-</span> <span class="na">apiGroups</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">discovery.k8s.io</span>
+    <span class="na">resources</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">endpointslices</span>
+    <span class="na">verbs</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">get"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">list"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">watch"</span><span class="pi">]</span>
+  <span class="pi">-</span> <span class="na">apiGroups</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">networking.k8s.io</span>
+    <span class="na">resources</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">ingresses</span>
+    <span class="na">verbs</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">get"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">list"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">watch"</span><span class="pi">]</span>
+  <span class="pi">-</span> <span class="na">nonResourceURLs</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">/metrics"</span><span class="pi">]</span>
+    <span class="na">verbs</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">get"</span><span class="pi">]</span>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRoleBinding</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">prometheus-nsa2</span>
+<span class="na">roleRef</span><span class="pi">:</span>
+  <span class="na">apiGroup</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io</span>
+  <span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRole</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">prometheus-nsa2</span>
+<span class="na">subjects</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceAccount</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">prometheus</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="s">nsa2</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">create RBAC resources</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 apply <span class="nt">-f</span> prometheus-rbac.yaml
+
+serviceaccount/prometheus created
+clusterrole.rbac.authorization.k8s.io/prometheus created
+clusterrolebinding.rbac.authorization.k8s.io/prometheus created</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We created a ServiceAccount named <code>prometheus</code> which is used to run the Prometheus pod. We also created a ClusterRole named <code>prometheus</code> and a ClusterRoleBinding named <code>prometheus</code> to give the proper permissions to the ServiceAccount.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-prometheus">Create Prometheus</h3>
+<div class="paragraph">
+<p>We need to create a Prometheus resource to deploy Prometheus. We are going to use the Prometheus configuration file below.</p>
+</div>
+<div class="listingblock">
+<div class="title">prometheus.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">monitoring.coreos.com/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Prometheus</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">prometheus</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">nsa2</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">serviceAccountName</span><span class="pi">:</span> <span class="s">prometheus</span>
+  <span class="na">serviceMonitorSelector</span><span class="pi">:</span>
+    <span class="na">matchLabels</span><span class="pi">:</span>
+      <span class="na">team</span><span class="pi">:</span> <span class="s">nsa2</span>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">400Mi</span>
+  <span class="na">enableAdminAPI</span><span class="pi">:</span> <span class="kc">false</span>
+
+  <span class="c1"># for more information on the following configuration,</span>
+  <span class="c1">#  see</span>
+  <span class="c1"># - https://prometheus-operator.dev/docs/api-reference/api/</span>
+  <span class="c1"># - https://prometheus.io/docs/prometheus/latest/querying/api/#remote-write-receiver</span>
+  <span class="c1"># /api/v1/write (web.enable-remote-write-receiver)</span>
+  <span class="c1"># /api/v1/otlp/v1/metrics (web.enable-otlp-receiver)</span>
+  <span class="na">additionalArgs</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">web.enable-remote-write-receiver"</span>
+      <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">web.enable-otlp-receiver"</span>
+      <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span>
+<span class="c1">#  according to log message, the following configuration is not working.</span>
+<span class="c1">#  enableFeatures:</span>
+<span class="c1">#    - remote-write-receiver</span>
+<span class="c1">#    - otlp-write-receiver</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In the Prometheus configuration, we are using the ServiceMonitor that we created earlier. It is configured in serviceMonitorSelector section with the label of <code>team: nsa2</code>.
+The Prometheus Operator automatically discovers the ServiceMonitor and scrapes the metrics data.</p>
+</div>
+<div class="paragraph">
+<p>We are going to create a Prometheus resource in namespace <code>nsa2</code> to scrape the metrics data from the target service.</p>
+</div>
+<div class="listingblock">
+<div class="title">Create Prometheus</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-n</span> nsa2 <span class="nt">-f</span> prometheus.yaml
+
+prometheus.monitoring.coreos.com/prometheus created</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The service monitor that we created earlier is used in the Prometheus configuration. Service Monitor provides the target service information to Prometheus. The Prometheus Operator automatically discovers the ServiceMonitor and scrapes the metrics data.</p>
+</div>
+<div class="sect3">
+<h4 id="adding-persistent-volume">Adding Persistent Volume</h4>
+<div class="paragraph">
+<p>Refer to the link below to add a Persistent Volume to the Prometheus deployment.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/user-guides/storage.md" class="bare">https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/user-guides/storage.md</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="exposing-the-prometheus-service">Exposing the Prometheus service</h3>
+<div class="paragraph">
+<p>We can expose the Prometheus service to access the Prometheus UI.
+Run the command below to expose the Prometheus service.</p>
+</div>
+<div class="listingblock">
+<div class="title">prometheus-service.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Service</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">prometheus</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">nsa2</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s">NodePort</span>
+  <span class="na">ports</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">web</span>
+      <span class="na">nodePort</span><span class="pi">:</span> <span class="m">30900</span>
+      <span class="na">port</span><span class="pi">:</span> <span class="m">9090</span>
+      <span class="na">protocol</span><span class="pi">:</span> <span class="s">TCP</span>
+      <span class="na">targetPort</span><span class="pi">:</span> <span class="s">web</span>
+  <span class="na">selector</span><span class="pi">:</span>
+    <span class="na">prometheus</span><span class="pi">:</span> <span class="s">prometheus</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">Create Prometheus Service</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-n</span> nsa2 <span class="nt">-f</span> prometheus-service.yaml
+
+service/prometheus created</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now that we have Prometheus running, we can access the Prometheus UI by port-forwarding the Prometheus service.</p>
+</div>
+<div class="listingblock">
+<div class="title">port-forward Prometheus service</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 port-forward service/prometheus 9090:9090</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now you can access the Prometheus UI at <a href="http://localhost:9090" class="bare">http://localhost:9090</a>.</p>
+</div>
+<div class="paragraph">
+<p>Execute Status &#8594; Targets to see the targets that Prometheus is scraping. You can see the target that we created earlier. Or navigate <a href="http://localhost:9090/targets" class="bare">http://localhost:9090/targets</a> to see the targets.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/prometheus-targets-1.png" alt="prometheus targets 1" width="1000">
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="scale-out-the-target-service">Scale out the target service</h3>
+<div class="paragraph">
+<p>Because we are using ServiceMonitor, Prometheus automatically discovers the pods of the target service and scrapes the metrics data.</p>
+</div>
+<div class="paragraph">
+<p>Let&#8217;s execute the command below to scale out the target service to see how Prometheus discovers the new pods.</p>
+</div>
+<div class="listingblock">
+<div class="title">scale out the target service</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 scale deployment nsa2-opentelemetry-example <span class="nt">--replicas</span><span class="o">=</span>3</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now you can see the new pods in the Prometheus UI.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/prometheus-targets-3.png" alt="prometheus targets 3" width="1000">
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="prometheus-graph">Prometheus Graph</h3>
+<div class="paragraph">
+<p>You can use the Prometheus UI to create a graph to visualize the metrics data. Navigate to the Graph tab and enter the query below to see the metrics data. Or use <a href="http://localhost:9090/graph" class="bare">http://localhost:9090/graph</a> to see the graph.</p>
+</div>
+<div class="paragraph">
+<p>Click <code>Metrics Explorer</code> button to see the available metrics which is located left side of the Execute button.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/prometheus-metrics-explorer.png" alt="prometheus metrics explorer" width="1000">
+</div>
+</div>
+<div class="paragraph">
+<p>To visualize the metrics data, enter the query below in the query input box. Here is an example of 'process_cpu_usage' metric.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/prometheus-cpu-usage.png" alt="prometheus cpu usage" width="1000">
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="references">References</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://prometheus-operator.dev/docs/getting-started/introduction/" class="bare">https://prometheus-operator.dev/docs/getting-started/introduction/</a></p>
+</li>
+<li>
+<p><a href="https://github.com/prometheus-operator/prometheus-operator" class="bare">https://github.com/prometheus-operator/prometheus-operator</a></p>
+</li>
+<li>
+<p><a href="https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/user-guides/getting-started.md" class="bare">https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/user-guides/getting-started.md</a></p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="related">Related</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://medium.com/@moyo.oyegunle/using-prometheus-and-spring-boot-actuator-to-monitor-your-application-1b0b7b1b71e2" class="bare">https://medium.com/@moyo.oyegunle/using-prometheus-and-spring-boot-actuator-to-monitor-your-application-1b0b7b1b71e2</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="grafana">Grafana</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="what-is-grafana">What is Grafana?</h3>
+<div class="paragraph">
+<p>Grafana is an open-source analytics and monitoring platform. It is used to visualize time series data. It is used to monitor the health of the system and to debug issues. It is used to track the performance of the system and to plan for capacity. It is used to understand the behavior of the system and to make informed decisions.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-grafana-using-helm">Install Grafana using Helm</h3>
+<div class="paragraph">
+<p>This section is in reference to the link below:</p>
+</div>
+<div class="paragraph">
+<p><a href="https://grafana.com/docs/grafana/latest/setup-grafana/installation/helm/" class="bare">https://grafana.com/docs/grafana/latest/setup-grafana/installation/helm/</a></p>
+</div>
+<div class="listingblock">
+<div class="title">add the Grafana Helm repository</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm repo add grafana https://grafana.github.io/helm-charts
+
+<span class="s2">"grafana"</span> has been added to your repositories
+
+<span class="nv">$ </span>helm repo update
+<span class="nv">$ </span>helm search repo grafana</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">create a namespace for Grafana</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl get namespace nsa2 <span class="o">||</span> kubectl create namespace nsa2</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The command above will create a namespace named <code>nsa2</code> if it does not exist.</p>
+</div>
+<div class="listingblock">
+<div class="title">Search for the Grafana Helm chart</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm search repo grafana/grafana
+
+NAME                            CHART VERSION   APP VERSION     DESCRIPTION
+grafana/grafana                 8.4.4           11.1.3          The leading tool <span class="k">for </span>querying and visualizing t...
+grafana/grafana-agent           0.42.0          v0.42.0         Grafana Agent
+grafana/grafana-agent-operator  0.4.1           0.42.0          A Helm chart <span class="k">for </span>Grafana Agent Operator
+grafana/grafana-sampling        0.1.1           v0.40.2         A Helm chart <span class="k">for </span>a layered OTLP <span class="nb">tail </span>sampling a...</code></pre>
+</div>
+</div>
+<div class="sect3">
+<h4 id="values-yaml">values.yaml</h4>
+<div class="paragraph">
+<p>We are going to create a file named <code>nsa2-grafana-values.yaml</code> to store the values of the Grafana Helm chart.</p>
+</div>
+<div class="listingblock">
+<div class="title">Show the values of the Grafana Helm chart</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm show values grafana/grafana <span class="o">&gt;</span> grafana-opensearch-values.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We saved the values of the Grafana Helm chart to a file named <code>grafana-values.yaml</code>. We will see the whole configuration of the Grafana Helm chart in the file.</p>
+</div>
+<div class="listingblock">
+<div class="title">nsa2-grafana-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">resources</span><span class="pi">:</span>
+  <span class="na">limits</span><span class="pi">:</span>
+    <span class="na">cpu</span><span class="pi">:</span> <span class="s">200m</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s">1024Mi</span>
+  <span class="na">requests</span><span class="pi">:</span>
+    <span class="na">cpu</span><span class="pi">:</span> <span class="s">100m</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s">128Mi</span>
+
+<span class="na">nodeSelector</span><span class="pi">:</span>
+  <span class="na">agentpool</span><span class="pi">:</span> <span class="s">depnodes</span>
+
+
+<span class="na">persistence</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+
+<span class="na">admin</span><span class="pi">:</span>
+  <span class="na">existingSecret</span><span class="pi">:</span> <span class="s">grafana-admin-credentials</span>
+
+<span class="na">datasources</span><span class="pi">:</span>
+  <span class="na">datasources.yaml</span><span class="pi">:</span>
+    <span class="na">apiVersion</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="na">datasources</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">Prometheus</span>
+      <span class="na">type</span><span class="pi">:</span> <span class="s">prometheus</span>
+      <span class="na">url</span><span class="pi">:</span> <span class="s">http://prometheus:9090</span>
+      <span class="c1"># Access mode - proxy (server in the UI) or direct (browser in the UI).</span>
+      <span class="na">access</span><span class="pi">:</span> <span class="s">proxy</span>
+      <span class="na">isDefault</span><span class="pi">:</span> <span class="kc">true</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The configuration file above includes the values that we are going to use to install Grafana. To save data in the persistent volume, we set the <code>persistence.enabled</code> to <code>true</code>. We also set the <code>datasources.datasources.yaml</code> to configure the Prometheus data source. We set the <code>admin.existingSecret</code> to <code>grafana-admin-credentials</code> to store the admin password in the secret. We will create the secret in the next step.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="create-a-secret-for-the-admin-password">Create a secret for the admin password</h4>
+<div class="paragraph">
+<p>We are going to create a secret to store the admin password for Grafana. The admin user is <code>admin</code> and the password is <code>admin</code> for this example. You can change the password to a more secure one.</p>
+</div>
+<div class="listingblock">
+<div class="title">create a secret for the admin password</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl create secret generic grafana-admin-credentials <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span>admin-user<span class="o">=</span>admin <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span>admin-password<span class="o">=</span>admin <span class="nt">-n</span> nsa2 <span class="se">\</span>
+  <span class="nt">--dry-run</span><span class="o">=</span>client <span class="nt">-o</span> yaml <span class="se">\</span>
+  | yq <span class="nb">eval</span> <span class="s1">'del(.metadata.creationTimestamp)'</span> <span class="se">\</span>
+  <span class="o">&gt;</span> grafana-admin-credentials.yaml
+
+<span class="nv">$ </span>kubectl apply <span class="nt">-f</span> grafana-admin-credentials.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We created a secret named <code>grafana-admin-credentials</code> to store the admin password for Grafana. The admin user is <code>admin</code> and the password is <code>admin</code> for this example.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="install-grafana">Install Grafana</h4>
+<div class="paragraph">
+<p>Run the commands below to install the Grafana Helm chart.</p>
+</div>
+<div class="listingblock">
+<div class="title">Install the Grafana Helm chart</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nb">install </span>grafana grafana/grafana <span class="nt">--namespace</span> nsa2 <span class="nt">-f</span> nsa2-grafana-opensearch-values.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="uninstall-grafana">Uninstall Grafana</h4>
+<div class="paragraph">
+<p>Run the commands below to uninstall the Grafana Helm chart.</p>
+</div>
+<div class="listingblock">
+<div class="title">Uninstall the Grafana Helm chart</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm uninstall grafana <span class="nt">-n</span> nsa2
+
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 delete secret grafana-admin-credentials
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 delete pvc <span class="nt">-l</span> app.kubernetes.io/name<span class="o">=</span>grafana</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="expose-grafana">Expose Grafana</h3>
+<div class="listingblock">
+<div class="title">port-forward to access Grafana</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 port-forward svc/grafana 3000:80</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>You can access Grafana at <a href="http://localhost:3000" class="bare">http://localhost:3000</a>.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/grafana-signin.png" alt="Sign in to Grafana" width="1000">
+</div>
+</div>
+<div class="paragraph">
+<p>Use the admin user and password to sign in that are stored in the secret <code>grafana-admin-credentials</code>.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/grafana-datasources.png" alt="Grafana Data Sources" width="1000">
+</div>
+</div>
+<div class="paragraph">
+<p>We can see prometheus as a data source in the image above which is configured in the <code>nsa2-grafana-values.yaml</code> file.</p>
+</div>
+<div class="paragraph">
+<p>Here is an example of a dashboard that shows the CPU usage of the process.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/grafana-cpu-usage.png" alt="Grafana - Process CPU Usage" width="1000">
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="forced-to-change-the-password">Forced to change the password</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The password for the admin user is <code>admin</code> by default. We are forced to change the password when we log in for the first time. It is <code>changeme</code> as of 2024-09-23.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this article, we explored the process of collecting metrics from a Spring Boot application, providing detailed steps on how to monitor and analyze the application&#8217;s performance. We guided you through the installation of Prometheus and Grafana on a Kubernetes cluster, explaining how Prometheus gathers metrics data and Grafana visualizes it. Additionally, we demonstrated how to create dashboards in Grafana to effectively interpret and track the collected metrics, helping you gain a deeper understanding of your application&#8217;s behavior and resource usage.</p>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>

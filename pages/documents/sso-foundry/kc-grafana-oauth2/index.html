@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OAuth2 Authentication for Grafana with Keycloak</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre,
+    pre code {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre;
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+    <div class="logo text-xl font-semibold">Service Foundry</div>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/sso-foundry/">SSO Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a>
+<ul class="sectlevel2">
+<li><a href="#prerequisites">Prerequisites</a></li>
+</ul>
+</li>
+<li><a href="#installing-grafana">Installing Grafana</a>
+<ul class="sectlevel2">
+<li><a href="#using-the-latest-helm-chart">Using the Latest Helm Chart</a></li>
+<li><a href="#add-and-update-the-helm-repository">Add and Update the Helm Repository</a></li>
+<li><a href="#pull-the-helm-chart">Pull the Helm Chart</a></li>
+<li><a href="#inspect-default-values">Inspect Default values</a></li>
+</ul>
+</li>
+<li><a href="#kubernetes-setup">Kubernetes Setup</a>
+<ul class="sectlevel2">
+<li><a href="#create-namespace">Create Namespace</a></li>
+<li><a href="#create-secret-for-admin-credentials">Create Secret for Admin Credentials</a></li>
+<li><a href="#create-secret-for-oauth2-client-secret">Create Secret for OAuth2 Client Secret</a></li>
+<li><a href="#grafana-configuration-custom-values-yaml">Grafana Configuration custom-values.yaml</a></li>
+<li><a href="#keycloak-setup">Keycloak Setup</a></li>
+<li><a href="#deploy-grafana-with-helm">Deploy Grafana with Helm</a></li>
+<li><a href="#installing-grafana-ingress">Installing Grafana Ingress</a></li>
+<li><a href="#dns-configuration">DNS Configuration</a></li>
+<li><a href="#inspect-grafana-ini">Inspect grafana.ini</a></li>
+</ul>
+</li>
+<li><a href="#testing-oidc-authentication">Testing OIDC Authentication</a>
+<ul class="sectlevel2">
+<li><a href="#role-based-dashboard-access">Role-Based Dashboard Access</a></li>
+<li><a href="#screenshots">Screenshots</a></li>
+<li><a href="#grafana-dashboard">Grafana Dashboard</a></li>
+<li><a href="#grafana-profile">Grafana Profile</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/grafana-oauth-introduction.png" alt="grafana oauth introduction" width="1000">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Grafana is a core component of the Observability stack. This guide provides a step-by-step walkthrough to integrate OAuth2 authentication in Grafana using <strong>Keycloak</strong> as the Identity Provider (IdP).</p>
+</div>
+<div class="paragraph">
+<p>Unlike Grafana, tools like <strong>Jaeger</strong> and <strong>Prometheus</strong> don’t support OAuth2 natively. They require OAuth2 Proxy as a middleware. Grafana, however, includes native support for OAuth2 authentication, making integration simpler.</p>
+</div>
+<div class="sect2">
+<h3 id="prerequisites">Prerequisites</h3>
+<div class="paragraph">
+<p>Before proceeding, ensure the following components are already deployed in your Kubernetes cluster:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Traefik</strong>: Ingress Controller</p>
+</li>
+<li>
+<p><strong>Keycloak</strong>: Identity Provider</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Related Guides:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://www.linkedin.com/pulse/traefik-oauth2-proxy-using-authentication-middleware-young-gyu-kim-fzd2c">Traefik &amp; OAuth2 Proxy - Using OAuth2 Proxy as Authentication Middleware</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-grafana">Installing Grafana</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="using-the-latest-helm-chart">Using the Latest Helm Chart</h3>
+<div class="paragraph">
+<p>Grafana Helm charts are available at:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://grafana.github.io/helm-charts">https://grafana.github.io/helm-charts</a></p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="add-and-update-the-helm-repository">Add and Update the Helm Repository</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm repo add grafana https://grafana.github.io/helm-charts
+<span class="nv">$ </span>helm repo update grafana</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="pull-the-helm-chart">Pull the Helm Chart</h3>
+<div class="paragraph">
+<p>To use a specific version (e.g., 8.10.4), download it to a dedicated directory:</p>
+</div>
+<div class="listingblock">
+<div class="title">Pull the Grafana Helm chart to the directory $HOME/Dev/helm/charts/grafana</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">mkdir</span> <span class="nt">-p</span> <span class="nv">$HOME</span>/Dev/helm/charts/grafana
+<span class="nv">$ </span>helm pull grafana/grafana <span class="nt">-d</span> <span class="nv">$HOME</span>/Dev/helm/charts/grafana</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">Pull the Grafana Helm chart to the current directory</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm pull grafana/grafana</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">Verify the download:</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">ls</span> <span class="nt">-l</span>
+
+<span class="c"># Example output</span>
+<span class="nt">-rw-r--r--</span>@ 1 young  staff  131387 Mar 19 10:49 grafana-8.10.4.tgz</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This document will use the Grafana Helm chart version 8.10.4.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="inspect-default-values">Inspect Default values</h3>
+<div class="paragraph">
+<p>To better understand the configuration options of the Grafana Helm chart, you can view the values.yaml file.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm show values grafana/grafana <span class="o">&gt;</span> values.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="kubernetes-setup">Kubernetes Setup</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="create-namespace">Create Namespace</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl create namespace o11y</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-secret-for-admin-credentials">Create Secret for Admin Credentials</h3>
+<div class="paragraph">
+<p>In a previous document, I created a secret for Admin Credentials. However, I will configure to use accounts from Keycloak for authentication. Therefore, I will skip this step.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-secret-for-oauth2-client-secret">Create Secret for OAuth2 Client Secret</h3>
+<div class="paragraph">
+<p>We’ll store the <strong>Keycloak client secret</strong> securely in a Kubernetes secret.</p>
+</div>
+<div class="listingblock">
+<div class="title">Create secret for OAuth2 Client Secret</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c"># use yq to remove the creationTimestamp</span>
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> o11y create secret generic grafana-client-secret <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span><span class="nv">GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET</span><span class="o">={</span>your-keycloak-client-secret<span class="o">}</span> <span class="nt">--dry-run</span><span class="o">=</span>client <span class="nt">-o</span> yaml | yq <span class="nb">eval</span> <span class="s1">'del(.metadata.creationTimestamp)'</span> <span class="o">&gt;</span> grafana-client-secret.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The variable <code>GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET</code> is used to set the OAuth2 Client Secret in the Grafana configuration.</p>
+</div>
+<div class="paragraph">
+<p>Apply the secret</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> grafana-client-secret.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This secret is used in the custom-values.yaml file.</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml - envFromSecrets</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">envFromSecrets</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">grafana-client-secret</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="grafana-configuration-custom-values-yaml">Grafana Configuration custom-values.yaml</h3>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">rbac</span><span class="pi">:</span>
+  <span class="na">namespaced</span><span class="pi">:</span> <span class="kc">true</span>
+
+<span class="c1"># for resources and nodeSelector, use your own values</span>
+<span class="na">resources</span><span class="pi">:</span> <span class="pi">{}</span>
+<span class="na">nodeSelector</span><span class="pi">:</span> <span class="pi">{}</span>
+
+<span class="na">persistence</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+
+<span class="c1"># 561</span>
+<i class="conum" data-value="1"></i><b>(1)</b>
+<span class="na">envFromSecrets</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">grafana-client-secret</span>
+
+<span class="c1"># 857</span>
+<i class="conum" data-value="2"></i><b>(2)</b>
+<span class="na">grafana.ini</span><span class="pi">:</span>
+  <span class="na">server</span><span class="pi">:</span>
+    <span class="na">root_url</span><span class="pi">:</span> <span class="s2">"</span><span class="s">http://grafana.nsa2.com"</span>   <i class="conum" data-value="3"></i><b>(3)</b>
+  <i class="conum" data-value="4"></i><b>(4)</b>
+  <span class="na">log</span><span class="pi">:</span>
+    <span class="na">mode</span><span class="pi">:</span> <span class="s">console</span>
+    <span class="na">level</span><span class="pi">:</span> <span class="s">debug</span>
+    <span class="na">filters</span><span class="pi">:</span>
+      <span class="na">name</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="s2">"</span><span class="s">oauth2"</span>
+  <span class="na">auth</span><span class="pi">:</span>
+    <span class="na">disable_login_form</span><span class="pi">:</span> <span class="kc">true</span> <span class="c1"># Redirects all users to OIDC login</span>
+    <span class="na">disable_signout_menu</span><span class="pi">:</span> <span class="kc">false</span>
+  <span class="na">auth.generic_oauth</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">Keycloak</span>
+    <span class="na">allow_sign_up</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">client_id</span><span class="pi">:</span> <span class="s2">"</span><span class="s">grafana"</span>  <i class="conum" data-value="5"></i><b>(5)</b>
+    <span class="na">scopes</span><span class="pi">:</span> <span class="s2">"</span><span class="s">openid</span><span class="nv"> </span><span class="s">profile</span><span class="nv"> </span><span class="s">email"</span> <i class="conum" data-value="6"></i><b>(6)</b>
+    <i class="conum" data-value="7"></i><b>(7)</b>
+    <span class="na">auth_url</span><span class="pi">:</span> <span class="s2">"</span><span class="s">http://{your-keycloak-url}/realms/nsa2-realm/protocol/openid-connect/auth"</span>
+    <span class="na">token_url</span><span class="pi">:</span> <span class="s2">"</span><span class="s">http://{your-keycloak-url}/realms/nsa2-realm/protocol/openid-connect/token"</span>
+    <span class="na">api_url</span><span class="pi">:</span> <span class="s2">"</span><span class="s">http://{your-keycloak-url}/realms/nsa2-realm/protocol/openid-connect/userinfo"</span>
+    <i class="conum" data-value="8"></i><b>(8)</b>
+    <span class="na">role_attribute_path</span><span class="pi">:</span> <span class="s2">"</span><span class="s">contains(realm_access.roles[*],</span><span class="nv"> </span><span class="s">'grafana-admin')</span><span class="nv"> </span><span class="s">&amp;&amp;</span><span class="nv"> </span><span class="s">'Admin'</span><span class="nv"> </span><span class="s">||</span><span class="nv"> </span><span class="s">contains(realm_access.roles[*],</span><span class="nv"> </span><span class="s">'grafana-editor')</span><span class="nv"> </span><span class="s">&amp;&amp;</span><span class="nv"> </span><span class="s">'Editor'</span><span class="nv"> </span><span class="s">||</span><span class="nv"> </span><span class="s">'Viewer'"</span>
+    <span class="na">tls_skip_verify_insecure</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">use_pkce</span><span class="pi">:</span> <span class="kc">true</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>use the secret to set the OAuth2 Client Secret</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Grafana configuration</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>root_url: Grafana URL</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>log configuration</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td>client_id: Grafana Client ID</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="6"></i><b>6</b></td>
+<td>scopes: OpenID Connect scopes</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="7"></i><b>7</b></td>
+<td>auth_url, token_url, and api_url: Keycloak URLs</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="8"></i><b>8</b></td>
+<td>role_attribute_path: Grafana Role Mapping.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>In ID Token, the roles are stored in the realm_access.roles array. The role_attribute_path is used to map the roles to Grafana roles. In this example, the roles are mapped to Grafana roles as follows:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+    </span><span class="nl">"realm_access"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nl">"roles"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+            </span><span class="s2">"grafana-admin"</span><span class="w">
+        </span><span class="p">]</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In the above example, the role_attribute_path is set to 'Admin' if the user has the 'grafana-admin' role. If the user has the 'grafana-editor' role, the role_attribute_path is set to 'Editor'. Otherwise, the role_attribute_path is set to 'Viewer'.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="keycloak-setup">Keycloak Setup</h3>
+<div class="paragraph">
+<p>The configuration options in the custom-values.yaml file are as follows:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Realm</strong>: nsa2-realm</p>
+</li>
+<li>
+<p><strong>Client ID</strong>: grafana</p>
+</li>
+<li>
+<p><strong>Client Secret</strong>: Retrieve from Keycloak</p>
+</li>
+<li>
+<p><strong>Valid Redirect URL</strong>: <a href="http://grafana.nsa2.com/*" class="bare">http://grafana.nsa2.com/*</a></p>
+</li>
+<li>
+<p><strong>Valid Post Logout URL</strong>: <a href="http://grafana.nsa2.com/*" class="bare">http://grafana.nsa2.com/*</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>For users, I created the following Realm roles in Keycloak:</p>
+</div>
+<div class="paragraph">
+<p><strong>Keycloak Realm Roles: </strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>grafana-admin</strong>: for Grafana Admin role</p>
+</li>
+<li>
+<p><strong>grafana-editor</strong>: for Grafana Editor role</p>
+</li>
+<li>
+<p><strong>grafana-viewer</strong>: for Grafana Viewer role</p>
+</li>
+</ul>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/kc-realm-roles.png" alt="kc realm roles" width="1000">
+</div>
+<div class="title">Figure 1. Keycloak Realm Roles</div>
+</div>
+<div class="paragraph">
+<p><strong>Users:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>grafana-admin</strong>: having grafana-admin Realm role</p>
+</li>
+<li>
+<p><strong>grafana-editor</strong>: having grafana-editor Realm role</p>
+</li>
+<li>
+<p><strong>grafana-viewer</strong>: having grafana-viewer Realm role</p>
+</li>
+</ul>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/kc-users.png" alt="kc users" width="1000">
+</div>
+<div class="title">Figure 2. Keycloak Users</div>
+</div>
+<div class="paragraph">
+<p>Assign these roles to users in Keycloak.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="deploy-grafana-with-helm">Deploy Grafana with Helm</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm upgrade <span class="nt">--install</span> <span class="nt">-n</span> o11y grafana grafana/grafana <span class="se">\</span>
+  <span class="nt">-f</span> custom-values.yaml <span class="nt">--version</span> 8.10.4</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="installing-grafana-ingress">Installing Grafana Ingress</h3>
+<div class="paragraph">
+<p>The annotation 'kubernetes.io/ingress.class' has been deprecated. Use 'ingressClassName' instead.</p>
+</div>
+<div class="paragraph">
+<p>Using Traefik Ingress Controller:</p>
+</div>
+<div class="listingblock">
+<div class="title">grafana-ingress.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">networking.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Ingress</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">grafana-ingress</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+<span class="c1">#  annotations:</span>
+<span class="c1">#    kubernetes.io/ingress.class: traefik</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">ingressClassName</span><span class="pi">:</span> <span class="s">traefik</span>
+  <span class="na">rules</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">host</span><span class="pi">:</span> <span class="s">grafana.nsa2.com</span>
+      <span class="na">http</span><span class="pi">:</span>
+        <span class="na">paths</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">path</span><span class="pi">:</span> <span class="s">/</span>
+            <span class="na">pathType</span><span class="pi">:</span> <span class="s">Prefix</span>
+            <span class="na">backend</span><span class="pi">:</span>
+              <span class="na">service</span><span class="pi">:</span>
+                <span class="na">name</span><span class="pi">:</span> <span class="s">grafana</span>
+                <span class="na">port</span><span class="pi">:</span>
+                  <span class="na">name</span><span class="pi">:</span> <span class="s">service</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Apply the Ingress</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> grafana-ingress.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="dns-configuration">DNS Configuration</h3>
+<div class="paragraph">
+<p>Add the following entry to the /etc/hosts file:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code>{traefik-service-ip-address}     grafana.nsa2.com</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="inspect-grafana-ini">Inspect grafana.ini</h3>
+<div class="paragraph">
+<p>The grafana.ini section in the custom-values.yaml file is used to configure Grafana. You can find the grafana.ini file in the Grafana pod in the /etc/grafana directory. You can copy the grafana.ini file to the local directory.</p>
+</div>
+<div class="listingblock">
+<div class="title">Copy grafana.ini to the local directory</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> o11y <span class="nb">cp</span> <span class="s2">"</span><span class="si">$(</span>ko get pods  <span class="nt">-l</span> app.kubernetes.io/name<span class="o">=</span>grafana | <span class="nb">awk</span> <span class="s1">'NR&gt;1'</span> | <span class="nb">head</span> <span class="nt">-n</span> 1 | <span class="nb">awk</span> <span class="s1">'{print $1}'</span><span class="si">)</span><span class="s2">:etc/grafana/grafana.ini"</span> grafana.ini</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="testing-oidc-authentication">Testing OIDC Authentication</h2>
+<div class="sectionbody">
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Visit <a href="http://grafana.nsa2.com" class="bare">http://grafana.nsa2.com</a></p>
+</li>
+<li>
+<p>Click 'Sign in with Keycloak'</p>
+</li>
+<li>
+<p>Login with your Keycloak user(e.g., grafana-admin)</p>
+</li>
+<li>
+<p>Navigate the Grafana Dashboard</p>
+</li>
+</ol>
+</div>
+<div class="sect2">
+<h3 id="role-based-dashboard-access">Role-Based Dashboard Access</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Admin</strong>: Full access to dashboards, users, and settings.</p>
+</li>
+<li>
+<p><strong>Editor</strong>: Can edit dashboards.</p>
+</li>
+<li>
+<p><strong>Viewer</strong>: Read-only access.</p>
+</li>
+</ul>
+</div>
+<div class="sect3">
+<h4 id="example">Example:</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>grafana-admin sees full dashboard features.</p>
+</li>
+<li>
+<p>grafana-viewer has limited access.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="screenshots">Screenshots</h3>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/grafana-sign-in.png" alt="grafana sign in" width="1000">
+</div>
+<div class="title">Figure 3. Grafana Sign In button</div>
+</div>
+<div class="paragraph">
+<p>Click on the 'Sign in with Keycloak' button to sign in with the Keycloak account.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/keycloak-login-admin.png" alt="keycloak login admin" width="1000">
+</div>
+<div class="title">Figure 4. Keycloak Login</div>
+</div>
+<div class="paragraph">
+<p>Use the Keycloak account to sign in. In this example, I used the 'grafana-admin' account.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="grafana-dashboard">Grafana Dashboard</h3>
+<div class="paragraph">
+<p>With different roles, you can access different menus in the Grafana Dashboard.</p>
+</div>
+<div class="sect3">
+<h4 id="grafana-dashboard-for-grafana-admin">Grafana Dashboard for Grafana Admin</h4>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/grafana-dashboard-admin.png" alt="grafana dashboard admin" width="1000">
+</div>
+<div class="title">Figure 5. Grafana Dashboard for Grafana Admin</div>
+</div>
+<div class="paragraph">
+<p>With Admin role, you can access the Grafana Dashboard. There are more menus available for the Admin role.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="grafana-dashboard-for-grafana-viewer">Grafana Dashboard for Grafana Viewer</h4>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/grafana-dashboard-viewer.png" alt="grafana dashboard viewer" width="1000">
+</div>
+<div class="title">Figure 6. Grafana Dashboard for Grafana Viewer</div>
+</div>
+<div class="paragraph">
+<p>Viewer role has limited access to the Grafana Dashboard.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="grafana-profile">Grafana Profile</h3>
+<div class="paragraph">
+<p>To view the profile, click on the profile icon on the left side of the Grafana Dashboard.</p>
+</div>
+<div class="sect3">
+<h4 id="grafana-profile-admin">Grafana Profile - Admin</h4>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/grafana-profile-admin.png" alt="grafana profile admin" width="1000">
+</div>
+<div class="title">Figure 7. Grafana Profile - Admin</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="grafana-profile-viewer">Grafana Profile - Viewer</h4>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/grafana-profile-viewer.png" alt="grafana profile viewer" width="1000">
+</div>
+<div class="title">Figure 8. Grafana Profile - Viewer</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide demonstrated how to secure Grafana using OAuth2 with Keycloak. After successful integration:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Users log in with Keycloak accounts.</p>
+</li>
+<li>
+<p>Roles defined in Keycloak are automatically mapped to Grafana roles.</p>
+</li>
+<li>
+<p>OIDC login provides a seamless and secure authentication experience.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>

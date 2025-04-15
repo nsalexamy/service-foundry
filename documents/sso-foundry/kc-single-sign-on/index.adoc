@@ -1,0 +1,642 @@
+---
+layout: documents
+title: Single Sign-On (SSO) with Keycloak, Traefik, and OAuth2 Proxy
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: SSO Foundry
+    url: /documents/sso-foundry/
+
+# docs/keycloak/03-single-sign-on/index.adoc
+---
+= Single Sign-On (SSO) with Keycloak, Traefik, and OAuth2 Proxy
+
+:imagesdir: images
+
+image::single-sign-on-introduction.png[width=1000, align="center"]
+== Overview
+
+This guide walks you through setting up Single Sign-On (SSO) using Keycloak as the Identity Provider (IdP), OAuth2 Proxy as the authentication middleware, and Traefik as the Ingress controller. This SSO configuration secures access to observability tools such as:
+
+
+* Jaeger – No native authentication
+* Prometheus – No native authentication
+* Grafana – Built-in OIDC support
+// * OpenSearch Dashboards
+
+Once configured, users can authenticate once through Keycloak and access all integrated services without repeated logins.
+
+
+=== Prerequisites
+
+Ensure the following components are installed in your Kubernetes cluster:
+
+* Kubernetes cluster
+* Traefik Ingress Controller
+* Keycloak
+* Jaeger Collector installed
+* Prometheus installed
+* Grafana installed
+
+=== Related Articles
+
+This guide builds upon the following previous works:
+
+* https://www.linkedin.com/pulse/traefik-oauth2-proxy-using-authentication-middleware-young-gyu-kim-fzd2c/[Traefik OAuth2 Proxy using Authentication Middleware]
+* https://www.linkedin.com/pulse/oauth2-authentication-grafana-young-gyu-kim-oxg4c/[OAuth2 Authentication for Grafana]
+
+
+
+== Target Services
+
+The Single Sign On will be applied to the following services:
+
+* *jaeger-collector* - port name: jaeger, port: 16686
+* *prometheus* - port name: web, port: 9090
+* *grafana* - port name: service, port: 80
+
+Use the following commands to verify service port configurations:
+
+.Jaeger-Collector
+[source,shell]
+----
+$ kubectl -n o11y get svc jaeger-collector -o yaml | yq '.metadata.name, .spec.ports'
+
+# Example Output
+jaeger-collector
+- name: jaeger
+  port: 16686
+  protocol: TCP
+  targetPort: 16686
+- appProtocol: grpc
+  name: otlp-grpc
+  port: 4317
+  protocol: TCP
+  targetPort: 4317
+- appProtocol: http
+  name: otlp-http
+  port: 4318
+  protocol: TCP
+  targetPort: 4318
+----
+
+
+.Prometheus
+[source,shell]
+----
+$ kubectl -n o11y get svc prometheus -o yaml | yq '.metadata.name, .spec.ports'
+
+# Example Output
+
+prometheus
+- name: web
+  nodePort: 30796
+  port: 9090
+  protocol: TCP
+  targetPort: web
+----
+
+.Grafana
+[source,shell]
+----
+$ kubectl -n o11y get svc grafana -o yaml | yq '.metadata.name, .spec.ports'
+
+# Example Output
+grafana
+- name: service
+  port: 80
+  protocol: TCP
+  targetPort: 3000
+----
+
+== Keycloak
+
+Keycloak is an open-source Identity and Access Management solution that supports user federation, identity brokering, and social login.
+
+
+For more information on how to set up Keycloak, please refer to the following documentation:
+
+* https://www.linkedin.com/pulse/oauth2-proxy-standalone-reverse-kubernetes-young-gyu-kim-sghsc/[OAuth2 Proxy as a Standalone Reverse Proxy in Kubernetes]
+
+=== Keycloak Configuration Summary
+
+* Realm: nsa2-realm
+* Client ID: nsa2-o11y
+* User: devops
+* Password: password
+* Realm Roles: grafana-admin
+
+*Valid redirect URIs:*
+
+* http://jaeger.nsa2.com/*
+* http://prometheus.nsa2.com/*
+* http://grafana.nsa2.com/*
+* http://oauth2-proxy.nsa2.com/*
+
+*Valid post logout redirect URIs:*
+
+* http://jaeger.nsa2.com/*
+* http://prometheus.nsa2.com/*
+* http://grafana.nsa2.com/*
+* http://oauth2-proxy.nsa2.com/*
+
+*Web Origins:*
+
+* http://jaeger.nsa2.com
+* http://prometheus.nsa2.com
+* http://grafana.nsa2.com
+* http://oauth2-proxy.nsa2.com
+
+
+== OAuth2 Proxy as Authentication Middleware
+
+OAuth2 Proxy handles authentication and forwards validated requests to backend services. It integrates seamlessly with Keycloak and Traefik.
+
+.oauth2 proxy as authentication middleware
+image::oauth2-proxy-authentication-middleware.png[width=1000, align="center"]
+
+For more information on how to set up OAuth2 Proxy, please refer to the following documentation:
+
+* https://www.linkedin.com/pulse/traefik-oauth2-proxy-using-authentication-middleware-young-gyu-kim-fzd2c/[Traefik OAuth2 Proxy using Authentication Middleware]
+* https://oauth2-proxy.github.io/oauth2-proxy/
+
+
+=== Install OAuth2 Proxy
+
+Here is an example of the custom values file for the OAuth2 Proxy Helm chart. You can use this file to customize the OAuth2 Proxy installation.
+
+.oauth2 proxy custom values
+[source,yaml]
+----
+
+config:
+  # <1>
+  existingSecret: oauth2-proxy-secret
+
+  configFile: |
+    provider = "oidc"
+    # <2>
+    oidc_issuer_url = "http://{keycloak-service-url}/realms/nsa2-realm"
+    email_domains = ["*"]
+    cookie_secure = false
+    upstreams = ["static://200"]
+    # <3>
+    redirect_url = "http://oauth2-proxy.nsa2.com/oauth2/callback"
+    scope = "openid email profile"
+    pass_access_token = true
+    pass_authorization_header = true
+    pass_user_headers = true
+    set_authorization_header = true
+    cookie_domains = ".nsa2.com"
+    cookie_name = "_oauth2_proxy"
+    cookie_refresh = "2m"
+    cookie_expire = "24h"
+    whitelist_domains = [".nsa2.com"]
+    # return authenticated user to nginx
+    set_xauthrequest = true
+
+# 94
+extraArgs:
+  - --cookie-secure=false
+  - --skip-provider-button
+  - --ssl-insecure-skip-verify
+  - --reverse-proxy
+----
+
+<1> Use the existing secret to store the Keycloak client secret.
+<2> Set the Keycloak issuer URL.
+<3> Set the redirect URL to the OAuth2 Proxy callback URL. We will create the Ingress resource for the OAuth2 Proxy later.
+
+To install OAuth2 Proxy, you can use the following command:
+
+[source,shell]
+----
+$ helm upgrade --install oauth2-proxy \
+  --namespace o11y \
+  --create-namespace \
+  -f oauth2-proxy/custom-values.yaml \
+  oauth2-proxy/oauth2-proxy --version 7.12.6
+----
+
+=== Create OAuth2 Proxy Secret
+
+Here is an example of how to create the OAuth2 Proxy secret. You can use the `kubectl create secret` command to create the secret in the `o11y` namespace.
+
+.oauth2 proxy secret
+[source,yaml]
+----
+apiVersion: v1
+data:
+  client-id: your-client-id
+  client-secret: your-client-secret
+  cookie-secret: your-cookie-secret
+kind: Secret
+metadata:
+  name: oauth2-proxy-secret
+  namespace: o11y
+----
+
+You can generate the YAML file using the following command:
+
+[source,shell]
+----
+$ CLIENT_ID=YOUR_CLIENT_ID
+$ CLIENT_SECRET=YOUR_CLIENT_SECRET
+$ COOKIE_SECRET=$( openssl rand -base64 32 | head -c 32 | base64)
+
+$ kubectl -n o11y create secret generic oauth2-proxy-secret \
+  --from-literal=client-id=$CLIENT_ID \
+  --from-literal=client-secret=$CLIENT_SECRET \
+  --from-literal=cookie-secret=$COOKIE_SECRET \
+  --dry-run=client -o yaml | yq eval 'del(.metadata.creationTimestamp)' > oauth2-proxy-secret.yaml
+----
+
+=== OAuth2 Proxy Ingress
+
+
+oauth2 proxy ingress
+[source,yaml]
+----
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: oauth2-proxy-ingress
+  namespace: o11y
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: oauth2-proxy.nsa2.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oauth2-proxy
+                port:
+                  name: http
+----
+
+
+== Traefik Ingress Controller
+
+The Traefik Ingress Controller is a Kubernetes-native ingress controller that provides a reverse proxy and load balancer for your applications. It can be used to route traffic to different services based on the request URL, headers, and other criteria.
+
+=== forward-auth Middleware
+
+The forward-auth middleware is used to authenticate requests before they reach the backend service. It works by forwarding the request to the OAuth2 Proxy, which handles the authentication process.
+
+.forward-auth Middleware
+[source,yaml]
+----
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: forward-auth
+  namespace: o11y
+spec:
+  forwardAuth:
+    # <1>
+    address: http://oauth2-proxy.o11y.svc.cluster.local/oauth2/
+    trustForwardHeader: true
+    authResponseHeaders:
+      - "X-Auth-Request-User"
+      - "X-Auth-Request-Email"
+      - "Authorization"
+----
+
+<1> Set the address of the OAuth2 Proxy service. The `trustForwardHeader` option is set to true to trust the forwarded headers from the Ingress controller.
+
+=== Protected Ingress for Observability Tools
+
+The Ingress resources for Jaeger, Prometheus, and Grafana are configured to use the forward-auth middleware. This means that all requests to these services will be authenticated by the OAuth2 Proxy before being forwarded to the backend service.
+
+.ingress for Single Sign-On for Jaeger, Prometheus, and Grafana
+[source,yaml]
+----
+# using EJS templating. using ingress variable
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: o11y-sso-ingress
+  namespace: o11y
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    # <1>
+    traefik.ingress.kubernetes.io/router.middlewares: "o11y-forward-auth@kubernetescrd"
+
+spec:
+  # <2>
+  ingressClassName: traefik
+  rules:
+    # <3>
+    - host: jaeger.nsa2.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: jaeger-collector
+                port:
+                  name: jaeger
+
+    # <4>
+    - host: prometheus.nsa2.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: prometheus
+                port:
+                  name: web
+
+    # <5>
+    - host: grafana.nsa2.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  name: service
+
+
+----
+
+<1> Set the middleware to use the forward-auth middleware.
+<2> Set the Ingress class to use the Traefik Ingress controller.
+<3> Set the host for the Jaeger service.
+<4> Set the host for the Prometheus service.
+<5> Set the host for the Grafana service.
+
+
+== Authentication Flow
+
+The authentication flow works as follows:
+
+1. The user accesses the observability tool (e.g., Jaeger, Prometheus, Grafana) via the Ingress URL.
+2. The Ingress controller (Traefik) forwards the request to the OAuth2 Proxy.
+3. The OAuth2 Proxy checks if the user is authenticated. If not, it redirects the user to the Keycloak login page.
+4. The user enters their credentials and logs in.
+5. Keycloak redirects the user back to the OAuth2 Proxy with an authorization code.
+6. The OAuth2 Proxy exchanges the authorization code for an access token and ID token.
+7. The OAuth2 Proxy sets the access token and ID token in the request headers and forwards the request to the backend service (e.g., Jaeger, Prometheus, Grafana).
+
+
+== SSO Foundry
+
+The SSO Foundry is a submodule of Service Foundry, designed to automate SSO setup for observability platforms or other applications. It simplifies the process of configuring SSO by generating the necessary Kubernetes resources and Helm charts.
+
+
+=== 1. Create SSO Foundry
+
+[source,shell]
+----
+$ yo nsa2:sso-foundry init
+
+? Namespace o11y
+? Root Domain(eg. example.com) nsa2.com
+----
+
+The prompt will ask for the namespace and root domain. The namespace is the Kubernetes namespace where the SSO Foundry will be deployed. The root domain is the domain name that will be used for the SSO Foundry.
+
+The command will create a configuration file called `sso-foundry-config.yaml` in the current directory. This file contains the configuration for the SSO Foundry.
+
+=== 2. Update SSO Foundry Configuration
+
+.sso-foundry-config.yaml
+[source,yaml]
+----
+common:
+
+  namespace: o11y
+  root-domain: nsa2.com
+
+oauth2:
+  enabled: true
+  oidc-issuer-url: "http://keycloak-service-url/realms/nsa2-realm"
+  client_id: "your-client-id"
+  client_secret: "your-client-secret"
+
+oauth2-proxy:
+  enabled: true
+  namespace: o11y
+  release-name: oauth2-proxy  # release name for helm
+  ingresses:
+    - name: o11y-sso-ingress
+      namespace: o11y
+      services:
+        - service-name: jaeger-collector
+          port-name: jaeger
+          subdomain: jaeger
+        - service-name: prometheus
+          port-name: web
+          subdomain: prometheus
+        - service-name: grafana
+          port-name: service
+          subdomain: grafana
+----
+
+=== 3. Generate Kubernetes Resource Files
+
+After updating the `sso-foundry-config.yaml` file, you can generate the Kubernetes resource files using the following command:
+
+[source,shell]
+----
+$ yo nsa2:sso-foundry generate
+----
+
+The command above will generate the following files:
+
+[source,shell]
+----
+$ tree .
+.
+├── build-sso-foundry.sh
+├── deploy-sso-foundry.sh
+├── helm-charts
+│   └── oauth2-proxy
+│       ├── custom-values.yaml
+│       └── oauth2-proxy-7.12.6.tgz
+├── k8s
+│   ├── oauth2-proxy
+│   │   ├── kustomization.yaml
+│   │   └── oauth2-proxy-secret.yaml
+│   └── traefik
+│       ├── forward-auth-middleware.yaml
+│       ├── kustomization.yaml
+│       ├── o11y-sso-ingress.yaml
+│       └── oauth2-proxy-ingress.yaml
+├── sso-foundry-config.yaml
+└── undeploy-sso-foundry.sh
+----
+
+=== 4. Build SSO Foundry Locally
+
+Unlike other foundries, the SSO Foundry does not require a build step. It is a simple SSO solution that can be deployed directly to the Kubernetes cluster.
+
+[source,shell]
+----
+$ ./build-sso-foundry.sh
+
+# Example Output
+
+Building SSO Foundry for Cloud Foundry
+Nothing to build locally for SSO Foundry
+----
+
+=== 5. Deploy SSO Foundry
+
+To deploy the SSO Foundry, I used Helm charts and Kustomize to manage the Kubernetes resources. The deployment script will install the OAuth2 Proxy and Traefik Ingresses.
+
+This script file is created in the Generate step based on the `sso-foundry-config.yaml` file. The script will install the OAuth2 Proxy and Traefik Ingresses.
+
+.deploy-sso-foundry.sh
+[source,shell]
+----
+#!/bin/bash
+
+echo "Deploying SSO Foundry to Cloud Foundry"
+
+K8S_NAMESPACE="o11y"
+OAUTH2_PROXY_HELM_REPO="helm-charts/oauth2-proxy/oauth2-proxy-7.12.6.tgz"
+OAUTH2_PROXY_HELM_RELEASE_NAME="oauth2-proxy"
+OAUTH2_PROXY_HELM_CUSTOM_VALUES_FILE="helm-charts/oauth2-proxy/custom-values.yaml"
+
+# Check if treafik is installed
+if ! kubectl -n traefik get deployment traefik; then
+  echo "Traefik is not installed. Please install Traefik first."
+  exit 1
+fi
+
+# Install OAuth2 Proxy
+echo "Installing OAuth2 Proxy"
+kubectl apply -k k8s/oauth2-proxy
+helm upgrade --install $OAUTH2_PROXY_HELM_RELEASE_NAME $OAUTH2_PROXY_HELM_REPO \
+  -f $OAUTH2_PROXY_HELM_CUSTOM_VALUES_FILE \
+  --namespace $K8S_NAMESPACE --create-namespace
+
+# Install Traefik Ingresses
+echo "Installing Traefik Ingresses"
+kubectl apply -k k8s/traefik
+----
+
+To deploy the SSO Foundry, run the following command:
+
+[source,shell]
+----
+$ ./deploy-sso-foundry.sh
+----
+
+=== 6. Undeploy SSO Foundry
+
+This script file is created in the Generate step based on the `sso-foundry-config.yaml` file. The script will uninstall the OAuth2 Proxy and Traefik Ingresses.
+
+.undeploy-sso-foundry.sh
+[source,shell]
+----
+#!/bin/bash
+
+echo "Undeploying SSO Foundry to Cloud Foundry"
+
+K8S_NAMESPACE="o11y"
+#OAUTH2_PROXY_HELM_REPO="helm-charts/oauth2-proxy/oauth2-proxy-7.12.6.tgz"
+OAUTH2_PROXY_HELM_RELEASE_NAME="oauth2-proxy"
+OAUTH2_PROXY_HELM_CUSTOM_VALUES_FILE="k8s/oauth2-proxy/custom-values.yaml"
+
+
+
+# Uninstall Traefik Ingresses
+echo "Uninstalling Traefik Ingresses"
+kubectl delete -k k8s/traefik
+
+# Install OAuth2 Proxy
+echo "Uninstalling OAuth2 Proxy"
+helm delete $OAUTH2_PROXY_HELM_RELEASE_NAME --namespace $K8S_NAMESPACE
+kubectl delete -k k8s/oauth2-proxy
+----
+
+To undeploy the SSO Foundry, run the following command:
+
+[source,shell]
+----
+$ ./undeploy-sso-foundry.sh
+----
+
+== Test Single Sign-On
+
+Visit the following URLs in your browser:
+
+* http://jaeger.nsa2.com
+* http://prometheus.nsa2.com
+* http://grafana.nsa2.com
+
+You will be redirected to the Keycloak login screen.
+
+.Keycloak Login Page
+image::kc-login.png[width=1000, align="center"]
+
+Use:
+
+* User: devops
+* Password: password
+
+After authentication, you will be redirected to the requested service.
+
+Once logged in, you will see the following page:
+
+http://jaeger.nsa2.com
+
+.Jaeger UI
+image::jaeger-ui.png[width=1000, align="center"]
+
+http://prometheus.nsa2.com
+
+.Prometheus UI
+image::prometheus-ui.png[width=1000, align="center"]
+
+http://grafana.nsa2.com
+
+.Grafana UI
+image::grafana-ui.png[width=1000, align="center"]
+
+.Grafana Admin Profile
+image::grafana-admin-profile.png[width=1000, align="center"]
+
+You can check the user profile in Grafana. The user is authenticated via Keycloak and has the `grafana-admin` role.
+
+== Logout
+
+* Grafana provides a “Sign out” option.
+* For Jaeger and Prometheus, logout is not available via UI.
+
+.Grafana Sign Out
+image::grafana-sign-out-button.png[width=1000, align="center"]
+
+After clicking on the "Sign out" button, you will be redirected to the Keycloak logout page.
+
+.Keycloak Logout Page
+image::kc-logout.png[width=1000, align="center"]
+
+Use the following manual logout URL to clear Keycloak session:
+
+* http://a5ce4cf2c1286439fba85862488c3b12-803991664.ca-west-1.elb.amazonaws.com/realms/nsa2-realm/protocol/openid-connect/logout?redirect_uri=http://oauth2-proxy.nsa2.com/
+
+
+== Conclusion
+
+This guide demonstrated how to configure a centralized SSO mechanism across Jaeger, Prometheus, and Grafana using Keycloak, Traefik, and OAuth2 Proxy. By leveraging OAuth2 Proxy as a reverse proxy and middleware, you ensure secure and seamless user authentication across your observability stack.
+
+
+

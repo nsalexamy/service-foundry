@@ -1,0 +1,535 @@
+---
+layout: documents
+title: Distributed Tracing - Spring Boot Application with OpenTelemetry Instrumentation
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+//  docs/distributed-tracing/part3-using-otel-instrumentation/index.adoc
+= Distributed Tracing - Spring Boot Application with OpenTelemetry Instrumentation
+
+:verse:
+:imagesdir: images
+
+== Introduction
+
+
+This article is part of a series of articles on Distributed Tracing. In this article, we will discuss how to set up Zipkin and a sample Spring Boot application to demonstrate distributed tracing.
+
+1. Part 1 - link:https://www.linkedin.com/pulse/distributed-tracing-setup-zipkin-sample-spring-boot-young-gyu-kim-msaqc/[Distributed Tracing - Setup Zipkin and Sample Spring Boot Application]
+2. Part 2 - link:https://www.linkedin.com/pulse/distributed-tracing-spring-boot-application-micrometer-kim-napzc[Distributed Tracing - Spring Boot Application with Micrometer and OpenTelemetry]
+3. Part 3 - link:https://www.linkedin.com/pulse/distributed-tracing-spring-boot-application-young-gyu-kim-cuuvc/[Distributed Tracing - Spring Boot Application with OpenTelemetry Instrumentation]
+4. Part 4 - Distributed Tracing - Spring Boot Application with OpenTelemetry Collector
+
+This article is the third part of the series.
+
+=== OpenTelemetry Instrumentation
+
+This article describes how to use OpenTelemetry instrumentation in a Spring Boot application. The requirements are as follows:
+
+- Enable tracing for HTTP requests, JDBC calls, and RabbitMQ messages.
+- Disable tracing for Actuator endpoints.
+- Use OpenTelemetry with Zipkin.
+
+== OpenTelemetry
+
+=== What is OpenTelemetry?
+
+OpenTelemetry is an open-source project that provides a set of APIs, libraries, agents, and instrumentation to collect distributed traces and metrics from applications. OpenTelemetry is a merger of two popular distributed tracing projects, OpenTracing and OpenCensus.
+
+=== Out of the box instrumentation
+
+Refer to the following link for more information on out-of-the-box instrumentation for Java:
+
+* https://opentelemetry.io/docs/zero-code/java/spring-boot-starter/out-of-the-box-instrumentation/[Out of the box instrumentation]
+
+.Features - Property and Default Value
+[horizontal]
+JDBC:: otel.instrumentation.jdbc.enabled (Default: true)
+Logback:: otel.instrumentation.logback-appender.enabled (Default: true)
+Spring Web:: otel.instrumentation.spring-web.enabled (Default: true)
+Spring Web MVC:: otel.instrumentation.spring-webmvc.enabled (Default: true)
+Spring Webflux:: otel.instrumentation.spring-webflux.enabled (Default: true)
+Kafka:: otel.instrumentation.kafka.enabled (Default: true)
+MongoDB:: otel.instrumentation.mongodb.enabled (Default: true)
+Micrometer:: otel.instrumentation.micrometer.enabled (Default: false)
+R2DBC:: otel.instrumentation.r2dbc.enabled (Default: true)
+
+
+[vertical]
+
+=== Download OpenTelemetry Instrumentation
+
+Run the following command to download the OpenTelemetry instrumentation:
+
+[source,shell]
+----
+$ mkdir -p javaagent
+$ curl -L -O https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/latest/download/opentelemetry-javaagent.jar --output-dir javaagent
+----
+
+The command above downloads the OpenTelemetry Java agent to the `javaagent` directory.
+
+=== System environment variables
+
+.set environment variables
+[source,shell]
+----
+$ export JAVA_TOOL_OPTIONS="-javaagent:./javaagent/opentelemetry-javaagent.jar" \
+  OTEL_TRACES_EXPORTER=zipkin \
+  OTEL_EXPORTER_ZIPKIN_ENDPOINT=http://zipkin-server:9411/api/v2/spans \
+  OTEL_METRICS_EXPORTER=none \
+  OTEL_LOGS_EXPORTER=none
+----
+
+=== Build and run the application
+
+WARNING: Make sure that JAVA_TOOL_OPTIONS is set to the OpenTelemetry Java agent before building the application. Otherwise, the tracing for database calls will not work.
+
+.build the application
+[source,shell]
+----
+$ ./gradlew clean bootJar
+
+Picked up JAVA_TOOL_OPTIONS: -javaagent:./javaagent/opentelemetry-javaagent.jar
+
+----
+
+.run the application
+[source,shell]
+----
+$ java -jar build/libs/nsa2-opentelemetry-example-0.0.1-SNAPSHOT.jar
+
+Picked up JAVA_TOOL_OPTIONS: -javaagent:./javaagent/opentelemetry-javaagent.jar
+
+----
+
+.test the application
+[source,shell]
+----
+$ curl http://localhost:8080/error-logs/notify
+
+4
+----
+
+Navigate to the Zipkin UI to view the traces.
+
+.Zipkin UI
+image::zipkin-otel-instrumentation.png[width=1000, align="center", alt=" Zipkin OpenTelemetry Traces"]
+
+OpenTelemetry instrumentation provider more detailed information about the traces as you can see from the image above. The traces include the HTTP request, JDBC call, and RabbitMQ message.
+
+== OpenTelemetry Operator for Kubernetes(Inject OpenTelemetry Auto-Instrumentation in Kubernetes)
+
+This section was written with reference to the following links:
+
+* https://github.com/open-telemetry/opentelemetry-operator
+* https://opentelemetry.io/docs/kubernetes/operator/automatic/
+
+The OpenTelemetry Operator is a Kubernetes operator that manages the lifecycle of OpenTelemetry components. The operator deploys and manages the OpenTelemetry Collector, which collects, processes, and exports telemetry data.
+
+The OpenTelemetry Operator supports injecting and configuring auto-instrumentation libraries for:
+
+* Java
+* .NET
+* Node.js
+* Python
+* Go
+
+In this document, we will focus on Java auto-instrumentation. And we will use the Zipkin server to collect traces without the OpenTelemetry Collector.
+
+I will cover the topic of using the OpenTelemetry Collector in a separate article.
+
+To enable OpenTelemetry instrumentation on Kubernetes, we will need to install the following components:
+
+* cert-manager
+* OpenTelemetry Operator
+
+[#cert-manager]
+=== Install cert-manager
+
+To install the operator in an existing cluster, make sure you have cert-manager installed and run:
+
+link:https://cert-manager.io/docs/installation/[cert-manager installation]
+
+[source,shell]
+----
+$ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.15.2/cert-manager.yaml
+
+namespace/cert-manager created
+customresourcedefinition.apiextensions.k8s.io/certificaterequests.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/certificates.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/challenges.acme.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/clusterissuers.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/issuers.cert-manager.io created
+customresourcedefinition.apiextensions.k8s.io/orders.acme.cert-manager.io created
+serviceaccount/cert-manager-cainjector created
+serviceaccount/cert-manager created
+serviceaccount/cert-manager-webhook created
+clusterrole.rbac.authorization.k8s.io/cert-manager-cainjector created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-issuers created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-clusterissuers created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-certificates created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-orders created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-challenges created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-ingress-shim created
+clusterrole.rbac.authorization.k8s.io/cert-manager-cluster-view created
+clusterrole.rbac.authorization.k8s.io/cert-manager-view created
+clusterrole.rbac.authorization.k8s.io/cert-manager-edit created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-approve:cert-manager-io created
+clusterrole.rbac.authorization.k8s.io/cert-manager-controller-certificatesigningrequests created
+clusterrole.rbac.authorization.k8s.io/cert-manager-webhook:subjectaccessreviews created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-cainjector created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-issuers created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-clusterissuers created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-certificates created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-orders created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-challenges created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-ingress-shim created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-approve:cert-manager-io created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-controller-certificatesigningrequests created
+clusterrolebinding.rbac.authorization.k8s.io/cert-manager-webhook:subjectaccessreviews created
+role.rbac.authorization.k8s.io/cert-manager-cainjector:leaderelection created
+role.rbac.authorization.k8s.io/cert-manager:leaderelection created
+role.rbac.authorization.k8s.io/cert-manager-webhook:dynamic-serving created
+rolebinding.rbac.authorization.k8s.io/cert-manager-cainjector:leaderelection created
+rolebinding.rbac.authorization.k8s.io/cert-manager:leaderelection created
+rolebinding.rbac.authorization.k8s.io/cert-manager-webhook:dynamic-serving created
+service/cert-manager created
+service/cert-manager-webhook created
+deployment.apps/cert-manager-cainjector created
+deployment.apps/cert-manager created
+deployment.apps/cert-manager-webhook created
+mutatingwebhookconfiguration.admissionregistration.k8s.io/cert-manager-webhook created
+validatingwebhookconfiguration.admissionregistration.k8s.io/cert-manager-webhook created
+
+----
+
+All resources are created in the `cert-manager` namespace.
+
+
+[#otel-operator]
+=== Install OpenTelemetry Operator
+
+[source,shell]
+----
+$ kubectl apply -f https://github.com/open-telemetry/opentelemetry-operator/releases/latest/download/opentelemetry-operator.yaml
+
+namespace/opentelemetry-operator-system created
+customresourcedefinition.apiextensions.k8s.io/instrumentations.opentelemetry.io created
+customresourcedefinition.apiextensions.k8s.io/opampbridges.opentelemetry.io created
+customresourcedefinition.apiextensions.k8s.io/opentelemetrycollectors.opentelemetry.io created
+serviceaccount/opentelemetry-operator-controller-manager created
+role.rbac.authorization.k8s.io/opentelemetry-operator-leader-election-role created
+clusterrole.rbac.authorization.k8s.io/opentelemetry-operator-manager-role created
+clusterrole.rbac.authorization.k8s.io/opentelemetry-operator-metrics-reader created
+clusterrole.rbac.authorization.k8s.io/opentelemetry-operator-proxy-role created
+rolebinding.rbac.authorization.k8s.io/opentelemetry-operator-leader-election-rolebinding created
+clusterrolebinding.rbac.authorization.k8s.io/opentelemetry-operator-manager-rolebinding created
+clusterrolebinding.rbac.authorization.k8s.io/opentelemetry-operator-proxy-rolebinding created
+service/opentelemetry-operator-controller-manager-metrics-service created
+service/opentelemetry-operator-webhook-service created
+deployment.apps/opentelemetry-operator-controller-manager created
+certificate.cert-manager.io/opentelemetry-operator-serving-cert created
+issuer.cert-manager.io/opentelemetry-operator-selfsigned-issuer created
+mutatingwebhookconfiguration.admissionregistration.k8s.io/opentelemetry-operator-mutating-webhook-configuration created
+validatingwebhookconfiguration.admissionregistration.k8s.io/opentelemetry-operator-validating-webhook-configuration created
+----
+
+== Deploy Spring Boot Application with OpenTelemetry Instrumentation
+
+=== Dockerfile
+
+Dockerfile and opentelemetry-javaagent.jar are required to build the Docker image.
+
+The directory structure is as follows:
+
+.build/libs directory structure
+[source,shell]
+----
+build/libs
+├── Dockerfile
+├── nsa2-opentelemetry-example-0.0.1-SNAPSHOT.jar
+└── opentelemetry-javaagent.jar
+----
+
+Here is the Dockerfile:
+
+.build/libs/Dockerfile
+[source,dockerfile]
+----
+FROM openjdk:21-jdk-bullseye
+COPY ./nsa2-opentelemetry-example-0.0.1-SNAPSHOT.jar /usr/app/nsa2-opentelemetry-example.jar
+COPY ./opentelemetry-javaagent.jar /usr/app/javaagent/opentelemetry-javaagent.jar
+
+WORKDIR /usr/app
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-Xshare:off", "-javaagent:/usr/app/javaagent/opentelemetry-javaagent.jar", "-jar", "nsa2-opentelemetry-example.jar"]
+----
+
+JVM Options used in the Dockerfile:
+
+* *_-Xshare:off_* option is used to disable class data sharing.
+* *_-javaagent:/usr/app/javaagent/opentelemetry-javaagent.jar_* option is used to enable OpenTelemetry instrumentation.
+
+== OpenTelemetry Instrumentation Java Configuration
+
+Properties for OpenTelemetry instrumentation are listed below:
+
+https://opentelemetry.io/docs/languages/java/configuration/[https://opentelemetry.io/docs/languages/java/configuration/ - OpenTelemetry Java Configuration]
+
+[TIP]
+.System Properties and Environment Variables
+====
+Any setting configurable with a system property can also be configured with an environment variable. Apply the following steps to convert a system property to an environment variable:
+
+* Convert the name to uppercase.
+* Replace all . and - characters with _.
+
+For example, the system property `otel.traces.exporter` can be set as an environment variable `OTEL_TRACES_EXPORTER`.
+====
+
+
+// [verse,System Properties and Environment Variables,https://opentelemetry.io/docs/languages/java/configuration/]
+// ____
+// sba
+//
+// ____
+
+=== Helm chart
+
+Properties for OpenTelemetry instrumentation can be set in the deployment.yaml file of the Helm chart.
+
+For more information on how to use Helm chart to deploy your application, refer to the following link:
+
+https://www.linkedin.com/pulse/part-2-deploying-spring-boot-application-kubernetes-young-gyu-kim-ewaqc/[Part 2: Deploying Spring Boot Application to Kubernetes]
+
+
+.templates/deployment.yaml
+[source,yaml]
+----
+          env:
+            - name: OTEL_TRACES_EXPORTER
+              value: zipkin
+            - name: OTEL_EXPORTER_ZIPKIN_ENDPOINT
+              value: http://zipkin-server:9411/api/v2/spans
+            - name: OTEL_METRICS_EXPORTER
+              value: none
+            - name: OTEL_LOGS_EXPORTER
+              value: none
+----
+
+For more information on how to use Zipkin exporter, refer to the following link:
+
+* https://opentelemetry.io/docs/languages/java/configuration/#zipkin-exporter[OpenTelemetry Java Configuration - Zipkin Exporter]
+
+
+
+== OpenTelemetry Instrumentation extension
+
+=== Exclude URLs from Tracing
+
+In Kubernetes, when you deploy a Spring Boot application with live probes, the health check URLs are called frequently, and they are traced in the Zipkin server.
+To exclude these URLs from tracing, we can use the OpenTelemetry Instrumentation extension.
+
+I created a separate Java project to demonstrate how to exclude health check URLs from tracing.
+
+There are two classes in the project:
+
+* HealthCheckExclusionSampler.java
+* Nas2AutoConfigurationCustomizerProvider.java
+
+=== HealthCheckExclusionSampler.java
+
+I implemented a custom sampler to exclude health check URLs from tracing.
+
+.HealthCheckExclusionSampler.java
+[source,java]
+----
+package com.alexamy.nsa2.otel.extension;
+
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.sdk.trace.data.LinkData;
+import io.opentelemetry.sdk.trace.samplers.Sampler;
+import io.opentelemetry.sdk.trace.samplers.SamplingResult;
+
+import java.util.List;
+
+public class HealthCheckExclusionSampler implements Sampler {
+
+    @Override
+    public SamplingResult shouldSample(Context parentContext, String traceId,
+                                       String name, SpanKind spanKind,
+                                       Attributes attributes, List<LinkData> parentLinks) {
+
+        String urlPath = attributes.get(AttributeKey.stringKey("url.path"));
+
+        if(urlPath != null && urlPath.contains("/actuator/health")) {
+            return SamplingResult.drop();
+        }
+
+        return SamplingResult.recordAndSample();
+    }
+
+    @Override
+    public String getDescription() {
+        return "HealthCheckExclusionSampler";
+    }
+}
+----
+
+If the URL path contains "/actuator/health", the sampler will drop the trace.
+
+=== Nas2AutoConfigurationCustomizerProvider.java
+
+I implemented a customizer provider to add the custom sampler to the OpenTelemetry instrumentation.
+
+.Nas2AutoConfigurationCustomizerProvider.java
+[source,java]
+----
+package com.alexamy.nsa2.otel.extension;
+
+import com.google.auto.service.AutoService;
+import io.opentelemetry.sdk.autoconfigure.spi.AutoConfigurationCustomizer;
+import io.opentelemetry.sdk.autoconfigure.spi.AutoConfigurationCustomizerProvider;
+
+@AutoService(AutoConfigurationCustomizerProvider.class)
+public class Nas2AutoConfigurationCustomizerProvider implements AutoConfigurationCustomizerProvider {
+
+    @Override
+    public void customize(AutoConfigurationCustomizer autoConfigurationCustomizer) {
+        autoConfigurationCustomizer.addSamplerCustomizer(
+            (sampler, configProperties) -> new HealthCheckExclusionSampler());
+    }
+}
+----
+
+The class with @AutoService annotation is automatically discovered by the OpenTelemetry instrumentation. The addSamplerCustomizer method is used to add the custom sampler to the OpenTelemetry instrumentation.
+
+The project is built as a JAR file named `nsa2-otel-extension-1.0-all.jar` and used as an extension in the Spring Boot application.
+
+For more information on how to develop an OpenTelemetry Instrumentation extension, refer to the following link:
+
+* https://github.com/open-telemetry/opentelemetry-java-instrumentation/blob/main/examples/extension/README.md
+
+
+Once you have the extension project, you can build the JAR file and use it with -Dotel.javaagent.extensions option to exclude URLs from tracing.
+
+.how to use the extension
+[source,shell]
+----
+$ java -javaagent:path/to/opentelemetry-javaagent.jar \
+     -Dotel.javaagent.extensions=nsa2-otel-extension-1.0-all.jar \
+     -jar myapp.jar
+----
+
+=== Dockerfile
+
+To use the OpenTelemetry Instrumentation extension in a Docker container, you need to add the extension JAR file to the Docker image.
+
+Now the directory sturecture is as follows:
+
+.build/libs directory structure
+[source,shell]
+----
+build/libs
+├── Dockerfile
+├── nsa2-opentelemetry-example-0.0.1-SNAPSHOT.jar
+├── nsa2-otel-extension-1.0-all.jar
+└── opentelemetry-javaagent.jar
+----
+
+Here is the Dockerfile:
+
+.Dockerfile
+[source,dockerfile]
+----
+FROM openjdk:21-jdk-bullseye
+COPY ./nsa2-opentelemetry-example-0.0.1-SNAPSHOT.jar /usr/app/nsa2-opentelemetry-example.jar
+COPY ./opentelemetry-javaagent.jar /usr/app/javaagent/opentelemetry-javaagent.jar
+COPY ./nsa2-otel-extension-1.0-all.jar /usr/app/javaagent/nsa2-otel-extension-1.0-all.jar
+WORKDIR /usr/app
+EXPOSE 8080
+#ENTRYPOINT ["./run-app.sh"]
+
+ENTRYPOINT ["java", "-Xshare:off", "-Dotel.javaagent.extensions=/usr/app/javaagent/nsa2-otel-extension-1.0-all.jar", "-jar", "nsa2-opentelemetry-example.jar"]
+
+----
+
+Now we filter out the health check URLs from tracing and the Zipkin server will not show the traces for the health check URLs.
+
+image::zipkin-otel-no-healthcheck.png[width=1000, align="center"]
+
+== Comparison to using Spring Boot Actuator for Tracing
+
+In the previous article, we used Spring Boot Actuator to enable tracing for HTTP, JDBC, and RabbitMQ calls and disable tracing for health check URLs. We needed to add small amount of codes to enable tracing
+
+Tracing enablement::
+[horizontal]
+Spring Actuator with Micrometer:: Small amount of code are needed
+OpenTelemetry Instrumentation:: No code was added.
+
+[vertical]
+Excluding Health check URLs::
+
+[horizontal]
+Spring Actuator with Micrometer:: Need to implement Spring Configuration Beans
+OpenTelemetry Instrumentation:: Need to implement extensions
+
+[vertical]
+
+== Conclusion
+
+In this article, we learned how to use OpenTelemetry Instrumentation in a Spring Boot application. We also learned how to exclude health check URLs from tracing using OpenTelemetry Instrumentation extension. To use OpenTelemetry Instrumentation in Kubernetes, we need to install the OpenTelemetry Operator. And we implemented a custom sampler to exclude health check URLs from tracing. In the next article, we will learn how to use the OpenTelemetry Collector in a Spring Boot application.
+
+
+
+== Trouble Shooting
+
+=== HttpExporter not working resulting in 404 page not found
+
+* https://github.com/open-telemetry/opentelemetry-collector/issues/10761
+
+==== Solution
+
+1. block metrics and logs exporter
+
+=== VM warning: Sharing is only supported for boot loader classes #3111
+
+
+* https://github.com/mockito/mockito/issues/3111
+* https://stackoverflow.com/questions/77512409/adding-xshareoff-jvm-arg-break-jacoco-maven-plugin-setup
+* https://nipafx.dev/java-application-class-data-sharing/
+
+
+==== Solution
+
+1. Use -Xshare:off option to disable class data sharing
+
+== Inject OpenTelemetry Auto-Instrumentation in Kubernetes
+
+
+=== Exclude URLs from Tracing
+
+* https://github.com/open-telemetry/opentelemetry-java-instrumentation/issues/1060
+https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/processor/filterprocessor/README.md - Filter Processor is not working as expected
+* https://github.com/open-telemetry/opentelemetry-java-instrumentation/discussions/6597
+
+// == References
+//
+// * https://addozhang.medium.com/non-intrusive-inject-opentelemetry-auto-instrumentation-in-kubernetes-a9dfd49fc714
+// * https://github.com/open-telemetry/opentelemetry-java-instrumentation/issues/1060[Exclude URLs from Tracing]
+// * https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/processor/filterprocessor/README.md[Filter Processor]
+// * https://blog.stackademic.com/step-by-step-guide-to-opentelemetry-with-spring-boot-microservices-b9d5e36d886a
+// * https://github.com/open-telemetry/opentelemetry-java-instrumentation/blob/main/examples/extension/README.md
+// * https://stackoverflow.com/questions/73809803/how-to-exclude-urlshealth-check-traces-in-opentelemetry

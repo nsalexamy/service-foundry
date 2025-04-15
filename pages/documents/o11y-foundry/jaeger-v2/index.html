@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Jaeger v2 with OpenTelemetry on Kubernetes</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre,
+    pre code {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre;
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+    <div class="logo text-xl font-semibold">Service Foundry</div>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#pre-requisites">Pre-requisites</a></li>
+<li><a href="#jaeger-v1-working-with-opentelemetry">Jaeger v1 working with OpenTelemetry</a></li>
+<li><a href="#deploying-jaeger-v2-operator">Deploying Jaeger v2 Operator</a>
+<ul class="sectlevel2">
+<li><a href="#install-cert-manager">Install cert-manager</a></li>
+<li><a href="#install-opentelemetry-operator">Install OpenTelemetry Operator</a></li>
+</ul>
+</li>
+<li><a href="#installing-jaeger-operator-v2-with-in-memory-storage">Installing Jaeger Operator v2 with In Memory Storage</a></li>
+<li><a href="#installing-jaeger-v2-with-cassandra-storage">Installing Jaeger v2 with Cassandra Storage</a>
+<ul class="sectlevel2">
+<li><a href="#install-cassandra">Install Cassandra</a></li>
+<li><a href="#install-jaeger-operator-v2-with-cassandra-storage">Install Jaeger Operator v2 with Cassandra Storage</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/introduction.png" alt="introduction" width="1000">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Jaeger v1 is scheduled for end-of-life on December 31, 2025. On November 12, 2024, Jaeger v2 was released as a major upgrade, built on the OpenTelemetry Collector framework.</p>
+</div>
+<div class="paragraph">
+<p>This guide provides step-by-step instructions on setting up Jaeger v2 with OpenTelemetry on Kubernetes.</p>
+</div>
+<div class="paragraph">
+<p>For more details on Jaeger v2, refer to the official release notes:  <a href="https://medium.com/jaegertracing/jaeger-v2-released-09a6033d1b10">Jaeger v2 Released</a></p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="pre-requisites">Pre-requisites</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p>kubectl</p>
+</li>
+<li>
+<p>Helm</p>
+</li>
+<li>
+<p>cert-manager</p>
+</li>
+<li>
+<p>OpenTelemetryOperator</p>
+</li>
+<li>
+<p>Prometheus Operator</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="jaeger-v1-working-with-opentelemetry">Jaeger v1 working with OpenTelemetry</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Jaeger v1 can work with OpenTelemetry Collector, as illustrated below:</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/jaeger-v1-architecture.png" alt="jaeger v1 architecture" width="1000">
+</div>
+<div class="title">Figure 1. Jaeger v1 Architecture</div>
+</div>
+<div class="paragraph">
+<p>However, in Jaeger v1, the collector is simply one of the exporters within the OpenTelemetry Collector. Jaeger v1 itself is not based on the OpenTelemetry Collector, whereas Jaeger v2 is fully integrated with it.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deploying-jaeger-v2-operator">Deploying Jaeger v2 Operator</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Jaeger v2 is designed to be deployed on Kubernetes using the OpenTelemetry Operator, benefiting both Jaeger and OpenTelemetry users.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>As the Jaeger V2 is released, it is decided that Jaeger V2 will deployed on Kubernetes using OpenTelemetry Operator. This will benefit both the users of Jaeger and OpenTelemetry. To use Jaeger V2 with OpenTelemetry Operator, the steps are as follows:</p>
+</div>
+</blockquote>
+<div class="attribution">
+&#8212; Jaeger Operator v2
+</div>
+</div>
+<div class="paragraph">
+<p>To install Jaeger v2, you need to deploy the following components:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>cert-manager</p>
+</li>
+<li>
+<p>OpenTelemetry Operator</p>
+</li>
+</ol>
+</div>
+<div class="sect2">
+<h3 id="install-cert-manager">Install cert-manager</h3>
+<div class="paragraph">
+<p>Run the following command to install cert-manager:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> https://github.com/cert-manager/cert-manager/releases/download/v1.16.1/cert-manager.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Verify that all resources are in a ready state within the cert-manager namespace.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-opentelemetry-operator">Install OpenTelemetry Operator</h3>
+<div class="paragraph">
+<p>Install the OpenTelemetry Operator by running the command below:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">kubectl apply <span class="nt">-f</span> https://github.com/open-telemetry/opentelemetry-operator/releases/latest/download/opentelemetry-operator.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Verify that all resources are in a ready state within the opentelemetry-operator-system namespace.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-jaeger-operator-v2-with-in-memory-storage">Installing Jaeger Operator v2 with In Memory Storage</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>For testing purposes, Jaeger v2 can be installed with in-memory storage, eliminating the need for an external database.</p>
+</div>
+<div class="listingblock">
+<div class="title">jaeger-inmemory-instance.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">opentelemetry.io/v1beta1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">OpenTelemetryCollector</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">jaeger-inmemory-instance</span>  <i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span> <i class="conum" data-value="2"></i><b>(2)</b>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">image</span><span class="pi">:</span> <span class="s">jaegertracing/jaeger:latest</span>
+  <span class="na">ports</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">jaeger</span>
+      <span class="na">port</span><span class="pi">:</span> <span class="s">16686</span>     <i class="conum" data-value="3"></i><b>(3)</b>
+  <span class="na">config</span><span class="pi">:</span>
+    <span class="na">service</span><span class="pi">:</span>
+      <span class="na">extensions</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">jaeger_storage</span><span class="pi">,</span> <span class="nv">jaeger_query</span><span class="pi">]</span>
+      <span class="na">pipelines</span><span class="pi">:</span>
+        <span class="na">traces</span><span class="pi">:</span>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp</span><span class="pi">]</span>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">jaeger_storage_exporter</span><span class="pi">]</span>
+    <span class="na">extensions</span><span class="pi">:</span>
+      <span class="na">jaeger_query</span><span class="pi">:</span>
+        <span class="na">storage</span><span class="pi">:</span>
+          <span class="na">traces</span><span class="pi">:</span> <span class="s">memstore</span>
+      <span class="na">jaeger_storage</span><span class="pi">:</span>
+        <span class="na">backends</span><span class="pi">:</span>
+          <span class="na">memstore</span><span class="pi">:</span>
+            <span class="na">memory</span><span class="pi">:</span>
+              <span class="na">max_traces</span><span class="pi">:</span> <span class="m">100000</span>
+    <span class="na">receivers</span><span class="pi">:</span>
+      <span class="na">otlp</span><span class="pi">:</span>
+        <span class="na">protocols</span><span class="pi">:</span>
+          <span class="na">grpc</span><span class="pi">:</span>
+            <span class="na">endpoint</span><span class="pi">:</span> <span class="s">0.0.0.0:4317</span>
+          <span class="na">http</span><span class="pi">:</span>
+            <span class="na">endpoint</span><span class="pi">:</span> <span class="s">0.0.0.0:4318</span>
+    <span class="na">exporters</span><span class="pi">:</span>
+      <span class="na">jaeger_storage_exporter</span><span class="pi">:</span>
+        <span class="na">trace_storage</span><span class="pi">:</span> <span class="s">memstore</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The name of the OpenTelemetryCollector instance. Make sure that the suffix '-collector' is added to the name. So the name of Kubernetes service and deployment will be jaeger-inmemory-instance-collector.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The namespace where the OpenTelemetryCollector instance will be deployed.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>The port where the Jaeger UI will be exposed.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Apply the configuration:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> jaeger-inmemory-instance.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Check the deployed resources:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl get all <span class="nt">-n</span> o11y <span class="nt">-o</span> name</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To access the Jaeger UI, port-forward the service:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl port-forward svc/jaeger-inmemory-instance-collector 16686:16686 <span class="nt">-n</span> o11y</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Then open a browser and navigate to <a href="http://localhost:16686" class="bare">http://localhost:16686</a>.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/jaeger-ui-memory.png" alt="jaeger ui memory" width="1000">
+</div>
+<div class="title">Figure 2. Jaeger UI - In Memory Storage</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-jaeger-v2-with-cassandra-storage">Installing Jaeger v2 with Cassandra Storage</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>For production environments, it is recommended to use persistent storage such as Cassandra. Follow the steps below to install Jaeger with Cassandra storage.</p>
+</div>
+<div class="sect2">
+<h3 id="install-cassandra">Install Cassandra</h3>
+<div class="paragraph">
+<p>Create the necessary configuration files:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>cassandra-credentials.yaml - This file contains the Cassandra credentials.</p>
+</li>
+<li>
+<p>cassandra-initdb-configmap.yaml - This file contains the Cassandra initdb configmap.</p>
+</li>
+<li>
+<p>cassandra-values.yaml - This file contains the custom Cassandra values.</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">cassandra-credentials.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">data</span><span class="pi">:</span>
+  <span class="na">password</span><span class="pi">:</span> <span class="s">Y2hhbmdlbWU= $</span> <i class="conum" data-value="1"></i><b>(1)</b>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Secret</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">cassandra-credentials</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The password for the Cassandra database.</td>
+</tr>
+</table>
+</div>
+<div class="listingblock">
+<div class="title">cassandra-initdb-configmap.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">data</span><span class="pi">:</span>
+  <i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="na">create-keyspace.cql</span><span class="pi">:</span> <span class="pi">|-</span>
+    <span class="s">CREATE KEYSPACE IF NOT EXISTS jaeger_tracing</span>
+    <span class="s">WITH REPLICATION = {</span>
+      <span class="s">'class': 'NetworkTopologyStrategy',</span>
+      <span class="s">'replication_factor': 2</span>
+    <span class="s">};</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ConfigMap</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">cassandra-initdb-configmap</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The CQL script to create the keyspace for the Jaeger tracing.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Apply the configurations:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> cassandra-credentials.yaml
+<span class="nv">$ </span>kubectl apply <span class="nt">-f</span> cassandra-initdb-configmap.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The cassandra-credentials secret and cassandra-initdb-configmap configmap are created and used in the Cassandra Helm chart.</p>
+</div>
+<div class="listingblock">
+<div class="title">cassandra-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">dbUser</span><span class="pi">:</span>
+  <span class="na">user</span><span class="pi">:</span> <span class="s">cassandra</span>
+  <span class="na">existingSecret</span><span class="pi">:</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">cassandra-credentials</span> <i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="na">keyMapping</span><span class="pi">:</span>
+      <span class="na">cassandra-password</span><span class="pi">:</span> <span class="s">password</span> <i class="conum" data-value="2"></i><b>(2)</b>
+
+<span class="na">initDBConfigMap</span><span class="pi">:</span> <span class="s2">"</span><span class="s">cassandra-initdb-configmap"</span> <i class="conum" data-value="3"></i><b>(3)</b>
+
+<span class="na">replicaCount</span><span class="pi">:</span> <span class="s">3</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The name of the secret that contains the Cassandra credentials.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The key in the secret that contains the Cassandra password.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>The name of the configmap that contains the CQL script to create the keyspace for the Jaeger tracing.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Install Cassandra using Helm:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c">#$ helm upgrade --install cassandra ./cassandra-12.1.1.tgz -f cassandra-values.yaml --namespace o11y --create-namespace</span>
+<span class="nv">$ </span>helm upgrade <span class="nt">--install</span> cassandra bitnami/cassandra <span class="nt">-f</span> cassandra-values.yaml <span class="nt">--namespace</span> o11y <span class="nt">--create-namespace</span> <span class="nt">--version</span> 12.1.1</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-jaeger-operator-v2-with-cassandra-storage">Install Jaeger Operator v2 with Cassandra Storage</h3>
+<div class="paragraph">
+<p>Create otel-collector.yaml</p>
+</div>
+<div class="listingblock">
+<div class="title">otel-collector.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">opentelemetry.io/v1beta1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">OpenTelemetryCollector</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">otel</span>  <i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">image</span><span class="pi">:</span> <span class="s">jaegertracing/jaeger:latest</span>
+  <span class="na">ports</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">jaeger</span>
+      <span class="na">port</span><span class="pi">:</span> <span class="m">16686</span>
+  <span class="na">config</span><span class="pi">:</span>
+    <span class="na">service</span><span class="pi">:</span>
+      <span class="na">extensions</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">jaeger_storage</span><span class="pi">,</span> <span class="nv">jaeger_query</span><span class="pi">]</span>
+      <span class="na">pipelines</span><span class="pi">:</span>
+        <span class="na">traces</span><span class="pi">:</span>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp</span><span class="pi">]</span>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">jaeger_storage_exporter</span><span class="pi">]</span>
+    <span class="na">extensions</span><span class="pi">:</span>
+      <span class="na">jaeger_query</span><span class="pi">:</span>
+        <span class="na">storage</span><span class="pi">:</span>
+          <span class="na">traces</span><span class="pi">:</span> <span class="s">cassandra_storage</span>
+      <span class="na">jaeger_storage</span><span class="pi">:</span>
+        <span class="na">backends</span><span class="pi">:</span>
+          <span class="na">cassandra_storage</span><span class="pi">:</span>
+            <span class="na">cassandra</span><span class="pi">:</span>
+              <span class="na">schema</span><span class="pi">:</span>
+                <span class="na">keyspace</span><span class="pi">:</span> <span class="s2">"</span><span class="s">jaeger_tracing"</span>  <i class="conum" data-value="2"></i><b>(2)</b>
+                <span class="na">create</span><span class="pi">:</span> <span class="s2">"</span><span class="s">${env:CASSANDRA_CREATE_SCHEMA:-true}"</span>
+              <span class="na">connection</span><span class="pi">:</span>
+                <span class="na">auth</span><span class="pi">:</span>
+                  <span class="na">basic</span><span class="pi">:</span>
+                    <span class="na">username</span><span class="pi">:</span> <span class="s2">"</span><span class="s">${env:CASSANDRA_USERNAME:-cassandra}"</span> <i class="conum" data-value="3"></i><b>(3)</b>
+                    <span class="na">password</span><span class="pi">:</span> <span class="s2">"</span><span class="s">${env:CASSANDRA_PASSWORD:-changeme}"</span>   <i class="conum" data-value="4"></i><b>(4)</b>
+                <span class="na">tls</span><span class="pi">:</span>
+                  <span class="na">insecure</span><span class="pi">:</span> <span class="kc">true</span>
+                <span class="na">servers</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">cassandra:9042"</span><span class="pi">]</span> <i class="conum" data-value="5"></i><b>(5)</b>
+    <span class="na">receivers</span><span class="pi">:</span>
+      <span class="na">otlp</span><span class="pi">:</span>
+        <span class="na">protocols</span><span class="pi">:</span>
+          <span class="na">grpc</span><span class="pi">:</span>
+            <span class="na">endpoint</span><span class="pi">:</span> <span class="s">0.0.0.0:4317</span>
+          <span class="na">http</span><span class="pi">:</span>
+            <span class="na">endpoint</span><span class="pi">:</span> <span class="s">0.0.0.0:4318</span>
+    <span class="na">exporters</span><span class="pi">:</span>
+      <span class="na">jaeger_storage_exporter</span><span class="pi">:</span>
+        <span class="na">trace_storage</span><span class="pi">:</span> <span class="s">cassandra_storage</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The name of the OpenTelemetryCollector instance. Make sure that the suffix '-collector' is added to the name. So the name of Kubernetes service and deployment will be otel-collector.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The keyspace for the Jaeger tracing.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>The username for the Cassandra database.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>The password for the Cassandra database.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td>The servers for the Cassandra database.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Apply the configuration:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> otel-collector.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To access the Jaeger UI, port-forward the service:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl port-forward svc/otel-collector 16686:16686 <span class="nt">-n</span> o11y</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>And call the endpoint below to generate traces:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ kubectl -n o11y port-forward svc/o11y-otel-spring-example 8080:8080
+$ curl http://localhost:8080/otel | jq</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Then open a browser and navigate to <a href="http://localhost:16686" class="bare">http://localhost:16686</a>.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/jaeger-ui-cassandra-search.png" alt="jaeger ui cassandra search" width="1000">
+</div>
+<div class="title">Figure 3. Jaeger UI - Cassandra Storage</div>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/jaeger-ui-cassandra-details.png" alt="jaeger ui cassandra details" width="1000">
+</div>
+<div class="title">Figure 4. Jaeger UI - Cassandra Storage - Trace</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this guide, we showed you how to install Jaeger v2 with OpenTelemetry on Kubernetes. We installed Jaeger with in-memory storage and Cassandra storage. We also showed you how to send traces from the o11y-otel-spring-example application to Jaeger.</p>
+</div>
+<div class="paragraph">
+<p>In this guide, we demonstrated how to install Jaeger v2 with OpenTelemetry on Kubernetes using both in-memory and Cassandra storage. We also tested trace generation using a sample application.</p>
+</div>
+<div class="paragraph">
+<p>For further details, visit:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://www.jaegertracing.io/docs/2.4/configuration/" class="bare">https://www.jaegertracing.io/docs/2.4/configuration/</a></p>
+</li>
+<li>
+<p><a href="https://github.com/jaegertracing/jaeger-operator#jager-v2-operator" class="bare">https://github.com/jaegertracing/jaeger-operator#jager-v2-operator</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OAuth2 Proxy as a Standalone Reverse Proxy on Kubernetes</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre,
+    pre code {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre;
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+    <div class="logo text-xl font-semibold">Service Foundry</div>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/sso-foundry/">SSO Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#what-is-oauth2-proxy">What is OAuth2 Proxy?</a></li>
+<li><a href="#oauth2-proxy-architecture">OAuth2 Proxy Architecture</a></li>
+<li><a href="#key-components-of-this-guide">Key components of this Guide</a></li>
+</ul>
+</li>
+<li><a href="#installing-dependencies">Installing Dependencies</a></li>
+<li><a href="#installing-keycloak">Installing Keycloak</a>
+<ul class="sectlevel2">
+<li><a href="#keycloak-configuratoin">Keycloak Configuratoin</a></li>
+</ul>
+</li>
+<li><a href="#installing-jaeger-v2-with-memory-store">Installing Jaeger v2 with Memory Store</a></li>
+<li><a href="#installing-oauth2-proxy">Installing OAuth2 Proxy</a>
+<ul class="sectlevel2">
+<li><a href="#add-and-update-the-helm-repository">Add and Update the Helm Repository</a></li>
+<li><a href="#pull-the-oauth2-proxy-helm-chart">Pull the OAuth2 Proxy Helm Chart</a></li>
+<li><a href="#get-default-values">Get default values</a></li>
+<li><a href="#oauth2-secret-yaml">oauth2-secret.yaml</a></li>
+<li><a href="#custom-values-yaml">custom-values.yaml</a></li>
+<li><a href="#install-oauth2-proxy-using-helm">Install OAuth2 Proxy using Helm</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/oauth2-proxy-introduction.png" alt="oauth2 proxy introduction" width="1000">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide provides step-by-step instructions for installing OAuth2 Proxy as a standalone reverse proxy on Kubernetes. By following this guide, you will integrate OAuth2 authentication into the Jaeger UI using Keycloak as the Identity Provider (IdP).</p>
+</div>
+<div class="sect2">
+<h3 id="what-is-oauth2-proxy">What is OAuth2 Proxy?</h3>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>OAuth2-Proxy is a flexible, open-source tool that can act as either a standalone reverse proxy or a middleware component integrated into existing reverse proxy or load balancer setups. It provides a simple and secure way to protect your web applications with OAuth2 / OIDC authentication.</p>
+</div>
+</blockquote>
+<div class="attribution">
+&#8212; OAuth2 Proxy<br>
+<cite>https://github.com/oauth2-proxy/oauth2-proxy</cite>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="oauth2-proxy-architecture">OAuth2 Proxy Architecture</h3>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/simplified-architecture.png" alt="simplified architecture" width="1000">
+</div>
+<div class="title">Figure 1. OAuth2 Proxy Architecture</div>
+</div>
+<div class="sect3">
+<h4 id="reverse-proxy-mode">Reverse Proxy Mode</h4>
+<div class="paragraph">
+<p>In reverse proxy mode, OAuth2 Proxy intercepts requests to your application and redirects users to an OAuth2 provider for authentication.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="middleware-mode">Middleware Mode</h4>
+<div class="paragraph">
+<p>As middleware, OAuth2 Proxy can integrate into an existing infrastructure to handle authentication for multiple applications.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="key-components-of-this-guide">Key components of this Guide</h3>
+<div class="ulist">
+<ul>
+<li>
+<p>Keycloak (Identity Provider) - Deployed in the keycloak namespace</p>
+</li>
+<li>
+<p>Jaeger v2 with Memory Store - Deployed in the o11y namespace</p>
+</li>
+<li>
+<p>OAuth2 Proxy - Deployed in the o11y namespace</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-dependencies">Installing Dependencies</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p>cert-manager</p>
+</li>
+<li>
+<p>OpenTelemetry Collector Operator</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>./install-dependencies.sh</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-keycloak">Installing Keycloak</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>For detailed Keycloak installation instructions, refer to <a href="https://www.linkedin.com/pulse/keycloak-spring-boot-oauth-20-openid-connect-oidc-young-gyu-kim-e444c">Keycloak and Spring Boot with OAuth 2.0 and OpenID Connect (OIDC)</a></p>
+</div>
+<div class="paragraph">
+<p>To use a separate URL for Keycloak, I created the service with the type LoadBalancer.</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml - service</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">service</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s">LoadBalancer</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="na">service.beta.kubernetes.io/aws-load-balancer-nlb-target-type</span><span class="pi">:</span> <span class="s">ip</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To get the external IP address of the Keycloak service, run the command below:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> keycloak get svc keycloak</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Example output:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">NAME       TYPE           CLUSTER-IP      EXTERNAL-IP                                                              PORT<span class="o">(</span>S<span class="o">)</span>        AGE
+keycloak   LoadBalancer   10.100.62.187   a135bed50a0204aee8f53817ec45a913-434675855.ca-west-1.elb.amazonaws.com   80:32569/TCP   7h3m</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In my case, the external IP address is <code>a135bed50a0204aee8f53817ec45a913-434675855.ca-west-1.elb.amazonaws.com</code>. You might have a different external IP address.</p>
+</div>
+<div class="paragraph">
+<p>This value will be used when set oidc_issuer_url in the custom-values.yaml file.</p>
+</div>
+<div class="sect2">
+<h3 id="keycloak-configuratoin">Keycloak Configuratoin</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Realm</strong>: nsa2-realm</p>
+</li>
+<li>
+<p><strong>Client ID</strong>: nsa2-o11y</p>
+</li>
+<li>
+<p><strong>Client Secret</strong>: get from the Keycloak console</p>
+</li>
+<li>
+<p><strong>User</strong>: devops</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-jaeger-v2-with-memory-store">Installing Jaeger v2 with Memory Store</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>For installation details, refer to the link below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://www.linkedin.com/pulse/jaeger-v2-opentelemetry-kubernetes-young-gyu-kim-7s00c">Jaeger v2 with OpenTelemetry on Kubernetes</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>To get the service name of the otel-collector service, run the command below:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> o11y get service otel-collector
+NAME             TYPE        CLUSTER-IP       EXTERNAL-IP   PORT<span class="o">(</span>S<span class="o">)</span>                       AGE
+otel-collector   ClusterIP   10.100.237.241   &lt;none&gt;        16686/TCP,4317/TCP,4318/TCP   36m</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>'http://otel-collector.o11y.svc.cluster.local:16686' will be used to set upstreams in the custom-values.yaml file. In case of oauth2-proxy installed in the same namespace, you can use 'http://otel-collector:16686'.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-oauth2-proxy">Installing OAuth2 Proxy</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We are going to Install OAuth2 Proxy using the Helm chart.</p>
+</div>
+<div class="paragraph">
+<p>For more information about the OAuth2 Proxy Helm chart, refer to the link below:</p>
+</div>
+<div class="paragraph">
+<p><a href="https://github.com/oauth2-proxy/manifests/tree/main/helm/oauth2-proxy" class="bare">https://github.com/oauth2-proxy/manifests/tree/main/helm/oauth2-proxy</a></p>
+</div>
+<div class="sect2">
+<h3 id="add-and-update-the-helm-repository">Add and Update the Helm Repository</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm repo add oauth2-proxy https://oauth2-proxy.github.io/manifests
+
+<span class="nv">$ </span>helm repo update oauth2-proxy
+<span class="c">#$ helm install my-release oauth2-proxy/oauth2-proxy</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="pull-the-oauth2-proxy-helm-chart">Pull the OAuth2 Proxy Helm Chart</h3>
+<div class="paragraph">
+<p>Target the directory where you want to save the OAuth2 Proxy Helm chart.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">mkdir</span> <span class="nt">-p</span> <span class="nv">$HOME</span>/Dev/helm/charts/oauth2-proxy
+
+<span class="nv">$ </span>helm pull oauth2-proxy/oauth2-proxy <span class="nt">-d</span> <span class="nv">$HOME</span>/Dev/helm/charts/oauth2-proxy</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Verify the OAuth2 Proxy Helm chart in the directory $HOME/Dev/helm/charts/oauth2-proxy.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">ls</span> <span class="nt">-l</span> <span class="nv">$HOME</span>/Dev/helm/charts/oauth2-proxy
+
+<span class="nt">-rw-r--r--</span>@ 1 young  staff  131387 Mar 19 10:49 oauth2-proxy-7.12.6.tgz</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="get-default-values">Get default values</h3>
+<div class="paragraph">
+<p>To read the default values of the OAuth2 Proxy Helm chart, run the command below:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm show values oauth2-proxy/oauth2-proxy <span class="o">&gt;</span> values.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The values.yaml file contains the default values of the OAuth2 Proxy Helm chart.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="oauth2-secret-yaml">oauth2-secret.yaml</h3>
+<div class="paragraph">
+<p>In oauth2-secret.yaml, we will create a secret named oauth2-secret that contains the followings:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>client-id</p>
+</li>
+<li>
+<p>client-secret</p>
+</li>
+<li>
+<p>cookie-secret</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">set </span><span class="nv">CLIENT_ID</span><span class="o">=</span>YOUR_CLIENT_ID
+<span class="nv">$ </span><span class="nb">set </span><span class="nv">CLIENT_SECRET</span><span class="o">=</span>YOUR_CLIENT_SECRET
+<span class="nv">$ </span><span class="nb">set </span><span class="nv">COOKIE_SECRET</span><span class="o">=</span>YOUR_COOKIE_SECRET
+
+<span class="nv">$ CLIENT_ID</span><span class="o">=</span>nsa2-o11y
+<span class="nv">$ CLIENT_SECRET</span><span class="o">=</span>gZ343TCd0kBehqTOkGZFkbL4WvXoa3Ss
+<span class="nv">$ COOKIE_SECRET</span><span class="o">=</span><span class="si">$(</span> openssl rand <span class="nt">-base64</span> 32 | <span class="nb">head</span> <span class="nt">-c</span> 32 | <span class="nb">base64</span><span class="si">)</span>
+<span class="c">#$ COOKIE_SECRET=$(openssl rand -base64 32)</span>
+<span class="c"># OR</span>
+<span class="c"># $ COOKIE_SECRET=$(head -c 32 /dev/urandom | base64 )</span>
+
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> o11y create secret generic oauth2-secret <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span>client-id<span class="o">=</span><span class="nv">$CLIENT_ID</span> <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span>client-secret<span class="o">=</span><span class="nv">$CLIENT_SECRET</span> <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span>cookie-secret<span class="o">=</span><span class="nv">$COOKIE_SECRET</span> <span class="se">\</span>
+  <span class="nt">--dry-run</span><span class="o">=</span>client <span class="nt">-o</span> yaml | yq <span class="nb">eval</span> <span class="s1">'del(.metadata.creationTimestamp)'</span> <span class="o">&gt;</span> oauth2-secret.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>For more information about data items in the secret, refer to the link below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/oauth2-proxy/manifests/blob/main/helm/oauth2-proxy/templates/_helpers.tpl" class="bare">https://github.com/oauth2-proxy/manifests/blob/main/helm/oauth2-proxy/templates/_helpers.tpl</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>this secret is used in the custom-values.yaml file.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">config</span><span class="pi">:</span>
+  <span class="na">existingSecret</span><span class="pi">:</span> <span class="s">oauth2-secret</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To apply the secret, run the command below:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> oauth2-secret.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="custom-values-yaml">custom-values.yaml</h3>
+<div class="paragraph">
+<p>Here is the custom-values.yaml file that I used to install oauth2-proxy on Kubernetes</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># values.yaml - line 18</span>
+<span class="na">config</span><span class="pi">:</span>
+  <i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="na">existingSecret</span><span class="pi">:</span> <span class="s">oauth2-secret</span>
+
+  <span class="na">configFile</span><span class="pi">:</span> <span class="pi">|</span>
+    <i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="s">provider = "oidc"</span>
+    <i class="conum" data-value="3"></i><b>(3)</b>
+    <span class="s">oidc_issuer_url = "http://a135bed50a0204aee8f53817ec45a913-434675855.ca-west-1.elb.amazonaws.com/realms/nsa2-realm"</span>
+    <span class="s">email_domains = ["*"]</span>
+    <span class="s">cookie_secure = false</span>
+    <i class="conum" data-value="4"></i><b>(4)</b>
+    <span class="s">upstreams = ["http://otel-collector:16686"]</span>
+    <span class="s">#upstreams = ["http://otel-collector.o11y.svc.cluster.local:16686"]</span>
+    <span class="s">redirect_url = "http://oauth2-proxy.nsa2.com:4180/oauth2/callback"</span>
+    <span class="s">scope = "openid email profile"</span>
+    <span class="s">pass_access_token = true</span>
+    <span class="s">pass_authorization_header = true</span>
+    <span class="s">pass_user_headers = true</span>
+    <span class="s">set_authorization_header = true</span>
+    <i class="conum" data-value="5"></i><b>(5)</b>
+    <span class="s">cookie_domains = ".nsa2.com"</span>
+    <span class="s">cookie_name = "_oauth2_proxy"</span>
+    <span class="s">cookie_refresh = "2m"</span>
+    <span class="s">cookie_expire = "24h"</span>
+
+<span class="c1"># values.yaml - line 94</span>
+<span class="na">extraArgs</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">--cookie-secure=false</span>
+  <span class="pi">-</span> <span class="s">--skip-provider-button</span>
+  <span class="pi">-</span> <span class="s">--ssl-insecure-skip-verify</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>existingSecret: oauth2-secret contains the client-id, client-secret, and cookie-secret.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>provider: "oidc"</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>oidc_issuer_url: nsa2-realm URL</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>upstreams: "http://otel-collector:16686" or "http://otel-collector.o11y.svc.cluster.local:16686"</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td>cookie_domains: Cookie domain.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-oauth2-proxy-using-helm">Install OAuth2 Proxy using Helm</h3>
+<div class="paragraph">
+<p>To install OAuth2 Proxy, run the command below:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm upgrade <span class="nt">--install</span> oauth2-proxy <span class="se">\</span>
+  <span class="nv">$HOME</span>/Dev/helm/charts/oauth2-proxy/oauth2-proxy-7.12.6.tgz <span class="se">\</span>
+  <span class="nt">-f</span> custom-values.yaml <span class="nt">--namespace</span> o11y <span class="nt">--create-namespace</span>
+
+<span class="nv">$ </span>helm upgrade <span class="nt">--install</span> oauth2-proxy <span class="se">\</span>
+  oauth2-proxy/oauth2-proxy <span class="nt">--version</span> <span class="s2">"7.12.6"</span> <span class="se">\</span>
+  <span class="nt">-f</span> custom-values.yaml <span class="nt">--namespace</span> o11y <span class="nt">--create-namespace</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To access the OAuth2 Proxy, we can either use port-forward or create a Ingress. In this guide, we will use port-forward.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> o11y port-forward svc/oauth2-proxy 4180:80</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Add the following entry to the /etc/hosts file:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>127.0.0.1	oauth2-proxy.nsa2.com</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To access the OAuth2 Proxy, open a browser and navigate to <code><a href="http://oauth2-proxy.nsa2.com:4180" class="bare">http://oauth2-proxy.nsa2.com:4180</a></code>. As upstreams is set to <code><a href="http://otel-collector:16686" class="bare">http://otel-collector:16686</a></code>, you will be redirected to the Keycloak login page and then to the Jaeger UI.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/kc-devops-login.png" alt="kc devops login" width="1000">
+</div>
+<div class="title">Figure 2. Keycloak Login for OAuth2 Proxy</div>
+</div>
+<div class="paragraph">
+<p>Use any user from the Keycloak realm to login.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/oauth2-proxy-jaeger.png" alt="oauth2 proxy jaeger" width="1000">
+</div>
+<div class="title">Figure 3. Jaeger UI</div>
+</div>
+<div class="paragraph">
+<p>Make sure that the URL is the oauth2-proxy.nsa2.com:4180 that is not Jaeger UI.</p>
+</div>
+<div class="paragraph">
+<p>Now we can use OIDC authentication to access the Jaeger UI.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this guide, we successfully installed OAuth2 Proxy as a standalone reverse proxy on Kubernetes. We integrated OAuth2 authentication with the Jaeger UI using Keycloak as the Identity Provider (IdP). This setup enhances security by enabling OIDC-based authentication for accessing Jaeger.</p>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>

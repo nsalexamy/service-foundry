@@ -1,0 +1,791 @@
+---
+layout: documents
+title:  Distributed Tracing - Jaeger and OpenTelemetry Collector
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+// docs/distributed-tracing/part5-jaeger-otel-collector/index.adoc
+
+= Part 5 - Distributed Tracing - Jaeger and OpenTelemetry Collector
+
+:imagesdir: ./images
+
+== Introduction
+
+This article is part of a series of articles on Distributed Tracing. In this article, we will discuss how to set up Jaeger and OpenTelemetry Collector to demonstrate distributed tracing.
+
+
+1. Part 1 - link:https://www.linkedin.com/pulse/distributed-tracing-setup-zipkin-sample-spring-boot-young-gyu-kim-msaqc/[Distributed Tracing - Setup Zipkin and Sample Spring Boot Application]
+2. Part 2 - link:https://www.linkedin.com/pulse/distributed-tracing-spring-boot-application-micrometer-kim-napzc[Distributed Tracing - Spring Boot Application with Micrometer and OpenTelemetry]
+3. Part 3 - link:https://www.linkedin.com/pulse/distributed-tracing-spring-boot-application-young-gyu-kim-cuuvc/[Distributed Tracing - Spring Boot Application with OpenTelemetry Instrumentation]
+4. Part 4 - link:https://www.linkedin.com/pulse/distributed-tracing-spring-boot-application-collector-young-gyu-kim-dq5hc/[Distributed Tracing - Spring Boot Application with OpenTelemetry Collector]
+5. Part 5 - link:https://www.linkedin.com/pulse/distributed-tracing-jaeger-opentelemetry-collector-young-gyu-kim-gy5sc/[Distributed Tracing - Jaeger and OpenTelemetry Collector]
+
+This article is the 5th part of the series.
+
+=== Jaeger
+
+Jaeger is an open-source, end-to-end distributed tracing system. It is used for monitoring and troubleshooting microservices-based distributed systems. It is a powerful tool that can be used to visualize and analyze traces.
+
+Both Jaeger and OpenTelemetry is a CNCF project. Jaeger is a graduated project and OpenTelemetry is an incubating project.
+
+As of this writing, statuses of Jaeger and OpenTelemetry are as follows:
+
+[quote,CNCF Jaeger,https://www.cncf.io/projects/jaeger/]
+____
+Jaeger was accepted to CNCF on September 13, 2017 at the Incubating maturity level and then moved to the Graduated maturity level on October 31, 2019.
+____
+
+[quote,CNCF OpenTelemetry,https://www.cncf.io/projects/opentelemetry/]
+____
+OpenTelemetry was accepted to CNCF on May 7, 2019 and moved to the Incubating maturity level on August 26, 2021.
+____
+
+Following topics will be covered in this article:
+
+* Install Apache Cassandra as the backend storage for Jaeger
+* Install Jaeger
+* Configure OpenTelemetry Collector to export traces to Jaeger
+* Compare the traces from Jaeger and Zipkin
+
+For more information about how to set up OpenTelemetry Collector, please refer to the link:https://www.linkedin.com/pulse/distributed-tracing-spring-boot-application-collector-young-gyu-kim-dq5hc/[Distributed Tracing - Spring Boot Application with OpenTelemetry Collector].
+
+
+
+// == Install Cassandra
+
+== Apache Cassandra
+
+Apache Cassandra is a free and open-source, distributed, wide-column store, NoSQL database management system designed to handle large amounts of data across many commodity servers, providing high availability with no single point of failure.
+
+In this article, we will install Apache Cassandra as the backend storage for Jaeger.
+
+For more information about Apache Cassandra, please refer to the link:https://cassandra.apache.org/[Apache Cassandra].
+
+
+== Install Cassandra using Helm chart
+
+We are going to install Apache Cassandra using the Bitnami Cassandra Helm chart.
+
+Let's first look at the default values for the Cassandra Helm chart.
+
+=== Get values.yaml
+
+To check the default values for the Cassandra Helm chart, we can use the following command to get the values.yaml file.
+
+[source,shell]
+----
+$ helm show values oci://registry-1.docker.io/bitnamicharts/cassandra > values.yaml
+----
+
+We can check the values.yaml file to see the default settings for the Cassandra Helm chart.
+
+=== Create a secret for Cassandra
+
+I will use the default username `cassandra` and password `changeme` for Cassandra. You can change the password to a more secure one.
+
+// [horizontal]
+* username - cassandra
+* password - changeme
+
+
+We need to create a secret for Cassandra with the password `changeme`. field `password` is used for the password.
+
+[source,shell]
+----
+$ kubectl -n nsa2 create secret generic cassandra-credentials \
+  --from-literal=password=changeme --dry-run=client -o yaml | \
+  yq eval 'del(.metadata.creationTimestamp)' >  \
+cassandra-credentials.yaml
+----
+
+Here is the content of the cassandra-credentials.yaml file.
+
+.cassandra-credentials.yaml
+[source,yaml]
+----
+apiVersion: v1
+data:
+  password: Y2hhbmdlbWU=
+kind: Secret
+metadata:
+  name: cassandra-credentials
+  namespace: nsa2
+----
+
+We can apply the cassandra-credentials.yaml file to create a secret for Cassandra.
+
+.deploy-cassandra-credentials
+----
+$ kubectl -n nsa2 apply -f cassandra-credentials.yaml
+----
+
+This secret will be used to set existingSecret in the values file for Cassandra.
+
+=== Create a ConfigMap for initDBConfigMap
+
+For more information Refer to links below:
+
+* https://github.com/bitnami/charts/blob/main/bitnami/cassandra/README.md#initialize-the-database
+* https://www.jaegertracing.io/docs/1.65/operator/#cassandra-storage
+
+
+ConfigMap: cassandra-initdb-configmap
+
+[source,shell]
+----
+# create a ConfigMap for initDBConfigMap adding 'create-keyspace.cql' script
+$ kubectl -n nsa2 create configmap cassandra-initdb-configmap \
+  --from-file=create-keyspace.cql --dry-run=client -o yaml | \
+  yq eval 'del(.metadata.creationTimestamp)' > \
+  cassandra-initdb-configmap.yaml
+----
+
+=== Install Cassandra
+
+I have created a values file for Cassandra called `nsa2-cassandra-values.yaml`. This file contains the values that I want to override from the default values.
+
+.nsa2-cassandra-values.yaml
+[source,yaml]
+----
+dbUser:
+  existingSecret:
+    name: cassandra-credentials
+    keyMapping:
+      cassandra-password: password
+
+initDBConfigMap: "cassandra-initdb-configmap"
+
+replicaCount: 1
+
+nodeSelector:
+  agentpool: depnodes
+
+resources:
+  limits:
+    cpu: 400m
+    memory: 2048Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+
+
+----
+
+The value of 'dbUser.user' is set to 'cassandra' in the values.yaml file which is the default username for Cassandra.
+In nsa2-cassandra-values.yaml, I have set the 'dbUser.existingSecret' to 'cassandra-credentials' which is the secret that I created for Cassandra.
+
+In addition, I have set resources settings for Cassandra.
+
+[source,shell]
+----
+#$ helm -n nsa2 install cassandra oci://registry-1.docker.io/bitnamicharts/cassandra -f nsa2-cassandra-opensearch-values.yaml
+$ helm -n nsa2 install cassandra oci://registry-1.docker.io/bitnamicharts/cassandra -f nsa2-cassandra-values.yaml
+
+
+NAME: cassandra
+LAST DEPLOYED: Sat Aug 31 03:22:07 2024
+NAMESPACE: nsa2
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+CHART NAME: cassandra
+CHART VERSION: 11.3.14
+APP VERSION: 4.1.6** Please be patient while the chart is being deployed **
+
+Cassandra can be accessed through the following URLs from within the cluster:
+
+  - CQL: cassandra.nsa2.svc.cluster.local:9042
+
+To get your password run:
+
+   export CASSANDRA_PASSWORD=$(kubectl get secret --namespace "nsa2" \
+    cassandra-credentials -o jsonpath="{.data.cassandra-password}" | base64 -d)
+
+Check the cluster status by running:
+
+   kubectl exec -it --namespace nsa2 \
+     $(kubectl get pods --namespace nsa2 \
+     -l app.kubernetes.io/name=cassandra,app.kubernetes.io/instance=cassandra \
+      -o jsonpath='{.items[0].metadata.name}') nodetool status
+
+To connect to your Cassandra cluster using CQL:
+
+1. Run a Cassandra pod that you can use as a client:
+
+   kubectl run --namespace nsa2 cassandra-client --rm --tty -i --restart='Never' \
+   --env CASSANDRA_PASSWORD=$CASSANDRA_PASSWORD \
+    \
+   --image docker.io/bitnami/cassandra:4.1.6-debian-12-r3 -- bash
+
+2. Connect using the cqlsh client:
+
+   cqlsh -u cassandra -p $CASSANDRA_PASSWORD cassandra
+
+To connect to your database from outside the cluster execute the following commands:
+
+   kubectl port-forward --namespace nsa2 svc/cassandra 9042:9042 &
+   cqlsh -u cassandra -p $CASSANDRA_PASSWORD 127.0.0.1 9042
+WARNING: JVM Max Heap Size not set in value jvm.maxHeapSize. When not set, the chart will calculate the following size:
+     MIN(Memory Limit (if set) / 4, 1024M)
+WARNING: JVM New Heap Size not set in value jvm.newHeapSize. When not set, the chart will calculate the following size:
+     MAX(Memory Limit (if set) / 64, 256M)
+
+----
+
+=== Uninstall Cassandra
+
+When we are done with Cassandra, we can uninstall it.
+
+To uninstall Cassandra, we can use the following command.
+
+[source,shell]
+----
+$ helm -n nsa2 uninstall cassandra
+----
+
+=== Access Cassandra
+
+To access Cassandra, we can use the following command.
+[source,shell]
+----
+$ kubeclt -n nsa2 port-forward svc/cassandra 9042:9042
+----
+
+=== Install cqlsh on Mac
+
+We will use cqlsh to connect to Cassandra. To install cqlsh on Mac, we can use the following commands.
+
+[source,shell]
+----
+$ pip install cqlsh
+$ pip install cassandra-driver
+----
+
+=== Connect to Cassandra using cqlsh
+
+To connect to Cassandra using cqlsh, we can use the following command.
+
+[source,shell]
+----
+$ cqlsh -u cassandra -p $CASSANDRA_PASSWORD 127.0.0.1 9042
+
+cqlsh > SHOW VERSION;
+
+cqlsh > SHOW HOST;
+----
+
+=== Create a keyspace
+
+We are using the keyspace `jaeger_nsa2` for Jaeger. To create a keyspace, we can use the following commands.
+
+[source,shell]
+----
+cqlsh > DESC KEYSPACES;
+
+cqlsh > CREATE KEYSPACE jaeger_nsa2 WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1};
+
+cqlsh > DESC KEYSPACES;
+
+cqlsh > USE jaeger_nsa2;
+----
+
+=== Reference
+
+* https://github.com/bitnami/charts/blob/main/bitnami/cassandra/README.md
+
+
+// == Install Jaeger
+ifndef::imagesdir[]
+:imagesdir: ../images
+endif::[]
+
+== Install Jaeger using Helm chart
+
+.Jaeger Architecture
+image::jaeger-architecture.png[width=800, align="center"]
+
+For more information about Jaeger Helm chart, please refer to the link:
+
+* https://github.com/jaegertracing/helm-charts/blob/main/charts/jaeger/README.md
+
+We will install Jaeger using the Helm chart.
+
+Let's add the Jaeger Helm repository and get the values.yaml file.
+
+=== Add Jaeger Helm repository
+
+To add the Jaeger Helm repository, use the following command.
+
+[source,shell]
+----
+$ helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
+$ helm repo update
+----
+
+=== Get the values.yaml file
+
+To check the default values for the Jaeger Helm chart, we can use the following command to get the values.yaml file.
+
+[source,shell]
+----
+$ helm show values jaegertracing/jaeger > jaeger-values.yaml
+----
+
+=== nsa2-jaeger-values.yaml
+
+I have created a values file for Jaeger called `nsa2-jaeger-values.yaml`. This file contains the values that I want to override from the default values.
+
+.nsa2-jaeger-values.yaml
+[source,yaml]
+----
+
+provisionDataStore:
+  cassandra: false
+
+storage:
+  cassandra:
+    user: cassandra
+    existingSecret: cassandra-credentials
+    keyspace: jaeger_nsa2
+
+
+agent:
+  enabled: false
+
+collector:
+  service:
+    otlp:
+      http:
+        name: otlp-http
+        port: 4318
+      grpc:
+        name: otlp-grpc
+        port: 4317
+
+  resources:
+    limits:
+      cpu: 200m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  nodeSelector:
+      agentpool: depnodes
+
+query:
+  # basePath: /traces
+
+  oAuthSidecar:
+    enabled: false
+    resources:
+      limits:
+        cpu: 200m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    args:
+      - --config
+      - /etc/oauth2-proxy/oauth2-proxy.cfg
+      - --client-secret
+      - "$(client-secret)"
+    extraEnv:
+      - name: client-secret
+        value: secret
+#        valueFrom:
+#          secretKeyRef:
+#            name: client-secret
+#            key: client-secret-key
+    config: |-
+      provider = "oidc"
+      http_address = "http://jaeger-query:4180"
+      upstreams = ["http://127.0.0.1:16686"]
+      scope = "openid profile"
+      redirect_url = "http://jaeger-query/oauth2/callback"
+      ssl_insecure_skip_verify = false
+      client_id = "jaeger-query"
+      oidc_issuer_url = "http://nsa2-auth-server:9000"
+      cookie_secure = "false"
+      cookie_secret = ""
+      email_domains = "*"
+      #oidc_groups_claim = "groups"
+      user_id_claim = "preferred_username"
+      skip_provider_button = "true"
+  resources:
+    limits:
+      cpu: 200m
+      memory: 1024Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  agentSidecar:
+    enabled: false
+
+  nodeSelector:
+    agentpool: depnodes
+
+
+
+----
+
+I have set `provisionDataStore.cassandra` to `false` because I don't want to install Cassandra using the Jaeger Helm chart. I have already installed Cassandra using the Bitnami Cassandra Helm chart.
+
+[source,yaml]
+----
+storage:
+  cassandra:
+    user: cassandra
+    existingSecret: cassandra-credentials
+    keyspace: jaeger_nsa2
+----
+
+For the Cassandra storage, I have set the `user` to `cassandra`, `existingSecret` to `cassandra-credentials`, and `keyspace` to `jaeger_nsa2`.
+
+I am not going to install Jaeger Agent, so I have set `agent.enabled` to `false`.
+
+For the Jaeger Collector, I have configured the `service.otlp.grpc` and `service.otlp.http` to `4317` and `4318`, respectively. This is needed to configure OpenTelemetry Collector to export traces to Jaeger. We are going to configure OpenTelemetry Collector to export traces to Jaeger in the next section.
+
+I will also install Jaeger Query to access the Jaeger UI.
+
+
+=== Install Jaeger
+
+To install Jaeger, use the following command.
+
+----
+$ helm -n nsa2 install jaeger jaegertracing/jaeger -f nsa2-jaeger-values.yaml
+----
+
+=== Update Jaeger
+
+If you want to update Jaeger, use the following command.
+
+----
+$ helm -n nsa2 upgrade jaeger jaegertracing/jaeger -f nsa2-jaeger-values.yaml
+----
+
+=== Uninstall Jaeger
+
+If you want to uninstall Jaeger, use the following command.
+
+[source,shell]
+----
+$ helm -n nsa2 uninstall jaeger
+----
+
+=== Cassandra tables created by Jaeger
+
+While installing Jaeger, it creates tables in the Cassandra keyspace. Let's check the tables created by Jaeger in the Cassandra keyspace.
+
+To see the tables created by Jaeger, use the following command.
+
+[source,shell]
+----
+$ cqlsh 127.0.0.1 -u cassandra -p $CASSANDRA_PASSWORD
+
+# Show keyspaces to see if jaeger_nsa2 exists
+cqlsh> DESC KEYSPACES
+
+# Use jaeger_nsa2 keyspace
+cqlsh> USE jaeger_nsa2;
+
+# Show tables in jaeger_nsa2 keyspace
+cqlsh> DESC TABLES;
+
+dependencies_v2  operation_names_v2      service_name_index       tag_index
+duration_index   operation_throughput    service_names            traces
+leases           sampling_probabilities  service_operation_index
+----
+
+=== Access Jaeger UI
+
+To access the Jaeger UI, we need to port-forward the Jaeger Query service.
+
+[source,shell]
+----
+$ kubectl -n nsa2 port-forward svc/jaeger-query 16686:80
+----
+
+And then open a browser and navigate to http://localhost:16686
+
+
+
+=== Reference
+
+* https://github.com/jaegertracing/helm-charts
+
+* https://medium.com/@blackhorseya/deploying-opentelemetry-and-jaeger-with-helm-on-kubernetes-d86cc8ba0332
+
+
+
+[#otel-collector]
+== Install OpenTelemetry Collector
+
+Now that we have installed Jaeger, let's configure OpenTelemetry Collector to export traces to Jaeger.
+
+In the previous article, we used OpenTelemetry Collector to export traces to Zipkin. So we already have OpenTelemetry Collector installed and the Spring Boot application is configured to export traces to OpenTelemetry Collector. So we don't need to configure the Spring Boot application again.
+
+
+=== otel-collector.yaml
+
+To configure OpenTelemetry Collector to export traces to Jaeger, we need to update the configuration file for OpenTelemetry Collector.
+
+==== jaeger exported has deprecated
+
+You may come across blogs or articles that mention using the Jaeger exporter to send traces to Jaeger. However, the Jaeger exporter is now deprecated and has been replaced by the OTLP exporter. So, we should use the OTLP exporter to send traces to Jaeger.
+
+You can find more information about the deprecated `jaeger` exporter in the link:
+
+https://opentelemetry.io/blog/2023/jaeger-exporter-collector-migration/
+
+[source,yaml]
+----
+exporters:
+  jaeger:
+    endpoint: https://jaeger.example.com:14250
+
+service:
+  pipelines:
+    exporters: [jaeger]
+----
+
+When using the `jaeger` exporter, you will see the following warning message in the OpenTelemetry Collector logs.
+
+----
+error decoding 'exporters': unknown type: "jaeger" for id:
+"jaeger" (valid values: [debug nop kafka prometheus zipkin
+logging otlp otlphttp file opencensus prometheusremotewrite])
+----
+
+The configuration above needs to be updated to use `otlp` exporter instead of `jaeger` exporter.
+
+[source,yaml]
+----
+exporters:
+  otlp/jaeger: # Jaeger supports OTLP directly. The default port for OTLP/gRPC is 4317
+    endpoint: https://jaeger.example.com:4317
+
+service:
+  pipelines:
+    exporters: [otlp/jaeger]
+----
+
+==== Update otel-collector.yaml
+
+Let's update the `otel-collector.yaml` file to export traces to Jaeger.
+
+Here is the updated `otel-collector.yaml` file.
+
+.otel-collector.yaml
+[source,yaml]
+----
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel
+  namespace: nsa2
+
+spec:
+  mode: statefulset
+  targetAllocator:
+    enabled: true
+    serviceAccount: opentelemetry-targetallocator-sa
+    prometheusCR:
+      enabled: true
+      serviceMonitorSelector: {}
+      podMonitorSelector: {}
+
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: 'otel-collector'
+              scrape_interval: 30s
+              static_configs:
+                - targets: ['0.0.0.0:8888']
+
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 15
+      batch:
+        send_batch_size: 10000
+        timeout: 10s
+
+
+    exporters:
+      debug: {}
+      logging:
+        loglevel: debug
+      zipkin:
+        endpoint: http://zipkin-server:9411/api/v2/spans
+        format: proto
+
+      otlp/jaeger:
+        endpoint: http://jaeger-collector:4317
+        tls:
+          insecure: true
+
+
+      prometheusremotewrite:
+        # https://prometheus.io/docs/prometheus/latest/querying/api/#remote-write-receiver
+        endpoint: http://prometheus:9090/api/v1/write
+      otlphttp:
+        # https://prometheus.io/docs/prometheus/latest/querying/api/#otlp-receiver
+        metrics_endpoint: http://prometheus:9090/api/v1/otlp/v1/metrics
+
+
+
+    service:
+      #      extensions: [health_check, pprof, zpages]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [zipkin, otlp/jaeger]
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: []
+          exporters: [otlphttp]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [logging]
+
+
+----
+
+I added `otlp/jaeger` exporter to export traces to Jaeger. `jaeger-collector` is the hostname of the Jaeger Collector service.
+I have set `insecure` to `true` because I did not set up TLS for Jaeger. In a production environment, you should set up TLS for Jaeger.
+
+[source,shell]
+----
+    exporters:
+
+# omitted for brevity
+
+      otlp/jaeger:
+        endpoint: http://jaeger-collector:4317
+        tls:
+          insecure: true
+----
+
+I have set `otlp/jaeger` exporter to export traces to Jaeger.
+
+[source,shell]
+----
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [zipkin, otlp/jaeger]
+----
+
+I have set both `zipkin` and `otlp/jaeger` exporters to export traces to Jaeger. This is because I want to compare the traces from Jaeger and Zipkin.
+
+[source,shell]
+----
+$ kubectl -n nsa2 apply -f otel-collector.yaml
+----
+
+== Test the Spring Boot Application
+
+Now that we have installed Jaeger and configured OpenTelemetry Collector to export traces to Jaeger, let's test the Spring Boot application.
+
+To call the `/error-logs/notify` endpoint, use the following command.
+
+[source,shell]
+----
+$ kubectl -n nsa2 port-forward service/nsa2-opentelemetry-example 8080:8080
+----
+
+To call the `/error-logs/notify` endpoint, use the following command.
+[source,shell]
+----
+$ curl http://localhost:8080/error-logs/notify
+----
+
+== Compare the traces from Jaeger and Zipkin
+
+Jaeger and Zipkin are both tracing systems used to monitor and troubleshoot microservices-based distributed systems by visualizing and analyzing traces. Jaeger is a CNCF project, while Zipkin is an open-source project. Jaeger integrates well with OpenTelemetry, and Zipkin works well with Spring Cloud Micrometer.
+
+In this series of articles, I've demonstrated distributed tracing using both Jaeger and Zipkin. For a production environment, I would likely choose Jaeger because it is a CNCF project and integrates well with OpenTelemetry. However, Zipkin is also a good choice for monitoring and troubleshooting microservices-based distributed systems. And we can see that the traces from Jaeger and Zipkin are similar in terms of the duration of each span and the tags associated with each span.
+
+=== Jaeger UI
+
+To access the Jaeger UI, use the following command.
+
+[source,shell]
+----
+$ kubectl -n nsa2 port-forward service/jaeger-query 16686:80
+----
+
+Note that the container port for Jaeger Query is `80` instead of `16686`.
+
+And then open a browser and navigate to http://localhost:16686
+
+
+
+
+.Jaeger UI - Search
+image::jaeger-ui-1.png[width=1000, align="center"]
+
+
+Select the `nsa2-opentelemetry-example` service and then click on the `Find Traces` button to see the traces.
+And the click on the trace to see the details of the trace.
+
+.Jaeger UI - Trace
+image::jaeger-ui-2.png[width=1000, align="center"]
+
+We can see all spans in the trace. We can see the duration of each span and the tags associated with each span.
+
+.Jaeger UI - Details
+image::jaeger-ui-3.png[width=1000, align="center"]
+We can see the details of each span by clicking on the span. We can see SQL queries for example.
+
+=== Zipkin UI
+
+To access the Zipkin UI, use the following command.
+
+[source,shell]
+----
+$ kubectl -n nsa2 port-forward service/zipkin 9411:9411
+----
+
+And then open a browser and navigate to http://localhost:9411
+
+Click on the RUN QUERY button to see the traces.
+
+.Zipkin UI - Search
+image::zipkin-ui-1.png[width=1000, align="center"]
+
+And the click on the trace to see the details of the trace.
+
+.Zipkin UI - Trace
+image::zipkin-ui-2.png[width=1000, align="center"]
+
+== Conclusion
+
+In this article, we discussed how to set up Jaeger and OpenTelemetry Collector to demonstrate distributed tracing. We also compared the traces from Jaeger and Zipkin.

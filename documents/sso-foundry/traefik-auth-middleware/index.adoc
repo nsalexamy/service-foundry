@@ -1,0 +1,348 @@
+---
+layout: documents
+title: Traefik & OAuth2 Proxy - Using OAuth2 Proxy as Authentication Middleware
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: SSO Foundry
+    url: /documents/sso-foundry/
+---
+// docs/traefik/02-oauth2-proxy-for-jaeger-and-prometheus/index.adoc
+= Traefik & OAuth2 Proxy - Using OAuth2 Proxy as Authentication Middleware
+
+:imagesdir: images
+
+image::authentication-middleware.png[width=1000, align="center"]
+
+== Introduction
+
+In the previous article, we set up Traefik, Jaeger, and Prometheus in a Kubernetes cluster. This document extends that setup by introducing OAuth2 Proxy as an authentication middleware to secure access to Jaeger and Prometheus using Keycloak as the identity provider.
+
+All requests to Jaeger and Prometheus will be intercepted by OAuth2 Proxy, which will redirect users to Keycloak for authentication. After successful login, users will be redirected back to their original destination.
+
+
+== Prerequisites
+
+Ensure the following components are already deployed in your Kubernetes cluster:
+
+* Traefik
+* Jaeger v2
+* Prometheus
+* Oauth2 Proxy
+* Keycloak
+
+Refer to the previous guide for more information.
+
+* link:https://www.linkedin.com/pulse/traefik-kubernetes-ingress-controller-young-gyu-kim-mwvkc[Traefik & Kubernetes]
+* link:https://www.linkedin.com/pulse/oauth2-proxy-standalone-reverse-kubernetes-young-gyu-kim-sghsc[OAuth2 Proxy as a Standalone Reverse Proxy on Kubernetes]
+
+// == Installing Keycloak
+//
+// For more information on Keycloak, see docs/keycloak/install-on-k8s/index-elaborated.adoc
+//
+// .Create Namespace
+// [source,shell]
+// ----
+// $ kubectl create namespace keycloak
+// ----
+//
+// .Create Secret for Keycloak Credentials
+// [source,shell]
+// ----
+// $ kubectl create -f keycloak/keycloak-credentials-secret.yaml
+// ----
+//
+// .Install Keycloak
+// [source,shell]
+// ----
+// $ helm upgrade --install keycloak bitnami/keycloak --version 24.4.13 \
+//   -f keycloak/custom-values.yaml --namespace keycloak --create-namespace
+// ----
+
+== Keycloak Configuration
+
+Use the following settings in your Keycloak realm:
+
+* *Realm*: nsa2-realm
+* *Client ID*: nsa2-o11y
+* *Client Secret*: get from the Keycloak console
+* *Redirect URL*: http://oauth2-proxy.nsa2.com/oauth2/callback
+* *Valid Redirect URL*: http://oauth2-proxy.nsa2.com/*
+* *Valid Post Logout URL*: http://oauth2-proxy.nsa2.com/*
+* *Test User*: devops / password
+
+The redirect URL corresponds to the Ingress we will create for OAuth2 Proxy.
+
+== Installing OAuth2 Proxy as Middleware
+
+To use OAuth2 Proxy purely as an authentication middleware (not as a reverse proxy), we need a custom Helm values file.
+
+
+.Oauth2 Proxy Architecture
+image::oauth2-proxy-middleware.png[width=500, align="center"]
+
+
+.custom-values.yaml
+[source,yaml]
+----
+config:
+  # <1>
+  existingSecret: oauth2-secret
+
+  configFile: |
+    provider = "oidc"
+    # <2>
+    oidc_issuer_url = "http://a6b2741cba2ee4f44bf1ac70a70e8373-1472323501.ca-west-1.elb.amazonaws.com/realms/nsa2-realm"
+    email_domains = ["*"]
+    cookie_secure = false
+    # we don't want to proxy anything so pick a non-existent directory
+    # <3>
+    upstreams = ["static://200"]
+    # <4>
+    redirect_url = "http://oauth2-proxy.nsa2.com/oauth2/callback"
+    scope = "openid email profile"
+    pass_access_token = true
+    pass_authorization_header = true
+    pass_user_headers = true
+    set_authorization_header = true
+    cookie_domains = ".nsa2.com"
+    cookie_name = "_oauth2_proxy"
+    cookie_refresh = "2m"
+    cookie_expire = "24h"
+    # <5>
+    whitelist_domains = [".nsa2.com"]
+    # return authenticated user to nginx
+    set_xauthrequest = true
+
+# 94
+extraArgs:
+  - --cookie-secure=false
+  - --skip-provider-button
+  - --ssl-insecure-skip-verify
+  - --reverse-proxy     # <6>
+----
+
+<1> existingSecret: oauth2-secret contains the client-id, client-secret, and cookie-secret.
+<2> oidc_issuer_url: nsa2-realm URL
+<3> upstreams: "static://200" to avoid proxying any requests.
+<4> redirect_url: Redirect URL for OAuth2 Proxy.
+<5> whitelist_domains: Whitelist domains.
+<6> reverse-proxy: Enable reverse proxy mode.
+
+Following properties are related for redirecting the user back to the original request:
+
+* --reverse-proxy
+* --set-xauthrequest
+* --upstreams: "static://200"
+* whitelist_domains: [".nsa2.com"]
+
+[WARNING]
+====
+Without the properties above, the OAuth2 Proxy will not redirect the user back to the original request.
+====
+
+// .Create Secret for
+// [source,shell]
+// ----
+// $ kubectl apply -f oauth2-proxy/oauth2-secret.yaml
+// ----
+
+.Install OAuth2 Proxy with Helm
+[source,shell]
+----
+$ helm upgrade --install oauth2-proxy \
+  oauth2-proxy/oauth2-proxy --version "7.12.6" \
+  -f oauth2-proxy/custom-values.yaml --namespace o11y --create-namespace
+----
+
+== Setting Up Traefik ForwardAuth Middleware
+
+Traefik’s ForwardAuth middleware allows external services to handle authentication. We’ll configure it to use OAuth2 Proxy.
+
+For more information on Forward Auth Middleware, see link:https://doc.traefik.io/traefik/middlewares/http/forwardauth/[Traefik Forward Auth Middleware].
+
+.Forward Auth Middleware Architecture
+image::forward-auth-middleware.png[width=1000, align="center"]
+
+The ForwardAuth middleware delegates authentication to an external service. If the service answers with a 2XX code, access is granted, and the original request is performed. Otherwise, the response from the authentication server is returned.
+
+Create a file named `forward-auth-middleware.yaml` with the following content:
+
+.forward-auth-middleware.yaml
+[source,yaml]
+----
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: forward-auth
+  namespace: o11y
+spec:
+  forwardAuth:
+    address: http://oauth2-proxy.o11y.svc.cluster.local/oauth2/
+    trustForwardHeader: true
+    authResponseHeaders:
+      - "X-Auth-Request-User"
+      - "X-Auth-Request-Email"
+      - "Authorization"
+----
+
+Apply the Forward Auth Middleware:
+
+[source,shell]
+----
+$ kubectl apply -f forward-auth-middleware.yaml
+
+# Example output
+
+middleware.traefik.io/forward-auth created
+----
+
+== Protecting Jaeger & Prometheus with Middleware
+
+To protect Jaeger and Prometheus with OAuth2 Proxy, we need to add the Forward Auth Middleware to the Ingress.
+
+.o11y-ingress.yaml
+[source,yaml]
+----
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: o11y-ingress
+  namespace: o11y
+  annotations:
+    # <1>
+    kubernetes.io/ingress.class: traefik
+    # <2>
+    traefik.ingress.kubernetes.io/router.middlewares: "o11y-forward-auth@kubernetescrd"
+
+spec:
+  rules:
+    - host: jaeger-ui.nsa2.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: otel-collector
+                port:
+                  name: jaeger
+    - host: prometheus.nsa2.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: prometheus
+                port:
+                  name: web
+----
+
+<1> Ingress class for Traefik. When the value is set to `traefik` or empty, Traefik will handle the Ingress.
+<2> Middleware for the Ingress. The Forward Auth Middleware is added to the Ingress. The middleware name is like '{namespace}-{middleware-name}@kubernetescrd'.
+
+
+Apply the Ingress:
+[source,shell]
+----
+$ kubectl apply -f o11y-ingress.yaml
+----
+
+== OAuth2 Proxy Ingress Configuration
+
+To access the OAuth2 Proxy, we need to create an Ingress for OAuth2 Proxy.
+
+.oauth2-proxy-ingress.yaml
+[source,yaml]
+----
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: oauth2-proxy-ingress
+  namespace: o11y
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+    - host: oauth2-proxy.nsa2.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oauth2-proxy
+                port:
+                  name: http
+----
+
+
+Apply the Ingress:
+[source,shell]
+----
+$ kubectl apply -f oauth2-proxy-ingress.yaml
+----
+
+[NOTE]
+====
+The ForwardAuth middleware is not applied to the OAuth2 Proxy itself.
+====
+
+
+== DNS Setup
+
+Add the following entries to your /etc/hosts file for local testing:
+
+./etc/hosts
+[source]
+----
+40.176.3.88       jaeger-ui.nsa2.com
+40.176.3.88       prometheus.nsa2.com
+40.176.3.88       oauth2-proxy.nsa2.com
+----
+
+[NOTE]
+====
+Replace 40.176.3.88 with your Traefik LoadBalancer’s external IP.
+====
+
+For production, you might need to set up a DNS server to resolve the hostnames.
+
+== Testing the Setup
+
+. Open an Incognito window or delete the cookies in your browser.
+. Visit http://jaeger-ui.nsa2.com
+. You will be redirected to the Keycloak login page.
+. Login with:
+    * Username: devops
+    * Password: password
+. After successful login, you will be redirected to the Jaeger UI.
+
+
+Open a browser and navigate to `http://jaeger-ui.nsa2.com`. You will be redirected to the Keycloak login page.
+
+.Keycloak Login for OAuth2 Proxy
+image::kc-login.png[width=1000, align="center"]
+
+Use the Keycloak user `devops` with the password `password` to login.
+
+Once authenticated, you will be redirected to the Jaeger UI.
+
+.Jaeger UI
+image::jaeger-ui.png[width=1000, align="center"]
+
+From the Developer Tools, you can check the network requests to see the authentication process.
+
+== Conclusion
+
+In this guide, we secured Jaeger and Prometheus using OAuth2 Proxy as an authentication middleware and Traefik’s ForwardAuth feature. This is a flexible and modular way to enforce authentication in a Kubernetes environment using industry-standard tools like Keycloak and OAuth2 Proxy.
+
+// == References
+//
+// * https://medium.com/@bdalpe/protecting-kubernetes-ingress-resources-with-traefik-forwardauth-and-oauth2-proxy-a7b3d330f276
+// * https://github.com/oauth2-proxy/oauth2-proxy/blob/ef8ba75987c8f4f441d8044a5853922929d3bd83/contrib/local-environment/kubernetes/values.yaml#L43C1-L65C48

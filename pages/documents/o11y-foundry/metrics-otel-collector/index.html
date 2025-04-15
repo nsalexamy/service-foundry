@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Collecting Metrics using OpenTelemetry Collector and Visualizing them using Prometheus and Grafana on Kubernetes</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre,
+    pre code {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre;
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+    <div class="logo text-xl font-semibold">Service Foundry</div>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#otel-collector">OpenTelemetry Collector</a></li>
+<li><a href="#target-allocator">Target Allocator</a></li>
+<li><a href="#prometheus-remote-write-exporter">Prometheus Remote Write Exporter</a></li>
+<li><a href="#otlp-http-exporter">OTLP HTTP Exporter</a></li>
+</ul>
+</li>
+<li><a href="#create-a-serviceaccount">Create a ServiceAccount</a></li>
+<li><a href="#opentelemetry-collector">OpenTelemetry Collector</a>
+<ul class="sectlevel2">
+<li><a href="#otel-targetallocator-service">otel-targetallocator service</a></li>
+<li><a href="#scale-out">Scale out</a></li>
+</ul>
+</li>
+<li><a href="#prometheus">Prometheus</a></li>
+<li><a href="#use-otlp-http-exporter">Use OTLP HTTP Exporter</a></li>
+<li><a href="#benefits-of-using-opentelemetry-collector-and-target-allocator">Benefits of using OpenTelemetry Collector and Target Allocator</a></li>
+<li><a href="#grafana">Grafana</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#reference">Reference</a></li>
+</ul>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This article is part of a series of articles on Metrics in Microservices. In this article, we will discuss how to collect metrics from a Spring Boot application using OpenTelemetry Collector and how to visualize them using Prometheus and Grafana on Kubernetes.</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Part 1 - <a href="https://www.linkedin.com/pulse/metrics-microservices-young-gyu-kim-9rcuc/">Metrics in Microservices - Collecting Metrics using Spring Boot Actuator and Visualizing them using Prometheus and Grafana</a></p>
+</li>
+<li>
+<p>Part 2 - <a href="https://www.linkedin.com/pulse/part-2-metrics-microservices-collecting-using-visualizing-kim-yeexc">Metrics in Microservices - Collecting Metrics using OpenTelemetry Instrumentation and Visualizing them using Prometheus and Grafana on Kubernetes</a></p>
+</li>
+<li>
+<p>Part 3 - <a href="https://www.linkedin.com/pulse/part-3-metrics-microservices-collecting-using-collector-kim-zuqoc/">Metrics in Microservices - Collecting Metrics using OpenTelemetry Collector and Visualizing them using Prometheus and Grafana on Kubernetes</a></p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>This article is the third part of the series.</p>
+</div>
+<div class="paragraph">
+<p>In this article, we will discuss how to collect metrics from a Spring Boot application using OpenTelemetry Collector and Target Allocator. OpenTelemetry Instrumentation provides metrics data from a dedicated endpoint. Prometheus ServiceMonitor will discover the target endpoints and Prometheus target allocator will scrape the metrics data from the target endpoints. The metrics data will be exported to Prometheus using the Prometheus Remote Write Exporter. OTLP HTTP Exporter can replace the Prometheus Remote Write Exporter to export metrics data to an OTLP HTTP endpoint. We are going to use both exporters in this article.</p>
+</div>
+<div class="sect2">
+<h3 id="otel-collector">OpenTelemetry Collector</h3>
+<div class="paragraph">
+<p>OpenTelemetry Collector is a vendor-agnostic, open-source telemetry collector that is used to collect, process, and export telemetry data. It is a powerful tool that can be used to collect metrics, traces, and logs from various sources and export them to various destinations.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="target-allocator">Target Allocator</h3>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>A tool to distribute targets of the PrometheusReceiver on all deployed Collector instances</p>
+</div>
+</blockquote>
+<div class="attribution">
+&#8212; OpenTelemetry<br>
+<cite>Target Allocator</cite>
+</div>
+</div>
+<div class="paragraph">
+<p>The OpenTelemetry Operator comes with an optional component, the Target Allocator (TA). In a nutshell, the TA is a mechanism for decoupling the service discovery and metric collection functions of Prometheus such that they can be scaled independently. The Collector manages Prometheus metrics without needing to install Prometheus. The TA manages the configuration of the Collector’s Prometheus Receiver.</p>
+</div>
+<div class="paragraph">
+<p>The TA serves two primary functions:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Even distribution of Prometheus targets among a pool of Collectors</p>
+</li>
+<li>
+<p>Discovery of Prometheus Custom Resources like ServiceMonitors and PodMonitors</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>For more information on Target Allocator, refer to the link below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://opentelemetry.io/docs/kubernetes/operator/target-allocator/" class="bare">https://opentelemetry.io/docs/kubernetes/operator/target-allocator/</a></p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="prometheus-remote-write-exporter">Prometheus Remote Write Exporter</h3>
+<div class="paragraph">
+<p>Prometheus Remote Write Exporter is an exporter that is used to export metrics to Prometheus. It is a powerful tool that can be used to export metrics from various sources to Prometheus. This feature is available when remote-write-receiver is enabled in Prometheus.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="otlp-http-exporter">OTLP HTTP Exporter</h3>
+<div class="paragraph">
+<p>OTLP HTTP Exporter is an exporter that is used to export metrics to an OTLP HTTP endpoint. It is a powerful tool that can be used to export metrics from various sources to an OTLP HTTP endpoint. This feature is available when otlp-write-receiver is enabled in Prometheus.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-a-serviceaccount">Create a ServiceAccount</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To use Target Allocator, we need permission to access the Kubernetes API. We are going to create a ServiceAccount named <code>opentelemetry-targetallocator-sa</code> in nsa2 namespace to be used by the OpenTelemetry Collector.</p>
+</div>
+<div class="paragraph">
+<p>The two roles are being bound to the ServiceAccount:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>opentelemetry-targetallocator-role</p>
+</li>
+<li>
+<p>opentelemetry-targetallocator-cr-role</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Here is the RBAC configuration for the ServiceAccount:</p>
+</div>
+<div class="listingblock">
+<div class="title">opentelemetry-targetallocator-sa.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceAccount</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">opentelemetry-targetallocator-sa</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">nsa2</span>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRole</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">opentelemetry-targetallocator-role</span>
+<span class="na">rules</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">apiGroups</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">"</span><span class="pi">]</span>
+    <span class="na">resources</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">nodes</span>
+      <span class="pi">-</span> <span class="s">nodes/metrics</span>
+      <span class="pi">-</span> <span class="s">services</span>
+      <span class="pi">-</span> <span class="s">endpoints</span>
+      <span class="pi">-</span> <span class="s">pods</span>
+    <span class="na">verbs</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">get"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">list"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">watch"</span><span class="pi">]</span>
+  <span class="pi">-</span> <span class="na">apiGroups</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">"</span><span class="pi">]</span>
+    <span class="na">resources</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">configmaps</span>
+    <span class="na">verbs</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">get"</span><span class="pi">]</span>
+  <span class="pi">-</span> <span class="na">apiGroups</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">discovery.k8s.io</span>
+    <span class="na">resources</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">endpointslices</span>
+    <span class="na">verbs</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">get"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">list"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">watch"</span><span class="pi">]</span>
+  <span class="pi">-</span> <span class="na">apiGroups</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">networking.k8s.io</span>
+    <span class="na">resources</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">ingresses</span>
+    <span class="na">verbs</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">get"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">list"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">watch"</span><span class="pi">]</span>
+  <span class="pi">-</span> <span class="na">nonResourceURLs</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">/metrics"</span><span class="pi">]</span>
+    <span class="na">verbs</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">get"</span><span class="pi">]</span>
+
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRole</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">opentelemetry-targetallocator-cr-role</span>
+<span class="na">rules</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">apiGroups</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">monitoring.coreos.com</span>
+    <span class="na">resources</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">servicemonitors</span>
+      <span class="pi">-</span> <span class="s">podmonitors</span>
+    <span class="na">verbs</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s1">'</span><span class="s">*'</span>
+  <span class="pi">-</span> <span class="na">apiGroups</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">"</span><span class="pi">]</span>
+    <span class="na">resources</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">namespaces</span>
+    <span class="na">verbs</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">get"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">list"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">watch"</span><span class="pi">]</span>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRoleBinding</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">opentelemetry-targetallocator-rb</span>
+<span class="na">subjects</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceAccount</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">opentelemetry-targetallocator-sa</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="s">nsa2</span>
+<span class="na">roleRef</span><span class="pi">:</span>
+  <span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRole</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">opentelemetry-targetallocator-role</span>
+  <span class="na">apiGroup</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io</span>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRoleBinding</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">opentelemetry-targetallocator-cr-rb</span>
+<span class="na">subjects</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceAccount</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">opentelemetry-targetallocator-sa</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="s">nsa2</span>
+<span class="na">roleRef</span><span class="pi">:</span>
+  <span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRole</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">opentelemetry-targetallocator-cr-role</span>
+  <span class="na">apiGroup</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To create the ServiceAccount, Roles, and RoleBindings, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 apply <span class="nt">-f</span> opentelemetry-targetallocator-sa.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="opentelemetry-collector">OpenTelemetry Collector</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this section, we are going to deploy the OpenTelemetry Collector to collect metrics from the Spring Boot application. The OpenTelemetry Collector will scrape metrics data from the Spring Boot application using the Prometheus Receiver. The metrics data will be exported to Prometheus using the Prometheus Remote Write Exporter.</p>
+</div>
+<div class="listingblock">
+<div class="title">otel-collector.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">opentelemetry.io/v1beta1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">OpenTelemetryCollector</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">otel</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">nsa2</span>
+
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">mode</span><span class="pi">:</span> <span class="s">statefulset</span>
+  <span class="na">targetAllocator</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">serviceAccount</span><span class="pi">:</span> <span class="s">opentelemetry-targetallocator-sa</span>
+    <span class="na">prometheusCR</span><span class="pi">:</span>
+      <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+      <span class="na">serviceMonitorSelector</span><span class="pi">:</span> <span class="pi">{}</span>
+      <span class="na">podMonitorSelector</span><span class="pi">:</span> <span class="pi">{}</span>
+
+  <span class="na">config</span><span class="pi">:</span>
+    <span class="na">receivers</span><span class="pi">:</span>
+      <span class="na">otlp</span><span class="pi">:</span>
+        <span class="na">protocols</span><span class="pi">:</span>
+          <span class="na">grpc</span><span class="pi">:</span>
+            <span class="na">endpoint</span><span class="pi">:</span> <span class="s">0.0.0.0:4317</span>
+          <span class="na">http</span><span class="pi">:</span>
+            <span class="na">endpoint</span><span class="pi">:</span> <span class="s">0.0.0.0:4318</span>
+
+      <span class="na">prometheus</span><span class="pi">:</span>
+        <span class="na">config</span><span class="pi">:</span>
+          <span class="na">scrape_configs</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">job_name</span><span class="pi">:</span> <span class="s1">'</span><span class="s">otel-collector'</span>
+              <span class="na">scrape_interval</span><span class="pi">:</span> <span class="s">30s</span>
+              <span class="na">static_configs</span><span class="pi">:</span>
+                <span class="pi">-</span> <span class="na">targets</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">0.0.0.0:8888'</span><span class="pi">]</span>
+
+
+
+    <span class="na">processors</span><span class="pi">:</span>
+      <span class="na">memory_limiter</span><span class="pi">:</span>
+        <span class="na">check_interval</span><span class="pi">:</span> <span class="s">1s</span>
+        <span class="na">limit_percentage</span><span class="pi">:</span> <span class="m">75</span>
+        <span class="na">spike_limit_percentage</span><span class="pi">:</span> <span class="m">15</span>
+      <span class="na">batch</span><span class="pi">:</span>
+        <span class="na">send_batch_size</span><span class="pi">:</span> <span class="m">10000</span>
+        <span class="na">timeout</span><span class="pi">:</span> <span class="s">10s</span>
+
+
+    <span class="na">exporters</span><span class="pi">:</span>
+      <span class="na">debug</span><span class="pi">:</span> <span class="pi">{}</span>
+      <span class="na">zipkin</span><span class="pi">:</span>
+        <span class="na">endpoint</span><span class="pi">:</span> <span class="s">http://zipkin-server:9411/api/v2/spans</span>
+        <span class="na">format</span><span class="pi">:</span> <span class="s">proto</span>
+      <span class="na">prometheusremotewrite</span><span class="pi">:</span>
+        <span class="c1"># https://prometheus.io/docs/prometheus/latest/querying/api/#remote-write-receiver</span>
+        <span class="na">endpoint</span><span class="pi">:</span> <span class="s">http://prometheus:9090/api/v1/write</span>
+      <span class="na">otlphttp</span><span class="pi">:</span>
+<span class="c1">#        endpoint: http://otel-collector:4318</span>
+        <span class="c1"># https://prometheus.io/docs/prometheus/latest/querying/api/#otlp-receiver</span>
+        <span class="na">metrics_endpoint</span><span class="pi">:</span> <span class="s">http://prometheus:9090/api/v1/otlp/v1/metrics</span>
+
+
+
+
+    <span class="na">service</span><span class="pi">:</span>
+<span class="c1">#      extensions: [health_check, pprof, zpages]</span>
+      <span class="na">pipelines</span><span class="pi">:</span>
+        <span class="na">traces</span><span class="pi">:</span>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp</span><span class="pi">]</span>
+          <span class="na">processors</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">memory_limiter</span><span class="pi">,</span> <span class="nv">batch</span><span class="pi">]</span>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">zipkin</span><span class="pi">]</span>
+        <span class="na">metrics</span><span class="pi">:</span>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp</span><span class="pi">,</span> <span class="nv">prometheus</span><span class="pi">]</span>
+          <span class="na">processors</span><span class="pi">:</span> <span class="pi">[]</span>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlphttp</span><span class="pi">]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>I added the following configuration to the OpenTelemetry Collector configuration file to enable the Target Allocator:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>  mode: statefulset
+  targetAllocator:
+    enabled: true
+    serviceAccount: opentelemetry-targetallocator-sa
+    prometheusCR:
+      enabled: true
+      serviceMonitorSelector: {}
+      podMonitorSelector: {}</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To filter the ServiceMonitors and PodMonitors, we can use the <code>serviceMonitorSelector</code> and <code>podMonitorSelector</code> fields. If we want to filter the ServiceMonitors and PodMonitors, we can add the labels to the fields.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>      serviceMonitorSelector:
+        matchLabels:
+          team: nsa2</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>I added <code>prometheus</code> to the <code>receivers</code> section to enable the Prometheus Receiver. It scrapes metrics data according to the configuration in the <code>config</code> section.</p>
+</div>
+<div class="listingblock">
+<div class="title">prometheus receiver</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">    <span class="na">receiver</span><span class="pi">:</span>
+
+<span class="c1"># omitted</span>
+
+      <span class="na">prometheus</span><span class="pi">:</span>
+        <span class="na">config</span><span class="pi">:</span>
+          <span class="na">scrape_configs</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">job_name</span><span class="pi">:</span> <span class="s1">'</span><span class="s">otel-collector'</span>
+              <span class="na">scrape_interval</span><span class="pi">:</span> <span class="s">30s</span>
+              <span class="na">static_configs</span><span class="pi">:</span>
+                <span class="pi">-</span> <span class="na">targets</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">0.0.0.0:8888'</span><span class="pi">]</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">exporters</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">    <span class="na">exporters</span><span class="pi">:</span>
+
+      <span class="na">prometheusremotewrite</span><span class="pi">:</span>
+        <span class="na">endpoint</span><span class="pi">:</span> <span class="s">http://prometheus:9090/api/v1/write</span>
+
+      <span class="na">otlphttp</span><span class="pi">:</span>
+        <span class="na">metrics_endpoint</span><span class="pi">:</span> <span class="s">http://prometheus:9090/api/v1/otlp/v1/metrics</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>There are two exporters in the configuration file:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>prometheusremotewrite</p>
+</li>
+<li>
+<p>otlphttp</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>The <code>prometheusremotewrite</code> exporter exports metrics data to the Prometheus Remote Write endpoint. The <code>otlphttp</code> exporter exports metrics data to the OTLP HTTP endpoint.</p>
+</div>
+<div class="paragraph">
+<p>For more information on the Prometheus Remote Write Exporter, refer to the link below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://prometheus.io/docs/prometheus/latest/querying/api/#remote-write-receiver" class="bare">https://prometheus.io/docs/prometheus/latest/querying/api/#remote-write-receiver</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>For more information on the OTLP HTTP Exporter, refer to the link below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://prometheus.io/docs/prometheus/latest/querying/api/#otlp-receiver" class="bare">https://prometheus.io/docs/prometheus/latest/querying/api/#otlp-receiver</a></p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">metrics pipeline</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">    <span class="na">service</span><span class="pi">:</span>
+      <span class="na">pipelines</span><span class="pi">:</span>
+
+<span class="c1"># omitted</span>
+
+        <span class="na">metrics</span><span class="pi">:</span>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp</span><span class="pi">,</span> <span class="nv">prometheus</span><span class="pi">]</span>
+          <span class="na">processors</span><span class="pi">:</span> <span class="pi">[]</span>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">prometheusremotewrite</span><span class="pi">]</span>
+          <span class="c1"># exporters: [otlphttp]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>I added prometheus to the <code>receivers</code> field to enable the Prometheus Receiver. I added <code>prometheusremotewrite</code> to the <code>exporters</code> field to export metrics data to the Prometheus Remote Write endpoint.</p>
+</div>
+<div class="paragraph">
+<p>To apply the configuration, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 apply <span class="nt">-f</span> otel-collector.yaml</code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="otel-targetallocator-service">otel-targetallocator service</h3>
+<div class="paragraph">
+<p>If all the configurations are correct, the OpenTelemetry Collector will create a service named <code>otel-targetallocator</code> in the nsa2 namespace. The service will have the following endpoints:</p>
+</div>
+<div class="listingblock">
+<div class="title">port-forward otel-targetallocator service</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 port-forward service/otel-targetallocator 18080:8080</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To check the endpoints, open the following URL in a browser:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="http://localhost:18080/jobs" class="bare">http://localhost:18080/jobs</a></p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"otel-collector"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nl">"_link"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/jobs/otel-collector/targets"</span><span class="w">
+  </span><span class="p">},</span><span class="w">
+  </span><span class="nl">"serviceMonitor/nsa2/nsa2-opentelemetry-example-servicemonitor/0"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nl">"_link"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/jobs/serviceMonitor%2Fnsa2%2Fnsa2-opentelemetry-example-servicemonitor%2F0/targets"</span><span class="w">
+  </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>If you click on the <code>_link</code> field, you will see the targets that the OpenTelemetry Collector is scraping metrics data from.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="scale-out">Scale out</h3>
+<div class="listingblock">
+<div class="content">
+<pre>$ kubectl -n nsa2 scale --replicas=2 deployment nsa2-opentelemetry-example</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>If you scale out the Spring Boot application, the new pod will be added to the target list of the OpenTelemetry Collector.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="prometheus">Prometheus</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We are going to comment out the <code>serviceMonitorSelector</code> section in the <code>prometheus.yaml</code> file because we are going to use the Target Allocator to manage the ServiceMonitors. Instead, I enabled two features in the <code>prometheus.yaml</code> file:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>remote-write-receiver</p>
+</li>
+<li>
+<p>otlp-write-receiver</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>For more information on feature flags, refer to the link below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://prometheus.io/docs/prometheus/latest/feature_flags/" class="bare">https://prometheus.io/docs/prometheus/latest/feature_flags/</a></p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">prometheus.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">monitoring.coreos.com/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Prometheus</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">prometheus</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">nsa2</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">serviceAccountName</span><span class="pi">:</span> <span class="s">prometheus</span>
+
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">400Mi</span>
+  <span class="na">enableAdminAPI</span><span class="pi">:</span> <span class="kc">false</span>
+
+  <span class="c1"># for more information on the following configuration,</span>
+  <span class="c1">#  see</span>
+  <span class="c1"># - https://prometheus-operator.dev/docs/api-reference/api/</span>
+  <span class="c1"># - https://prometheus.io/docs/prometheus/latest/querying/api/#remote-write-receiver</span>
+  <span class="c1"># /api/v1/write (web.enable-remote-write-receiver)</span>
+  <span class="c1"># /api/v1/otlp/v1/metrics (web.enable-otlp-receiver)</span>
+  <span class="na">additionalArgs</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">web.enable-remote-write-receiver"</span>
+      <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">web.enable-otlp-receiver"</span>
+      <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To apply the configuration, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 apply <span class="nt">-f</span> prometheus.yaml</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">port-forward Prometheus service</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 port-forward service/prometheus 9090:9090</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To check the Prometheus UI, open the following URL in a browser:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="http://localhost:9090" class="bare">http://localhost:9090</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>If you click on the <code>Targets</code> menu, you will not see any targets because the Target Allocator is managing the targets.</p>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="images/prometheus-no-target.png" alt="prometheus no target">
+</div>
+</div>
+<div class="paragraph">
+<p>However, if you execute the following query in the Prometheus UI, you will see the metrics data from the Spring Boot application:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">jvm_cpu_recent_utilization_ratio</code></pre>
+</div>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="images/prometheus-query.png" alt="prometheus query">
+</div>
+</div>
+<div class="paragraph">
+<p>This is because the OpenTelemetry Collector is scraping metrics data from the Spring Boot application and exporting it to Prometheus.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="use-otlp-http-exporter">Use OTLP HTTP Exporter</h2>
+<div class="sectionbody">
+<div class="imageblock">
+<div class="content">
+<img src="images/intro-otlp-http.png" alt="intro otlp http">
+</div>
+</div>
+<div class="paragraph">
+<p>To use the OTLP HTTP Exporter, you need to comment out the <code>prometheusremotewrite</code> exporter and uncomment the <code>otlphttp</code> exporter in the OpenTelemetry Collector configuration file.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">        <span class="na">metrics</span><span class="pi">:</span>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp</span><span class="pi">,</span> <span class="nv">prometheus</span><span class="pi">]</span>
+          <span class="na">processors</span><span class="pi">:</span> <span class="pi">[]</span>
+          <span class="c1">#exporters: [prometheusremotewrite]</span>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlphttp</span><span class="pi">]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To apply the configuration, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 apply <span class="nt">-f</span> otel-collector.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The output is almost the same as the Prometheus Remote Write Exporter. The only difference is that the metrics data is exported to the OTLP HTTP endpoint.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="benefits-of-using-opentelemetry-collector-and-target-allocator">Benefits of using OpenTelemetry Collector and Target Allocator</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The OpenTelemetry Collector and Target Allocator provide the following benefits:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Scalability: The OpenTelemetry Collector and Target Allocator can be scaled independently.</p>
+</li>
+<li>
+<p>Service Discovery: The Target Allocator manages the configuration of the Collector’s Prometheus Receiver.</p>
+</li>
+<li>
+<p>Centralized Configuration: The OpenTelemetry Collector and Target Allocator provide a centralized configuration for managing Prometheus Custom Resources like ServiceMonitors and PodMonitors.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="grafana">Grafana</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>As for Grafana, we are going to use the same configuration as in the previous article.</p>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="images/grafana-query.png" alt="grafana query">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this article, we discussed how to collect metrics from a Spring Boot application using OpenTelemetry Collector and how to visualize them using Prometheus and Grafana on Kubernetes. We also discussed how to use the Target Allocator to manage the configuration of the Collector’s Prometheus Receiver.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="reference">Reference</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://geekingoutpodcast.substack.com/p/prometheus-and-opentelemetry-better" class="bare">https://geekingoutpodcast.substack.com/p/prometheus-and-opentelemetry-better</a></p>
+</li>
+<li>
+<p><a href="https://github.com/open-telemetry/opentelemetry-operator/blob/main/cmd/otel-allocator/README.md" class="bare">https://github.com/open-telemetry/opentelemetry-operator/blob/main/cmd/otel-allocator/README.md</a></p>
+</li>
+<li>
+<p><a href="https://www.anyflow.net/sw-engineer/prometheus-opentelemetry-collector" class="bare">https://www.anyflow.net/sw-engineer/prometheus-opentelemetry-collector</a></p>
+</li>
+<li>
+<p><a href="https://prometheus.io/docs/prometheus/latest/feature_flags/" class="bare">https://prometheus.io/docs/prometheus/latest/feature_flags/</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>
