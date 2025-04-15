@@ -1,0 +1,1693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Centralized Logging with OpenTelemetry and OpenSearch stack on Kubernetes</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre,
+    pre code {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre;
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+    <div class="logo text-xl font-semibold">Service Foundry</div>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#opensearch-stack">OpenSearch Stack</a></li>
+<li><a href="#what-we-get-from-this-article">What we get from this article</a></li>
+<li><a href="#components-for-centralized-logging">Components for Centralized Logging</a></li>
+<li><a href="#prerequisites">Prerequisites</a></li>
+</ul>
+</li>
+<li><a href="#install-opensearch">Install OpenSearch</a>
+<ul class="sectlevel2">
+<li><a href="#preparation-for-azure-kubernetes-service-aks">Preparation for Azure Kubernetes Service (AKS)</a></li>
+<li><a href="#add-the-opensearch-helm-repository">Add the OpenSearch Helm repository</a></li>
+<li><a href="#get-values-yaml">Get values.yaml</a></li>
+<li><a href="#refreshing-demo-certificates">Refreshing demo certificates</a></li>
+<li><a href="#customize-values-yaml">Customize values.yaml</a></li>
+<li><a href="#admin-password">Admin password</a></li>
+<li><a href="#install-opensearch-using-helm">Install OpenSearch using Helm</a></li>
+<li><a href="#access-opensearch">Access OpenSearch</a></li>
+<li><a href="#uninstall-opensearch">Uninstall OpenSearch</a></li>
+</ul>
+</li>
+<li><a href="#install-opensearch-dashboards">Install OpenSearch Dashboards</a>
+<ul class="sectlevel2">
+<li><a href="#get-values-yaml-2">Get values.yaml</a></li>
+<li><a href="#customize-values-yaml-2">Customize values.yaml</a></li>
+<li><a href="#install-opensearch-dashboards-using-helm">Install OpenSearch Dashboards using Helm</a></li>
+<li><a href="#uninstall-opensearch-dashboards">Uninstall OpenSearch Dashboards</a></li>
+<li><a href="#access-opensearch-dashboards">Access OpenSearch Dashboards</a></li>
+</ul>
+</li>
+<li><a href="#defining-users-and-roles-using-api">Defining users and roles using API</a>
+<ul class="sectlevel2">
+<li><a href="#port-forward-the-opensearch-service">Port-forward the OpenSearch service</a></li>
+<li><a href="#create-a-role">Create a role</a></li>
+<li><a href="#delete-a-role">Delete a role</a></li>
+<li><a href="#create-a-user">Create a user</a></li>
+<li><a href="#map-a-role-to-a-user">Map a role to a user</a></li>
+</ul>
+</li>
+<li><a href="#defining-users-and-roles-using-opensearch-dashboards-ui">Defining users and roles using OpenSearch Dashboards UI</a></li>
+<li><a href="#opensearch-data-prepper-2">Opensearch Data Prepper</a>
+<ul class="sectlevel2">
+<li><a href="#get-values-yaml-3">Get values.yaml</a></li>
+<li><a href="#customize-values-yaml-3">Customize values.yaml</a></li>
+<li><a href="#ports">Ports</a></li>
+<li><a href="#install-opensearch-data-prepper-using-helm">Install OpenSearch Data Prepper using Helm</a></li>
+<li><a href="#uninstall-opensearch-data-prepper">Uninstall OpenSearch Data Prepper</a></li>
+<li><a href="#references">References</a></li>
+</ul>
+</li>
+<li><a href="#fluent-bit-configuration">Fluent-bit configuration</a></li>
+<li><a href="#opentelemetry-collector-configuration-for-opensearch-data-prepper">OpenTelemetry Collector configuration for OpenSearch Data Prepper</a></li>
+<li><a href="#search-and-visualize-logs-using-opensearch-dashboards">Search and visualize logs using OpenSearch Dashboards</a>
+<ul class="sectlevel2">
+<li><a href="#create-an-index-pattern">Create an index pattern</a></li>
+<li><a href="#call-application-api-to-generate-logs">Call Application API to generate logs</a></li>
+<li><a href="#search-logs-with-service-name-and-log-level">Search logs with service name and log level</a></li>
+<li><a href="#search-logs-with-stack-trace">Search logs with stack trace</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#references-2">References</a>
+<ul class="sectlevel2">
+<li><a href="#opensearch-on-aks">OpenSearch on AKS</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This document describes how to centralize application logs using OpenSearch and OpenTelemetry on Kubernetes.</p>
+</div>
+<div class="paragraph">
+<p>This article covers the red box at the top-right of the image below.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/centralized-logging-architecture.png" alt="centralized logging architecture" width="1000">
+</div>
+</div>
+<div class="sect2">
+<h3 id="opensearch-stack">OpenSearch Stack</h3>
+<div class="paragraph">
+<p>OpenSearch Stack consists of the following components:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>OpenSearch</p>
+</li>
+<li>
+<p>OpenSearch Dashboards</p>
+</li>
+<li>
+<p>OpenSearch Data Prepper</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>OpenSearch is a distributed, RESTful search and analytics engine capable of solving a growing number of use cases. As the heart of the OpenSearch project, OpenSearch itself is a distributed search and analytics engine that is built on Apache Lucene. OpenSearch is a fork of Elasticsearch and Kibana.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="what-we-get-from-this-article">What we get from this article</h3>
+<div class="paragraph">
+<p>When we complete this article, we will be able to centralize application logs using OpenSearch and OpenTelemetry on Kubernetes. We will be able to search application logs using OpenSearch Dashboards.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/dashboards-dql-severity.png" alt="dashboards dql severity" width="1000">
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="components-for-centralized-logging">Components for Centralized Logging</h3>
+<div class="paragraph">
+<p>Centralized logging is a common use case for OpenSearch. The following components are used for centralized logging:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>OpenTelemetry Instrumentation</p>
+</li>
+<li>
+<p>OpenTelemetry Collector</p>
+</li>
+<li>
+<p>OpenSearch Data Prepper</p>
+</li>
+<li>
+<p>OpenSearch</p>
+</li>
+<li>
+<p>OpenSearch Dashboards</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>This article does not cover OpenTelemetry Instrumentation and OpenTelemetry Collector. The focus is on OpenSearch, OpenSearch Dashboards, and OpenSearch Data Prepper.</p>
+</div>
+<div class="sect3">
+<h4 id="opentelemetry-instrumentation">OpenTelemetry Instrumentation</h4>
+<div class="paragraph">
+<p>OpenTelemetry Instrumentation is used to collect traces, metrics, and logs from applications. The collected data is sent to the OpenTelemetry Collector. In this article, we use OpenTelemetry Instrumentation for Java applications.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="opentelemetry-collector">OpenTelemetry Collector</h4>
+<div class="paragraph">
+<p>OpenTelemetry Collector is a vendor-agnostic, vendor-neutral, and open-source project that collects, processes, and exports telemetry data. The OpenTelemetry Collector can receive traces, metrics, and logs from OpenTelemetry Instrumentation and other sources. The OpenTelemetry Collector can export data to various backends, such as OpenSearch, Prometheus, and Jaeger.</p>
+</div>
+<div class="paragraph">
+<p>In this article, we use OpenTelemetry Collector to collect logs from OpenTelemetry Instrumentation and send them to OpenSearch Data Prepper using OTLP(OpenTelemetry Protocol). We will cover how to configure OpenTelemetry Collector to send logs to OpenSearch Data Prepper later in this article.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="opensearch">OpenSearch</h4>
+<div class="paragraph">
+<p>OpenSearch is a distributed, RESTful search and analytics engine capable of solving a growing number of use cases. OpenSearch is a fork of Elasticsearch and Kibana. OpenSearch is used to store logs and provide search capabilities.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="opensearch-dashboards">OpenSearch Dashboards</h4>
+<div class="paragraph">
+<p>OpenSearch Dashboards is a visualization tool that is used to visualize data stored in OpenSearch. OpenSearch Dashboards is used to visualize logs stored in OpenSearch. We will cover how to search and visualize logs using OpenSearch Dashboards later in this article.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="opensearch-data-prepper">OpenSearch Data Prepper</h4>
+<div class="paragraph">
+<p>OpenSearch Data Prepper is a data prepper that is used to ingest data from various sources and send it to OpenSearch. In this article, we use OpenSearch Data Prepper to ingest logs from OpenTelemetry Collector and send them to OpenSearch.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="prerequisites">Prerequisites</h3>
+<div class="ulist">
+<ul>
+<li>
+<p>Helm 3</p>
+</li>
+<li>
+<p>Kubernetes cluster</p>
+</li>
+<li>
+<p>kubectl</p>
+</li>
+<li>
+<p>Spring Boot application with OpenTelemetry Instrumentation</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="install-opensearch">Install OpenSearch</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="preparation-for-azure-kubernetes-service-aks">Preparation for Azure Kubernetes Service (AKS)</h3>
+<div class="sect3">
+<h4 id="vm-max_map_count-issue">vm.max_map_count Issue</h4>
+<div class="paragraph">
+<p>When installing OpenSearch on Azure Kubernetes Service (AKS), we need to set <code>vm.max_map_count</code> to at least <code>262144</code>. The default value of <code>vm.max_map_count</code> on AKS is <code>65530</code>, which is too low for OpenSearch.</p>
+</div>
+<div class="paragraph">
+<p>The error message below is displayed when starting OpenSearch on AKS:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">ERROR: <span class="o">[</span>1] bootstrap checks failed
+<span class="o">[</span>1]: max virtual memory areas vm.max_map_count <span class="o">[</span>65530] is too low, increase to at least <span class="o">[</span>262144]</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In order to resolve this issue, we need to set <code>vm.max_map_count</code> to at least <code>262144</code> to nodes that run OpenSearch on AKS.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="add-node-pool">Add node pool</h4>
+<div class="paragraph">
+<p>In this article, we add a new node pool with the <code>vm.max_map_count</code> setting to at least <code>262144</code>. The new node pool is used to run OpenSearch. The name of the new node pool is <code>linuxnodes</code> and this will be used in the Helm chart later to set the nodeSelector.</p>
+</div>
+<div class="paragraph">
+<p>On AKS, the default <code>vm.max_map_count</code> is set to <code>65530</code>. This value is too low for OpenSearch. We need to set <code>vm.max_map_count</code> to at least <code>262144</code>.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://learn.microsoft.com/en-us/cli/azure/aks/nodepool?view=azure-cli-latest#az-aks-nodepool-add" class="bare">https://learn.microsoft.com/en-us/cli/azure/aks/nodepool?view=azure-cli-latest#az-aks-nodepool-add</a></p>
+</li>
+<li>
+<p><a href="https://learn.microsoft.com/en-us/azure/aks/custom-node-configuration?tabs=linux-node-pools" class="bare">https://learn.microsoft.com/en-us/azure/aks/custom-node-configuration?tabs=linux-node-pools</a></p>
+</li>
+<li>
+<p><a href="https://devopsforyou.com/setting-up-an-opensearch-cluster-on-aks-0a8ef2acb91d" class="bare">https://devopsforyou.com/setting-up-an-opensearch-cluster-on-aks-0a8ef2acb91d</a></p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="add-node-pool-with-vm-max_map_count-setting">Add node pool with vm.max_map_count setting</h4>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">export </span><span class="nv">AZURE_RESOURCE_GROUP</span><span class="o">=</span>iclinicK8sResourceGroup
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">AZURE_CLUSTER_NAME</span><span class="o">=</span>iclinicK8sCluster
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">OLD_NODE_POOL_NAME</span><span class="o">=</span>depnodes
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">NEW_NODE_POOL_NAME</span><span class="o">=</span>linuxnodes
+
+<span class="c"># list node pools in the cluster</span>
+<span class="nv">$ </span>az aks nodepool list <span class="nt">--cluster-name</span> <span class="nv">$AZURE_CLUSTER_NAME</span> <span class="se">\</span>
+  <span class="nt">--resource-group</span> <span class="nv">$AZURE_RESOURCE_GROUP</span> <span class="nt">--output</span> table
+
+<span class="c"># show the node pool details to see the vm.max_map_count</span>
+<span class="nv">$ </span>az aks nodepool show <span class="nt">--cluster-name</span> <span class="nv">$AZURE_CLUSTER_NAME</span> <span class="se">\</span>
+  <span class="nt">--resource-group</span> <span class="nv">$AZURE_RESOURCE_GROUP</span> <span class="nt">--name</span> <span class="nv">$OLD_NODE_POOL_NAME</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">linuxconfig.json</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"sysctls"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nl">"vmMaxMapCount"</span><span class="p">:</span><span class="w"> </span><span class="mi">262144</span><span class="w">
+  </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To create a new node pool with the <code>vm.max_map_count</code> setting to at least <code>262144</code>, run the command below:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>az aks nodepool add <span class="nt">--cluster-name</span> <span class="nv">$AZURE_CLUSTER_NAME</span> <span class="se">\</span>
+  <span class="nt">--resource-group</span> <span class="nv">$AZURE_RESOURCE_GROUP</span> <span class="nt">--name</span> <span class="nv">$NEW_NODE_POOL_NAME</span> <span class="se">\</span>
+  <span class="nt">--node-count</span> 1 <span class="nt">--node-vm-size</span> Standard_E2ds_v5 <span class="nt">--mode</span> User <span class="se">\</span>
+  <span class="nt">--os-type</span> Linux <span class="nt">--os-sku</span> Ubuntu <span class="nt">--node-osdisk-size</span> 128 <span class="se">\</span>
+  <span class="nt">--node-osdisk-type</span> Managed <span class="nt">--enable-cluster-autoscaler</span> <span class="se">\</span>
+  <span class="nt">--min-count</span> 1 <span class="nt">--max-count</span> 3 <span class="nt">--linux-os-config</span> linuxosconfig.json
+
+<span class="c"># check the vm.max_map_count</span>
+<span class="nv">$ </span>az aks nodepool show <span class="nt">--cluster-name</span> <span class="nv">$AZURE_CLUSTER_NAME</span> <span class="se">\</span>
+<span class="nt">--resource-group</span> <span class="nv">$AZURE_RESOURCE_GROUP</span> <span class="nt">--name</span> <span class="nv">$NEW_NODE_POOL_NAME</span> | <span class="se">\</span>
+jq <span class="s1">'.linuxOsConfig | .sysctls | .vmMaxMapCount'</span>
+
+262144</code></pre>
+</div>
+</div>
+<details>
+<summary class="title">whole output</summary>
+<div class="content">
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>az aks nodepool show <span class="nt">--cluster-name</span> <span class="nv">$AZURE_CLUSTER_NAME</span> <span class="se">\</span>
+  <span class="nt">--resource-group</span> <span class="nv">$AZURE_RESOURCE_GROUP</span> <span class="nt">--name</span> <span class="nv">$NEW_NODE_POOL_NAME</span></code></pre>
+</div>
+</div>
+</div>
+</details>
+</div>
+</div>
+<div class="sect2">
+<h3 id="add-the-opensearch-helm-repository">Add the OpenSearch Helm repository</h3>
+<div class="paragraph">
+<p>To install OpenSearch using Helm, we need to add the OpenSearch Helm repository. This repository contains the Helm charts for OpenSearch, OpenSearch Dashboards, and OpenSearch Data Prepper.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm repo add opensearch https://opensearch-project.github.io/helm-charts/
+
+<span class="nv">$ </span>helm repo update
+
+<span class="nv">$ </span>helm search repo opensearch
+
+NAME                                    CHART VERSION   APP VERSION     DESCRIPTION
+opensearch/opensearch                   2.23.0          2.16.0          A Helm chart <span class="k">for </span>OpenSearch
+opensearch/opensearch-dashboards        2.21.0          2.16.0          A Helm chart <span class="k">for </span>OpenSearch Dashboards
+opensearch/data-prepper                 0.1.0           2.8.0           A Helm chart <span class="k">for </span>Data Prepper</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="get-values-yaml">Get values.yaml</h3>
+<div class="paragraph">
+<p>To get better understanding of the values.yaml, we can get the values.yaml of the Helm chart.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm show values opensearch/opensearch <span class="o">&gt;</span> opensearch-opensearch-values.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="refreshing-demo-certificates">Refreshing demo certificates</h3>
+<div class="paragraph">
+<p>Refer to links below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/opensearch-project/security/blob/main/DEVELOPER_GUIDE.md#refreshing-demo-certificates" class="bare">https://github.com/opensearch-project/security/blob/main/DEVELOPER_GUIDE.md#refreshing-demo-certificates</a></p>
+</li>
+<li>
+<p><a href="https://medium.com/@spawnrider/creating-a-multi-domain-san-ssl-certificate-using-openssl-2a3865ccb62a" class="bare">https://medium.com/@spawnrider/creating-a-multi-domain-san-ssl-certificate-using-openssl-2a3865ccb62a</a>]</p>
+</li>
+</ul>
+</div>
+<div class="exampleblock">
+<div class="title">Example 1. Retry on Jan/20/2025</div>
+<div class="content">
+<div class="listingblock">
+<div class="title">create certificates</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">mkdir </span>certs-20250120 <span class="o">&amp;&amp;</span> <span class="nb">cd </span>certs-20250120
+
+<span class="nv">$ </span>openssl genrsa <span class="nt">-out</span> root-ca-key.pem 2048
+
+<span class="c"># root-ca-key.pem file is created</span>
+
+<span class="nv">$ </span>openssl req <span class="nt">-new</span> <span class="nt">-x509</span> <span class="nt">-sha256</span> <span class="nt">-days</span> 3650 <span class="nt">-key</span> root-ca-key.pem <span class="se">\</span>
+  <span class="nt">-subj</span> <span class="s2">"/DC=com/DC=example/O=Example Com Inc./OU=Example Com Inc. Root CA/CN=Example Com Inc. Root CA"</span> <span class="se">\</span>
+  <span class="nt">-addext</span> <span class="s2">"basicConstraints = critical,CA:TRUE"</span> <span class="se">\</span>
+  <span class="nt">-addext</span> <span class="s2">"keyUsage = critical, digitalSignature, keyCertSign, cRLSign"</span> <span class="se">\</span>
+  <span class="nt">-addext</span> <span class="s2">"subjectKeyIdentifier = hash"</span> <span class="se">\</span>
+  <span class="nt">-addext</span> <span class="s2">"authorityKeyIdentifier = keyid:always,issuer:always"</span> <span class="nt">-out</span> root-ca.pem
+
+<span class="c"># root-ca.pem file is created</span>
+
+
+<span class="nv">$ </span>openssl genrsa <span class="nt">-out</span> esnode-key-temp.pem 2048
+
+<span class="c"># esnode-key-temp.pem file is created</span>
+
+<span class="nv">$ </span>openssl pkcs8 <span class="nt">-inform</span> PEM <span class="nt">-outform</span> PEM <span class="nt">-in</span> esnode-key-temp.pem <span class="se">\</span>
+  <span class="nt">-topk8</span> <span class="nt">-nocrypt</span> <span class="nt">-v1</span> PBE-SHA1-3DES <span class="nt">-out</span> esnode-key.pem
+
+
+
+<span class="nv">$ </span>openssl req <span class="nt">-new</span> <span class="nt">-sha256</span> <span class="nt">-key</span> esnode-key.pem <span class="se">\</span>
+  <span class="nt">-out</span> esnode.csr <span class="nt">-config</span> san.cnf
+
+<span class="c"># esnode.csr file is created</span>
+
+<span class="c"># verify the certificate signing request(CSR)</span>
+<span class="nv">$ </span>openssl req <span class="nt">-in</span> esnode.csr <span class="nt">-noout</span> <span class="nt">-text</span>
+
+<span class="nv">$ </span>openssl x509 <span class="nt">-req</span> <span class="nt">-in</span> esnode.csr <span class="nt">-out</span> esnode.pem <span class="nt">-CA</span> root-ca.pem <span class="se">\</span>
+  <span class="nt">-CAkey</span> root-ca-key.pem <span class="nt">-CAcreateserial</span> <span class="nt">-days</span> 3650
+
+<span class="c"># esnode.pem file is created</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">create a secret to hold the certificates as a yaml file</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 create secret generic esnode-certs <span class="nt">--from-file</span><span class="o">=</span>esnode.pem <span class="se">\</span>
+  <span class="nt">--from-file</span><span class="o">=</span>esnode-key.pem <span class="nt">--from-file</span><span class="o">=</span>root-ca.pem <span class="se">\</span>
+  <span class="nt">--dry-run</span><span class="o">=</span>client <span class="nt">-o</span> yaml <span class="o">&gt;</span> esnode-certs.yaml
+
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 apply <span class="nt">-f</span> esnode-certs.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>This section is deprecated</p>
+</li>
+</ol>
+</div>
+<div class="exampleblock">
+<div class="content">
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/opensearch-project/security/blob/main/DEVELOPER_GUIDE.md#refreshing-demo-certificates" class="bare">https://github.com/opensearch-project/security/blob/main/DEVELOPER_GUIDE.md#refreshing-demo-certificates</a></p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">mkdir </span>certs <span class="o">&amp;&amp;</span> <span class="nb">cd </span>certs
+
+<span class="nv">$ </span>openssl genrsa <span class="nt">-out</span> root-ca-key.pem 2048
+<span class="c"># root-ca-key.pem file is created</span>
+
+<span class="nv">$ </span>openssl req <span class="nt">-new</span> <span class="nt">-x509</span> <span class="nt">-sha256</span> <span class="nt">-days</span> 3650 <span class="nt">-key</span> root-ca-key.pem <span class="se">\</span>
+  <span class="nt">-subj</span> <span class="s2">"/DC=com/DC=example/O=Example Com Inc./OU=Example Com Inc. Root CA/CN=Example Com Inc. Root CA"</span> <span class="se">\</span>
+  <span class="nt">-addext</span> <span class="s2">"basicConstraints = critical,CA:TRUE"</span> <span class="se">\</span>
+  <span class="nt">-addext</span> <span class="s2">"keyUsage = critical, digitalSignature, keyCertSign, cRLSign"</span> <span class="se">\</span>
+  <span class="nt">-addext</span> <span class="s2">"subjectKeyIdentifier = hash"</span> <span class="se">\</span>
+  <span class="nt">-addext</span> <span class="s2">"authorityKeyIdentifier = keyid:always,issuer:always"</span> <span class="se">\</span>
+  <span class="nt">-out</span> root-ca.pem
+<span class="c"># root-ca.pem file is created</span>
+
+
+<span class="nv">$ </span>openssl genrsa <span class="nt">-out</span> esnode-key-temp.pem 2048
+<span class="c"># esnode-key-temp.pem file is created</span>
+
+<span class="nv">$ </span>openssl pkcs8 <span class="nt">-inform</span> PEM <span class="nt">-outform</span> PEM <span class="nt">-in</span> esnode-key-temp.pem <span class="se">\</span>
+  <span class="nt">-topk8</span> <span class="nt">-nocrypt</span> <span class="nt">-v1</span> PBE-SHA1-3DES <span class="nt">-out</span> esnode-key.pem
+<span class="c"># esnode-key.pem file is created</span>
+
+<span class="nv">$ </span>openssl req <span class="nt">-new</span> <span class="nt">-key</span> esnode-key.pem <span class="se">\</span>
+  <span class="nt">-subj</span> <span class="s2">"/C=de/L=test/O=node/OU=node/CN=node-0.example.com"</span> <span class="se">\</span>
+  <span class="nt">-out</span> esnode.csr
+<span class="c"># esnode.csr file is created</span>
+
+<span class="nv">$ </span><span class="nb">printf</span> <span class="s2">"subjectAltName = RID:1.2.3.4.5.5, DNS:node-0.example.com, </span><span class="se">\</span><span class="s2">
+  DNS:localhost, IP:::1, IP:127.0.0.1</span><span class="se">\n</span><span class="s2">keyUsage = digitalSignature, </span><span class="se">\</span><span class="s2">
+  nonRepudiation, keyEncipherment</span><span class="se">\n</span><span class="s2">extendedKeyUsage = serverAuth, </span><span class="se">\</span><span class="s2">
+  clientAuth</span><span class="se">\n</span><span class="s2">basicConstraints = critical,CA:FALSE"</span> <span class="o">&gt;</span> esnode_ext.conf
+<span class="c"># esnode_ext.conf file is created</span>
+
+<span class="nv">$ </span>openssl x509 <span class="nt">-req</span> <span class="nt">-in</span> esnode.csr <span class="nt">-out</span> esnode.pem <span class="nt">-CA</span> root-ca.pem <span class="se">\</span>
+  <span class="nt">-CAkey</span> root-ca-key.pem <span class="nt">-CAcreateserial</span> <span class="nt">-days</span> 3650 <span class="nt">-extfile</span> esnode_ext.conf
+<span class="c"># esnode.pem file is created</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">create a secret to hold the certificates</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 create secret generic esnode-certs <span class="se">\</span>
+  <span class="nt">--from-file</span><span class="o">=</span>esnode.pem <span class="nt">--from-file</span><span class="o">=</span>esnode-key.pem <span class="se">\</span>
+  <span class="nt">--from-file</span><span class="o">=</span>root-ca.pem</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">certificates error</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">java.lang.IllegalStateException: failed to load plugin class
+<span class="o">[</span>org.opensearch.security.OpenSearchSecurityPlugin]
+Likely root cause:
+OpenSearchException[Unable to <span class="nb">read</span> /usr/share/opensearch/config/esnode.pem
+<span class="o">(</span>/usr/share/opensearch/config/esnode.pem<span class="o">)</span><span class="nb">.</span>
+Please make sure this files exists and is readable regarding to permissions.
+Property: plugins.security.ssl.transport.pemcert_filepath]</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="customize-values-yaml">Customize values.yaml</h3>
+<div class="paragraph">
+<p>To customize the values.yaml, we need to create a new values.yaml file. The values.yaml file contains the configuration for OpenSearch.</p>
+</div>
+<div class="listingblock">
+<div class="title">nsa2-opensearch-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># Please re-try with a minimum 8 character password and must contain at least one uppercase letter,</span>
+<span class="c1"># one lowercase letter, one digit, and one special character that is strong.</span>
+<span class="c1"># Password strength can be tested here: https://lowe.github.io/tryzxcvbn</span>
+<span class="na">extraEnvs</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OPENSEARCH_INITIAL_ADMIN_PASSWORD</span>
+    <span class="na">value</span><span class="pi">:</span> <span class="s">your-password</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">DISABLE_INSTALL_DEMO_CONFIG</span>
+    <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">false"</span>
+
+<span class="na">secretMounts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">esnode-certs</span>
+    <span class="na">secretName</span><span class="pi">:</span> <span class="s">esnode-certs</span>
+    <span class="na">path</span><span class="pi">:</span> <span class="s">/usr/share/opensearch/config/certs</span>
+    <span class="na">defaultMode</span><span class="pi">:</span> <span class="s2">"</span><span class="s">0600"</span>
+
+<span class="na">image</span><span class="pi">:</span>
+  <span class="na">repository</span><span class="pi">:</span> <span class="s2">"</span><span class="s">opensearchproject/opensearch"</span>
+  <span class="c1"># override image tag, which is .Chart.AppVersion by default</span>
+  <span class="na">tag</span><span class="pi">:</span> <span class="s2">"</span><span class="s">2.16.0"</span>
+  <span class="na">pullPolicy</span><span class="pi">:</span> <span class="s2">"</span><span class="s">IfNotPresent"</span>
+
+<span class="na">resources</span><span class="pi">:</span>
+  <span class="na">limits</span><span class="pi">:</span>
+    <span class="na">cpu</span><span class="pi">:</span> <span class="s2">"</span><span class="s">400m"</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s2">"</span><span class="s">2048Mi"</span>
+  <span class="na">requests</span><span class="pi">:</span>
+    <span class="na">cpu</span><span class="pi">:</span> <span class="s2">"</span><span class="s">200m"</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s2">"</span><span class="s">1024Mi"</span>
+
+<span class="c1"># ERROR: [1] bootstrap checks failed</span>
+<span class="c1">#[1]: max virtual memory areas vm.max_map_count [65530] is too low, increase to at least [262144]</span>
+<span class="c1">#sysctlVmMaxMapCount: 262144</span>
+
+<span class="na">nodeSelector</span><span class="pi">:</span>
+  <span class="na">agentpool</span><span class="pi">:</span> <span class="s">linuxnodes</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In the nsa2-opensearch-values.yaml file, we set the following values:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>extraEnvs: We set the <code>OPENSEARCH_INITIAL_ADMIN_PASSWORD</code> environment variable to set the initial password for the admin user.</p>
+</li>
+<li>
+<p>image tag: We set the image tag to <code>2.16.0</code>.</p>
+</li>
+<li>
+<p>resources: We set the resource limits for the OpenSearch pods.</p>
+</li>
+<li>
+<p>nodeSelector: We set the nodeSelector to use the <code>linuxnodes</code> node pool. This node pool has the <code>vm.max_map_count</code> setting to at least <code>262144</code>.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="admin-password">Admin password</h3>
+<div class="paragraph">
+<p>The admin password should be strong enough to meet the requirements of the security plugin.</p>
+</div>
+<div class="paragraph">
+<p>The website below can be used to test the password.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://lowe.github.io/tryzxcvbn/" class="bare">https://lowe.github.io/tryzxcvbn/</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Its score should be at least 4.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-opensearch-using-helm">Install OpenSearch using Helm</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nt">-n</span> nsa2 <span class="nb">install </span>opensearch opensearch/opensearch <span class="se">\</span>
+<span class="nt">-f</span> nsa2-opensearch-opensearch-values.yaml
+
+NAME: opensearch
+LAST DEPLOYED: Mon Sep  9 20:14:13 2024
+NAMESPACE: nsa2
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+Watch all cluster members come up.
+  <span class="nv">$ </span>kubectl get pods <span class="nt">--namespace</span><span class="o">=</span>nsa2 <span class="nt">-l</span> app.kubernetes.io/component<span class="o">=</span>opensearch-cluster-master <span class="nt">-w</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="access-opensearch">Access OpenSearch</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 port-forward service/opensearch-cluster-master 9200:9200</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Open the browser and access <code><a href="http://localhost:9200" class="bare">http://localhost:9200</a></code> with admin username and password.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>curl <span class="nt">--insecure</span> <span class="nt">-u</span> admin:<span class="nv">$OS_ADMIN_PASSWORD</span> https://localhost:9200
+
+<span class="o">{</span>
+  <span class="s2">"name"</span> : <span class="s2">"opensearch-cluster-master-0"</span>,
+  <span class="s2">"cluster_name"</span> : <span class="s2">"opensearch-cluster"</span>,
+  <span class="s2">"cluster_uuid"</span> : <span class="s2">"6U4IvOgoQbeYO1ONU8z4pg"</span>,
+  <span class="s2">"version"</span> : <span class="o">{</span>
+    <span class="s2">"distribution"</span> : <span class="s2">"opensearch"</span>,
+    <span class="s2">"number"</span> : <span class="s2">"2.16.0"</span>,
+    <span class="s2">"build_type"</span> : <span class="s2">"tar"</span>,
+    <span class="s2">"build_hash"</span> : <span class="s2">"f84a26e76807ea67a69822c37b1a1d89e7177d9b"</span>,
+    <span class="s2">"build_date"</span> : <span class="s2">"2024-08-06T20:30:45.209655408Z"</span>,
+    <span class="s2">"build_snapshot"</span> : <span class="nb">false</span>,
+    <span class="s2">"lucene_version"</span> : <span class="s2">"9.11.1"</span>,
+    <span class="s2">"minimum_wire_compatibility_version"</span> : <span class="s2">"7.10.0"</span>,
+    <span class="s2">"minimum_index_compatibility_version"</span> : <span class="s2">"7.0.0"</span>
+  <span class="o">}</span>,
+  <span class="s2">"tagline"</span> : <span class="s2">"The OpenSearch Project: https://opensearch.org/"</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="uninstall-opensearch">Uninstall OpenSearch</h3>
+<div class="paragraph">
+<p>If needed, uninstall OpenSearch using the command below.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nt">-n</span> nsa2 uninstall opensearch</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Do not forget to delete the PVCs if you want to delete the data.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 delete pvc <span class="nt">-l</span> app.kubernetes.io/instance<span class="o">=</span>opensearch</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="install-opensearch-dashboards">Install OpenSearch Dashboards</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="get-values-yaml-2">Get values.yaml</h3>
+<div class="paragraph">
+<p>The command below gets the values.yaml for OpenSearch Dashboards and saves it to a file named <code>opensearch-dashboards-values.yaml</code>.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm show values opensearch/opensearch-dashboards <span class="o">&gt;</span> opensearch-dashboards-values.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="customize-values-yaml-2">Customize values.yaml</h3>
+<div class="paragraph">
+<p>You can customize the values.yaml for OpenSearch Dashboards.</p>
+</div>
+<div class="listingblock">
+<div class="title">nsa2-opensearch-dashboards-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">resources</span><span class="pi">:</span>
+  <span class="na">requests</span><span class="pi">:</span>
+    <span class="na">cpu</span><span class="pi">:</span> <span class="s2">"</span><span class="s">100m"</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s2">"</span><span class="s">512M"</span>
+  <span class="na">limits</span><span class="pi">:</span>
+    <span class="na">cpu</span><span class="pi">:</span> <span class="s2">"</span><span class="s">400m"</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s2">"</span><span class="s">2048M"</span>
+
+<span class="na">nodeSelector</span><span class="pi">:</span>
+<span class="c1">#  agentpool: linuxnodes</span>
+  <span class="na">agentpool</span><span class="pi">:</span> <span class="s">depnodes</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In the nsa2-opensearch-dashboards-values.yaml file, we set the following values:</p>
+</div>
+<div class="paragraph">
+<p>resources: We set the resource limits for the OpenSearch Dashboards pods.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-opensearch-dashboards-using-helm">Install OpenSearch Dashboards using Helm</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nt">-n</span> nsa2 <span class="nb">install </span>opensearch-dashboards opensearch/opensearch-dashboards <span class="se">\</span>
+  <span class="nt">-f</span> nsa2-opensearch-dashboards-values.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="uninstall-opensearch-dashboards">Uninstall OpenSearch Dashboards</h3>
+<div class="paragraph">
+<p>If needed, uninstall OpenSearch Dashboards.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nt">-n</span> nsa2 uninstall opensearch-dashboards</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="access-opensearch-dashboards">Access OpenSearch Dashboards</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 port-forward service/opensearch-dashboards 5601:5601</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Open the browser and access <code><a href="http://localhost:5601" class="bare">http://localhost:5601</a></code>.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/dashboards-login.png" alt="dashboards login" width="1000">
+</div>
+</div>
+<div class="paragraph">
+<p>Use admin and Ehdrkddkwl100$ as the username and password.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/dashboards-tenant-select.png" alt="dashboards tenant select" width="1000">
+</div>
+</div>
+<div class="paragraph">
+<p>Select Private tenant which is the default tenant. Click on the <code>Confirm</code> button.</p>
+</div>
+<div class="paragraph">
+<p>On the main page, click on the <code>Dev Tools</code> menu.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/dashboards-devtool-indices.png" alt="dashboards devtool indices" width="1000">
+</div>
+</div>
+<div class="paragraph">
+<p>In the Dev Tools, run the following command to list the indices.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>GET /_cat/indices?v</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>You should see the list of indices on the right side.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="defining-users-and-roles-using-api">Defining users and roles using API</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We can define users and roles using either the API or OpenSearch Dashboards UI.</p>
+</div>
+<div class="sect2">
+<h3 id="port-forward-the-opensearch-service">Port-forward the OpenSearch service</h3>
+<div class="paragraph">
+<p>Let&#8217;s port-forward the OpenSearch service to access the API.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 port-forward svc/opensearch-cluster-master 9200:9200</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-a-role">Create a role</h3>
+<div class="paragraph">
+<p>Refer to the link below to create a role using the API.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://opensearch.org/docs/latest/security/access-control/api/#create-role" class="bare">https://opensearch.org/docs/latest/security/access-control/api/#create-role</a></p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">nsa2-role.json</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"cluster_permissions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+    </span><span class="s2">"cluster_composite_ops"</span><span class="p">,</span><span class="w">
+    </span><span class="s2">"indices_monitor"</span><span class="w">
+  </span><span class="p">],</span><span class="w">
+  </span><span class="nl">"index_permissions"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w">
+    </span><span class="nl">"index_patterns"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+      </span><span class="s2">"nsa2*"</span><span class="w">
+    </span><span class="p">],</span><span class="w">
+    </span><span class="nl">"dls"</span><span class="p">:</span><span class="w"> </span><span class="s2">""</span><span class="p">,</span><span class="w">
+    </span><span class="nl">"fls"</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span><span class="w">
+    </span><span class="nl">"masked_fields"</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span><span class="w">
+    </span><span class="nl">"allowed_actions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+      </span><span class="s2">"indices:admin/create"</span><span class="p">,</span><span class="w"> </span><span class="s2">"read"</span><span class="p">,</span><span class="w"> </span><span class="s2">"write"</span><span class="w">
+    </span><span class="p">]</span><span class="w">
+  </span><span class="p">}],</span><span class="w">
+  </span><span class="nl">"tenant_permissions"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w">
+    </span><span class="nl">"tenant_patterns"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+      </span><span class="s2">"human_resources"</span><span class="w">
+    </span><span class="p">],</span><span class="w">
+    </span><span class="nl">"allowed_actions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+      </span><span class="s2">"kibana_all_read"</span><span class="w">
+    </span><span class="p">]</span><span class="w">
+  </span><span class="p">}]</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c"># OS_ADMIN_PASSWORD is the password for the admin user</span>
+
+<span class="nv">$ </span>curl <span class="nt">-X</span> PUT <span class="s2">"https://localhost:9200/_plugins/_security/api/roles/nsa2_role"</span> <span class="se">\</span>
+  <span class="nt">-H</span> <span class="s1">'Content-Type: application/json'</span> <span class="nt">-d</span> @nsa2-role.json <span class="se">\</span>
+  <span class="nt">-k</span> <span class="nt">-u</span> admin:<span class="nv">$OS_ADMIN_PASSWORD</span>
+
+<span class="o">{</span><span class="s2">"status"</span>:<span class="s2">"CREATED"</span>,<span class="s2">"message"</span>:<span class="s2">"'nsa2_role' created."</span><span class="o">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="delete-a-role">Delete a role</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>curl <span class="nt">-X</span> DELETE <span class="s2">"https://localhost:9200/_plugins/_security/api/roles/nsa2_role"</span> <span class="se">\</span>
+  <span class="nt">-k</span> <span class="nt">-u</span> admin:<span class="nv">$OS_ADMIN_PASSWORD</span>
+
+<span class="o">{</span><span class="s2">"status"</span>:<span class="s2">"OK"</span>,<span class="s2">"message"</span>:<span class="s2">"'nsa2_role' deleted."</span><span class="o">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-a-user">Create a user</h3>
+<div class="paragraph">
+<p>Refer to the link below to create a user using the API.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://opensearch.org/docs/latest/security/access-control/api/#create-user" class="bare">https://opensearch.org/docs/latest/security/access-control/api/#create-user</a></p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">nsa2-user.json</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"password"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Ehdrkddkwl100$"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"backend_roles"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"nsa2_role"</span><span class="p">],</span><span class="w">
+  </span><span class="nl">"attributes"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nl">"created_by"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nsa2"</span><span class="p">,</span><span class="w">
+    </span><span class="nl">"privider"</span><span class="p">:</span><span class="w"> </span><span class="s2">"alexamy"</span><span class="w">
+  </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>curl <span class="nt">-X</span> PUT <span class="s2">"https://localhost:9200/_plugins/_security/api/internalusers/nsa2"</span> <span class="se">\</span>
+  <span class="nt">-H</span> <span class="s1">'Content-Type: application/json'</span> -<span class="se">\</span>
+  d @nsa2-user.json <span class="nt">-k</span> <span class="nt">-u</span> admin:<span class="nv">$OS_ADMIN_PASSWORD</span>
+
+<span class="o">{</span><span class="s2">"status"</span>:<span class="s2">"CREATED"</span>,<span class="s2">"message"</span>:<span class="s2">"'nsa2' created."</span><span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="sect3">
+<h4 id="troubleshooting">Troubleshooting</h4>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>If you see the following error, the password is too weak.</p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>{"status":"error","reason":"Weak password"}</pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="map-a-role-to-a-user">Map a role to a user</h3>
+<div class="listingblock">
+<div class="title">nsa2-rolesmapping.json</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"backend_roles"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[],</span><span class="w">
+  </span><span class="nl">"hosts"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="s2">"*"</span><span class="w"> </span><span class="p">],</span><span class="w">
+  </span><span class="nl">"users"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="s2">"nsa2"</span><span class="w"> </span><span class="p">]</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>curl <span class="nt">-X</span> PUT <span class="s2">"https://localhost:9200/_plugins/_security/api/rolesmapping/nsa2_role"</span> <span class="se">\</span>
+  <span class="nt">-H</span> <span class="s1">'Content-Type: application/json'</span> <span class="se">\</span>
+  <span class="nt">-d</span> @nsa2-rolesmapping.json <span class="se">\</span>
+  <span class="nt">-k</span> <span class="nt">-u</span> admin:<span class="nv">$OS_ADMIN_PASSWORD</span>
+
+<span class="o">{</span><span class="s2">"status"</span>:<span class="s2">"CREATED"</span>,<span class="s2">"message"</span>:<span class="s2">"'nsa2_role' created."</span><span class="o">}</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="defining-users-and-roles-using-opensearch-dashboards-ui">Defining users and roles using OpenSearch Dashboards UI</h2>
+<div class="sectionbody">
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Choose <code>Security</code>, <code>Internal Users</code> from the left menu and Click on the <code>Create user</code> button.</p>
+</li>
+</ol>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/dashboards-internal-users-create-1.png" alt="dashboards internal users create 1" width="1000">
+</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic" start="2">
+<li>
+<p>Provide a username and password. The Security plugin automatically hashes the password and stores it in the .opendistro_security index.</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="opensearch-data-prepper-2">Opensearch Data Prepper</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Opensearch Data Prepper is used to ingest data from OpenTelemetry Collector and send it to OpenSearch.</p>
+</div>
+<div class="paragraph">
+<p>By default, OpenSearch Data Prepper provides OpenTelemetry Collector integration for logs, traces, and metrics. In this article, we cover how to ingest logs from OpenTelemetry Collector and send them to OpenSearch.</p>
+</div>
+<div class="sect2">
+<h3 id="get-values-yaml-3">Get values.yaml</h3>
+<div class="paragraph">
+<p>To get the values.yaml for OpenSearch Data Prepper, run the command below.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm show values opensearch/data-prepper <span class="o">&gt;</span> opensearch-data-prepper-values.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="customize-values-yaml-3">Customize values.yaml</h3>
+<div class="listingblock">
+<div class="title">nsa2-opensearch-data-prepper-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1">#image:</span>
+<span class="c1">#  tag: ""</span>
+
+<span class="c1">#config:</span>
+
+<span class="na">pipelineConfig</span><span class="pi">:</span>
+  <span class="na">config</span><span class="pi">:</span>
+   <span class="na">otel-logs-pipeline</span><span class="pi">:</span>
+     <span class="na">workers</span><span class="pi">:</span> <span class="m">5</span>
+     <span class="na">delay</span><span class="pi">:</span> <span class="m">10</span>
+     <span class="na">source</span><span class="pi">:</span>
+       <span class="na">otel_logs_source</span><span class="pi">:</span>
+         <span class="c1">#port: 21892</span>
+         <span class="c1">#path: /v1/logs</span>
+         <span class="na">ssl</span><span class="pi">:</span> <span class="kc">false</span>
+     <span class="na">buffer</span><span class="pi">:</span>
+       <span class="na">bounded_blocking</span><span class="pi">:</span>
+     <span class="na">sink</span><span class="pi">:</span>
+       <span class="pi">-</span> <span class="na">opensearch</span><span class="pi">:</span>
+           <span class="na">hosts</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">https://opensearch-cluster-master:9200"</span><span class="pi">]</span>
+           <span class="na">username</span><span class="pi">:</span> <span class="s2">"</span><span class="s">admin"</span>
+           <span class="na">password</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Ehdrkddkwl100$"</span>
+           <span class="na">insecure</span><span class="pi">:</span> <span class="kc">true</span>
+<span class="c1">#           cert: /etc/opensearch/certs/esnode-ca.pem</span>
+<span class="c1">#           verify_hostname: false</span>
+           <span class="na">index_type</span><span class="pi">:</span> <span class="s">custom</span>
+           <span class="na">index</span><span class="pi">:</span> <span class="s">nsa2-%{yyyy.MM.dd}</span>
+           <span class="c1">#max_retries: 20</span>
+           <span class="na">bulk_size</span><span class="pi">:</span> <span class="m">4</span>
+
+<span class="na">resources</span><span class="pi">:</span>
+  <span class="na">limits</span><span class="pi">:</span>
+    <span class="na">cpu</span><span class="pi">:</span> <span class="s">400m</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s">1024Mi</span>
+  <span class="na">requests</span><span class="pi">:</span>
+    <span class="na">cpu</span><span class="pi">:</span> <span class="s">100m</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s">128Mi</span>
+
+
+<span class="c1"># Additional volumes on the output Deployment definition.</span>
+<span class="na">volumes</span><span class="pi">:</span>
+<span class="c1"># - name: opensearch-certs</span>
+ <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">esnode-certs</span>
+   <span class="na">secret</span><span class="pi">:</span>
+     <span class="na">secretName</span><span class="pi">:</span> <span class="s">esnode-certs</span>
+     <span class="na">optional</span><span class="pi">:</span> <span class="kc">false</span>
+
+<span class="c1"># Additional volumeMounts on the output Deployment definition.</span>
+<span class="na">volumeMounts</span><span class="pi">:</span>
+<span class="c1"># - name: opensearch-certs</span>
+ <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">esnode-certs</span>
+   <span class="na">mountPath</span><span class="pi">:</span> <span class="s2">"</span><span class="s">/etc/opensearch/certs"</span>
+   <span class="na">readOnly</span><span class="pi">:</span> <span class="kc">true</span>
+<span class="c1"># - name: foo</span>
+<span class="c1">#   mountPath: "/etc/foo"</span>
+<span class="c1">#   readOnly: true</span>
+
+<span class="na">nodeSelector</span><span class="pi">:</span>
+<span class="c1">#  agentpool: depnodes</span>
+  <span class="na">agentpool</span><span class="pi">:</span> <span class="s">depnodes</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In the nsa2-opensearch-data-prepper-values.yaml file, we set the following values:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>pipelineConfig: We set the pipeline configuration to ingest logs from OpenTelemetry Collector and send them to OpenSearch.</p>
+</li>
+<li>
+<p>resources: We set the resource limits for the OpenSearch Data Prepper pods.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="ports">Ports</h3>
+<div class="paragraph">
+<p>Opensearch Data Prepper uses the following ports:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>http-source: 2021</p>
+</li>
+<li>
+<p>otel-traces: 21890</p>
+</li>
+<li>
+<p>otel-metrics: 21891</p>
+</li>
+<li>
+<p>otel-logs: 21892</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-opensearch-data-prepper-using-helm">Install OpenSearch Data Prepper using Helm</h3>
+<div class="paragraph">
+<p>The command below installs OpenSearch Data Prepper using Helm.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nt">-n</span> nsa2 <span class="nb">install </span>opensearch-data-prepper opensearch/data-prepper <span class="se">\</span>
+  <span class="nt">-f</span> nsa2-opensearch-data-prepper-values.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="uninstall-opensearch-data-prepper">Uninstall OpenSearch Data Prepper</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nt">-n</span> nsa2 uninstall opensearch-data-prepper</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="references">References</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://medium.com/@erikstrm_11611/demystify-opentelemetry-with-opensearch-as-a-single-plane-of-glass-919f884eb568" class="bare">https://medium.com/@erikstrm_11611/demystify-opentelemetry-with-opensearch-as-a-single-plane-of-glass-919f884eb568</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="fluent-bit-configuration">Fluent-bit configuration</h2>
+<div class="sectionbody">
+<div class="admonitionblock warning">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-warning" title="Warning"></i>
+</td>
+<td class="content">
+<div class="paragraph">
+<p>This section is deprecated.</p>
+</div>
+</td>
+</tr>
+</table>
+</div>
+<details>
+<summary class="title">Details</summary>
+<div class="content">
+<div class="paragraph">
+<p>=== Get certificates</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c"># tar: Removing leading `/' from member names</span>
+<span class="c">#$ kubectl -n nsa2 cp opensearch-cluster-master-0:/usr/share/opensearch/config/esnode.pem esnode.pem</span>
+
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 <span class="nb">cp </span>opensearch-cluster-master-0:config/esnode.pem esnode.pem
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 <span class="nb">cp </span>opensearch-cluster-master-0:config/root-ca.pem root-ca.pem
+
+<span class="c"># add a blank line to the root-ca.pem file</span>
+<span class="nv">$ </span><span class="nb">echo</span> <span class="s2">""</span> <span class="o">&gt;&gt;</span> root-ca.pem
+
+<span class="c"># merge the certificates with a blank line in between</span>
+<span class="nv">$ </span><span class="nb">cat </span>root-ca.pem esnode.pem <span class="o">&gt;</span> esnode-ca.pem</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>=== Create a secret</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>opensearch-credentials</p>
+</li>
+<li>
+<p>opensearch-certs</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>==== opensearch-credentials</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c"># OS_NSA2_PASSWORD is the password for the nsa2 user</span>
+
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 create secret generic opensearch-credentials <span class="nt">--from-literal</span><span class="o">=</span><span class="nv">username</span><span class="o">=</span>nsa2 <span class="nt">--from-literal</span><span class="o">=</span><span class="nv">password</span><span class="o">=</span><span class="nv">$OS_NSA2_PASSWORD</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>==== opensearch-certs</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 create secret generic opensearch-certs <span class="nt">--from-file</span><span class="o">=</span>esnode-ca.pem <span class="nt">--from-file</span><span class="o">=</span>esnode.pem <span class="nt">--from-file</span><span class="o">=</span>root-ca.pem</code></pre>
+</div>
+</div>
+</div>
+</details>
+</div>
+</div>
+<div class="sect1">
+<h2 id="opentelemetry-collector-configuration-for-opensearch-data-prepper">OpenTelemetry Collector configuration for OpenSearch Data Prepper</h2>
+<div class="sectionbody">
+<div class="listingblock">
+<div class="content">
+<pre>    exporters:
+
+      otlp/data-prepper-logs:
+        endpoint: http://opensearch-data-prepper:21892
+
+        tls:
+          insecure: true
+
+
+    service:
+      pipelines:
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [debug, otlphttp/nsa2, otlp/data-prepper-logs]</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In the OpenTelemetry Collector configuration, we define an exporter named <code>otlp/data-prepper-logs</code> to send logs to OpenSearch Data Prepper. We set the endpoint to <code><a href="http://opensearch-data-prepper:21892" class="bare">http://opensearch-data-prepper:21892</a></code>.</p>
+</div>
+<div class="paragraph">
+<p>And I added <code>otlp/data-prepper-logs</code> to the <code>exporters</code> section for logs.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="search-and-visualize-logs-using-opensearch-dashboards">Search and visualize logs using OpenSearch Dashboards</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="create-an-index-pattern">Create an index pattern</h3>
+<div class="paragraph">
+<p>To search and visualize logs using OpenSearch Dashboards, we need to create an index pattern.</p>
+</div>
+<div class="sect3">
+<h4 id="define-the-index-pattern">Define the index pattern</h4>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Go to OpenSearch Dashboards, and select Management &gt; Dashboards Management &gt; Index patterns.</p>
+</li>
+<li>
+<p>Select Create index pattern.</p>
+</li>
+<li>
+<p>From the Create index pattern window, define the index pattern by entering a name for your index pattern in the Index pattern name field. Dashboards automatically adds a wildcard, *, once you start typing. Using a wildcard is helpful for matching an index pattern to multiple sources or indexes. A dropdown list displaying all the indexes that match your index pattern appears when you start typing.</p>
+</li>
+<li>
+<p>Select Next step.</p>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect3">
+<h4 id="time-field">Time field</h4>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Select <code>time</code> or <code>observedTime</code> field for <code>Time field</code></p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>OpenTelemetry generates logs with the <code>time</code> field. We can use the <code>time</code> field as the <code>Time field</code> for the index pattern.</p>
+</div>
+<div class="paragraph">
+<p>For more information, refer to the link below:</p>
+</div>
+<div class="paragraph">
+<p><a href="https://opensearch.org/docs/latest/dashboards/management/index-patterns/" class="bare">https://opensearch.org/docs/latest/dashboards/management/index-patterns/</a></p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="call-application-api-to-generate-logs">Call Application API to generate logs</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c"># to generate logs with stack trace</span>
+<span class="nv">$ </span> curl <span class="nt">-X</span> POST http://localhost:8080/log/INVALID <span class="nt">-d</span> <span class="s2">"this is error message"</span>
+
+<span class="c"># to generate normal logs</span>
+<span class="nv">$ </span>curl http://localhost:8080/error-logs/notify</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="search-logs-with-service-name-and-log-level">Search logs with service name and log level</h3>
+<div class="listingblock">
+<div class="title">DQL for searching logs with service name and log level</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="dql">serviceName: nsa2-opentelemetry-example AND severityText: INFO</code></pre>
+</div>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/dashboards-dql-severity.png" alt="dashboards dql severity" width="1000">
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="search-logs-with-stack-trace">Search logs with stack trace</h3>
+<div class="listingblock">
+<div class="title">DQL for searching logs with stack trace</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="dql">log.attributes.exception@stacktrace: *LoggingExampleServiceImpl*</code></pre>
+</div>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/dashboards-dql-stacktrace.png" alt="dashboards dql stacktrace" width="1000">
+</div>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/dashboards-dql-stacktrace-2.png" alt="dashboards dql stacktrace 2" width="1000">
+</div>
+<div class="title">Figure 1. stack trace message</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This article covered how to install OpenSearch, OpenSearch Dashboards, and OpenSearch Data Prepper using Helm. We also covered how to define users and roles using the API and OpenSearch Dashboards UI. Finally, we covered how to search and visualize logs using OpenSearch Dashboards.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="references-2">References</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://opensearch-project.github.io/helm-charts/" class="bare">https://opensearch-project.github.io/helm-charts/</a></p>
+</li>
+<li>
+<p><a href="https://opensearch.org/docs/latest/install-and-configure/install-opensearch/helm/" class="bare">https://opensearch.org/docs/latest/install-and-configure/install-opensearch/helm/</a></p>
+</li>
+<li>
+<p><a href="https://github.com/opensearch-project/helm-charts/tree/main/charts/opensearch" class="bare">https://github.com/opensearch-project/helm-charts/tree/main/charts/opensearch</a></p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="opensearch-on-aks">OpenSearch on AKS</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://devopsforyou.com/setting-up-an-opensearch-cluster-on-aks-0a8ef2acb91d" class="bare">https://devopsforyou.com/setting-up-an-opensearch-cluster-on-aks-0a8ef2acb91d</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>

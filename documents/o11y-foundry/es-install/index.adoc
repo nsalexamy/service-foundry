@@ -1,0 +1,384 @@
+---
+layout: documents
+title:  Distributed Tracing - Jaeger and OpenTelemetry Collector
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+// docs/centralized-logging/part-3/index.adoc
+= Centralized Logging - Part 3 : Installing Elasticsearch and Kibana
+
+:imagesdir: images
+
+image::centralized-logging-architecture.png[width=1000, align="center"]
+== Introduction
+
+In this tutorial, we will install Elasticsearch and Kibana to Kubernetes. Elasticsearch is a distributed, RESTful search and analytics engine capable of solving a growing number of use cases. Kibana is an open-source data visualization dashboard for Elasticsearch. It provides visualization capabilities on top of the content indexed on an Elasticsearch cluster.
+
+If you already have any Elasticsearch and Kibana instances available, you can skip this tutorial.
+
+=== Centralized Logging series
+
+This tutorial is the 3rd part of the Centralized Logging series. The series covers the following topics:
+
+1. Part 1 - Logging in Spring Boot Application
+2. Part 2 - Deploying Spring Boot Application to Kubernetes
+3. Part 3 - Installing Elasticsearch and Kibana to Kubernetes
+4. Part 4 - Centralized Logging with Fluent-bit and Elasticsearch(Kubernetes)
+5. Part 5 - Centralized Logging with Fluent-bit and Elasticsearch(On-premise)
+6. Part 6 - Log Analysis with Apache Spark
+
+
+== Install Elasticsearch
+
+We are going to install Elasticsearch and Kibana to Kubernetes using Helm in the `logging` namespace. We will create a self-signed certificate for the internal Certificate Authority(CA) and use it to create a self-signed certificate for the Elasticsearch cluster. We will create a secret to store the certificates and another secret to store the Elasticsearch credentials.
+
+
+=== Create a Namespace
+
+Create a namespace for the logging components:
+[source,shell]
+----
+$ kubectl create namespace logging
+$ kubectl get namespaces
+----
+
+First, we will install Elasticsearch to Kubernetes using Helm.
+
+Add the Elastic Helm repository:
+[source,shell]
+----
+$ helm repo add elastic https://helm.elastic.co
+$ helm repo update
+$ helm repo list
+$ helm search repo elastic
+----
+
+==== Create Certificate Authority and Certificates
+
+In this section, we will create a self-signed certificate for the internal Certificate Authority(CA) and use it to create a self-signed certificate for the Elasticsearch cluster.
+
+Here is an example of creating a self-signed certificate for the internal CA:
+
+[source,shell]
+----
+$ mkdir -p src/main/k8s/ca && cd $_
+
+
+$ openssl req -newkey rsa:2048 -keyout my-ca.key -nodes -x509 -days 3650 -out my-ca.crt \
+-subj "/C=CA/ST=BC/L=Vancouver/O=Alexamy/CN=elasticsearch-master" \
+-addext "subjectAltName=DNS:elasticsearch-master.logging,\
+  DNS:elasticsearch-master-0, DNS:elasticsearch-master-1,\
+  DNS:elasticsearch-master-2, DNS:elasticsearch-master.logging.svc.cluster.local"
+
+$ ls
+my-ca.crt  my-ca.key
+----
+
+Make sure that the command below shows `CA:TRUE` in the output:
+[source,shell]
+----
+$ openssl x509 -text -noout -in my-ca.crt | grep CA
+
+                CA:TRUE
+----
+
+
+Now that we have self-signed certificate and key for the internal CA, we will create self-signed certificate for the Elasticsearch cluster.
+This certificate is suitable for development and testing purposes. For production, you should use a certificate signed by a trusted Certificate Authority(CA).
+
+.create a private key for the Elasticsearch cluster
+[source,shell]
+----
+$ openssl genrsa -out elasticsearch-master.key 2048
+#$ openssl genrsa -out elasticsearch-master.key 2048 && chmod 0600 elasticsearch-master.key
+----
+
+.create a Certificate Signing Request(CSR) for the Elasticsearch cluster
+[source,shell]
+----
+$ openssl req -new -sha256 -key elasticsearch-master.key -out elasticsearch-master.csr -config openssl-csr.conf
+
+# or use the following command to create a CSR with subjectAltName
+$ openssl req -new -sha256 -key elasticsearch-master.key -out elasticsearch-master.csr \
+-subj "/C=CA/ST=BC/L=Vancouver/O=Alexamy/CN=elasticsearch-master" \
+-addext "subjectAltName=DNS:elasticsearch-master.logging, \
+DNS:elasticsearch-master-0, DNS:elasticsearch-master-1, \
+DNS:elasticsearch-master-2, \
+DNS:elasticsearch-master.logging.svc.cluster.local, DNS:elasticsearch.logging.alexamy.com"
+----
+
+.create a self-signed certificate for the Elasticsearch cluster
+[source,shell]
+----
+$ openssl x509 -req -in elasticsearch-master.csr -CA my-ca.crt -CAkey my-ca.key \
+-CAcreateserial -out elasticsearch-master.crt -days 1825 -sha256
+
+$  openssl x509 -text -noout -in  elasticsearch-master.crt
+----
+
+.create a PEM file for the Elasticsearch cluster
+[source,shell]
+----
+$ cat elasticsearch-master.crt my-ca.crt > elasticsearch-master.pem
+----
+
+This PEM file will be used by clients to connect to the Elasticsearch cluster. This will be used in the next tutorials when we configure Fluent-bit to send logs to Elasticsearch.
+
+==== Create a Secret for the Certificates
+
+Create a secret to store the certificates for Elasticsearch:
+[source,shell]
+----
+$ kubectl create secret tls elasticsearch-master-certs  --cert=elasticsearch-master.crt \
+  --key=elasticsearch-master.key -n logging
+
+----
+
+To add ca.crt to the secret, run the following command:
+[source,shell]
+----
+
+$ caContents=$(base64 -i my-ca.crt | tr -d '\n')
+
+$ kubectl -n logging patch secret elasticsearch-master-certs -p "{\"data\":{\"my-ca.crt\":\"$caContents\"}}"
+
+----
+
+In elasticsearch-certs secret, we have the following keys:
+
+- tls.key
+- tls.crt
+- my-ca.crt
+
+All these keys are required for Elasticsearch to use TLS.
+
+==== Create a Secret for Elasticsearch credentials
+
+A secret is required to store the Elasticsearch credentials. We will create a secret with the username and password for Elasticsearch.
+[source,shell]
+----
+$ kubectl create secret generic elasticsearch-master-credentials --from-literal=username=elastic \
+--from-literal=password=changeit --dry-run=client -o yaml \
+-n logging > elasticsearch-master-credentials-secret.yaml
+
+$ kubectl apply -f elasticsearch-master-credentials-secret.yaml
+----
+
+I have set the username to `elastic` and the password to `changeit`. You can change the password to a secure one.
+
+==== Install Elasticsearch using Helm on Kubernetes
+
+Now we are ready to install Elasticsearch to Kubernetes using Helm.
+
+The elasticsearch-values.yaml file contains the values for the Elasticsearch Helm chart.
+
+.elasticsearch-values.yaml
+[source,yaml]
+----
+
+esConfig:
+  elasticsearch.yml: |
+    xpack.security.enabled: "true"
+    xpack.security.transport.ssl.enabled: "true"
+    xpack.security.transport.ssl.supported_protocols: "TLSv1.2"
+    xpack.security.transport.ssl.client_authentication: "none"
+    xpack.security.transport.ssl.key: "/usr/share/elasticsearch/config/certs/tls.key"
+    xpack.security.transport.ssl.certificate: "/usr/share/elasticsearch/config/certs/tls.crt"
+    xpack.security.transport.ssl.certificate_authorities: "/usr/share/elasticsearch/config/certs/my-ca.crt"
+    xpack.security.transport.ssl.verification_mode: "certificate"
+    xpack.security.http.ssl.enabled: "true"
+    xpack.security.http.ssl.supported_protocols: "TLSv1.2"
+    xpack.security.http.ssl.client_authentication: "none"
+    xpack.security.http.ssl.key: "/usr/share/elasticsearch/config/certs/tls.key"
+    xpack.security.http.ssl.certificate: "/usr/share/elasticsearch/config/certs/tls.crt"
+    xpack.security.http.ssl.certificate_authorities: "/usr/share/elasticsearch/config/certs/my-ca.crt"
+
+
+
+createCert: false
+
+extraEnvs:
+  - name: "ELASTIC_PASSWORD"
+    valueFrom:
+      secretKeyRef:
+        name: "elasticsearch-master-credentials"
+        key: "password"
+  - name: "ELASTIC_USERNAME"
+    valueFrom:
+      secretKeyRef:
+        name: "elasticsearch-master-credentials"
+        key: "username"
+
+secret:
+  enabled: false
+
+secretMounts:
+  - name: "elastic-certificates"
+    secretName: "elasticsearch-master-certs"
+    path: "/usr/share/elasticsearch/config/certs"
+    defaultMode: "0755"
+
+# This settings are for Minikube
+resources:
+  requests:
+    cpu: "500m"
+    memory: "2Gi"
+  limits:
+    cpu: "500m"
+    memory: "2Gi"
+
+# This settings are for Minikube.
+volumeClaimTemplate:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 8Gi
+
+#nodeSelector:
+#  agentpool: depnodes
+
+#extraVolumes:
+#  - name: ca-pem-store
+#    configMap:
+#      name: ca-pem-store
+# - name: extras
+#   emptyDir: {}
+
+#extraVolumeMounts:
+#  - name: ca-pem-store
+#    mountPath: /etc/ssl/certs/elasticsearch-master.pem
+#    subPath: elasticsearch-master.pem
+#    readOnly: false
+# - name: extras
+#   mountPath: /usr/share/extras
+#   readOnly: true
+----
+In esConfig, we have the following files:
+
+- "/usr/share/elasticsearch/config/certs/tls.key"
+- "/usr/share/elasticsearch/config/certs/tls.crt"
+- "/usr/share/elasticsearch/config/certs/my-ca.crt"
+
+These files are saved in the elasticsearch-certs secret. These files are mounted to the Elasticsearch container to enable TLS.
+
+And ELASTICSEARCH_USERNAME and ELASTICSEARCH_PASSWORD are set to the values in the elasticsearch-master-credentials secret.
+
+As for resources and volume size, you can adjust them based on your requirements.
+
+[source,shell]
+----
+$ helm install elasticsearch elastic/elasticsearch -n logging \
+  -f elasticsearch-opensearch-values.yaml
+
+NAME: elasticsearch
+LAST DEPLOYED: Sun May 26 20:39:00 2024
+NAMESPACE: logging
+STATUS: deployed
+REVISION: 1
+NOTES:
+1. Watch all cluster members come up.
+  $ kubectl get pods --namespace=logging -l app=elasticsearch-master -w
+2. Retrieve elastic user's password.
+  $ kubectl get secrets --namespace=logging elasticsearch-master-credentials -ojsonpath='{.data.password}' | base64 -d
+3. Test cluster health using Helm test.
+  $ helm --namespace=logging test elasticsearch
+----
+
+
+==== Uninstall Elasticsearch
+
+To uninstall Elasticsearch, run the following command:
+
+.uninstall Elasticsearch
+[source,shell]
+----
+$ helm uninstall elasticsearch -n logging
+----
+
+=== Install Kibana
+
+==== Install Kibana on Kubernetes using Helm
+
+.kibana-values.yaml
+[source,yaml]
+----
+elasticsearchCertificateAuthoritiesFile: my-ca.crt
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "400m"
+    memory: "1Gi"
+
+
+protocol: https
+
+nodeSelector:
+  agentpool: depnodes
+----
+
+The default values.yaml file for Kibana is like the one below. Because we have the same secrets defined in values.yaml file, I just need to overwrite `elasticsearchCertificateAuthoritiesFile` to `my-ca.crt`.
+I also set `protocol` to `https` because `elasticsearchHosts` is `https://elasticsearch-master:9200`.
+As for resources, you can adjust them based on your requirements.
+
+.values.yaml file for Kibana
+[source,yaml]
+----
+elasticsearchHosts: "https://elasticsearch-master:9200"
+elasticsearchCertificateSecret: elasticsearch-master-certs
+elasticsearchCertificateAuthoritiesFile: ca.crt
+elasticsearchCredentialSecret: elasticsearch-master-credentials
+----
+
+To install Kibana, run the following command:
+[source,shell]
+----
+$ helm install kibana elastic/kibana -n logging \
+  -f kibana-opensearch-values.yaml
+----
+
+==== Install Kibana on Minikube
+
+[source,shell]
+----
+$ helm install kibana elastic/kibana -n logging \
+  -f kibana-minikube-opensearch-values.yaml
+----
+
+=== Access Kibana
+
+To access Kibana, you need to create a port-forward to the Kibana service.
+[source,shell]
+----
+$ kubectl port-forward service/kibana-kibana 5601:5601 -n logging
+----
+
+Now you can access Kibana at http://localhost:5601. You can log in with the username `elastic` and the password `changeit`.
+
+==== Clean up
+
+To uninstall Kibana, run the following command:
+[source,shell]
+----
+$ helm uninstall kibana -n logging
+$ kubectl -n logging delete configmap -l app=kibana
+
+$ echo "serviceaccount role rolebinding job" | tr " " '\n' | xargs -I {} kubectl -n logging delete {}/pre-install-kibana-kibana
+
+$ echo "serviceaccount role rolebinding job" | tr " " '\n' | xargs -I {} kubectl -n logging delete {}/post-delete-kibana-kibana
+----
+
+In addition to uninstalling Kibana, we also delete the configmap , serviceaccounts, roles, rolebindings jobs created by the Helm chart.
+
+== Conclusion
+
+In this tutorial, we installed Elasticsearch and Kibana to Kubernetes using Helm. We created a self-signed certificate for the internal Certificate Authority(CA) and used it to create a self-signed certificate for the Elasticsearch cluster. We created a secret to store the certificates and another secret to store the Elasticsearch credentials.

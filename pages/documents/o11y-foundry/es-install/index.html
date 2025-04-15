@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Centralized Logging - Part 3 : Installing Elasticsearch and Kibana</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre,
+    pre code {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre;
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+    <div class="logo text-xl font-semibold">Service Foundry</div>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#centralized-logging-series">Centralized Logging series</a></li>
+</ul>
+</li>
+<li><a href="#install-elasticsearch">Install Elasticsearch</a>
+<ul class="sectlevel2">
+<li><a href="#create-a-namespace">Create a Namespace</a></li>
+<li><a href="#install-kibana">Install Kibana</a></li>
+<li><a href="#access-kibana">Access Kibana</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/centralized-logging-architecture.png" alt="centralized logging architecture" width="1000">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this tutorial, we will install Elasticsearch and Kibana to Kubernetes. Elasticsearch is a distributed, RESTful search and analytics engine capable of solving a growing number of use cases. Kibana is an open-source data visualization dashboard for Elasticsearch. It provides visualization capabilities on top of the content indexed on an Elasticsearch cluster.</p>
+</div>
+<div class="paragraph">
+<p>If you already have any Elasticsearch and Kibana instances available, you can skip this tutorial.</p>
+</div>
+<div class="sect2">
+<h3 id="centralized-logging-series">Centralized Logging series</h3>
+<div class="paragraph">
+<p>This tutorial is the 3rd part of the Centralized Logging series. The series covers the following topics:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Part 1 - Logging in Spring Boot Application</p>
+</li>
+<li>
+<p>Part 2 - Deploying Spring Boot Application to Kubernetes</p>
+</li>
+<li>
+<p>Part 3 - Installing Elasticsearch and Kibana to Kubernetes</p>
+</li>
+<li>
+<p>Part 4 - Centralized Logging with Fluent-bit and Elasticsearch(Kubernetes)</p>
+</li>
+<li>
+<p>Part 5 - Centralized Logging with Fluent-bit and Elasticsearch(On-premise)</p>
+</li>
+<li>
+<p>Part 6 - Log Analysis with Apache Spark</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="install-elasticsearch">Install Elasticsearch</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We are going to install Elasticsearch and Kibana to Kubernetes using Helm in the <code>logging</code> namespace. We will create a self-signed certificate for the internal Certificate Authority(CA) and use it to create a self-signed certificate for the Elasticsearch cluster. We will create a secret to store the certificates and another secret to store the Elasticsearch credentials.</p>
+</div>
+<div class="sect2">
+<h3 id="create-a-namespace">Create a Namespace</h3>
+<div class="paragraph">
+<p>Create a namespace for the logging components:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl create namespace logging
+<span class="nv">$ </span>kubectl get namespaces</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>First, we will install Elasticsearch to Kubernetes using Helm.</p>
+</div>
+<div class="paragraph">
+<p>Add the Elastic Helm repository:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm repo add elastic https://helm.elastic.co
+<span class="nv">$ </span>helm repo update
+<span class="nv">$ </span>helm repo list
+<span class="nv">$ </span>helm search repo elastic</code></pre>
+</div>
+</div>
+<div class="sect3">
+<h4 id="create-certificate-authority-and-certificates">Create Certificate Authority and Certificates</h4>
+<div class="paragraph">
+<p>In this section, we will create a self-signed certificate for the internal Certificate Authority(CA) and use it to create a self-signed certificate for the Elasticsearch cluster.</p>
+</div>
+<div class="paragraph">
+<p>Here is an example of creating a self-signed certificate for the internal CA:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">mkdir</span> <span class="nt">-p</span> src/main/k8s/ca <span class="o">&amp;&amp;</span> <span class="nb">cd</span> <span class="nv">$_</span>
+
+
+<span class="nv">$ </span>openssl req <span class="nt">-newkey</span> rsa:2048 <span class="nt">-keyout</span> my-ca.key <span class="nt">-nodes</span> <span class="nt">-x509</span> <span class="nt">-days</span> 3650 <span class="nt">-out</span> my-ca.crt <span class="se">\</span>
+<span class="nt">-subj</span> <span class="s2">"/C=CA/ST=BC/L=Vancouver/O=Alexamy/CN=elasticsearch-master"</span> <span class="se">\</span>
+<span class="nt">-addext</span> <span class="s2">"subjectAltName=DNS:elasticsearch-master.logging,</span><span class="se">\</span><span class="s2">
+  DNS:elasticsearch-master-0, DNS:elasticsearch-master-1,</span><span class="se">\</span><span class="s2">
+  DNS:elasticsearch-master-2, DNS:elasticsearch-master.logging.svc.cluster.local"</span>
+
+<span class="nv">$ </span><span class="nb">ls
+</span>my-ca.crt  my-ca.key</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Make sure that the command below shows <code>CA:TRUE</code> in the output:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>openssl x509 <span class="nt">-text</span> <span class="nt">-noout</span> <span class="nt">-in</span> my-ca.crt | <span class="nb">grep </span>CA
+
+                CA:TRUE</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now that we have self-signed certificate and key for the internal CA, we will create self-signed certificate for the Elasticsearch cluster.
+This certificate is suitable for development and testing purposes. For production, you should use a certificate signed by a trusted Certificate Authority(CA).</p>
+</div>
+<div class="listingblock">
+<div class="title">create a private key for the Elasticsearch cluster</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>openssl genrsa <span class="nt">-out</span> elasticsearch-master.key 2048
+<span class="c">#$ openssl genrsa -out elasticsearch-master.key 2048 &amp;&amp; chmod 0600 elasticsearch-master.key</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">create a Certificate Signing Request(CSR) for the Elasticsearch cluster</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>openssl req <span class="nt">-new</span> <span class="nt">-sha256</span> <span class="nt">-key</span> elasticsearch-master.key <span class="nt">-out</span> elasticsearch-master.csr <span class="nt">-config</span> openssl-csr.conf
+
+<span class="c"># or use the following command to create a CSR with subjectAltName</span>
+<span class="nv">$ </span>openssl req <span class="nt">-new</span> <span class="nt">-sha256</span> <span class="nt">-key</span> elasticsearch-master.key <span class="nt">-out</span> elasticsearch-master.csr <span class="se">\</span>
+<span class="nt">-subj</span> <span class="s2">"/C=CA/ST=BC/L=Vancouver/O=Alexamy/CN=elasticsearch-master"</span> <span class="se">\</span>
+<span class="nt">-addext</span> <span class="s2">"subjectAltName=DNS:elasticsearch-master.logging, </span><span class="se">\</span><span class="s2">
+DNS:elasticsearch-master-0, DNS:elasticsearch-master-1, </span><span class="se">\</span><span class="s2">
+DNS:elasticsearch-master-2, </span><span class="se">\</span><span class="s2">
+DNS:elasticsearch-master.logging.svc.cluster.local, DNS:elasticsearch.logging.alexamy.com"</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">create a self-signed certificate for the Elasticsearch cluster</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>openssl x509 <span class="nt">-req</span> <span class="nt">-in</span> elasticsearch-master.csr <span class="nt">-CA</span> my-ca.crt <span class="nt">-CAkey</span> my-ca.key <span class="se">\</span>
+<span class="nt">-CAcreateserial</span> <span class="nt">-out</span> elasticsearch-master.crt <span class="nt">-days</span> 1825 <span class="nt">-sha256</span>
+
+<span class="nv">$ </span> openssl x509 <span class="nt">-text</span> <span class="nt">-noout</span> <span class="nt">-in</span>  elasticsearch-master.crt</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">create a PEM file for the Elasticsearch cluster</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">cat </span>elasticsearch-master.crt my-ca.crt <span class="o">&gt;</span> elasticsearch-master.pem</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This PEM file will be used by clients to connect to the Elasticsearch cluster. This will be used in the next tutorials when we configure Fluent-bit to send logs to Elasticsearch.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="create-a-secret-for-the-certificates">Create a Secret for the Certificates</h4>
+<div class="paragraph">
+<p>Create a secret to store the certificates for Elasticsearch:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl create secret tls elasticsearch-master-certs  <span class="nt">--cert</span><span class="o">=</span>elasticsearch-master.crt <span class="se">\</span>
+  <span class="nt">--key</span><span class="o">=</span>elasticsearch-master.key <span class="nt">-n</span> logging</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To add ca.crt to the secret, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ caContents</span><span class="o">=</span><span class="si">$(</span><span class="nb">base64</span> <span class="nt">-i</span> my-ca.crt | <span class="nb">tr</span> <span class="nt">-d</span> <span class="s1">'\n'</span><span class="si">)</span>
+
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> logging patch secret elasticsearch-master-certs <span class="nt">-p</span> <span class="s2">"{</span><span class="se">\"</span><span class="s2">data</span><span class="se">\"</span><span class="s2">:{</span><span class="se">\"</span><span class="s2">my-ca.crt</span><span class="se">\"</span><span class="s2">:</span><span class="se">\"</span><span class="nv">$caContents</span><span class="se">\"</span><span class="s2">}}"</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In elasticsearch-certs secret, we have the following keys:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>tls.key</p>
+</li>
+<li>
+<p>tls.crt</p>
+</li>
+<li>
+<p>my-ca.crt</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>All these keys are required for Elasticsearch to use TLS.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="create-a-secret-for-elasticsearch-credentials">Create a Secret for Elasticsearch credentials</h4>
+<div class="paragraph">
+<p>A secret is required to store the Elasticsearch credentials. We will create a secret with the username and password for Elasticsearch.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl create secret generic elasticsearch-master-credentials <span class="nt">--from-literal</span><span class="o">=</span><span class="nv">username</span><span class="o">=</span>elastic <span class="se">\</span>
+<span class="nt">--from-literal</span><span class="o">=</span><span class="nv">password</span><span class="o">=</span>changeit <span class="nt">--dry-run</span><span class="o">=</span>client <span class="nt">-o</span> yaml <span class="se">\</span>
+<span class="nt">-n</span> logging <span class="o">&gt;</span> elasticsearch-master-credentials-secret.yaml
+
+<span class="nv">$ </span>kubectl apply <span class="nt">-f</span> elasticsearch-master-credentials-secret.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>I have set the username to <code>elastic</code> and the password to <code>changeit</code>. You can change the password to a secure one.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="install-elasticsearch-using-helm-on-kubernetes">Install Elasticsearch using Helm on Kubernetes</h4>
+<div class="paragraph">
+<p>Now we are ready to install Elasticsearch to Kubernetes using Helm.</p>
+</div>
+<div class="paragraph">
+<p>The elasticsearch-values.yaml file contains the values for the Elasticsearch Helm chart.</p>
+</div>
+<div class="listingblock">
+<div class="title">elasticsearch-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">esConfig</span><span class="pi">:</span>
+  <span class="na">elasticsearch.yml</span><span class="pi">:</span> <span class="pi">|</span>
+    <span class="s">xpack.security.enabled: "true"</span>
+    <span class="s">xpack.security.transport.ssl.enabled: "true"</span>
+    <span class="s">xpack.security.transport.ssl.supported_protocols: "TLSv1.2"</span>
+    <span class="s">xpack.security.transport.ssl.client_authentication: "none"</span>
+    <span class="s">xpack.security.transport.ssl.key: "/usr/share/elasticsearch/config/certs/tls.key"</span>
+    <span class="s">xpack.security.transport.ssl.certificate: "/usr/share/elasticsearch/config/certs/tls.crt"</span>
+    <span class="s">xpack.security.transport.ssl.certificate_authorities: "/usr/share/elasticsearch/config/certs/my-ca.crt"</span>
+    <span class="s">xpack.security.transport.ssl.verification_mode: "certificate"</span>
+    <span class="s">xpack.security.http.ssl.enabled: "true"</span>
+    <span class="s">xpack.security.http.ssl.supported_protocols: "TLSv1.2"</span>
+    <span class="s">xpack.security.http.ssl.client_authentication: "none"</span>
+    <span class="s">xpack.security.http.ssl.key: "/usr/share/elasticsearch/config/certs/tls.key"</span>
+    <span class="s">xpack.security.http.ssl.certificate: "/usr/share/elasticsearch/config/certs/tls.crt"</span>
+    <span class="s">xpack.security.http.ssl.certificate_authorities: "/usr/share/elasticsearch/config/certs/my-ca.crt"</span>
+
+
+
+<span class="na">createCert</span><span class="pi">:</span> <span class="kc">false</span>
+
+<span class="na">extraEnvs</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">ELASTIC_PASSWORD"</span>
+    <span class="na">valueFrom</span><span class="pi">:</span>
+      <span class="na">secretKeyRef</span><span class="pi">:</span>
+        <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">elasticsearch-master-credentials"</span>
+        <span class="na">key</span><span class="pi">:</span> <span class="s2">"</span><span class="s">password"</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">ELASTIC_USERNAME"</span>
+    <span class="na">valueFrom</span><span class="pi">:</span>
+      <span class="na">secretKeyRef</span><span class="pi">:</span>
+        <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">elasticsearch-master-credentials"</span>
+        <span class="na">key</span><span class="pi">:</span> <span class="s2">"</span><span class="s">username"</span>
+
+<span class="na">secret</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">false</span>
+
+<span class="na">secretMounts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">elastic-certificates"</span>
+    <span class="na">secretName</span><span class="pi">:</span> <span class="s2">"</span><span class="s">elasticsearch-master-certs"</span>
+    <span class="na">path</span><span class="pi">:</span> <span class="s2">"</span><span class="s">/usr/share/elasticsearch/config/certs"</span>
+    <span class="na">defaultMode</span><span class="pi">:</span> <span class="s2">"</span><span class="s">0755"</span>
+
+<span class="c1"># This settings are for Minikube</span>
+<span class="na">resources</span><span class="pi">:</span>
+  <span class="na">requests</span><span class="pi">:</span>
+    <span class="na">cpu</span><span class="pi">:</span> <span class="s2">"</span><span class="s">500m"</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s2">"</span><span class="s">2Gi"</span>
+  <span class="na">limits</span><span class="pi">:</span>
+    <span class="na">cpu</span><span class="pi">:</span> <span class="s2">"</span><span class="s">500m"</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s2">"</span><span class="s">2Gi"</span>
+
+<span class="c1"># This settings are for Minikube.</span>
+<span class="na">volumeClaimTemplate</span><span class="pi">:</span>
+  <span class="na">accessModes</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">ReadWriteOnce"</span><span class="pi">]</span>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">storage</span><span class="pi">:</span> <span class="s">8Gi</span>
+
+<span class="c1">#nodeSelector:</span>
+<span class="c1">#  agentpool: depnodes</span>
+
+<span class="c1">#extraVolumes:</span>
+<span class="c1">#  - name: ca-pem-store</span>
+<span class="c1">#    configMap:</span>
+<span class="c1">#      name: ca-pem-store</span>
+<span class="c1"># - name: extras</span>
+<span class="c1">#   emptyDir: {}</span>
+
+<span class="c1">#extraVolumeMounts:</span>
+<span class="c1">#  - name: ca-pem-store</span>
+<span class="c1">#    mountPath: /etc/ssl/certs/elasticsearch-master.pem</span>
+<span class="c1">#    subPath: elasticsearch-master.pem</span>
+<span class="c1">#    readOnly: false</span>
+<span class="c1"># - name: extras</span>
+<span class="c1">#   mountPath: /usr/share/extras</span>
+<span class="c1">#   readOnly: true</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In esConfig, we have the following files:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>"/usr/share/elasticsearch/config/certs/tls.key"</p>
+</li>
+<li>
+<p>"/usr/share/elasticsearch/config/certs/tls.crt"</p>
+</li>
+<li>
+<p>"/usr/share/elasticsearch/config/certs/my-ca.crt"</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>These files are saved in the elasticsearch-certs secret. These files are mounted to the Elasticsearch container to enable TLS.</p>
+</div>
+<div class="paragraph">
+<p>And ELASTICSEARCH_USERNAME and ELASTICSEARCH_PASSWORD are set to the values in the elasticsearch-master-credentials secret.</p>
+</div>
+<div class="paragraph">
+<p>As for resources and volume size, you can adjust them based on your requirements.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nb">install </span>elasticsearch elastic/elasticsearch <span class="nt">-n</span> logging <span class="se">\</span>
+  <span class="nt">-f</span> elasticsearch-opensearch-values.yaml
+
+NAME: elasticsearch
+LAST DEPLOYED: Sun May 26 20:39:00 2024
+NAMESPACE: logging
+STATUS: deployed
+REVISION: 1
+NOTES:
+1. Watch all cluster members come up.
+  <span class="nv">$ </span>kubectl get pods <span class="nt">--namespace</span><span class="o">=</span>logging <span class="nt">-l</span> <span class="nv">app</span><span class="o">=</span>elasticsearch-master <span class="nt">-w</span>
+2. Retrieve elastic user<span class="s1">'s password.
+  $ kubectl get secrets --namespace=logging elasticsearch-master-credentials -ojsonpath='</span><span class="o">{</span>.data.password<span class="o">}</span><span class="s1">' | base64 -d
+3. Test cluster health using Helm test.
+  $ helm --namespace=logging test elasticsearch</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="uninstall-elasticsearch">Uninstall Elasticsearch</h4>
+<div class="paragraph">
+<p>To uninstall Elasticsearch, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="title">uninstall Elasticsearch</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm uninstall elasticsearch <span class="nt">-n</span> logging</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-kibana">Install Kibana</h3>
+<div class="sect3">
+<h4 id="install-kibana-on-kubernetes-using-helm">Install Kibana on Kubernetes using Helm</h4>
+<div class="listingblock">
+<div class="title">kibana-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">elasticsearchCertificateAuthoritiesFile</span><span class="pi">:</span> <span class="s">my-ca.crt</span>
+
+<span class="na">resources</span><span class="pi">:</span>
+  <span class="na">requests</span><span class="pi">:</span>
+    <span class="na">cpu</span><span class="pi">:</span> <span class="s2">"</span><span class="s">100m"</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s2">"</span><span class="s">256Mi"</span>
+  <span class="na">limits</span><span class="pi">:</span>
+    <span class="na">cpu</span><span class="pi">:</span> <span class="s2">"</span><span class="s">400m"</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s2">"</span><span class="s">1Gi"</span>
+
+
+<span class="na">protocol</span><span class="pi">:</span> <span class="s">https</span>
+
+<span class="na">nodeSelector</span><span class="pi">:</span>
+  <span class="na">agentpool</span><span class="pi">:</span> <span class="s">depnodes</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The default values.yaml file for Kibana is like the one below. Because we have the same secrets defined in values.yaml file, I just need to overwrite <code>elasticsearchCertificateAuthoritiesFile</code> to <code>my-ca.crt</code>.
+I also set <code>protocol</code> to <code>https</code> because <code>elasticsearchHosts</code> is <code><a href="https://elasticsearch-master:9200" class="bare">https://elasticsearch-master:9200</a></code>.
+As for resources, you can adjust them based on your requirements.</p>
+</div>
+<div class="listingblock">
+<div class="title">values.yaml file for Kibana</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">elasticsearchHosts</span><span class="pi">:</span> <span class="s2">"</span><span class="s">https://elasticsearch-master:9200"</span>
+<span class="na">elasticsearchCertificateSecret</span><span class="pi">:</span> <span class="s">elasticsearch-master-certs</span>
+<span class="na">elasticsearchCertificateAuthoritiesFile</span><span class="pi">:</span> <span class="s">ca.crt</span>
+<span class="na">elasticsearchCredentialSecret</span><span class="pi">:</span> <span class="s">elasticsearch-master-credentials</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To install Kibana, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nb">install </span>kibana elastic/kibana <span class="nt">-n</span> logging <span class="se">\</span>
+  <span class="nt">-f</span> kibana-opensearch-values.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="install-kibana-on-minikube">Install Kibana on Minikube</h4>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nb">install </span>kibana elastic/kibana <span class="nt">-n</span> logging <span class="se">\</span>
+  <span class="nt">-f</span> kibana-minikube-opensearch-values.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="access-kibana">Access Kibana</h3>
+<div class="paragraph">
+<p>To access Kibana, you need to create a port-forward to the Kibana service.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl port-forward service/kibana-kibana 5601:5601 <span class="nt">-n</span> logging</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now you can access Kibana at <a href="http://localhost:5601" class="bare">http://localhost:5601</a>. You can log in with the username <code>elastic</code> and the password <code>changeit</code>.</p>
+</div>
+<div class="sect3">
+<h4 id="clean-up">Clean up</h4>
+<div class="paragraph">
+<p>To uninstall Kibana, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm uninstall kibana <span class="nt">-n</span> logging
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> logging delete configmap <span class="nt">-l</span> <span class="nv">app</span><span class="o">=</span>kibana
+
+<span class="nv">$ </span><span class="nb">echo</span> <span class="s2">"serviceaccount role rolebinding job"</span> | <span class="nb">tr</span> <span class="s2">" "</span> <span class="s1">'\n'</span> | xargs <span class="nt">-I</span> <span class="o">{}</span> kubectl <span class="nt">-n</span> logging delete <span class="o">{}</span>/pre-install-kibana-kibana
+
+<span class="nv">$ </span><span class="nb">echo</span> <span class="s2">"serviceaccount role rolebinding job"</span> | <span class="nb">tr</span> <span class="s2">" "</span> <span class="s1">'\n'</span> | xargs <span class="nt">-I</span> <span class="o">{}</span> kubectl <span class="nt">-n</span> logging delete <span class="o">{}</span>/post-delete-kibana-kibana</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In addition to uninstalling Kibana, we also delete the configmap , serviceaccounts, roles, rolebindings jobs created by the Helm chart.</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this tutorial, we installed Elasticsearch and Kibana to Kubernetes using Helm. We created a self-signed certificate for the internal Certificate Authority(CA) and used it to create a self-signed certificate for the Elasticsearch cluster. We created a secret to store the certificates and another secret to store the Elasticsearch credentials.</p>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>
