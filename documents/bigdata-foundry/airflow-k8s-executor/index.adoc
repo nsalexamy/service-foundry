@@ -1,0 +1,1048 @@
+---
+layout: documents
+title:  Apache Airflow - Kubernetes Executor
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: BigData Foundry
+    url: /documents/bigdata-foundry/
+---
+// docs/airflow/airflow-on-k8s/install-airflow.adoc
+= Apache Airflow - Kubernetes Executor
+
+ifndef::imagesdir[]
+:imagesdir: ./images
+endif::[]
+
+[.img-wide]
+image::apache-airflow-k8s-executor.png[align="center"]
+
+== Introduction
+
+This article is part of the series on Airflow on Kubernetes. In this series, we will cover the following topics:
+
+. link:https://www.linkedin.com/pulse/apache-airflow-kubernetes-executor-young-gyu-kim-brenc/[Apache Airflow - Kubernetes Executor]
+. link:https://www.linkedin.com/pulse/apache-airflow-kubernetes-pod-operator-young-gyu-kim-m75fc/[Apache Airflow - Kubernetes Pod Operator]
+
+This is the first article in the series.
+
+This guide will show you how to install Airflow on Kubernetes.
+
+=== What is Airflow®?
+
+[quote, Apache Airflow, https://airflow.apache.org/docs/]
+____
+Apache Airflow® is an open-source platform for developing, scheduling, and monitoring batch-oriented workflows. Airflow’s extensible Python framework enables you to build workflows connecting with virtually any technology. A web interface helps manage the state of your workflows. Airflow is deployable in many ways, varying from a single process on your laptop to a distributed setup to support even the biggest workflows.
+____
+
+=== Workflow as code
+
+The main characteristic of Airflow workflows is that all workflows are defined in Python code. “Workflows as code” serves several purposes:
+
+[horizontal]
+Dynamic:: Airflow pipelines are configured as Python code, allowing for dynamic pipeline generation.
+
+Extensible:: The Airflow® framework contains operators to connect with numerous technologies. All Airflow components are extensible to easily adjust to your environment.
+
+Flexible:: Workflow parameterization is built-in leveraging the Jinja templating engine.
+
+For more information, refer to the link below:
+
+* https://airflow.apache.org/docs/apache-airflow/stable/index.html
+
+
+== Deploying Airflow on Kubernetes
+
+In this section, we will see how to deploy Airflow on Kubernetes using the Helm chart.
+
+=== Overall Steps
+
+Here are the overall steps to deploy Airflow on Kubernetes:
+
+. Create a Namespace
+. Add the Helm Repository
+. Create a PVC for dags and logs
+. Create PVCs for pod template files and application data
+. Create a public IP for the webserver
+. Create a custom Docker image(Not Required)
+. Create a secret for the webserver
+. Create a secret for the Fernet key
+. Install Airflow using Helm chart
+
+=== Create a Namespace
+
+We will create a namespace called 'airflow' to deploy Airflow.
+
+[source,shell]
+----
+$ kubectl create namespace airflow
+----
+
+=== Add the Helm Repository
+
+Add the Apache Airflow Helm repository to Helm. This repository contains the Airflow Helm chart.
+
+[source,shell]
+----
+$ helm repo add apache-airflow https://airflow.apache.org
+$ helm repo update
+$ helm repo list
+----
+
+=== Download values.yaml
+
+To understand the values that can be set in the values.yaml file, download the values.yaml file using the following command:
+
+[source,shell]
+----
+$ helm show values apache-airflow/airflow > values.yaml
+----
+
+This file contains all the values that can be set in the values.yaml file. We will use cncf-k8s-values.yaml to set the values for the Airflow Helm chart.
+
+=== Create a Secret for Azure Storage Account
+
+Let's create a secret to save the storage account name and key.
+
+.create secret for storage account
+[source,yaml]
+----
+# aksdepstoage -> k8sdepstorage
+
+$ STORAGE_ACCOUNT_NAME={your-storage-account-name}
+$ STORAGE_ACCOUNT_KEY=$(az storage account keys list --resource-group $MC_RG --account-name $STORAGE_ACCOUNT_NAME --query "[0].value" -o tsv)
+
+$ kubectl create secret generic -n airflow ${STORAGE_ACCOUNT_NAME}-secret \
+--from-literal=azurestorageaccountname=$STORAGE_ACCOUNT_NAME \
+--from-literal=azurestorageaccountkey=$STORAGE_ACCOUNT_KEY
+----
+
+This secret can be used when creating the PVCs
+
+=== Create a PVC for dags and logs
+
+data-airflow-storage PVC has subPaths for dags, logs, pod-templates, and app directories.
+
+
+.pvc-airflow-storage.yaml
+[source,yaml]
+----
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-airflow-storage
+  labels:
+    environment: airflow
+    app: airflow
+
+spec:
+  capacity:
+    storage: 300Gi
+  accessModes:
+    - ReadWriteMany
+  storageClassName: azurefile
+  azureFile:
+    secretNamespace: 'airflow'
+    secretName: your-storage-account-secret
+    shareName: airflow-storage
+    readOnly: false
+  mountOptions:
+
+    # use the same uid and gid as the airflow container
+    - uid=50000
+    - gid=0
+    - mfsymlinks
+    - cache=strict
+    - nosharesock
+    - nobrl
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-airflow-storage
+  namespace: airflow
+  labels:
+    environment: airflow
+    app: airflow
+spec:
+  accessModes:
+
+    - ReadWriteMany
+  storageClassName: azurefile
+
+  volumeName: pv-airflow-storage
+  resources:
+    requests:
+      storage: 300Gi
+----
+
+To create the PVC, run the following command:
+
+[source,shell]
+----
+$ kubectl apply -f pvc-airflow-storage.yaml
+
+persistentvolume/pv-airflow-storage created
+persistentvolumeclaim/data-airflow-storage created
+
+----
+
+
+.custom-values.yaml -subPath for dags, logs, pod-templates
+[source,yaml]
+----
+volumes:
+  - name: data-airflow-storage
+    persistentVolumeClaim:
+      claimName: data-airflow-storage
+
+volumeMounts:
+  - mountPath: /opt/airflow/custom-pod-templates
+    name: airflow-pod-templates
+    subPath: airflow-pod-templates
+
+# omit for brevity
+
+dags:
+  persistence:
+    enabled: true
+    existingClaim: data-airflow-storage
+    subPath: airflow-dags
+
+
+----
+
+=== Create PVC for logs
+
+Because the persistence object of logs does not have subPath in the values.yaml file, we can not use data-airflow-storage for logs.  We need to create a separate PVC for logs.
+
+I am going to create a Azure Disk for logs.
+
+For more information on How to use Azure Disk with Kubernetes, refer to the link below:
+
+* link:../../azure/azure-disk-on-aks/index.adoc[Using Azure Disk with Kubernetes]
+
+.create Azure disk for logs
+[source,shell]
+----
+$ RG=your-resource-group; \
+DISK_NAME=airflow-logs-data; \
+DISK_SIZE_GB=100; \
+LOCATION=canadacentral; \
+OS_TYPE=Linux; \
+SKU=StandardSSD_LRS; \
+MAX_SHARES=3; \
+az disk create --resource-group $RG --name $DISK_NAME --size-gb $DISK_SIZE_GB --location $LOCATION --os-type $OS_TYPE --sku $SKU --max-shares $MAX_SHARES
+
+
+----
+
+.get azure disk id
+[source,shell]
+----
+$ RG=your-resource-group
+$ DISK_NAME=airflow-logs-data
+
+$ DISK_ID=$(az disk show --resource-group $RG --name $DISK_NAME --query id -o tsv)
+
+$ echo $DISK_ID
+----
+
+.pv-airflow-logs-disk.yaml
+[source,yaml]
+----
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  annotations:
+    pv.kubernetes.io/provisioned-by: disk.csi.azure.com
+  name: pv-airflow-logs-disk
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: managed-csi
+  csi:
+    driver: disk.csi.azure.com
+    volumeHandle: your-disk-id
+    volumeAttributes:
+      fsType: ext4
+
+----
+
+.pvc-airflow-logs-disk.yaml
+[source,yaml]
+----
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: airflow-logs-disk
+  namespace: airflow
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+  volumeName: pv-airflow-logs-disk
+  storageClassName: managed-csi
+
+----
+
+To create the PVC for logs, run the following command:
+
+[source,shell]
+----
+$ kubectl apply -f pv-airflow-logs-disk.yaml
+
+persistentvolume/pv-airflow-logs-disk created
+
+$ kubectl apply -f pvc-airflow-logs-disk.yaml
+
+persistentvolumeclaim/airflow-logs-disk created
+----
+
+.custom-values.yaml - logs
+[source,yaml]
+----
+logs:
+  persistence:
+    enabled: true
+    existingClaim: airflow-logs-disk
+    storageClassName: managed-csi
+----
+
+=== Create PVCs for dags and logs (Deprecated)
+
+WARNING::This step is deprecated. Use PVC for dags and logs instead.
+
+We will create PVCs for dags and logs to store the dags and logs in the storage account. In this example, we will use Azure File Share to store the dags and logs. To add dag files to the Airflow webserver, we need to upload the dag files to the Azure File Share manually.
+
+.
+
+Here is the manifest file for the PV and PVC of dags:
+
+.pvc-dags.yaml
+[source,yaml]
+----
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-airflow-dags-storage
+  labels:
+    environment: airflow
+    app: airflow
+
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteMany
+  storageClassName: azurefile
+  azureFile:
+    secretNamespace: 'airflow'
+    secretName: your-storage-account-secret
+    shareName: airflow-dags
+    readOnly: false
+  mountOptions:
+
+    - dir_mode=0750
+    - file_mode=0750
+
+
+    # use the same uid and gid as the airflow container
+    - uid=50000
+    - gid=0
+    - mfsymlinks
+    - cache=strict
+    - nosharesock
+    - nobrl
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-airflow-dags
+  namespace: airflow
+  labels:
+    environment: airflow
+    app: airflow
+spec:
+  accessModes:
+    # code = InvalidArgument desc = Volume capability not supported, default does not support ReadWriteMany
+    #    - ReadWriteMany
+    - ReadWriteMany
+  storageClassName: azurefile
+  volumeName: pv-airflow-dags-storage
+  resources:
+    requests:
+      storage: 1Gi
+
+----
+
+Set uid and gid to 50000 and 0 respectively which is the default value for the airflow user in the image.
+
+Here is the manifest file for the PV and PVC of logs:
+
+.pvc-logs.yaml
+[source,yaml]
+----
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-airflow-logs-storage
+  labels:
+    environment: airflow
+    app: airflow
+
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteMany
+  storageClassName: azurefile
+  azureFile:
+    secretNamespace: 'airflow'
+    # This secret contains iclinicaksstorage and key
+    secretName: k8sdepstorage-secret
+    # QC2 will use the same IDOC storage as COLO.
+    shareName: airflow-logs
+    readOnly: false
+  mountOptions:
+    # data directory "/var/lib/postgresql/data" has invalid permissions
+    # Permissions should be u=rwx (0700) or u=rwx,g=rx (0750).
+    #    - dir_mode=0777
+    #    - file_mode=0777
+    - dir_mode=0750
+    - file_mode=0750
+    # uid and gid used to be 1000, and then 65534, now its value is 0
+    # the value came from values-3.5.0-debian-11-r0.yaml, and cache and nosharesock are added recently.
+    # see https://docs.microsoft.com/en-us/azure/aks/azure-files-volume#mount-file-share-as-a-persistent-volume
+
+    # use the same uid and gid as the airflow container
+    - uid=50000
+    - gid=0
+    - mfsymlinks
+    - cache=strict
+    - nosharesock
+    - nobrl
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-airflow-logs
+  namespace: airflow
+  labels:
+    environment: airflow
+    app: airflow
+spec:
+  accessModes:
+    # code = InvalidArgument desc = Volume capability not supported, default does not support ReadWriteMany
+    #    - ReadWriteMany
+    - ReadWriteMany
+  storageClassName: azurefile
+  # PostgreSQL does not work with Azure file. This is because PostgreSQL requires hard links in the Azure File directory,
+  # and since Azure File does not support hard links the pod fails to start.
+  #  storageClassName: azurefile
+  volumeName: pv-airflow-logs-storage
+  resources:
+    requests:
+      storage: 100Gi
+
+----
+
+To create the PVCs, run the following command:
+
+.create PVC for dags and logs
+[source,shell]
+----
+$ kubectl apply -f pvc-dags.yaml -f pvc-logs.yaml
+----
+
+These PVCs can be used in the customized values.yaml file to set the dags.persistence.existingClaim and logs.persistence.existingClaim.
+
+.cncf-k8s-values.yaml - dags and logs
+[source,yaml]
+----
+dags:
+  persistence:
+    enabled: true
+    existingClaim: data-airflow-dags
+
+logs:
+  persistence:
+    enabled: true
+    existingClaim: data-airflow-logs
+----
+
+=== Create PVCs for pod template files and application data
+
+* pvc-pod-templates.yaml
+* pvc-app.yaml
+
+To create the PVCs, run the following command:
+
+[source,shell]
+----
+$ kubectl apply -f pvc-pod-templates.yaml -f pvc-app.yaml
+----
+
+These PVCs can be used in the customized values.yaml file to set the volumes and volumeMounts.
+
+.custom-values.yaml - volumes and volumeMounts
+[source,yaml]
+----
+volumes:
+  - name: airflow-pod-templates
+    persistentVolumeClaim:
+      claimName: data-airflow-pod-templates
+  - name: airflow-app
+    persistentVolumeClaim:
+      claimName: data-airflow-app
+
+volumeMounts:
+  - name: airflow-pod-templates
+    mountPath: /opt/airflow/custom-pod-templates
+  - name: airflow-app
+    mountPath: /opt/airflow/app
+----
+
+
+=== Create public IP for webserver
+
+Following command will create a public IP for the webserver service using Azure CLI.
+
+[source,shell]
+----
+$ az network public-ip create --resource-group $MC_RG --name airflow-webserver-public-ip --sku Standard --allocation-method Static --query publicIp.ipAddress -o tsv
+
+# get the public IP
+$ PUBLIC_IP_ADDRESS=$(az network public-ip show --resource-group $MC_RG --name airflow-webserver-public-ip --query ipAddress -o tsv)
+----
+
+This ip address can be used in the values.yaml file to set the webserver.service.loadBalancerIP.
+
+.cncf-k8s-values.yaml - webserver service
+[source,yaml]
+----
+webserver:
+  service:
+    type: LoadBalancer
+    loadBalancerIP: xxx.xxx.xxx.xxx
+----
+
+
+=== Custom Docker Image
+
+[WARNING]
+====
+This step is not required.
+
+We can use the default image provided by the Airflow Helm chart. This step is to show how to create a custom Docker image and use it in the Airflow Helm chart. The default image has all the required dependencies to run the tasks in the Kubernetes cluster.
+====
+
+==== cncf.kubernetes provider
+
+We need to add the cncf.kubernetes provider to the Airflow image.
+
+Refer to the link below:
+
+* https://airflow.apache.org/docs/apache-airflow-providers-cncf-kubernetes/stable/index.html
+
+==== Dockerfile
+
+This dockerfile is to add the cncf.kubernetes provider to the Airflow image.
+
+.docker/Dockerfile
+[source,dockerfile]
+----
+FROM apache/airflow:2.9.3
+
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir apache-airflow-providers-cncf-kubernetes
+----
+
+==== Push Docker Image
+
+To push the docker image to the Azure Container Registry, run the following command:
+
+[source,shell]
+----
+# login to ACR
+$ az acr login --name $ACR_NAME
+
+# push docker image to ACR
+
+$ az acr build --image airflow-cncf-kubernetes:2.9.3 --registry $ACR_NAME ./docker
+
+# airflor-custom:2.10.3
+$ az acr build --image airflow-custom:2.10.3 --registry $ACR_NAME ./docker/custom
+----
+
+This docker image is used in the values.yaml file to set the image.repository and image.tag.
+
+.cncf-k8s-values.yaml - image
+[source,yaml]
+----
+images:
+  airflow:
+    repository: iclinicacr.azurecr.io/airflow-cncf-kubernetes
+    tag: 2.9.3
+    pullPolicy: IfNotPresent
+----
+
+=== Create Secret for webserver secret key
+
+As for the webserver secret key, it is recommended to set a static webserver secret key in case of re-installation.
+For more information on Airflow webserver secret key, refer to the link below:
+
+* https://airflow.apache.org/docs/helm-chart/stable/production-guide.html#webserver-secret-key
+
+[source,shell]
+----
+$ python3 -c 'import secrets; print(secrets.token_hex(16))'
+
+# create secret - airflow-webserver-secret
+$ kubectl create secret generic -n airflow airflow-webserver-secret --from-literal="webserver-secret-key=$(python3 -c 'import secrets; print(secrets.token_hex(16))')" --dry-run=client -o yaml | yq eval 'del(.metadata.cr
+eationTimestamp)' > airflow-webserver-secret.yaml
+
+$ kubectl apply -f airflow-webserver-secret.yaml
+----
+
+This secret can be used in the values.yaml file to set the webserver.secretKey.
+
+.cncf-k8s-values.yaml - webserver secret key
+[source,yaml]
+----
+webserverSecretKeySecretName: "airflow-webserver-secret"
+----
+
+
+=== Create Secret for Fernet Key
+
+Fernet key is used for encryption and decryption of passwords in the database. In case of re-installation, the Fernet key is regenerated and the passwords stored in the database will not be decrypted. To avoid this, the Fernet key is stored in a secret and used during re-installation.
+
+.airflow-fernet-key-secret.yaml
+[source,yaml]
+----
+apiVersion: v1
+data:
+  fernet-key: U204MU1UQndla2RRVDNSeFpGZExVSHBKZFhOUFJXOUVXRXR2V25vNVpXYz0=
+kind: Secret
+metadata:
+  annotations:
+    helm.sh/hook: pre-install
+    helm.sh/hook-delete-policy: before-hook-creation
+    helm.sh/hook-weight: "0"
+  labels:
+    chart: airflow
+    heritage: Helm
+    release: airflow
+    tier: airflow
+  name: airflow-fernet-key-secret
+  namespace: airflow
+type: Opaque
+
+----
+
+To create the secret, run the following command:
+
+[source,shell]
+----
+$ kubectl apply -f airflow-fernet-key-secret.yaml
+----
+
+This secret can be used in the values.yaml file to set the fernetKeySecretName.
+
+.cncf-k8s-values.yaml - fernet key
+[source,yaml]
+----
+fernetKeySecretName: "airflow-fernet-key-secret"
+----
+
+=== pod_template_file.yaml
+
+NOTE::This section is in progress
+WARNING:: This section is no longer valid. We are using PVC for pod template files.
+
+pod_template_file.yaml is created for *scheduler* and *webserver* pods in the directory /opt/airflow/pod_templates
+
+
+create configmap for pod_template_file.yaml
+
+[source,shell]
+----
+$ kubectl -n airflow create configmap pod-template-files --from-file=pod_template_file.yaml=./templates/basic_template.yaml --dry-run=client -o yaml  | yq eval 'del(.metadata.creationTimestamp)'  > pod-template-files-configmap.yaml
+----
+
+.pod-template-files-configmap.yaml
+[source,yaml]
+----
+apiVersion: v1
+data:
+  pod_template_file.yaml: |-
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: placeholder-name
+    spec:
+      containers:
+        - env:
+            - name: AIRFLOW__CORE__EXECUTOR
+              value: KubernetesExecutor
+            # Hard Coded Airflow Envs
+            - name: AIRFLOW__CORE__FERNET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-fernet-key
+                  key: fernet-key
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-metadata
+                  key: connection
+            - name: AIRFLOW_CONN_AIRFLOW_DB
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-metadata
+                  key: connection
+          image: apache/airflow:2.9.3
+          imagePullPolicy: IfNotPresent
+          name: base
+          volumeMounts:
+            - mountPath: /opt/airflow/logs
+              name: airflow-logs
+            - mountPath: /opt/airflow/dags
+              name: airflow-dags
+              readOnly: true
+            - mountPath: /opt/airflow/custom-pod-templates
+              name: airflow-pod-templates
+              readOnly: true
+            - mountPath: /opt/airflow/airflow.cfg
+              name: airflow-config
+              readOnly: true
+              subPath: airflow.cfg
+      restartPolicy: Never
+      securityContext:
+        runAsUser: 50000
+        fsGroup: 50000
+      serviceAccountName: "airflow-worker"
+      volumes:
+        - name: airflow-dags
+          persistentVolumeClaim:
+            claimName: data-airflow-dags
+        - name: airflow-logs
+          persistentVolumeClaim:
+            claimName: data-airflow-logs
+        - name: airflow-pod-templates
+          persistentVolumeClaim:
+            claimName: data-airflow-pod-templates
+        - configMap:
+            name: airflow-config
+          name: airflow-config
+kind: ConfigMap
+metadata:
+  name: pod-template-files
+  namespace: airflow
+
+
+----
+
+
+[source,shell]
+----
+$ kubectl apply -f pod-template-files-configmap.yaml
+----
+
+=== Customize values.yaml
+
+Now we have all the required files to customize the values.yaml file.
+
+==== custom-values.yaml
+
+.custom-values.yaml
+[source,yaml]
+----
+# Airflow version (Used to make some decisions based on Airflow Version being deployed)
+#airflowVersion: "2.9.3"
+airflowVersion: "2.10.3"
+
+# Images
+images:
+  airflow:
+    repository: iclinicacr.azurecr.io/airflow-custom
+    #    tag: 2.9.3
+    tag: 2.10.3
+#    pullPolicy: IfNotPresent
+
+# When installing airflow multiple times,
+# fernet key and webserver secret key should be different
+# which can cause issues
+#fernetKey: "Sm81MTBwekdQT3RxZFdLUHpJdXNPRW9EWEtvWno5ZWc="
+fernetKeySecretName: "airflow-fernet-key-secret"
+webserverSecretKeySecretName: "airflow-webserver-secret"
+
+executor: KubernetesExecutor
+
+
+# see ./connections/index-elaborated.adoc
+
+secret:
+  - envName: AIRFLOW_CONN_POSTGRES_DEP_DATALAKE
+    secretName: airflow-connections-secret
+    secretKey: AIRFLOW_CONN_POSTGRES_DEP_DATALAKE
+  - envName: AIRFLOW_CONN_KUBERNETES_DEFAULT
+    secretName: airflow-connections-secret
+    secretKey: AIRFLOW_CONN_KUBERNETES_DEFAULT
+  - envName: AIRFLOW_CONN_K8S_CONN
+    secretName: airflow-connections-secret
+    secretKey: AIRFLOW_CONN_KUBERNETES_DEFAULT
+
+nodeSelector:
+  agentpool: depnodes
+
+workers:
+  persistence:
+    enabled: false
+
+
+webserver:
+#  replicas: 2 # Seems to need session storage for more than 1 replica
+  replicas: 1
+  service:
+    type: LoadBalancer
+    loadBalancerIP: 4.205.236.238
+
+  resources:
+    limits:
+      cpu: 600m
+      memory: 2048Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  nodeSelector:
+    agentpool: depnodes
+
+triggerer:
+  replicas: 2
+  persistence:
+    enabled: false
+
+  resources:
+    limits:
+      cpu: 400m
+      memory: 1024Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  nodeSelector:
+    agentpool: depnodes
+
+scheduler:
+  replicas: 2
+
+  resources:
+    limits:
+      cpu: 400m
+      memory: 1024Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  nodeSelector:
+    agentpool: depnodes
+
+statsd:
+  resources:
+    limits:
+      cpu: 400m
+      memory: 1024Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  nodeSelector:
+    agentpool: depnodes
+
+redis:
+  enabled: false
+
+
+
+
+
+dags:
+  persistence:
+    enabled: true
+    existingClaim: pvc-blob-airflow-storage
+    subPath: airflow-dags
+
+
+logs:
+  persistence:
+    enabled: true
+    existingClaim: pvc-blob-airflow-logs
+
+
+----
+
+
+For Redis, we don't need it in this example, so we set the redis.enabled to false.
+
+=== Install Airflow using Helm chart
+
+==== Using custom-values.yaml
+[source,shell]
+----
+$ helm install airflow ~/Dev/helm/charts/apache-airflow/airflow-1.15.0.tgz -f custom-values.yaml --namespace airflow
+#$ helm install airflow apache-airflow/airflow -f custom-values.yaml --namespace airflow
+----
+
+
+
+.verify the installation
+[source,shell]
+----
+$ kubectl -n airflow get pods
+
+# Output
+NAME                                 READY   STATUS    RESTARTS   AGE
+airflow-postgresql-0                 1/1     Running   0          3h50m
+airflow-scheduler-744d89ff99-7tfbj   2/2     Running   0          3h50m
+airflow-statsd-86d5c76fcd-f8pbm      1/1     Running   0          3h50m
+airflow-triggerer-6c894b7777-7t666   2/2     Running   0          3h50m
+airflow-webserver-6444986b76-jlcdh   1/1     Running   0          3h50m
+----
+
+
+== Uninstall Airflow
+
+In case you want to uninstall Airflow, run the following command:
+
+[source,shell]
+----
+$ helm uninstall airflow --namespace airflow
+----
+
+== Hello World DAG
+
+Here is a sample Hello World DAG that can be used in Airflow:
+
+.dags/hello_world_dag.py
+[source,python]
+----
+from airflow import DAG
+from airflow.operators.bash import BashOperator
+from airflow.operators.python import PythonOperator
+from datetime import datetime
+
+
+def helloWorld():
+    print('Hello World')
+
+def done():
+    print('Done')
+
+with DAG(dag_id="hello_world_dag",
+         start_date=datetime(2024,3,27),
+         schedule_interval="@hourly",
+         catchup=False) as dag:
+
+    task1 = PythonOperator(
+        task_id="hello_world",
+        python_callable=helloWorld
+    )
+
+    sleepTask = BashOperator(
+        task_id='sleep',
+        bash_command='sleep 10s'
+    )
+
+    task2 = PythonOperator(
+        task_id="done",
+        python_callable=done
+    )
+
+
+task1 >> sleepTask >> task2
+----
+
+There are 3 tasks in this DAG:
+
+1. task1: print 'Hello World'
+2. sleepTask: sleep for 10 seconds
+3. task2: print 'Done'
+
+If you want to inspect the PODs, increase the sleep time in the sleepTask task and use 'kubectl exec' command to inspect the PODs.
+
+This DAG is scheduled to run every hour.
+
+I saved this file in the dags directory, and it will be mounted to the /opt/airflow/dags directory in the Airflow webserver pod.
+
+=== hello_world_dag - Graph View
+
+We can see the graph view of the DAG in the Airflow UI.
+
+.hello_world_dag - Graph View
+image::hello-world-dag-graph.png[]
+
+To run this DAG manually, just click on the 'Trigger DAG' button in the Airflow UI.
+
+Use -w option to watch the logs of the tasks.
+
+[source,shell]
+----
+$ kubectl -n airflow get pods -airflow
+
+# Output
+
+NAME                                 READY   STATUS    RESTARTS   AGE
+airflow-postgresql-0                 1/1     Running   0          4h7m
+airflow-scheduler-744d89ff99-7tfbj   2/2     Running   0          4h7m
+airflow-statsd-86d5c76fcd-f8pbm      1/1     Running   0          4h7m
+airflow-triggerer-6c894b7777-7t666   2/2     Running   0          4h7m
+airflow-webserver-6444986b76-jlcdh   1/1     Running   0          4h7m
+hello-world-dag-hello-world-st86d1gh   0/1     Pending   0          0s
+hello-world-dag-hello-world-st86d1gh   0/1     Pending   0          0s
+hello-world-dag-hello-world-st86d1gh   0/1     ContainerCreating   0          0s
+hello-world-dag-hello-world-st86d1gh   1/1     Running             0          1s
+hello-world-dag-sleep-x10pcggl         0/1     Pending             0          0s
+hello-world-dag-sleep-x10pcggl         0/1     ContainerCreating   0          0s
+hello-world-dag-hello-world-st86d1gh   0/1     Completed           0          12s
+hello-world-dag-sleep-x10pcggl         1/1     Running             0          1s
+hello-world-dag-hello-world-st86d1gh   0/1     Terminating         0          13s
+hello-world-dag-done-6nw3izng          0/1     Pending             0          0s
+hello-world-dag-done-6nw3izng          0/1     ContainerCreating   0          0s
+hello-world-dag-sleep-x10pcggl         0/1     Completed           0          22s
+hello-world-dag-done-6nw3izng          1/1     Running             0          1s
+hello-world-dag-sleep-x10pcggl         0/1     Terminating         0          24s
+hello-world-dag-done-6nw3izng          0/1     Completed           0          17s
+hello-world-dag-done-6nw3izng          0/1     Terminating         0          17s
+----
+
+From the above output, you can see that the tasks are running in the PODs. And all the tasks are using the same image that we created earlier which is 'airflow-cncf-kubernetes:2.9.3'.
+
+=== hello_world_dag - Logs
+
+We can see the logs of the tasks in the Airflow UI.
+
+.hello_world_dag - Logs
+image::hello-world-dag-logs.png[]
+
+Click on the task to see the logs first, then 'Logs' tab appears. Click on the 'Logs' tab to see the logs of the task.
+
+== Conclusion
+
+In this guide, we saw how to install Airflow on Kubernetes. We also saw how to create a custom Docker image and use it in the Airflow Helm chart. We also saw how to create a Hello World DAG and run it in the Airflow webserver.
+
+Since the Kubernetes Executor uses the same image for all tasks, managing complex tasks becomes challenging.
+
+In the next article, we will see how to use custom images for the tasks and how to use the KubernetesPodOperator to run the tasks in the Kubernetes cluster.
+

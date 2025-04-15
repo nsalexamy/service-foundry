@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Apache Airflow - Managing DAGs with a Git Repository</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+        min-width: 0;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+        flex-shrink: 0;
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;           /* fallback scroll if absolutely needed */
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre-wrap;      /* enables line wrap */
+        word-wrap: break-word;      /* breaks long words if needed */
+        overflow-wrap: break-word;  /* ensures content wraps in small containers */
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        white-space: pre;
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+        margin-top: 1rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    /* Optional container max width per role */
+    .img-small img {
+        max-width: 400px;
+    }
+
+    .img-medium img {
+        max-width: 700px;
+    }
+
+    .img-wide img {
+        max-width: 1000px;
+    }
+
+    @media (max-width: 768px) {
+        .img-wide img {
+            max-width: 100%;
+        }
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/bigdata-foundry/">BigData Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 style="font-size: 2rem; font-weight: bold; margin-bottom: 1rem; color: #1f2937;">
+            Apache Airflow - Managing DAGs with a Git Repository
+        </h1>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#benefits-of-using-a-git-repository-for-dags">Benefits of Using a Git Repository for DAGs</a></li>
+</ul>
+</li>
+<li><a href="#setting-up-a-private-git-repository-for-airflow-dags">Setting Up a Private Git Repository for Airflow DAGs</a>
+<ul class="sectlevel2">
+<li><a href="#step-1-create-a-git-repository">Step 1: Create a Git Repository</a></li>
+</ul>
+</li>
+<li><a href="#mounting-dags-from-a-private-git-repository-using-git-sync">Mounting DAGs from a Private Git Repository Using Git Sync</a>
+<ul class="sectlevel2">
+<li><a href="#step-2-generate-ssh-keys-for-git-access">Step 2: Generate SSH Keys for Git Access</a></li>
+</ul>
+</li>
+<li><a href="#configuring-airflow-to-use-git-sync">Configuring Airflow to Use Git Sync</a>
+<ul class="sectlevel2">
+<li><a href="#step-3-update-the-airflow-helm-values-custom-values-yaml">Step 3: Update the Airflow Helm Values (custom-values.yaml)</a></li>
+<li><a href="#step-4-create-the-ssh-key-kubernetes-secret">Step 4: Create the SSH Key Kubernetes Secret</a></li>
+</ul>
+</li>
+<li><a href="#deploying-airflow-with-git-sync">Deploying Airflow with Git Sync</a>
+<ul class="sectlevel2">
+<li><a href="#step-5-create-secrets-for-fernet-key-and-webserver-password">Step 5: Create secrets for fernet key and webserver password</a></li>
+<li><a href="#add-label-to-node-group-on-eks">Add Label to node group on EKS</a></li>
+<li><a href="#step-6-install-or-upgrade-airflow">Step 6: Install or Upgrade Airflow</a></li>
+</ul>
+</li>
+<li><a href="#testing-git-sync-in-airflow">Testing Git Sync in Airflow</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/intro.png" alt="intro">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this guide, we explore how to use a <strong>Git repository</strong> to store and manage <strong>Apache Airflow DAGs</strong> instead of relying on <strong>Persistent Volumes (PVs) with ReadWriteMany (RWX)</strong> mode.</p>
+</div>
+<div class="paragraph">
+<p>By integrating Git Sync with Airflow, DAGs are automatically updated, allowing for seamless collaboration, version control, and CI/CD integration.</p>
+</div>
+<div class="sect2">
+<h3 id="benefits-of-using-a-git-repository-for-dags">Benefits of Using a Git Repository for DAGs</h3>
+<div class="paragraph">
+<p>Compared to using a <strong>Persistent Volume (EFS)</strong> for <strong>DAG storage</strong>, a Git-based approach offers several advantages:</p>
+</div>
+<div class="sect3">
+<h4 id="version-control">Version Control</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>Git enables tracking of changes, allowing you to revert to previous versions when needed.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="collaboration">Collaboration</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>Multiple developers can work on DAGs simultaneously, committing and pushing updates to the repository.</p>
+</li>
+<li>
+<p>Airflow automatically syncs the changes from Git.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="no-persistent-storage-required">No Persistent Storage Required</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>No need to maintain PVCs or EFS volumes for DAG storage.</p>
+</li>
+<li>
+<p>DAGs are stored in Git and automatically pulled by Airflow.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="cicd-integration">CI/CD Integration</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>Git can be integrated with CI/CD pipelines to automatically test and deploy DAGs.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="setting-up-a-private-git-repository-for-airflow-dags">Setting Up a Private Git Repository for Airflow DAGs</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This section is based on the official documentation of Airflow below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://airflow.apache.org/docs/helm-chart/stable/manage-dags-files.html#using-git-sync">Using Git Sync</a></p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="step-1-create-a-git-repository">Step 1: Create a Git Repository</h3>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Create a new private repository on GitHub (e.g., airflow-dags-example).</p>
+</li>
+<li>
+<p>Clone the repository to your local machine:</p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>git clone git@github.com:your-org/airflow-dags-example.git
+<span class="nv">$ </span><span class="nb">cd </span>airflow-dags-example</code></pre>
+</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic" start="3">
+<li>
+<p>Create a sample DAG file (e.g., hello_world_dag.py) and push the changes:</p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>git add dags/hello_world_dag.py
+<span class="nv">$ </span>git commit <span class="nt">-m</span> <span class="s2">"Add hello_world DAG"</span>
+<span class="nv">$ </span>git push origin main</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Here is an example of Python project structure:</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/airflow-dags-project.png" alt="airflow dags project">
+</div>
+<div class="title">Figure 1. VS Code - airflow-dags-example project</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="mounting-dags-from-a-private-git-repository-using-git-sync">Mounting DAGs from a Private Git Repository Using Git Sync</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To allow Git Sync to fetch DAGs from a private Git repository, we need to configure SSH authentication.</p>
+</div>
+<div class="sect2">
+<h3 id="step-2-generate-ssh-keys-for-git-access">Step 2: Generate SSH Keys for Git Access</h3>
+<div class="paragraph">
+<p>Run the following command to generate an SSH key pair:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>ssh-keygen <span class="nt">-t</span> rsa <span class="nt">-b</span> 4096 <span class="nt">-C</span> <span class="s2">"your_email@example.com"</span></code></pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Add the public key (.pub file) to your GitHub repository under:
+Settings → Deploy Keys → Add Key</p>
+</li>
+<li>
+<p>Save the private key as a Kubernetes secret in Airflow.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="configuring-airflow-to-use-git-sync">Configuring Airflow to Use Git Sync</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="step-3-update-the-airflow-helm-values-custom-values-yaml">Step 3: Update the Airflow Helm Values (custom-values.yaml)</h3>
+<div class="paragraph">
+<p>Modify your custom-values.yaml file to enable <strong>Git Sync</strong>:</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml - changes for Git Sync</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">dags</span><span class="pi">:</span>
+  <span class="na">persistence</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">false</span> <i class="conum" data-value="1"></i><b>(1)</b>
+
+  <span class="na">gitSync</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">repo</span><span class="pi">:</span> <span class="s2">"</span><span class="s">git@github.com:your-org/airflow-dags-example.git"</span> <i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="na">branch</span><span class="pi">:</span> <span class="s2">"</span><span class="s">main"</span>
+    <span class="na">rev</span><span class="pi">:</span> <span class="s">HEAD</span>
+    <span class="na">depth</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="na">wait</span><span class="pi">:</span> <span class="m">60</span>  <span class="c1"># Sync every 60 seconds</span>
+    <span class="na">subPath</span><span class="pi">:</span> <span class="s2">"</span><span class="s">dags"</span> <i class="conum" data-value="3"></i><b>(3)</b>
+    <span class="na">containerName</span><span class="pi">:</span> <span class="s2">"</span><span class="s">git-sync"</span>
+    <span class="na">sshKeySecret</span><span class="pi">:</span> <span class="s2">"</span><span class="s">airflow-git-ssh-key-secret"</span> <i class="conum" data-value="4"></i><b>(4)</b>
+    <i class="conum" data-value="5"></i><b>(5)</b>
+    <span class="na">knownHosts</span><span class="pi">:</span> <span class="pi">|</span>
+      <span class="s">github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl</span>
+      <span class="s">github.com ecdsa-sha2-nistp256 AAAAE2Vj...2YB/++Tpockg=</span>
+      <span class="s">github.com ssh-rsa AAAAB3NzaC1y...+p1vN1/wsjk=</span>
+
+    <span class="na">emptyDirConfig</span><span class="pi">:</span>
+      <span class="na">sizeLimit</span><span class="pi">:</span> <span class="s">1Gi</span>
+      <span class="na">medium</span><span class="pi">:</span> <span class="s">Memory</span>
+    <span class="na">resources</span><span class="pi">:</span>
+      <span class="na">limits</span><span class="pi">:</span>
+        <span class="na">cpu</span><span class="pi">:</span> <span class="s">400m</span>
+        <span class="na">memory</span><span class="pi">:</span> <span class="s">1024Mi</span>
+      <span class="na">requests</span><span class="pi">:</span>
+        <span class="na">cpu</span><span class="pi">:</span> <span class="s">100m</span>
+        <span class="na">memory</span><span class="pi">:</span> <span class="s">128Mi</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Disable the persistence for the DAGs.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Provide the Git repository URL.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Provide the subpath where the DAGs are stored.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>Provide the secret name that contains the SSH key.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td>Provide the known hosts for the Git repository.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>For more information on GitHub&#8217;s SSH Key fingerprints, see <a href="https://docs.github.com/en/github/authenticating-to-github/githubs-ssh-key-fingerprints">GitHub&#8217;s SSH Key fingerprints</a>.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="step-4-create-the-ssh-key-kubernetes-secret">Step 4: Create the SSH Key Kubernetes Secret</h3>
+<div class="paragraph">
+<p>Run the following command to create a Kubernetes secret for the SSH key:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c">#$ kubectl create secret generic airflow-git-ssh-key-secret \</span>
+<span class="c">#  --from-file=ssh-privatekey=$HOME/.ssh/github-credemol \</span>
+<span class="c">#  --namespace airflow</span>
+
+<span class="nv">$ </span>kubectl create secret generic airflow-git-ssh-key-secret <span class="se">\</span>
+  <span class="nt">--from-file</span><span class="o">=</span><span class="nv">gitSshKey</span><span class="o">={</span>my-private-ssh-key-file<span class="o">}</span> <span class="se">\</span>
+  <span class="nt">--namespace</span> airflow
+
+<span class="nv">$ </span>kubectl create secret generic airflow-git-ssh-key-secret <span class="se">\</span>
+  <span class="nt">--from-file</span><span class="o">=</span><span class="nv">gitSshKey</span><span class="o">=</span><span class="nv">$HOME</span>/.ssh/github-credemol <span class="se">\</span>
+  <span class="nt">--namespace</span> airflow
+
+secret/airflow-git-ssh-key-secret created</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deploying-airflow-with-git-sync">Deploying Airflow with Git Sync</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="step-5-create-secrets-for-fernet-key-and-webserver-password">Step 5: Create secrets for fernet key and webserver password</h3>
+<div class="paragraph">
+<p>Like the previous installation, we need to create secrets for the Fernet key and webserver password.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> airflow-fernet-key-secret.yaml <span class="nt">-f</span> airflow-webserver-secret.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="add-label-to-node-group-on-eks">Add Label to node group on EKS</h3>
+<div class="paragraph">
+<p>To use nodeSelector in the Airflow deployment, we need to add a label to the node group.</p>
+</div>
+<div class="paragraph">
+<p>label: <code>agentpool=depnodes</code></p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="step-6-install-or-upgrade-airflow">Step 6: Install or Upgrade Airflow</h3>
+<div class="paragraph">
+<p>Now, install or update Airflow using Helm:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c">#$ helm upgrade --install airflow apache-airflow/airflow -f custom-values.yaml --namespace airflow</span>
+<span class="nv">$ </span>helm upgrade <span class="nt">--install</span> airflow <span class="nv">$HOME</span>/Dev/helm/charts/apache-airflow/airflow-1.15.0.tgz <span class="nt">-f</span> custom-values.yaml <span class="nt">--namespace</span> airflow</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="testing-git-sync-in-airflow">Testing Git Sync in Airflow</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>hello_world_dag.py is the same as the previous example. It has three tasks: <code>hello_world</code>, <code>sleep</code>, and <code>done</code>.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/git-sync-1.png" alt="git sync 1">
+</div>
+<div class="title">Figure 2. Before Git Sync</div>
+</div>
+<div class="paragraph">
+<p>We are going to add a new task <code>goodbye_world</code> between the <code>sleep</code> and <code>done</code> tasks.</p>
+</div>
+<div class="listingblock">
+<div class="title">hello_world_dag.py</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="python">    <i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="nd">@task</span><span class="p">(</span>
+        <span class="n">task_id</span><span class="o">=</span><span class="sh">"</span><span class="s">goodbye_world</span><span class="sh">"</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">def</span> <span class="nf">goodbye_world</span><span class="p">():</span>
+        <span class="nf">print</span><span class="p">(</span><span class="sh">'</span><span class="s">Goodbye World - From Github Repository</span><span class="sh">'</span><span class="p">)</span>
+
+
+    <span class="n">hello_world_task</span> <span class="o">=</span> <span class="nf">hello_world</span><span class="p">()</span>
+    <span class="n">sleep_task</span> <span class="o">=</span> <span class="nf">sleep_task</span><span class="p">()</span>
+    <span class="n">goodbye_world_task</span> <span class="o">=</span> <span class="nf">goodbye_world</span><span class="p">()</span>    <i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="n">done_task</span> <span class="o">=</span> <span class="nf">done</span><span class="p">()</span>
+
+    <span class="n">hello_world_task</span> <span class="o">&gt;&gt;</span> <span class="n">sleep_task</span> <span class="o">&gt;&gt;</span> <span class="n">goodbye_world_task</span> <span class="o">&gt;&gt;</span> <span class="n">done_task</span> <i class="conum" data-value="3"></i><b>(3)</b></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Define a new task <code>goodbye_world</code> that prints <code>Goodbye World - From Github Repository</code>.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Create a new task instance <code>goodbye_world_task</code>.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Define the task dependencies.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>And then commit and push the changes to the Github repository.</p>
+</div>
+<div class="listingblock">
+<div class="title">push the changes to the Github repository</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>git commit <span class="nt">-a</span> <span class="nt">-m</span> <span class="s2">"Add goodbye_world task"</span>
+<span class="nv">$ </span>git push</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Once the changes are pushed to the repository, the Airflow will automatically sync the changes.</p>
+</div>
+<div class="paragraph">
+<p>Since Git Sync runs every 60 seconds, after a minute, the changes will be automatically reflected in the Airflow UI.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/git-sync-2.png" alt="git sync 2">
+</div>
+<div class="title">Figure 3. After Git Sync</div>
+</div>
+<div class="paragraph">
+<p>We can see the new task 'goodbye_world' between sleep and done tasks.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this guide, we:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Created a private Git repository for DAGs.</p>
+</li>
+<li>
+<p>Configured Apache Airflow to sync DAGs using Git Sync.</p>
+</li>
+<li>
+<p>Used SSH keys for authentication.</p>
+</li>
+<li>
+<p>Verified that Git Sync automatically updates DAGs in Airflow.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>With Git-based DAG management, development teams can work collaboratively, streamline deployments, and avoid storage dependencies like EFS or PVCs.</p>
+</div>
+<div class="paragraph">
+<p>Now, Airflow DAGs are managed efficiently through Git!</p>
+</div>
+<div class="paragraph">
+<p>All my LinkedIn articles can be found here:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://www.linkedin.com/pulse/my-linkedin-article-library-young-gyu-kim-2jihc/">My LinkedIn Article Library</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Internal Link: docs/airflow/git-repo-for-dags/index.adoc</p>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>

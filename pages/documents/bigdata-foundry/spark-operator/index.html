@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Apache Airflow - How to use SparkKubernetesOperator</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+        min-width: 0;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+        flex-shrink: 0;
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;           /* fallback scroll if absolutely needed */
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre-wrap;      /* enables line wrap */
+        word-wrap: break-word;      /* breaks long words if needed */
+        overflow-wrap: break-word;  /* ensures content wraps in small containers */
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        white-space: pre;
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+        margin-top: 1rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    /* Optional container max width per role */
+    .img-small img {
+        max-width: 400px;
+    }
+
+    .img-medium img {
+        max-width: 700px;
+    }
+
+    .img-wide img {
+        max-width: 1000px;
+    }
+
+    @media (max-width: 768px) {
+        .img-wide img {
+            max-width: 100%;
+        }
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/bigdata-foundry/">BigData Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 style="font-size: 2rem; font-weight: bold; margin-bottom: 1rem; color: #1f2937;">
+            Apache Airflow - How to use SparkKubernetesOperator
+        </h1>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a></li>
+<li><a href="#installation">Installation</a>
+<ul class="sectlevel2">
+<li><a href="#add-the-spark-operator-helm-repository">Add the Spark Operator Helm repository</a></li>
+<li><a href="#custom-values-yaml">custom-values.yaml</a></li>
+<li><a href="#install-the-spark-operator">Install the Spark Operator</a></li>
+</ul>
+</li>
+<li><a href="#uninstall-the-spark-operator">Uninstall the Spark Operator</a></li>
+<li><a href="#create-an-example-application">Create an example application</a>
+<ul class="sectlevel2">
+<li><a href="#verify-the-spark-application">Verify the Spark application</a></li>
+</ul>
+</li>
+<li><a href="#upgrade-the-spark-operator">Upgrade the Spark Operator</a></li>
+<li><a href="#working-with-airflow">Working with Airflow</a></li>
+</ul>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This document provides how to install and use the Spark Operator on Kubernetes.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installation">Installation</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="add-the-spark-operator-helm-repository">Add the Spark Operator Helm repository</h3>
+<div class="paragraph">
+<p>We are going to use 'spark-operator' provided by Kubeflow. First, check you have added the old version of spark-operator repository provided by Google. Then remove it.</p>
+</div>
+<div class="listingblock">
+<div class="title">remove old Helm repository</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c"># check Helm repositories</span>
+<span class="nv">$ </span>helm repo list | <span class="nb">grep </span>spark-operator
+
+spark-operator          https://googlecloudplatform.github.io/spark-on-k8s-operator
+
+<span class="nv">$ </span>helm repo remove spark-operator</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now, add the new Helm repository provided by Kubeflow.</p>
+</div>
+<div class="listingblock">
+<div class="title">add new Helm repository</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm repo add spark-operator https://kubeflow.github.io/spark-operator
+<span class="nv">$ </span>helm repo update
+
+<span class="nv">$ </span>helm repo list | <span class="nb">grep </span>spark-operator
+
+spark-operator          https://kubeflow.github.io/spark-operator</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">download the values.yaml file.</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm show values spark-operator/spark-operator <span class="o">&gt;</span> values.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="custom-values-yaml">custom-values.yaml</h3>
+<div class="paragraph">
+<p>You can customize the values.yaml file to fit your needs. Here is an example of custom-values.yaml.</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">controller</span><span class="pi">:</span>
+  <span class="na">nodeSelector</span><span class="pi">:</span>
+    <span class="na">agentpool</span><span class="pi">:</span> <span class="s">depnodes</span>
+
+<span class="na">webhook</span><span class="pi">:</span>
+  <span class="na">nodeSelector</span><span class="pi">:</span>
+    <span class="na">agentpool</span><span class="pi">:</span> <span class="s">depnodes</span>
+
+<span class="na">spark</span><span class="pi">:</span>
+  <span class="na">jobNamespaces</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">dep</span>
+  <span class="pi">-</span> <span class="s">spark-jobs</span>
+  <span class="pi">-</span> <span class="s">airflow</span>
+  <span class="pi">-</span> <span class="s">default</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>For spark.jobNamespace, you can specify the namespace where the Spark applications will be created.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-the-spark-operator">Install the Spark Operator</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nb">install </span>spark-operator spark-operator/spark-operator <span class="nt">--namespace</span> spark-operator <span class="nt">--create-namespace</span> <span class="nt">-f</span> custom-values.yaml
+
+NAME: spark-operator
+LAST DEPLOYED: Thu Dec  5 11:36:33 2024
+NAMESPACE: spark-operator
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="uninstall-the-spark-operator">Uninstall the Spark Operator</h2>
+<div class="sectionbody">
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm uninstall spark-operator <span class="nt">-n</span> spark-operator</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-an-example-application">Create an example application</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Spark-Operator examples can be found in the examples directory of the Spark-Operator repository.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/kubeflow/spark-operator/tree/master/examples" class="bare">https://github.com/kubeflow/spark-operator/tree/master/examples</a></p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">examples/spark-pi.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1">#</span>
+<span class="c1"># Copyright 2017 Google LLC</span>
+<span class="c1">#</span>
+<span class="c1"># Licensed under the Apache License, Version 2.0 (the "License");</span>
+<span class="c1"># you may not use this file except in compliance with the License.</span>
+<span class="c1"># You may obtain a copy of the License at</span>
+<span class="c1">#</span>
+<span class="c1">#     https://www.apache.org/licenses/LICENSE-2.0</span>
+<span class="c1">#</span>
+<span class="c1"># Unless required by applicable law or agreed to in writing, software</span>
+<span class="c1"># distributed under the License is distributed on an "AS IS" BASIS,</span>
+<span class="c1"># WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.</span>
+<span class="c1"># See the License for the specific language governing permissions and</span>
+<span class="c1"># limitations under the License.</span>
+
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">sparkoperator.k8s.io/v1beta2</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">SparkApplication</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">spark-pi</span>
+<span class="c1">#  namespace: default</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">spark-jobs</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s">Scala</span>
+  <span class="na">mode</span><span class="pi">:</span> <span class="s">cluster</span>
+  <span class="na">image</span><span class="pi">:</span> <span class="s">spark:3.5.3</span>
+  <span class="na">imagePullPolicy</span><span class="pi">:</span> <span class="s">IfNotPresent</span>
+  <span class="na">mainClass</span><span class="pi">:</span> <span class="s">org.apache.spark.examples.SparkPi</span>
+  <span class="na">mainApplicationFile</span><span class="pi">:</span> <span class="s">local:///opt/spark/examples/jars/spark-examples.jar</span>
+  <span class="na">arguments</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s2">"</span><span class="s">5000"</span>
+  <span class="na">sparkVersion</span><span class="pi">:</span> <span class="s">3.5.3</span>
+  <span class="na">driver</span><span class="pi">:</span>
+    <span class="na">labels</span><span class="pi">:</span>
+      <span class="na">version</span><span class="pi">:</span> <span class="s">3.5.3</span>
+    <span class="na">cores</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s">512m</span>
+    <span class="na">serviceAccount</span><span class="pi">:</span> <span class="s">spark-operator-spark</span>
+  <span class="na">executor</span><span class="pi">:</span>
+    <span class="na">labels</span><span class="pi">:</span>
+      <span class="na">version</span><span class="pi">:</span> <span class="s">3.5.3</span>
+    <span class="na">instances</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="na">cores</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s">512m</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>I just changed the namespace to 'spark-jobs' in the example file.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl get namespace spark-jobs <span class="o">||</span> kubectl create namespace spark-jobs
+
+<span class="c"># Create an example Spark application in the spark-jobs namespace</span>
+<span class="nv">$ </span>kubectl apply <span class="nt">-f</span> examples/spark-pi.yaml <span class="nt">-n</span> spark-jobs</code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="verify-the-spark-application">Verify the Spark application</h3>
+<div class="paragraph">
+<p>To verify the Spark application, you can check the logs of the driver pod.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl get pods <span class="nt">-n</span> spark-jobs
+<span class="nv">$ </span>kubectl logs <span class="nt">-f</span> spark-pi-driver <span class="nt">-n</span> spark-jobs</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="upgrade-the-spark-operator">Upgrade the Spark Operator</h2>
+<div class="sectionbody">
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm upgrade spark-operator spark-operator/spark-operator <span class="nt">--namespace</span> spark-operator <span class="nt">-f</span> custom-values.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="working-with-airflow">Working with Airflow</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p><a href="../../airflow/airflow-on-k8s/spark-kubernetes-operator.adoc">Spark Kubernetes Operator</a></p>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>

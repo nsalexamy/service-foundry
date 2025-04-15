@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Apache Airflow - Kubernetes Pod Operator</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+        min-width: 0;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+        flex-shrink: 0;
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;           /* fallback scroll if absolutely needed */
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre-wrap;      /* enables line wrap */
+        word-wrap: break-word;      /* breaks long words if needed */
+        overflow-wrap: break-word;  /* ensures content wraps in small containers */
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        white-space: pre;
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+        margin-top: 1rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    /* Optional container max width per role */
+    .img-small img {
+        max-width: 400px;
+    }
+
+    .img-medium img {
+        max-width: 700px;
+    }
+
+    .img-wide img {
+        max-width: 1000px;
+    }
+
+    @media (max-width: 768px) {
+        .img-wide img {
+            max-width: 100%;
+        }
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/bigdata-foundry/">BigData Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 style="font-size: 2rem; font-weight: bold; margin-bottom: 1rem; color: #1f2937;">
+            Apache Airflow - Kubernetes Pod Operator
+        </h1>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#what-is-airflow-kubernetes-pod-operator">What is Airflow Kubernetes Pod Operator</a></li>
+<li><a href="#add-kubernetes-cluster-connection-on-airflow-web-ui">Add Kubernetes Cluster Connection on Airflow Web UI</a>
+<ul class="sectlevel2">
+<li><a href="#convert-kube-config-to-json">Convert kube config to JSON</a></li>
+<li><a href="#current-context">Current Context</a></li>
+</ul>
+</li>
+<li><a href="#add-kpo-hello-world-dag">Add kpo-hello-world DAG</a>
+<ul class="sectlevel2">
+<li><a href="#run-the-dag">Run the DAG</a></li>
+</ul>
+</li>
+<li><a href="#what-is-sling">What is Sling</a>
+<ul class="sectlevel2">
+<li><a href="#install-sling-on-mac">Install Sling on Mac</a></li>
+<li><a href="#scenario-for-sling-etl-task">Scenario for Sling ETL Task</a></li>
+<li><a href="#setting-up-connections">Setting up Connections</a></li>
+<li><a href="#custom-docker-image">Custom Docker Image</a></li>
+<li><a href="#push-docker-image-to-azure-container-registry">Push Docker Image to Azure Container Registry</a></li>
+<li><a href="#add-kpo-sling-division-dag">Add kpo-sling-division DAG</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#references">References</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/apache-airflow-k8s-pod-operator.png" alt="apache airflow k8s pod operator">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This article is part of the series on Airflow on Kubernetes. In this series, we will cover the following topics:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><a href="https://www.linkedin.com/pulse/apache-airflow-kubernetes-executor-young-gyu-kim-brenc/">Apache Airflow - Kubernetes Executor</a></p>
+</li>
+<li>
+<p><a href="https://www.linkedin.com/pulse/apache-airflow-kubernetes-pod-operator-young-gyu-kim-m75fc/">Apache Airflow - Kubernetes Pod Operator</a></p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>This is the second article in the series.</p>
+</div>
+<div class="paragraph">
+<p>In this article, we’ll explore how to use the Kubernetes Pod Operator in Apache Airflow to execute tasks within a Kubernetes pod. Specifically, we’ll run a Sling ETL task to migrate data from a source database to Azure Blob Storage in Parquet format. Along the way, you’ll learn how to leverage a custom Docker image with the Kubernetes Pod Operator.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-is-airflow-kubernetes-pod-operator">What is Airflow Kubernetes Pod Operator</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Kubernetes Pod Operator is an operator that executes a task in a Kubernetes Pod. It is useful when you want to run a task in a Kubernetes Pod with your custom Docker image.</p>
+</div>
+<div class="paragraph">
+<p>In comparison to the Kubernetes Executor, the Kubernetes Pod Operator can handle more complex tasks that require a custom Docker image.</p>
+</div>
+<div class="paragraph">
+<p>In this article, we will run a Sling ETL task that migrate data from a source database to Azure Blob Storage in Parquet format.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="add-kubernetes-cluster-connection-on-airflow-web-ui">Add Kubernetes Cluster Connection on Airflow Web UI</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>First, we need to add the Kubernetes cluster connection on the Airflow Web UI.</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Go to the Airflow Web UI</p>
+</li>
+<li>
+<p>Click on the Admin menu</p>
+</li>
+<li>
+<p>Click on Connections</p>
+</li>
+<li>
+<p>Click on the Create button</p>
+</li>
+</ol>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/k8s-connection-add.png" alt="k8s connection add">
+</div>
+<div class="title">Figure 1. Add Kubernetes Cluster Connection</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic" start="5">
+<li>
+<p>Fill in the following fields:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Connection Id: <code>k8s_conn</code></p>
+</li>
+<li>
+<p>Connection Type: <code>Kubernetes Cluster Connection</code></p>
+</li>
+<li>
+<p>Kube Config (JSON format): refer to the following section</p>
+</li>
+<li>
+<p>Namespace: <code>airflow</code></p>
+</li>
+<li>
+<p>Cluster context: <code>your-cluster-context</code></p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p>Click on the Save button</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>Fill in the form with the appropriate values. The 'Kube Config (JSON format)' field should contain the content of the kubeconfig file in JSON format.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/k8s-connection-form.png" alt="k8s connection form">
+</div>
+<div class="title">Figure 2. Kubernetes Cluster Connection Form</div>
+</div>
+<div class="sect2">
+<h3 id="convert-kube-config-to-json">Convert kube config to JSON</h3>
+<div class="paragraph">
+<p>If you are working with kubectl command, you already have a Kube config file in YAML format. The config file is usually located at <code>~/.kube/config</code>.</p>
+</div>
+<div class="paragraph">
+<p>~/.kube/config (YAML)</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># convert yaml to json</span>
+<span class="s">$ yq -o json eval . ~/.kube/config &gt; kube-config/config.json</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The command above will convert the kubeconfig file to JSON format and save it to <code>kube-config/config.json</code>.</p>
+</div>
+<div class="paragraph">
+<p>We can use the content of the JSON file as the 'Kube Config (JSON format)' in the Airflow Web UI.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="current-context">Current Context</h3>
+<div class="paragraph">
+<p>to get the current context of the kubeconfig file, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl config current-context</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We can use the output of the command as the 'Cluster context' in the Airflow Web UI.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="add-kpo-hello-world-dag">Add kpo-hello-world DAG</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Now, let&#8217;s create a DAG that uses the Kubernetes Pod Operator to run hello-world Docker image.</p>
+</div>
+<div class="listingblock">
+<div class="title">/dags/kpo-hello-world.py</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="python"><span class="kn">import</span> <span class="n">pendulum</span>
+
+<span class="kn">from</span> <span class="n">airflow</span> <span class="kn">import</span> <span class="n">DAG</span>
+
+<span class="kn">from</span> <span class="n">airflow.providers.cncf.kubernetes.operators.kubernetes_pod</span> <span class="kn">import</span> <span class="n">KubernetesPodOperator</span>
+<span class="kn">from</span> <span class="n">kubernetes.client</span> <span class="kn">import</span> <span class="n">models</span> <span class="k">as</span> <span class="n">k8s</span>
+
+<span class="n">container_resources</span> <span class="o">=</span> <span class="n">k8s</span><span class="p">.</span><span class="nc">V1ResourceRequirements</span><span class="p">(</span>
+    <span class="n">limits</span><span class="o">=</span><span class="p">{</span>
+        <span class="sh">"</span><span class="s">memory</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">512Mi</span><span class="sh">"</span><span class="p">,</span>
+        <span class="sh">"</span><span class="s">cpu</span><span class="sh">"</span><span class="p">:</span> <span class="mf">0.2</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="n">requests</span><span class="o">=</span><span class="p">{</span>
+        <span class="sh">"</span><span class="s">memory</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">512Mi</span><span class="sh">"</span><span class="p">,</span>
+        <span class="sh">"</span><span class="s">cpu</span><span class="sh">"</span><span class="p">:</span> <span class="mf">0.1</span><span class="p">,</span>
+    <span class="p">},</span>
+<span class="p">)</span>
+
+<span class="k">with</span> <span class="nc">DAG</span><span class="p">(</span>
+    <span class="n">dag_id</span><span class="o">=</span><span class="sh">"</span><span class="s">kpo-hello-world</span><span class="sh">"</span><span class="p">,</span>
+    <span class="n">schedule</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+    <span class="n">start_date</span><span class="o">=</span><span class="n">pendulum</span><span class="p">.</span><span class="nf">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">tz</span><span class="o">=</span><span class="sh">"</span><span class="s">UTC</span><span class="sh">"</span><span class="p">),</span>
+    <span class="n">catchup</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+    <span class="n">tags</span><span class="o">=</span><span class="p">[</span><span class="sh">"</span><span class="s">kpo</span><span class="sh">"</span><span class="p">],</span>
+<span class="p">)</span> <span class="k">as</span> <span class="n">dag</span><span class="p">:</span>
+    <span class="n">helloTask</span> <span class="o">=</span> <span class="nc">KubernetesPodOperator</span><span class="p">(</span>
+        <span class="n">task_id</span><span class="o">=</span><span class="sh">'</span><span class="s">hello</span><span class="sh">'</span><span class="p">,</span>
+        <span class="n">kubernetes_conn_id</span><span class="o">=</span><span class="sh">"</span><span class="s">k8s_conn</span><span class="sh">"</span><span class="p">,</span>
+        <span class="n">name</span><span class="o">=</span><span class="sh">'</span><span class="s">hello</span><span class="sh">'</span><span class="p">,</span>
+        <span class="n">namespace</span><span class="o">=</span><span class="sh">'</span><span class="s">airflow</span><span class="sh">'</span><span class="p">,</span>
+        <span class="n">container_resources</span><span class="o">=</span><span class="n">container_resources</span><span class="p">,</span>
+        <span class="n">image</span><span class="o">=</span><span class="sh">'</span><span class="s">hello-world:latest</span><span class="sh">'</span><span class="p">,</span>
+        <span class="c1">#image='ubuntu:20.04',
+</span>        <span class="c1">#cmds=["bash", "-cx"],
+</span>        <span class="c1">#arguments=["echo", "hello world"],
+</span>        <span class="n">is_delete_operator_pod</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+        <span class="n">get_logs</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+
+    <span class="p">)</span>
+
+    <span class="n">helloTask</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>For this example, we will use the <code>hello-world</code> Docker image which is a simple image that prints "Hello from Docker!".</p>
+</div>
+<div class="paragraph">
+<p>Upload the DAG file to the Dags storage which is Azure File Share in this example.</p>
+</div>
+<div class="sect2">
+<h3 id="run-the-dag">Run the DAG</h3>
+<div class="paragraph">
+<p>To run the DAG, follow these steps:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Go to the Airflow Web UI</p>
+</li>
+<li>
+<p>Click on the DAGs menu</p>
+</li>
+<li>
+<p>Click on the <code>kpo-hello-world</code> DAG</p>
+</li>
+<li>
+<p>Click on the Trigger DAG button</p>
+</li>
+</ol>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/kpo-hello-world-logs.png" alt="kpo hello world logs">
+</div>
+<div class="title">Figure 3. kpo-hello-world DAG - Logs</div>
+</div>
+<div class="paragraph">
+<p>Now we have successfully run the <code>kpo-hello-world</code> DAG using the Kubernetes Pod Operator that runs the <code>hello-world</code> Docker image.</p>
+</div>
+<div class="paragraph">
+<p>In the next section, we will learn how to run a more complex task using the Kubernetes Pod Operator.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-is-sling">What is Sling</h2>
+<div class="sectionbody">
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Powerful Data Integration CLI tool.</p>
+</div>
+<div class="paragraph">
+<p>Running your EL tasks from the CLI has never been simpler. Whether ingesting CSV or JSON files, transferring data between databases, or exporting a custom SQL query to a Parquet file — Sling is the solution that empowers you to achieve it effortlessly.</p>
+</div>
+</blockquote>
+<div class="attribution">
+&#8212; Sling<br>
+<cite>https://sling.etl.dev/</cite>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-sling-on-mac">Install Sling on Mac</h3>
+<div class="paragraph">
+<p>Before we can run the Sling ETL task, we need to install Sling on our local machine to see how it works.</p>
+</div>
+<div class="paragraph">
+<p>To install Sling on Mac, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>brew <span class="nb">install </span>slingdata-io/sling/sling
+
+<span class="nv">$ </span>sling <span class="nt">-h</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>For more information on how to install Sling on other platforms, refer to the official Sling documentation.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://docs.slingdata.io/sling-cli/getting-started" class="bare">https://docs.slingdata.io/sling-cli/getting-started</a></p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="scenario-for-sling-etl-task">Scenario for Sling ETL Task</h3>
+<div class="paragraph">
+<p>In this scenario, we will run a Sling ETL task that migrates data from a source database to Azure Blob Storage in Parquet format.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Source Database: PostgreSQL</p>
+</li>
+<li>
+<p>Destination: Azure Blob Storage</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="setting-up-connections">Setting up Connections</h3>
+<div class="paragraph">
+<p>Sling ENV file is supposed to be located at <code>~/.sling/env.yaml</code>. We will define the connections for the source database and Azure Blob Storage in the ENV file.</p>
+</div>
+<div class="listingblock">
+<div class="title">~/.sling/env.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">connections</span><span class="pi">:</span>
+  <span class="na">PG_REPLICA</span><span class="pi">:</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">postgres</span>
+    <span class="na">host</span><span class="pi">:</span> <span class="pi">{</span><span class="nv">your-host</span><span class="pi">}</span>
+    <span class="na">user</span><span class="pi">:</span> <span class="pi">{</span><span class="nv">db-user</span><span class="pi">}</span>
+    <span class="na">password</span><span class="pi">:</span> <span class="pi">{</span><span class="nv">db-password</span><span class="pi">}</span>
+    <span class="na">port</span><span class="pi">:</span> <span class="m">5432</span>
+    <span class="na">database</span><span class="pi">:</span> <span class="pi">{</span><span class="nv">database-name</span><span class="pi">}</span>
+    <span class="na">schema</span><span class="pi">:</span> <span class="pi">{</span><span class="nv">schema-name</span><span class="pi">}</span>
+    <span class="na">sslmode</span><span class="pi">:</span> <span class="s">require</span>
+
+  <span class="na">AZURE_STORAGE</span><span class="pi">:</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">azure</span>
+    <span class="na">account</span><span class="pi">:</span> <span class="pi">{</span><span class="nv">storage-account</span><span class="pi">}</span>
+    <span class="na">container</span><span class="pi">:</span> <span class="pi">{</span><span class="nv">container-name</span><span class="pi">}</span>
+    <span class="na">sas_svc_url</span><span class="pi">:</span> <span class="s1">'</span><span class="s">{sas-url}'</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">run-sling.sh</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c">#!/bin/sh</span>
+
+<span class="nb">echo</span> <span class="s2">"##### Starting Sling #####"</span>
+
+<span class="nv">DEST_URL</span><span class="o">=</span><span class="s2">"https://{azure-storage-account}.blob.core.windows.net/{container-name}/sling/</span><span class="si">$(</span><span class="nb">date</span> +%Y-%m-%d<span class="si">)</span><span class="s2">/division/"</span>
+
+<span class="nb">echo</span> <span class="s2">"DEST_URL: </span><span class="nv">$DEST_URL</span><span class="s2">"</span>
+
+sling run <span class="nt">--src-conn</span> PG_REPLICA <span class="nt">--src-stream</span> <span class="s1">'division'</span> <span class="se">\</span>
+  <span class="nt">--tgt-conn</span> AZURE_STORAGE <span class="nt">--tgt-object</span> <span class="s2">"</span><span class="nv">$DEST_URL</span><span class="s2">"</span> <span class="se">\</span>
+  <span class="nt">--tgt-options</span> <span class="s1">'{file_max_rows: 10, format: parquet}'</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To run the Sling ETL task, execute the <code>run-sling.sh</code> script.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>./run-sling.sh
+
+<span class="c"># Output</span>
+
+<span class="c">##### Starting Sling #####</span>
+DEST_URL: https://<span class="o">{</span>azure-storage-account<span class="o">}</span>.blob.core.windows.net/<span class="o">{</span>container-name<span class="o">}</span>/sling/2024-11-26/division/
+5:21PM INF connecting to <span class="nb">source </span>database <span class="o">(</span>postgres<span class="o">)</span>
+5:21PM INF reading from <span class="nb">source </span>database
+5:21PM INF writing to target file system <span class="o">(</span>azure<span class="o">)</span>
+5:21PM INF wrote 32 rows <span class="o">[</span>8 r/s] to https://<span class="o">{</span>azure-storage-account<span class="o">}</span>.blob.core.windows.net/<span class="o">{</span>container-name<span class="o">}</span>/sling/2024-11-26/division/
+5:21PM INF execution succeeded</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The Sling ETL task will migrate data from the source database to Azure Blob Storage in Parquet format. We can see the Parquet files saved to the Azure Blob Storage.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/azure-blob-storage-division.png" alt="azure blob storage division">
+</div>
+<div class="title">Figure 4. parquet-files on Azure Blob Storage</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="custom-docker-image">Custom Docker Image</h3>
+<div class="paragraph">
+<p>To run the Sling ETL task using the Kubernetes Pod Operator, we need to create a custom Docker image that contains the Sling CLI tool.</p>
+</div>
+<div class="listingblock">
+<div class="title">sling/docker/Dockerfile</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="dockerfile"><span class="k">FROM</span><span class="s"> slingdata/sling</span>
+
+<span class="k">WORKDIR</span><span class="s"> /usr/app</span>
+
+<span class="k">COPY</span><span class="s"> env.yaml /home/sling/.sling/env.yaml</span>
+<span class="k">COPY</span><span class="s"> run-sling.sh /usr/app/run-sling.sh</span>
+
+<span class="k">ENTRYPOINT</span><span class="s"> ["sh", "run-sling.sh"]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>I used the same env.yaml and run-sling.sh files from the previous section.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="push-docker-image-to-azure-container-registry">Push Docker Image to Azure Container Registry</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>az acr login <span class="nt">--name</span> <span class="nv">$ACR_NAME</span>
+<span class="nv">$ </span>az acr build <span class="nt">--image</span> sling-example-division:0.1.0 <span class="nt">--registry</span> <span class="nv">$ACR_NAME</span> ./sling/docker</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now we have successfully pushed the custom Docker image to the Azure Container Registry. The name of the image is <code>sling-example-division</code> with the tag <code>0.1.0</code>.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="add-kpo-sling-division-dag">Add kpo-sling-division DAG</h3>
+<div class="paragraph">
+<p>Now, let&#8217;s create a DAG that uses the Kubernetes Pod Operator to run the Sling ETL task.</p>
+</div>
+<div class="listingblock">
+<div class="title">/dags/kpo-sling-division.py</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="python"><span class="kn">import</span> <span class="n">pendulum</span>
+
+<span class="kn">from</span> <span class="n">airflow</span> <span class="kn">import</span> <span class="n">DAG</span>
+
+<span class="kn">from</span> <span class="n">airflow.providers.cncf.kubernetes.operators.kubernetes_pod</span> <span class="kn">import</span> <span class="n">KubernetesPodOperator</span>
+<span class="kn">from</span> <span class="n">kubernetes.client</span> <span class="kn">import</span> <span class="n">models</span> <span class="k">as</span> <span class="n">k8s</span>
+
+<span class="n">container_resources</span> <span class="o">=</span> <span class="n">k8s</span><span class="p">.</span><span class="nc">V1ResourceRequirements</span><span class="p">(</span>
+    <span class="n">limits</span><span class="o">=</span><span class="p">{</span>
+        <span class="sh">"</span><span class="s">memory</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">512Mi</span><span class="sh">"</span><span class="p">,</span>
+        <span class="sh">"</span><span class="s">cpu</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">200m</span><span class="sh">"</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="n">requests</span><span class="o">=</span><span class="p">{</span>
+        <span class="sh">"</span><span class="s">memory</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">512Mi</span><span class="sh">"</span><span class="p">,</span>
+        <span class="sh">"</span><span class="s">cpu</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">100m</span><span class="sh">"</span><span class="p">,</span>
+    <span class="p">},</span>
+<span class="p">)</span>
+
+<span class="k">with</span> <span class="nc">DAG</span><span class="p">(</span>
+    <span class="n">dag_id</span><span class="o">=</span><span class="sh">"</span><span class="s">kpo-sling-division</span><span class="sh">"</span><span class="p">,</span>
+    <span class="n">schedule</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+    <span class="n">start_date</span><span class="o">=</span><span class="n">pendulum</span><span class="p">.</span><span class="nf">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">tz</span><span class="o">=</span><span class="sh">"</span><span class="s">UTC</span><span class="sh">"</span><span class="p">),</span>
+    <span class="n">catchup</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+    <span class="n">tags</span><span class="o">=</span><span class="p">[</span><span class="sh">"</span><span class="s">kpo</span><span class="sh">"</span><span class="p">],</span>
+<span class="p">)</span> <span class="k">as</span> <span class="n">dag</span><span class="p">:</span>
+
+    <span class="n">slingTask</span> <span class="o">=</span> <span class="nc">KubernetesPodOperator</span><span class="p">(</span>
+        <span class="n">task_id</span><span class="o">=</span><span class="sh">'</span><span class="s">sling</span><span class="sh">'</span><span class="p">,</span>
+        <span class="n">kubernetes_conn_id</span><span class="o">=</span><span class="sh">"</span><span class="s">k8s_conn</span><span class="sh">"</span><span class="p">,</span>
+        <span class="n">name</span><span class="o">=</span><span class="sh">'</span><span class="s">sling</span><span class="sh">'</span><span class="p">,</span>
+        <span class="n">namespace</span><span class="o">=</span><span class="sh">'</span><span class="s">airflow</span><span class="sh">'</span><span class="p">,</span>
+        <span class="n">container_resources</span><span class="o">=</span><span class="n">container_resources</span><span class="p">,</span>
+<span class="c1">#         pod_template_file="/opt/airflow/custom-pod-templates/pod_template_file.yaml",
+</span>        <span class="n">image</span><span class="o">=</span><span class="sh">'</span><span class="s">iclinicacr.azurecr.io/sling-example-division:0.1.0</span><span class="sh">'</span><span class="p">,</span>
+        <span class="n">image_pull_policy</span><span class="o">=</span><span class="sh">'</span><span class="s">Always</span><span class="sh">'</span><span class="p">,</span>
+        <span class="c1">#cmds=["sh", "-c", "/usr/app/run-sling.sh"],
+#         in_cluster=True,
+</span>        <span class="n">is_delete_operator_pod</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+        <span class="n">get_logs</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+        <span class="c1">#service_account_name='airflow-worker',
+</span>        <span class="c1">#config_file="/opt/airflow/dags/kube-config/config",
+</span>    <span class="p">)</span>
+
+
+
+<span class="n">slingTask</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Upload the DAG file to the Dags storage which is Azure File Share in this example.</p>
+</div>
+<div class="paragraph">
+<p>And run the DAG using the Airflow Web UI.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/kpo-sling-division-logs.png" alt="kpo sling division logs">
+</div>
+<div class="title">Figure 5. kpo-sling-division DAG - Logs</div>
+</div>
+<div class="paragraph">
+<p>We successfully ran the kpo-sling-division DAG using the Kubernetes Pod Operator to execute the Sling ETL task. The logs confirm that the Sling ETL task completed successfully, and the Parquet files have been saved to Azure Blob Storage.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In conclusion, we’ve learned how to use the Kubernetes Pod Operator in Apache Airflow to execute tasks within a Kubernetes pod using a custom Docker image. We successfully ran a Sling ETL task to migrate data from a source database to Azure Blob Storage in Parquet format.</p>
+</div>
+<div class="paragraph">
+<p>All my LinkedIn articles are available at <a href="https://www.linkedin.com/pulse/my-linkedin-article-library-young-gyu-kim-2jihc/">All My LinkedIn Articles</a>.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="references">References</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://www.astronomer.io/docs/learn/kubepod-operator/?tab=linux#step-1-set-up-kubernetes" class="bare">https://www.astronomer.io/docs/learn/kubepod-operator/?tab=linux#step-1-set-up-kubernetes</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>

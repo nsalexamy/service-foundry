@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Apache Airflow - How to use SparkKubernetesOperator</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+        min-width: 0;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+        flex-shrink: 0;
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;           /* fallback scroll if absolutely needed */
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre-wrap;      /* enables line wrap */
+        word-wrap: break-word;      /* breaks long words if needed */
+        overflow-wrap: break-word;  /* ensures content wraps in small containers */
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        white-space: pre;
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+        margin-top: 1rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    /* Optional container max width per role */
+    .img-small img {
+        max-width: 400px;
+    }
+
+    .img-medium img {
+        max-width: 700px;
+    }
+
+    .img-wide img {
+        max-width: 1000px;
+    }
+
+    @media (max-width: 768px) {
+        .img-wide img {
+            max-width: 100%;
+        }
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/bigdata-foundry/">BigData Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 style="font-size: 2rem; font-weight: bold; margin-bottom: 1rem; color: #1f2937;">
+            Apache Airflow - How to use SparkKubernetesOperator
+        </h1>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#what-is-airflow-sparkkubernetesoperator">What is Airflow SparkKubernetesOperator</a></li>
+<li><a href="#what-is-spark-operator">What is Spark Operator</a></li>
+<li><a href="#spark-pi-example">Spark-Pi Example</a></li>
+<li><a href="#create-a-dag-for-sparkkubernetesoperator">Create a Dag for SparkKubernetesOperator</a>
+<ul class="sectlevel2">
+<li><a href="#dags-folder-structure">dags folder structure</a></li>
+<li><a href="#run-the-dag">Run the DAG</a></li>
+<li><a href="#do_xcom_pushtrue">do_xcom_push=True</a></li>
+</ul>
+</li>
+<li><a href="#when-xcom-is-set-to-true">When XCom is set to True</a></li>
+<li><a href="#custom-spark-applications">Custom Spark Applications</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#references">References</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/spark-operator-intro.png" alt="spark operator intro">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this article, I will guide you through using the SparkKubernetesOperator with the Spark-Pi example, a sample application conveniently included in the Spark Docker image. The SparkKubernetesOperator is a powerful tool for running Spark applications on Kubernetes, leveraging Kubernetes’ native capabilities to manage and execute tasks in a highly parallelized and efficient way.</p>
+</div>
+<div class="paragraph">
+<p>By using this operator, you can seamlessly integrate Spark’s distributed data processing capabilities with Kubernetes’ container orchestration, making it an ideal solution for running complex data processing pipelines in a scalable environment.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-is-airflow-sparkkubernetesoperator">What is Airflow SparkKubernetesOperator</h2>
+<div class="sectionbody">
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>The SparkKubernetesOperator allows you to create and run spark job on a Kubernetes cluster. It is based on spark-on-k8s-operator project.</p>
+</div>
+<div class="paragraph">
+<p>This operator simplifies the interface and accepts different parameters to configure and run spark application on Kubernetes. Similar to the KubernetesOperator, we have added the logic to wait for a job after submission, manage error handling, retrieve logs from the driver pod and the ability to delete a spark job. It also supports out-of-the-box Kubernetes functionalities such as handling of volumes, config maps, secrets, etc.</p>
+</div>
+</blockquote>
+<div class="attribution">
+&#8212; Airflow Documentation
+</div>
+</div>
+<div class="paragraph">
+<p>Refer to the link if you want to know more about the SparkKubernetesOperator: link:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://airflow.apache.org/docs/apache-airflow-providers-cncf-kubernetes/10.1.0/operators.html#sparkkubernetesoperator" class="bare">https://airflow.apache.org/docs/apache-airflow-providers-cncf-kubernetes/10.1.0/operators.html#sparkkubernetesoperator</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Airflow SparkKubernetesOperator is an operator that runs a Spark application on Kubernetes. It is a subclass of the KubernetesPodOperator, which is an operator that runs a task in a Kubernetes Pod. The SparkKubernetesOperator is used to run a Spark application on Kubernetes in a parallelized way.</p>
+</div>
+<div class="paragraph">
+<p>To use the SparkKubernetesOperator, you need to have a Kubernetes cluster running and have the Spark Operator installed on the cluster. The Spark Operator is a Kubernetes Operator for Apache Spark that aims to make specifying and running Spark applications as easy and idiomatic as running other workloads on Kubernetes.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-is-spark-operator">What is Spark Operator</h2>
+<div class="sectionbody">
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>The Kubernetes Operator for Apache Spark aims to make specifying and running Spark applications as easy and idiomatic as running other workloads on Kubernetes. It uses Kubernetes custom resources for specifying, running, and surfacing status of Spark applications.</p>
+</div>
+</blockquote>
+<div class="attribution">
+&#8212; Kubernetes Documentation<br>
+<cite>https://github.com/kubeflow/spark-operator</cite>
+</div>
+</div>
+<div class="paragraph">
+<p>Refer to the link if you want to know more about the Spark Operator:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/kubeflow/spark-operator" class="bare">https://github.com/kubeflow/spark-operator</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>In this document, we are not going to cover how to install the Spark Operator on Kubernetes. If you want to know how to install the Spark Operator on Kubernetes, please refer to the link above.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="spark-pi-example">Spark-Pi Example</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We are going to use `spark-pi-yaml' example that you can find from the GitHub url below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/kubeflow/spark-operator/blob/master/examples/spark-pi.yaml" class="bare">https://github.com/kubeflow/spark-operator/blob/master/examples/spark-pi.yaml</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>I just modified the namespace from `default' to `airflow' in the example because I have chosen the `airflow' namespace for the Spark Operator.</p>
+</div>
+<div class="listingblock">
+<div class="title">spark-pi.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># omitting the Copyright notice</span>
+
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">sparkoperator.k8s.io/v1beta2</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">SparkApplication</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">spark-pi</span>
+<span class="c1">#  namespace: default</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">airflow</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s">Scala</span>
+  <span class="na">mode</span><span class="pi">:</span> <span class="s">cluster</span>
+  <span class="na">image</span><span class="pi">:</span> <span class="s">spark:3.5.3</span>
+  <span class="na">imagePullPolicy</span><span class="pi">:</span> <span class="s">IfNotPresent</span>
+  <span class="na">mainClass</span><span class="pi">:</span> <span class="s">org.apache.spark.examples.SparkPi</span>
+  <span class="na">mainApplicationFile</span><span class="pi">:</span> <span class="s">local:///opt/spark/examples/jars/spark-examples.jar</span>
+  <span class="na">arguments</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s2">"</span><span class="s">5000"</span>
+  <span class="na">sparkVersion</span><span class="pi">:</span> <span class="s">3.5.3</span>
+  <span class="na">driver</span><span class="pi">:</span>
+    <span class="na">labels</span><span class="pi">:</span>
+      <span class="na">version</span><span class="pi">:</span> <span class="s">3.5.3</span>
+    <span class="na">cores</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s">512m</span>
+    <span class="na">serviceAccount</span><span class="pi">:</span> <span class="s">spark-operator-spark</span>
+  <span class="na">executor</span><span class="pi">:</span>
+    <span class="na">labels</span><span class="pi">:</span>
+      <span class="na">version</span><span class="pi">:</span> <span class="s">3.5.3</span>
+    <span class="na">instances</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="na">cores</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s">512m</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-a-dag-for-sparkkubernetesoperator">Create a Dag for SparkKubernetesOperator</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this example, we are going to create a DAG for the SparkKubernetesOperator. The DAG will run the Spark-Pi example using the SparkKubernetesOperator.</p>
+</div>
+<div class="listingblock">
+<div class="title">spark-py-example.py</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="python"><span class="kn">from</span> <span class="n">datetime</span> <span class="kn">import</span> <span class="n">timedelta</span><span class="p">,</span> <span class="n">datetime</span>
+
+<span class="c1"># [START import_module]
+# The DAG object; we'll need this to instantiate a DAG
+</span><span class="kn">from</span> <span class="n">airflow</span> <span class="kn">import</span> <span class="n">DAG</span>
+<span class="c1"># Operators; we need this to operate!
+</span><span class="kn">from</span> <span class="n">airflow.providers.cncf.kubernetes.operators.spark_kubernetes</span> <span class="kn">import</span> <span class="n">SparkKubernetesOperator</span>
+<span class="kn">from</span> <span class="n">airflow.utils.dates</span> <span class="kn">import</span> <span class="n">days_ago</span>
+<span class="c1"># [END import_module]
+</span>
+<span class="c1"># [START default_args]
+# These args will get passed on to each operator
+# You can override them on a per-task basis during operator initialization
+</span><span class="n">default_args</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="sh">'</span><span class="s">owner</span><span class="sh">'</span><span class="p">:</span> <span class="sh">'</span><span class="s">airflow</span><span class="sh">'</span><span class="p">,</span>
+    <span class="sh">'</span><span class="s">depends_on_past</span><span class="sh">'</span><span class="p">:</span> <span class="bp">False</span><span class="p">,</span>
+    <span class="sh">'</span><span class="s">start_date</span><span class="sh">'</span><span class="p">:</span> <span class="nf">days_ago</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span>
+    <span class="sh">'</span><span class="s">email</span><span class="sh">'</span><span class="p">:</span> <span class="p">[</span><span class="sh">'</span><span class="s">airflow@example.com</span><span class="sh">'</span><span class="p">],</span>
+    <span class="sh">'</span><span class="s">email_on_failure</span><span class="sh">'</span><span class="p">:</span> <span class="bp">False</span><span class="p">,</span>
+    <span class="sh">'</span><span class="s">email_on_retry</span><span class="sh">'</span><span class="p">:</span> <span class="bp">False</span><span class="p">,</span>
+    <span class="sh">'</span><span class="s">max_active_runs</span><span class="sh">'</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="sh">'</span><span class="s">retries</span><span class="sh">'</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+<span class="p">}</span>
+<span class="c1"># [END default_args]
+</span>
+<span class="c1"># [START instantiate_dag]
+</span>
+<span class="k">with</span> <span class="nc">DAG</span><span class="p">(</span>
+    <span class="n">dag_id</span><span class="o">=</span><span class="sh">'</span><span class="s">spark_pi</span><span class="sh">'</span><span class="p">,</span>
+    <span class="n">start_date</span><span class="o">=</span><span class="nf">days_ago</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span>
+    <span class="n">default_args</span><span class="o">=</span><span class="n">default_args</span><span class="p">,</span>
+    <span class="n">schedule</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+    <span class="n">tags</span><span class="o">=</span><span class="p">[</span><span class="sh">'</span><span class="s">example</span><span class="sh">'</span><span class="p">]</span>
+<span class="p">)</span> <span class="k">as</span> <span class="n">dag</span><span class="p">:</span>
+    <span class="n">spark_pi_task</span> <span class="o">=</span> <span class="nc">SparkKubernetesOperator</span><span class="p">(</span>
+        <span class="n">task_id</span><span class="o">=</span><span class="sh">'</span><span class="s">spark_example</span><span class="sh">'</span><span class="p">,</span>
+        <span class="n">namespace</span><span class="o">=</span><span class="sh">'</span><span class="s">airflow</span><span class="sh">'</span><span class="p">,</span>
+        <span class="c1"># relative path to DAG file
+</span>        <i class="conum" data-value="1"></i><b>(1)</b>
+        <span class="n">application_file</span><span class="o">=</span><span class="sh">'</span><span class="s">k8s-spark-operator/spark-pi.yaml</span><span class="sh">'</span><span class="p">,</span>
+        <i class="conum" data-value="2"></i><b>(2)</b>
+        <span class="n">kubernetes_conn_id</span><span class="o">=</span><span class="sh">'</span><span class="s">k8s_conn</span><span class="sh">'</span><span class="p">,</span>
+        <i class="conum" data-value="3"></i><b>(3)</b>
+        <span class="c1"># do_xcom_push=True,
+</span>    <span class="p">)</span>
+    <span class="n">spark_pi_task</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The `application_file' is the path to the Spark-Pi example file. The path is relative to the DAG file.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The `kubernetes_conn_id' is the connection id to the Kubernetes cluster. You need to create a connection to the Kubernetes cluster in the Airflow UI.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>The `do_xcom_push' is a boolean value that determines whether to push the logs to the XCom. I will show you what is happening when you set this value to True in the next section.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>For more information on how to create a connection to the Kubernetes cluster, please refer to the link below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://www.linkedin.com/pulse/apache-airflow-kubernetes-pod-operator-young-gyu-kim-m75fc/" class="bare">https://www.linkedin.com/pulse/apache-airflow-kubernetes-pod-operator-young-gyu-kim-m75fc/</a></p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="dags-folder-structure">dags folder structure</h3>
+<div class="paragraph">
+<p>As for dags folder, I have specified the 'data-airflow-dags' PVC in the `values.yaml' file. The 'airflow_dags' PVC is mounted to the '/opt/airflow/dags' path in the Airflow Pod.</p>
+</div>
+<div class="paragraph">
+<p>I used Azure Fileshares for the 'data-airflow-dags' PVC so that I can upload the DAG files and Spark application files to the Azure Fileshares.</p>
+</div>
+<div class="listingblock">
+<div class="title">values.yaml file of the Airflow Helm chart</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">dags</span><span class="pi">:</span>
+  <span class="na">persistence</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">existingClaim</span><span class="pi">:</span> <span class="s">data-airflow-dags</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>/opt/airflow/dags : root folder for all DAGs
+/opt/airflow/dags/k8s-spark-operator : folder for the Spark-Pi example file and other files related to the Spark Operator.</p>
+</div>
+<div class="paragraph">
+<p>That&#8217;s why the `application_file' is set to 'k8s-spark-operator/spark-pi.yaml' in the DAG file.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="run-the-dag">Run the DAG</h3>
+<div class="paragraph">
+<p>After creating the DAG file, you can upload the DAG file to the Airflow Pod by using the Azure Fileshares. Once the DAG file is uploaded to the Airflow Pod, you can run the DAG in the Airflow UI.</p>
+</div>
+<div class="paragraph">
+<p>When you run the DAG, the Spark-Pi example will be executed.</p>
+</div>
+<div class="paragraph">
+<p>Here is the screenshot of the DAG in the Airflow UI.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/spark-pi-result.png" alt="spark pi result">
+</div>
+<div class="title">Figure 1. spark-pi result</div>
+</div>
+<div class="paragraph">
+<p>And, from the Logs tab, you can see the logs of the Spark-Pi example.</p>
+</div>
+<div class="listingblock">
+<div class="title">spark-pi logs</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="text">Pi is roughly 3.141627526283255</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="do_xcom_pushtrue">do_xcom_push=True</h3>
+<div class="paragraph">
+<p><strong>TL;DR</strong>: If the Spark application doesn&#8217;t return its result to the XCom, Do not set `do_xcom_push' to True.</p>
+</div>
+<div class="paragraph">
+<p>When you set the `do_xcom_push' to True, the logs will be pushed to the XCom. The XCom is a feature of Airflow that allows you to push and pull data between tasks.</p>
+</div>
+<div class="quoteblock">
+<div class="title">How does XCom work?</div>
+<blockquote>
+<div class="paragraph">
+<p>The KubernetesPodOperator handles XCom values differently than other operators. In order to pass a XCom value from your Pod you must specify the do_xcom_push as True. This will create a sidecar container that runs alongside the Pod. The Pod must write the XCom value into this location at the /airflow/xcom/return.json path.</p>
+</div>
+</blockquote>
+<div class="attribution">
+&#8212; Airflow Documentation
+</div>
+</div>
+<div class="paragraph">
+<p>For more information on XCom, please refer to the link below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://airflow.apache.org/docs/apache-airflow-providers-cncf-kubernetes/10.1.0/operators.html#how-does-xcom-work">How does XCom work?</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="when-xcom-is-set-to-true">When XCom is set to True</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>When you set the `do_xcom_push' to True, you must write the XCom value into the location at the `/airflow/xcom/return.json' path. The XCom value is the logs that you want to push to the XCom.</p>
+</div>
+<div class="paragraph">
+<p>If you don&#8217;t write the XCom value into the location at the `/airflow/xcom/return.json' path, you will get an error message like below:</p>
+</div>
+<div class="listingblock">
+<div class="title">error messages</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="text">2025-01-23, 15:06:01 PST] {pod_manager.py:727} INFO - Checking if xcom sidecar container is started.
+[2025-01-23, 15:06:32 PST] {pod_manager.py:737} WARNING - Still waiting for the xcom sidecar container to start. Elapsed time: 30 seconds.
+[2025-01-23, 15:07:02 PST] {pod_manager.py:737} WARNING - Still waiting for the xcom sidecar container to start. Elapsed time: 61 seconds.
+
+// omitting the error messages
+
+[2025-01-23, 15:17:44 PST] {pod_manager.py:737} WARNING - Still waiting for the xcom sidecar container to start. Elapsed time: 703 seconds.
+[2025-01-23, 15:17:50 PST] {taskinstance.py:3311} ERROR - Task failed with exception</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="custom-spark-applications">Custom Spark Applications</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Mounting Azure Fileshares to the Airflow Pod and Spark Pod is a good way to upload the DAG files and Spark application files to the Airflow Pod.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/mount-azure-fileshare.png" alt="mount azure fileshare">
+</div>
+<div class="title">Figure 2. Mount Azure Fileshare to the Airflow Pod and Spark Pod</div>
+</div>
+<div class="paragraph">
+<p>In the case of the Spark-Pi example, the Spark application is already included in the Spark Docker image. However, if you want to run a custom Spark application, you’ll need to mount the application file to the Spark Pod.</p>
+</div>
+<div class="paragraph">
+<p>To handle this, you can create a Persistent Volume Claim (PVC) for the Spark application file and then mount the PVC to the Spark Pod.</p>
+</div>
+<div class="paragraph">
+<p>Here is an example of how to mount the Spark application file to the Spark Pod.</p>
+</div>
+<div class="listingblock">
+<div class="title">my-spark-app.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">sparkoperator.k8s.io/v1beta2</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">SparkApplication</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">my-spark-app</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">airflow</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s">Scala</span>
+  <span class="na">mode</span><span class="pi">:</span> <span class="s">cluster</span>
+  <span class="na">image</span><span class="pi">:</span> <span class="s">spark:3.5.3</span>
+  <span class="na">imagePullPolicy</span><span class="pi">:</span> <span class="s">IfNotPresent</span>
+  <span class="na">timeToLiveSeconds</span><span class="pi">:</span> <span class="m">30</span>
+  <span class="na">deps</span><span class="pi">:</span>
+    <span class="na">repositories</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">https://repo1.maven.org/maven2</span>
+    <span class="na">packages</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">org.apache.hadoop:hadoop-azure:3.2.0</span>
+      <span class="pi">-</span> <span class="s">com.microsoft.azure:azure-storage:8.6.3</span>
+      <span class="pi">-</span> <span class="s">org.postgresql:postgresql:42.7.0</span>
+      <span class="pi">-</span> <span class="s">com.squareup.okhttp3:okhttp:4.12.0</span>
+      <span class="pi">-</span> <span class="s">org.neo4j:neo4j-connector-apache-spark_2.12:5.3.1_for_spark_3</span>
+    <span class="na">files</span><span class="pi">:</span>
+      <i class="conum" data-value="1"></i><b>(1)</b>
+      <span class="pi">-</span> <span class="s">local:///opt/spark/apps/my-spark-app/spark.conf</span>
+
+  <i class="conum" data-value="2"></i><b>(2)</b>
+  <span class="na">mainClass</span><span class="pi">:</span> <span class="s">com.nsalexamy.examples.mysparkapp.MainApp</span>
+  <i class="conum" data-value="3"></i><b>(3)</b>
+  <span class="na">mainApplicationFile</span><span class="pi">:</span> <span class="s">local:///opt/spark/apps/my-spark-app/my-spark-app_2.12-0.0.1-SNAPSHOT.jar</span>
+  <i class="conum" data-value="4"></i><b>(4)</b>
+  <span class="na">volumes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">spark-apps</span>
+      <span class="na">persistentVolumeClaim</span><span class="pi">:</span>
+        <span class="na">claimName</span><span class="pi">:</span> <span class="s">data-spark-apps</span>
+
+  <span class="na">arguments</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s2">"</span><span class="s">5000"</span>
+  <span class="na">sparkVersion</span><span class="pi">:</span> <span class="s">3.5.3</span>
+  <span class="na">driver</span><span class="pi">:</span>
+    <span class="na">labels</span><span class="pi">:</span>
+      <span class="na">version</span><span class="pi">:</span> <span class="s">3.5.3</span>
+    <span class="na">cores</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="na">instances</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s">512m</span>
+    <span class="na">serviceAccount</span><span class="pi">:</span> <span class="s">spark</span>
+    <i class="conum" data-value="5"></i><b>(5)</b>
+    <span class="na">volumeMounts</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">spark-apps</span>
+        <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/opt/spark/apps</span>
+
+  <span class="na">executor</span><span class="pi">:</span>
+    <span class="na">labels</span><span class="pi">:</span>
+      <span class="na">version</span><span class="pi">:</span> <span class="s">3.5.3</span>
+    <span class="na">instances</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="na">cores</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s">8000m</span>
+    <span class="na">volumeMounts</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">spark-apps</span>
+        <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/opt/spark/app</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The `files' is the path to the Spark application file. The path is relative to the Spark Pod.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The `mainClass' is the main class of the Spark application.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>The `mainApplicationFile' is the path to the Spark application file. If the type is Scala, the path should be a jar file.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>The `volumes' is the Persistent Volume Claim (PVC) for the Spark application file. The PVC is mounted to the Spark Pod.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td>The `volumeMounts' is the volume mount for the Spark application file. The volume mount is mounted to the Spark Pod.</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this article, I demonstrated how to use the SparkKubernetesOperator with the Spark-Pi example. The SparkKubernetesOperator is designed to run Spark applications on Kubernetes in a parallelized manner. It’s actually a subclass of the KubernetesPodOperator, which is used to run tasks in Kubernetes Pods.</p>
+</div>
+<div class="paragraph">
+<p>We also created a DAG for the SparkKubernetesOperator and successfully ran the Spark-Pi example. Additionally, we discussed how to use the SparkKubernetesOperator to run custom Spark applications.</p>
+</div>
+<div class="paragraph">
+<p>All my LinkedIn articles are available at <a href="https://www.linkedin.com/pulse/my-linkedin-article-library-young-gyu-kim-2jihc">All My LinkedIn Articles</a>.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="references">References</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://airflow.apache.org/docs/apache-airflow-providers-cncf-kubernetes/10.1.0/operators.html#sparkkubernetesoperator" class="bare">https://airflow.apache.org/docs/apache-airflow-providers-cncf-kubernetes/10.1.0/operators.html#sparkkubernetesoperator</a></p>
+</li>
+<li>
+<p><a href="https://github.com/kubeflow/spark-operator" class="bare">https://github.com/kubeflow/spark-operator</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Internal Links: nsa2/docs/airflow/airflow-on-k8s/examples/spark-operator/index.adoc</p>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>

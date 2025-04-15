@@ -1,0 +1,1657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Apache Airflow - Kubernetes Executor</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+        min-width: 0;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+        flex-shrink: 0;
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;           /* fallback scroll if absolutely needed */
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre-wrap;      /* enables line wrap */
+        word-wrap: break-word;      /* breaks long words if needed */
+        overflow-wrap: break-word;  /* ensures content wraps in small containers */
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        white-space: pre;
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+        margin-top: 1rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    /* Optional container max width per role */
+    .img-small img {
+        max-width: 400px;
+    }
+
+    .img-medium img {
+        max-width: 700px;
+    }
+
+    .img-wide img {
+        max-width: 1000px;
+    }
+
+    @media (max-width: 768px) {
+        .img-wide img {
+            max-width: 100%;
+        }
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/bigdata-foundry/">BigData Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 style="font-size: 2rem; font-weight: bold; margin-bottom: 1rem; color: #1f2937;">
+            Apache Airflow - Kubernetes Executor
+        </h1>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#what-is-airflow">What is Airflow®?</a></li>
+<li><a href="#workflow-as-code">Workflow as code</a></li>
+</ul>
+</li>
+<li><a href="#deploying-airflow-on-kubernetes">Deploying Airflow on Kubernetes</a>
+<ul class="sectlevel2">
+<li><a href="#overall-steps">Overall Steps</a></li>
+<li><a href="#create-a-namespace">Create a Namespace</a></li>
+<li><a href="#add-the-helm-repository">Add the Helm Repository</a></li>
+<li><a href="#download-values-yaml">Download values.yaml</a></li>
+<li><a href="#create-a-secret-for-azure-storage-account">Create a Secret for Azure Storage Account</a></li>
+<li><a href="#create-a-pvc-for-dags-and-logs">Create a PVC for dags and logs</a></li>
+<li><a href="#create-pvc-for-logs">Create PVC for logs</a></li>
+<li><a href="#create-pvcs-for-dags-and-logs-deprecated">Create PVCs for dags and logs (Deprecated)</a></li>
+<li><a href="#create-pvcs-for-pod-template-files-and-application-data">Create PVCs for pod template files and application data</a></li>
+<li><a href="#create-public-ip-for-webserver">Create public IP for webserver</a></li>
+<li><a href="#custom-docker-image">Custom Docker Image</a></li>
+<li><a href="#create-secret-for-webserver-secret-key">Create Secret for webserver secret key</a></li>
+<li><a href="#create-secret-for-fernet-key">Create Secret for Fernet Key</a></li>
+<li><a href="#pod_template_file-yaml">pod_template_file.yaml</a></li>
+<li><a href="#customize-values-yaml">Customize values.yaml</a></li>
+<li><a href="#install-airflow-using-helm-chart">Install Airflow using Helm chart</a></li>
+</ul>
+</li>
+<li><a href="#uninstall-airflow">Uninstall Airflow</a></li>
+<li><a href="#hello-world-dag">Hello World DAG</a>
+<ul class="sectlevel2">
+<li><a href="#hello_world_dag-graph-view">hello_world_dag - Graph View</a></li>
+<li><a href="#hello_world_dag-logs">hello_world_dag - Logs</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock text-center img-wide">
+<div class="content">
+<img src="./images/apache-airflow-k8s-executor.png" alt="apache airflow k8s executor">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This article is part of the series on Airflow on Kubernetes. In this series, we will cover the following topics:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><a href="https://www.linkedin.com/pulse/apache-airflow-kubernetes-executor-young-gyu-kim-brenc/">Apache Airflow - Kubernetes Executor</a></p>
+</li>
+<li>
+<p><a href="https://www.linkedin.com/pulse/apache-airflow-kubernetes-pod-operator-young-gyu-kim-m75fc/">Apache Airflow - Kubernetes Pod Operator</a></p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>This is the first article in the series.</p>
+</div>
+<div class="paragraph">
+<p>This guide will show you how to install Airflow on Kubernetes.</p>
+</div>
+<div class="sect2">
+<h3 id="what-is-airflow">What is Airflow®?</h3>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Apache Airflow® is an open-source platform for developing, scheduling, and monitoring batch-oriented workflows. Airflow’s extensible Python framework enables you to build workflows connecting with virtually any technology. A web interface helps manage the state of your workflows. Airflow is deployable in many ways, varying from a single process on your laptop to a distributed setup to support even the biggest workflows.</p>
+</div>
+</blockquote>
+<div class="attribution">
+&#8212; Apache Airflow<br>
+<cite>https://airflow.apache.org/docs/</cite>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="workflow-as-code">Workflow as code</h3>
+<div class="paragraph">
+<p>The main characteristic of Airflow workflows is that all workflows are defined in Python code. “Workflows as code” serves several purposes:</p>
+</div>
+<div class="hdlist">
+<table>
+<tr>
+<td class="hdlist1">
+Dynamic
+</td>
+<td class="hdlist2">
+<p>Airflow pipelines are configured as Python code, allowing for dynamic pipeline generation.</p>
+</td>
+</tr>
+<tr>
+<td class="hdlist1">
+Extensible
+</td>
+<td class="hdlist2">
+<p>The Airflow® framework contains operators to connect with numerous technologies. All Airflow components are extensible to easily adjust to your environment.</p>
+</td>
+</tr>
+<tr>
+<td class="hdlist1">
+Flexible
+</td>
+<td class="hdlist2">
+<p>Workflow parameterization is built-in leveraging the Jinja templating engine.</p>
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>For more information, refer to the link below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://airflow.apache.org/docs/apache-airflow/stable/index.html" class="bare">https://airflow.apache.org/docs/apache-airflow/stable/index.html</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deploying-airflow-on-kubernetes">Deploying Airflow on Kubernetes</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this section, we will see how to deploy Airflow on Kubernetes using the Helm chart.</p>
+</div>
+<div class="sect2">
+<h3 id="overall-steps">Overall Steps</h3>
+<div class="paragraph">
+<p>Here are the overall steps to deploy Airflow on Kubernetes:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Create a Namespace</p>
+</li>
+<li>
+<p>Add the Helm Repository</p>
+</li>
+<li>
+<p>Create a PVC for dags and logs</p>
+</li>
+<li>
+<p>Create PVCs for pod template files and application data</p>
+</li>
+<li>
+<p>Create a public IP for the webserver</p>
+</li>
+<li>
+<p>Create a custom Docker image(Not Required)</p>
+</li>
+<li>
+<p>Create a secret for the webserver</p>
+</li>
+<li>
+<p>Create a secret for the Fernet key</p>
+</li>
+<li>
+<p>Install Airflow using Helm chart</p>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-a-namespace">Create a Namespace</h3>
+<div class="paragraph">
+<p>We will create a namespace called 'airflow' to deploy Airflow.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl create namespace airflow</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="add-the-helm-repository">Add the Helm Repository</h3>
+<div class="paragraph">
+<p>Add the Apache Airflow Helm repository to Helm. This repository contains the Airflow Helm chart.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm repo add apache-airflow https://airflow.apache.org
+<span class="nv">$ </span>helm repo update
+<span class="nv">$ </span>helm repo list</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="download-values-yaml">Download values.yaml</h3>
+<div class="paragraph">
+<p>To understand the values that can be set in the values.yaml file, download the values.yaml file using the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm show values apache-airflow/airflow <span class="o">&gt;</span> values.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This file contains all the values that can be set in the values.yaml file. We will use cncf-k8s-values.yaml to set the values for the Airflow Helm chart.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-a-secret-for-azure-storage-account">Create a Secret for Azure Storage Account</h3>
+<div class="paragraph">
+<p>Let&#8217;s create a secret to save the storage account name and key.</p>
+</div>
+<div class="listingblock">
+<div class="title">create secret for storage account</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># aksdepstoage -&gt; k8sdepstorage</span>
+
+<span class="s">$ STORAGE_ACCOUNT_NAME={your-storage-account-name}</span>
+<span class="s">$ STORAGE_ACCOUNT_KEY=$(az storage account keys list --resource-group $MC_RG --account-name $STORAGE_ACCOUNT_NAME --query "[0].value" -o tsv)</span>
+
+<span class="s">$ kubectl create secret generic -n airflow ${STORAGE_ACCOUNT_NAME}-secret \</span>
+<span class="s">--from-literal=azurestorageaccountname=$STORAGE_ACCOUNT_NAME \</span>
+<span class="s">--from-literal=azurestorageaccountkey=$STORAGE_ACCOUNT_KEY</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This secret can be used when creating the PVCs</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-a-pvc-for-dags-and-logs">Create a PVC for dags and logs</h3>
+<div class="paragraph">
+<p>data-airflow-storage PVC has subPaths for dags, logs, pod-templates, and app directories.</p>
+</div>
+<div class="listingblock">
+<div class="title">pvc-airflow-storage.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolume</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pv-airflow-storage</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">environment</span><span class="pi">:</span> <span class="s">airflow</span>
+    <span class="na">app</span><span class="pi">:</span> <span class="s">airflow</span>
+
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">capacity</span><span class="pi">:</span>
+    <span class="na">storage</span><span class="pi">:</span> <span class="s">300Gi</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">azurefile</span>
+  <span class="na">azureFile</span><span class="pi">:</span>
+    <span class="na">secretNamespace</span><span class="pi">:</span> <span class="s1">'</span><span class="s">airflow'</span>
+    <span class="na">secretName</span><span class="pi">:</span> <span class="s">your-storage-account-secret</span>
+    <span class="na">shareName</span><span class="pi">:</span> <span class="s">airflow-storage</span>
+    <span class="na">readOnly</span><span class="pi">:</span> <span class="kc">false</span>
+  <span class="na">mountOptions</span><span class="pi">:</span>
+
+    <span class="c1"># use the same uid and gid as the airflow container</span>
+    <span class="pi">-</span> <span class="s">uid=50000</span>
+    <span class="pi">-</span> <span class="s">gid=0</span>
+    <span class="pi">-</span> <span class="s">mfsymlinks</span>
+    <span class="pi">-</span> <span class="s">cache=strict</span>
+    <span class="pi">-</span> <span class="s">nosharesock</span>
+    <span class="pi">-</span> <span class="s">nobrl</span>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolumeClaim</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">data-airflow-storage</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">airflow</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">environment</span><span class="pi">:</span> <span class="s">airflow</span>
+    <span class="na">app</span><span class="pi">:</span> <span class="s">airflow</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">azurefile</span>
+
+  <span class="na">volumeName</span><span class="pi">:</span> <span class="s">pv-airflow-storage</span>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">storage</span><span class="pi">:</span> <span class="s">300Gi</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To create the PVC, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> pvc-airflow-storage.yaml
+
+persistentvolume/pv-airflow-storage created
+persistentvolumeclaim/data-airflow-storage created</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml -subPath for dags, logs, pod-templates</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">volumes</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">data-airflow-storage</span>
+    <span class="na">persistentVolumeClaim</span><span class="pi">:</span>
+      <span class="na">claimName</span><span class="pi">:</span> <span class="s">data-airflow-storage</span>
+
+<span class="na">volumeMounts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/opt/airflow/custom-pod-templates</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">airflow-pod-templates</span>
+    <span class="na">subPath</span><span class="pi">:</span> <span class="s">airflow-pod-templates</span>
+
+<span class="c1"># omit for brevity</span>
+
+<span class="na">dags</span><span class="pi">:</span>
+  <span class="na">persistence</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">existingClaim</span><span class="pi">:</span> <span class="s">data-airflow-storage</span>
+    <span class="na">subPath</span><span class="pi">:</span> <span class="s">airflow-dags</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-pvc-for-logs">Create PVC for logs</h3>
+<div class="paragraph">
+<p>Because the persistence object of logs does not have subPath in the values.yaml file, we can not use data-airflow-storage for logs.  We need to create a separate PVC for logs.</p>
+</div>
+<div class="paragraph">
+<p>I am going to create a Azure Disk for logs.</p>
+</div>
+<div class="paragraph">
+<p>For more information on How to use Azure Disk with Kubernetes, refer to the link below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="../../azure/azure-disk-on-aks/index.adoc">Using Azure Disk with Kubernetes</a></p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">create Azure disk for logs</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ RG</span><span class="o">=</span>your-resource-group<span class="p">;</span> <span class="se">\</span>
+<span class="nv">DISK_NAME</span><span class="o">=</span>airflow-logs-data<span class="p">;</span> <span class="se">\</span>
+<span class="nv">DISK_SIZE_GB</span><span class="o">=</span>100<span class="p">;</span> <span class="se">\</span>
+<span class="nv">LOCATION</span><span class="o">=</span>canadacentral<span class="p">;</span> <span class="se">\</span>
+<span class="nv">OS_TYPE</span><span class="o">=</span>Linux<span class="p">;</span> <span class="se">\</span>
+<span class="nv">SKU</span><span class="o">=</span>StandardSSD_LRS<span class="p">;</span> <span class="se">\</span>
+<span class="nv">MAX_SHARES</span><span class="o">=</span>3<span class="p">;</span> <span class="se">\</span>
+az disk create <span class="nt">--resource-group</span> <span class="nv">$RG</span> <span class="nt">--name</span> <span class="nv">$DISK_NAME</span> <span class="nt">--size-gb</span> <span class="nv">$DISK_SIZE_GB</span> <span class="nt">--location</span> <span class="nv">$LOCATION</span> <span class="nt">--os-type</span> <span class="nv">$OS_TYPE</span> <span class="nt">--sku</span> <span class="nv">$SKU</span> <span class="nt">--max-shares</span> <span class="nv">$MAX_SHARES</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">get azure disk id</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ RG</span><span class="o">=</span>your-resource-group
+<span class="nv">$ DISK_NAME</span><span class="o">=</span>airflow-logs-data
+
+<span class="nv">$ DISK_ID</span><span class="o">=</span><span class="si">$(</span>az disk show <span class="nt">--resource-group</span> <span class="nv">$RG</span> <span class="nt">--name</span> <span class="nv">$DISK_NAME</span> <span class="nt">--query</span> <span class="nb">id</span> <span class="nt">-o</span> tsv<span class="si">)</span>
+
+<span class="nv">$ </span><span class="nb">echo</span> <span class="nv">$DISK_ID</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">pv-airflow-logs-disk.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolume</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="na">pv.kubernetes.io/provisioned-by</span><span class="pi">:</span> <span class="s">disk.csi.azure.com</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pv-airflow-logs-disk</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">capacity</span><span class="pi">:</span>
+    <span class="na">storage</span><span class="pi">:</span> <span class="s">100Gi</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+  <span class="na">persistentVolumeReclaimPolicy</span><span class="pi">:</span> <span class="s">Retain</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">managed-csi</span>
+  <span class="na">csi</span><span class="pi">:</span>
+    <span class="na">driver</span><span class="pi">:</span> <span class="s">disk.csi.azure.com</span>
+    <span class="na">volumeHandle</span><span class="pi">:</span> <span class="s">your-disk-id</span>
+    <span class="na">volumeAttributes</span><span class="pi">:</span>
+      <span class="na">fsType</span><span class="pi">:</span> <span class="s">ext4</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">pvc-airflow-logs-disk.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolumeClaim</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">airflow-logs-disk</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">airflow</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">storage</span><span class="pi">:</span> <span class="s">100Gi</span>
+  <span class="na">volumeName</span><span class="pi">:</span> <span class="s">pv-airflow-logs-disk</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">managed-csi</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To create the PVC for logs, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> pv-airflow-logs-disk.yaml
+
+persistentvolume/pv-airflow-logs-disk created
+
+<span class="nv">$ </span>kubectl apply <span class="nt">-f</span> pvc-airflow-logs-disk.yaml
+
+persistentvolumeclaim/airflow-logs-disk created</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml - logs</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">logs</span><span class="pi">:</span>
+  <span class="na">persistence</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">existingClaim</span><span class="pi">:</span> <span class="s">airflow-logs-disk</span>
+    <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">managed-csi</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-pvcs-for-dags-and-logs-deprecated">Create PVCs for dags and logs (Deprecated)</h3>
+<div class="paragraph">
+<p>WARNING::This step is deprecated. Use PVC for dags and logs instead.</p>
+</div>
+<div class="paragraph">
+<p>We will create PVCs for dags and logs to store the dags and logs in the storage account. In this example, we will use Azure File Share to store the dags and logs. To add dag files to the Airflow webserver, we need to upload the dag files to the Azure File Share manually.</p>
+</div>
+<div class="paragraph">
+<p>.</p>
+</div>
+<div class="paragraph">
+<p>Here is the manifest file for the PV and PVC of dags:</p>
+</div>
+<div class="listingblock">
+<div class="title">pvc-dags.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolume</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pv-airflow-dags-storage</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">environment</span><span class="pi">:</span> <span class="s">airflow</span>
+    <span class="na">app</span><span class="pi">:</span> <span class="s">airflow</span>
+
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">capacity</span><span class="pi">:</span>
+    <span class="na">storage</span><span class="pi">:</span> <span class="s">1Gi</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">azurefile</span>
+  <span class="na">azureFile</span><span class="pi">:</span>
+    <span class="na">secretNamespace</span><span class="pi">:</span> <span class="s1">'</span><span class="s">airflow'</span>
+    <span class="na">secretName</span><span class="pi">:</span> <span class="s">your-storage-account-secret</span>
+    <span class="na">shareName</span><span class="pi">:</span> <span class="s">airflow-dags</span>
+    <span class="na">readOnly</span><span class="pi">:</span> <span class="kc">false</span>
+  <span class="na">mountOptions</span><span class="pi">:</span>
+
+    <span class="pi">-</span> <span class="s">dir_mode=0750</span>
+    <span class="pi">-</span> <span class="s">file_mode=0750</span>
+
+
+    <span class="c1"># use the same uid and gid as the airflow container</span>
+    <span class="pi">-</span> <span class="s">uid=50000</span>
+    <span class="pi">-</span> <span class="s">gid=0</span>
+    <span class="pi">-</span> <span class="s">mfsymlinks</span>
+    <span class="pi">-</span> <span class="s">cache=strict</span>
+    <span class="pi">-</span> <span class="s">nosharesock</span>
+    <span class="pi">-</span> <span class="s">nobrl</span>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolumeClaim</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">data-airflow-dags</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">airflow</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">environment</span><span class="pi">:</span> <span class="s">airflow</span>
+    <span class="na">app</span><span class="pi">:</span> <span class="s">airflow</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="c1"># code = InvalidArgument desc = Volume capability not supported, default does not support ReadWriteMany</span>
+    <span class="c1">#    - ReadWriteMany</span>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">azurefile</span>
+  <span class="na">volumeName</span><span class="pi">:</span> <span class="s">pv-airflow-dags-storage</span>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">storage</span><span class="pi">:</span> <span class="s">1Gi</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Set uid and gid to 50000 and 0 respectively which is the default value for the airflow user in the image.</p>
+</div>
+<div class="paragraph">
+<p>Here is the manifest file for the PV and PVC of logs:</p>
+</div>
+<div class="listingblock">
+<div class="title">pvc-logs.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolume</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pv-airflow-logs-storage</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">environment</span><span class="pi">:</span> <span class="s">airflow</span>
+    <span class="na">app</span><span class="pi">:</span> <span class="s">airflow</span>
+
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">capacity</span><span class="pi">:</span>
+    <span class="na">storage</span><span class="pi">:</span> <span class="s">100Gi</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">azurefile</span>
+  <span class="na">azureFile</span><span class="pi">:</span>
+    <span class="na">secretNamespace</span><span class="pi">:</span> <span class="s1">'</span><span class="s">airflow'</span>
+    <span class="c1"># This secret contains iclinicaksstorage and key</span>
+    <span class="na">secretName</span><span class="pi">:</span> <span class="s">k8sdepstorage-secret</span>
+    <span class="c1"># QC2 will use the same IDOC storage as COLO.</span>
+    <span class="na">shareName</span><span class="pi">:</span> <span class="s">airflow-logs</span>
+    <span class="na">readOnly</span><span class="pi">:</span> <span class="kc">false</span>
+  <span class="na">mountOptions</span><span class="pi">:</span>
+    <span class="c1"># data directory "/var/lib/postgresql/data" has invalid permissions</span>
+    <span class="c1"># Permissions should be u=rwx (0700) or u=rwx,g=rx (0750).</span>
+    <span class="c1">#    - dir_mode=0777</span>
+    <span class="c1">#    - file_mode=0777</span>
+    <span class="pi">-</span> <span class="s">dir_mode=0750</span>
+    <span class="pi">-</span> <span class="s">file_mode=0750</span>
+    <span class="c1"># uid and gid used to be 1000, and then 65534, now its value is 0</span>
+    <span class="c1"># the value came from values-3.5.0-debian-11-r0.yaml, and cache and nosharesock are added recently.</span>
+    <span class="c1"># see https://docs.microsoft.com/en-us/azure/aks/azure-files-volume#mount-file-share-as-a-persistent-volume</span>
+
+    <span class="c1"># use the same uid and gid as the airflow container</span>
+    <span class="pi">-</span> <span class="s">uid=50000</span>
+    <span class="pi">-</span> <span class="s">gid=0</span>
+    <span class="pi">-</span> <span class="s">mfsymlinks</span>
+    <span class="pi">-</span> <span class="s">cache=strict</span>
+    <span class="pi">-</span> <span class="s">nosharesock</span>
+    <span class="pi">-</span> <span class="s">nobrl</span>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolumeClaim</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">data-airflow-logs</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">airflow</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">environment</span><span class="pi">:</span> <span class="s">airflow</span>
+    <span class="na">app</span><span class="pi">:</span> <span class="s">airflow</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="c1"># code = InvalidArgument desc = Volume capability not supported, default does not support ReadWriteMany</span>
+    <span class="c1">#    - ReadWriteMany</span>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">azurefile</span>
+  <span class="c1"># PostgreSQL does not work with Azure file. This is because PostgreSQL requires hard links in the Azure File directory,</span>
+  <span class="c1"># and since Azure File does not support hard links the pod fails to start.</span>
+  <span class="c1">#  storageClassName: azurefile</span>
+  <span class="na">volumeName</span><span class="pi">:</span> <span class="s">pv-airflow-logs-storage</span>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">storage</span><span class="pi">:</span> <span class="s">100Gi</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To create the PVCs, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="title">create PVC for dags and logs</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> pvc-dags.yaml <span class="nt">-f</span> pvc-logs.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>These PVCs can be used in the customized values.yaml file to set the dags.persistence.existingClaim and logs.persistence.existingClaim.</p>
+</div>
+<div class="listingblock">
+<div class="title">cncf-k8s-values.yaml - dags and logs</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">dags</span><span class="pi">:</span>
+  <span class="na">persistence</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">existingClaim</span><span class="pi">:</span> <span class="s">data-airflow-dags</span>
+
+<span class="na">logs</span><span class="pi">:</span>
+  <span class="na">persistence</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">existingClaim</span><span class="pi">:</span> <span class="s">data-airflow-logs</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-pvcs-for-pod-template-files-and-application-data">Create PVCs for pod template files and application data</h3>
+<div class="ulist">
+<ul>
+<li>
+<p>pvc-pod-templates.yaml</p>
+</li>
+<li>
+<p>pvc-app.yaml</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>To create the PVCs, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> pvc-pod-templates.yaml <span class="nt">-f</span> pvc-app.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>These PVCs can be used in the customized values.yaml file to set the volumes and volumeMounts.</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml - volumes and volumeMounts</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">volumes</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">airflow-pod-templates</span>
+    <span class="na">persistentVolumeClaim</span><span class="pi">:</span>
+      <span class="na">claimName</span><span class="pi">:</span> <span class="s">data-airflow-pod-templates</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">airflow-app</span>
+    <span class="na">persistentVolumeClaim</span><span class="pi">:</span>
+      <span class="na">claimName</span><span class="pi">:</span> <span class="s">data-airflow-app</span>
+
+<span class="na">volumeMounts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">airflow-pod-templates</span>
+    <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/opt/airflow/custom-pod-templates</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">airflow-app</span>
+    <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/opt/airflow/app</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-public-ip-for-webserver">Create public IP for webserver</h3>
+<div class="paragraph">
+<p>Following command will create a public IP for the webserver service using Azure CLI.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>az network public-ip create <span class="nt">--resource-group</span> <span class="nv">$MC_RG</span> <span class="nt">--name</span> airflow-webserver-public-ip <span class="nt">--sku</span> Standard <span class="nt">--allocation-method</span> Static <span class="nt">--query</span> publicIp.ipAddress <span class="nt">-o</span> tsv
+
+<span class="c"># get the public IP</span>
+<span class="nv">$ PUBLIC_IP_ADDRESS</span><span class="o">=</span><span class="si">$(</span>az network public-ip show <span class="nt">--resource-group</span> <span class="nv">$MC_RG</span> <span class="nt">--name</span> airflow-webserver-public-ip <span class="nt">--query</span> ipAddress <span class="nt">-o</span> tsv<span class="si">)</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This ip address can be used in the values.yaml file to set the webserver.service.loadBalancerIP.</p>
+</div>
+<div class="listingblock">
+<div class="title">cncf-k8s-values.yaml - webserver service</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">webserver</span><span class="pi">:</span>
+  <span class="na">service</span><span class="pi">:</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">LoadBalancer</span>
+    <span class="na">loadBalancerIP</span><span class="pi">:</span> <span class="s">xxx.xxx.xxx.xxx</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="custom-docker-image">Custom Docker Image</h3>
+<div class="admonitionblock warning">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-warning" title="Warning"></i>
+</td>
+<td class="content">
+<div class="paragraph">
+<p>This step is not required.</p>
+</div>
+<div class="paragraph">
+<p>We can use the default image provided by the Airflow Helm chart. This step is to show how to create a custom Docker image and use it in the Airflow Helm chart. The default image has all the required dependencies to run the tasks in the Kubernetes cluster.</p>
+</div>
+</td>
+</tr>
+</table>
+</div>
+<div class="sect3">
+<h4 id="cncf-kubernetes-provider">cncf.kubernetes provider</h4>
+<div class="paragraph">
+<p>We need to add the cncf.kubernetes provider to the Airflow image.</p>
+</div>
+<div class="paragraph">
+<p>Refer to the link below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://airflow.apache.org/docs/apache-airflow-providers-cncf-kubernetes/stable/index.html" class="bare">https://airflow.apache.org/docs/apache-airflow-providers-cncf-kubernetes/stable/index.html</a></p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="dockerfile">Dockerfile</h4>
+<div class="paragraph">
+<p>This dockerfile is to add the cncf.kubernetes provider to the Airflow image.</p>
+</div>
+<div class="listingblock">
+<div class="title">docker/Dockerfile</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="dockerfile"><span class="k">FROM</span><span class="s"> apache/airflow:2.9.3</span>
+
+<span class="k">RUN </span>pip <span class="nb">install</span> <span class="nt">--no-cache-dir</span> <span class="nt">--upgrade</span> pip <span class="o">&amp;&amp;</span> <span class="se">\
+</span>    pip <span class="nb">install</span> <span class="nt">--no-cache-dir</span> apache-airflow-providers-cncf-kubernetes</code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="push-docker-image">Push Docker Image</h4>
+<div class="paragraph">
+<p>To push the docker image to the Azure Container Registry, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c"># login to ACR</span>
+<span class="nv">$ </span>az acr login <span class="nt">--name</span> <span class="nv">$ACR_NAME</span>
+
+<span class="c"># push docker image to ACR</span>
+
+<span class="nv">$ </span>az acr build <span class="nt">--image</span> airflow-cncf-kubernetes:2.9.3 <span class="nt">--registry</span> <span class="nv">$ACR_NAME</span> ./docker
+
+<span class="c"># airflor-custom:2.10.3</span>
+<span class="nv">$ </span>az acr build <span class="nt">--image</span> airflow-custom:2.10.3 <span class="nt">--registry</span> <span class="nv">$ACR_NAME</span> ./docker/custom</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This docker image is used in the values.yaml file to set the image.repository and image.tag.</p>
+</div>
+<div class="listingblock">
+<div class="title">cncf-k8s-values.yaml - image</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">images</span><span class="pi">:</span>
+  <span class="na">airflow</span><span class="pi">:</span>
+    <span class="na">repository</span><span class="pi">:</span> <span class="s">iclinicacr.azurecr.io/airflow-cncf-kubernetes</span>
+    <span class="na">tag</span><span class="pi">:</span> <span class="s">2.9.3</span>
+    <span class="na">pullPolicy</span><span class="pi">:</span> <span class="s">IfNotPresent</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-secret-for-webserver-secret-key">Create Secret for webserver secret key</h3>
+<div class="paragraph">
+<p>As for the webserver secret key, it is recommended to set a static webserver secret key in case of re-installation.
+For more information on Airflow webserver secret key, refer to the link below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://airflow.apache.org/docs/helm-chart/stable/production-guide.html#webserver-secret-key" class="bare">https://airflow.apache.org/docs/helm-chart/stable/production-guide.html#webserver-secret-key</a></p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>python3 <span class="nt">-c</span> <span class="s1">'import secrets; print(secrets.token_hex(16))'</span>
+
+<span class="c"># create secret - airflow-webserver-secret</span>
+<span class="nv">$ </span>kubectl create secret generic <span class="nt">-n</span> airflow airflow-webserver-secret <span class="nt">--from-literal</span><span class="o">=</span><span class="s2">"webserver-secret-key=</span><span class="si">$(</span>python3 <span class="nt">-c</span> <span class="s1">'import secrets; print(secrets.token_hex(16))'</span><span class="si">)</span><span class="s2">"</span> <span class="nt">--dry-run</span><span class="o">=</span>client <span class="nt">-o</span> yaml | yq <span class="nb">eval</span> <span class="s1">'del(.metadata.cr
+eationTimestamp)'</span> <span class="o">&gt;</span> airflow-webserver-secret.yaml
+
+<span class="nv">$ </span>kubectl apply <span class="nt">-f</span> airflow-webserver-secret.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This secret can be used in the values.yaml file to set the webserver.secretKey.</p>
+</div>
+<div class="listingblock">
+<div class="title">cncf-k8s-values.yaml - webserver secret key</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">webserverSecretKeySecretName</span><span class="pi">:</span> <span class="s2">"</span><span class="s">airflow-webserver-secret"</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-secret-for-fernet-key">Create Secret for Fernet Key</h3>
+<div class="paragraph">
+<p>Fernet key is used for encryption and decryption of passwords in the database. In case of re-installation, the Fernet key is regenerated and the passwords stored in the database will not be decrypted. To avoid this, the Fernet key is stored in a secret and used during re-installation.</p>
+</div>
+<div class="listingblock">
+<div class="title">airflow-fernet-key-secret.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">data</span><span class="pi">:</span>
+  <span class="na">fernet-key</span><span class="pi">:</span> <span class="s">U204MU1UQndla2RRVDNSeFpGZExVSHBKZFhOUFJXOUVXRXR2V25vNVpXYz0=</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Secret</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="na">helm.sh/hook</span><span class="pi">:</span> <span class="s">pre-install</span>
+    <span class="na">helm.sh/hook-delete-policy</span><span class="pi">:</span> <span class="s">before-hook-creation</span>
+    <span class="na">helm.sh/hook-weight</span><span class="pi">:</span> <span class="s2">"</span><span class="s">0"</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">chart</span><span class="pi">:</span> <span class="s">airflow</span>
+    <span class="na">heritage</span><span class="pi">:</span> <span class="s">Helm</span>
+    <span class="na">release</span><span class="pi">:</span> <span class="s">airflow</span>
+    <span class="na">tier</span><span class="pi">:</span> <span class="s">airflow</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">airflow-fernet-key-secret</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">airflow</span>
+<span class="na">type</span><span class="pi">:</span> <span class="s">Opaque</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To create the secret, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> airflow-fernet-key-secret.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This secret can be used in the values.yaml file to set the fernetKeySecretName.</p>
+</div>
+<div class="listingblock">
+<div class="title">cncf-k8s-values.yaml - fernet key</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">fernetKeySecretName</span><span class="pi">:</span> <span class="s2">"</span><span class="s">airflow-fernet-key-secret"</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="pod_template_file-yaml">pod_template_file.yaml</h3>
+<div class="paragraph">
+<p>NOTE::This section is in progress
+WARNING:: This section is no longer valid. We are using PVC for pod template files.</p>
+</div>
+<div class="paragraph">
+<p>pod_template_file.yaml is created for <strong>scheduler</strong> and <strong>webserver</strong> pods in the directory /opt/airflow/pod_templates</p>
+</div>
+<div class="paragraph">
+<p>create configmap for pod_template_file.yaml</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> airflow create configmap pod-template-files <span class="nt">--from-file</span><span class="o">=</span>pod_template_file.yaml<span class="o">=</span>./templates/basic_template.yaml <span class="nt">--dry-run</span><span class="o">=</span>client <span class="nt">-o</span> yaml  | yq <span class="nb">eval</span> <span class="s1">'del(.metadata.creationTimestamp)'</span>  <span class="o">&gt;</span> pod-template-files-configmap.yaml</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">pod-template-files-configmap.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">data</span><span class="pi">:</span>
+  <span class="na">pod_template_file.yaml</span><span class="pi">:</span> <span class="pi">|-</span>
+    <span class="s">apiVersion: v1</span>
+    <span class="s">kind: Pod</span>
+    <span class="s">metadata:</span>
+      <span class="s">name: placeholder-name</span>
+    <span class="s">spec:</span>
+      <span class="s">containers:</span>
+        <span class="s">- env:</span>
+            <span class="s">- name: AIRFLOW__CORE__EXECUTOR</span>
+              <span class="s">value: KubernetesExecutor</span>
+            <span class="s"># Hard Coded Airflow Envs</span>
+            <span class="s">- name: AIRFLOW__CORE__FERNET_KEY</span>
+              <span class="s">valueFrom:</span>
+                <span class="s">secretKeyRef:</span>
+                  <span class="s">name: airflow-fernet-key</span>
+                  <span class="s">key: fernet-key</span>
+            <span class="s">- name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN</span>
+              <span class="s">valueFrom:</span>
+                <span class="s">secretKeyRef:</span>
+                  <span class="s">name: airflow-metadata</span>
+                  <span class="s">key: connection</span>
+            <span class="s">- name: AIRFLOW_CONN_AIRFLOW_DB</span>
+              <span class="s">valueFrom:</span>
+                <span class="s">secretKeyRef:</span>
+                  <span class="s">name: airflow-metadata</span>
+                  <span class="s">key: connection</span>
+          <span class="s">image: apache/airflow:2.9.3</span>
+          <span class="s">imagePullPolicy: IfNotPresent</span>
+          <span class="s">name: base</span>
+          <span class="s">volumeMounts:</span>
+            <span class="s">- mountPath: /opt/airflow/logs</span>
+              <span class="s">name: airflow-logs</span>
+            <span class="s">- mountPath: /opt/airflow/dags</span>
+              <span class="s">name: airflow-dags</span>
+              <span class="s">readOnly: true</span>
+            <span class="s">- mountPath: /opt/airflow/custom-pod-templates</span>
+              <span class="s">name: airflow-pod-templates</span>
+              <span class="s">readOnly: true</span>
+            <span class="s">- mountPath: /opt/airflow/airflow.cfg</span>
+              <span class="s">name: airflow-config</span>
+              <span class="s">readOnly: true</span>
+              <span class="s">subPath: airflow.cfg</span>
+      <span class="s">restartPolicy: Never</span>
+      <span class="s">securityContext:</span>
+        <span class="s">runAsUser: 50000</span>
+        <span class="s">fsGroup: 50000</span>
+      <span class="s">serviceAccountName: "airflow-worker"</span>
+      <span class="s">volumes:</span>
+        <span class="s">- name: airflow-dags</span>
+          <span class="s">persistentVolumeClaim:</span>
+            <span class="s">claimName: data-airflow-dags</span>
+        <span class="s">- name: airflow-logs</span>
+          <span class="s">persistentVolumeClaim:</span>
+            <span class="s">claimName: data-airflow-logs</span>
+        <span class="s">- name: airflow-pod-templates</span>
+          <span class="s">persistentVolumeClaim:</span>
+            <span class="s">claimName: data-airflow-pod-templates</span>
+        <span class="s">- configMap:</span>
+            <span class="s">name: airflow-config</span>
+          <span class="s">name: airflow-config</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ConfigMap</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pod-template-files</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">airflow</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> pod-template-files-configmap.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="customize-values-yaml">Customize values.yaml</h3>
+<div class="paragraph">
+<p>Now we have all the required files to customize the values.yaml file.</p>
+</div>
+<div class="sect3">
+<h4 id="custom-values-yaml">custom-values.yaml</h4>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># Airflow version (Used to make some decisions based on Airflow Version being deployed)</span>
+<span class="c1">#airflowVersion: "2.9.3"</span>
+<span class="na">airflowVersion</span><span class="pi">:</span> <span class="s2">"</span><span class="s">2.10.3"</span>
+
+<span class="c1"># Images</span>
+<span class="na">images</span><span class="pi">:</span>
+  <span class="na">airflow</span><span class="pi">:</span>
+    <span class="na">repository</span><span class="pi">:</span> <span class="s">iclinicacr.azurecr.io/airflow-custom</span>
+    <span class="c1">#    tag: 2.9.3</span>
+    <span class="na">tag</span><span class="pi">:</span> <span class="s">2.10.3</span>
+<span class="c1">#    pullPolicy: IfNotPresent</span>
+
+<span class="c1"># When installing airflow multiple times,</span>
+<span class="c1"># fernet key and webserver secret key should be different</span>
+<span class="c1"># which can cause issues</span>
+<span class="c1">#fernetKey: "Sm81MTBwekdQT3RxZFdLUHpJdXNPRW9EWEtvWno5ZWc="</span>
+<span class="na">fernetKeySecretName</span><span class="pi">:</span> <span class="s2">"</span><span class="s">airflow-fernet-key-secret"</span>
+<span class="na">webserverSecretKeySecretName</span><span class="pi">:</span> <span class="s2">"</span><span class="s">airflow-webserver-secret"</span>
+
+<span class="na">executor</span><span class="pi">:</span> <span class="s">KubernetesExecutor</span>
+
+
+<span class="c1"># see ./connections/index-elaborated.adoc</span>
+
+<span class="na">secret</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">envName</span><span class="pi">:</span> <span class="s">AIRFLOW_CONN_POSTGRES_DEP_DATALAKE</span>
+    <span class="na">secretName</span><span class="pi">:</span> <span class="s">airflow-connections-secret</span>
+    <span class="na">secretKey</span><span class="pi">:</span> <span class="s">AIRFLOW_CONN_POSTGRES_DEP_DATALAKE</span>
+  <span class="pi">-</span> <span class="na">envName</span><span class="pi">:</span> <span class="s">AIRFLOW_CONN_KUBERNETES_DEFAULT</span>
+    <span class="na">secretName</span><span class="pi">:</span> <span class="s">airflow-connections-secret</span>
+    <span class="na">secretKey</span><span class="pi">:</span> <span class="s">AIRFLOW_CONN_KUBERNETES_DEFAULT</span>
+  <span class="pi">-</span> <span class="na">envName</span><span class="pi">:</span> <span class="s">AIRFLOW_CONN_K8S_CONN</span>
+    <span class="na">secretName</span><span class="pi">:</span> <span class="s">airflow-connections-secret</span>
+    <span class="na">secretKey</span><span class="pi">:</span> <span class="s">AIRFLOW_CONN_KUBERNETES_DEFAULT</span>
+
+<span class="na">nodeSelector</span><span class="pi">:</span>
+  <span class="na">agentpool</span><span class="pi">:</span> <span class="s">depnodes</span>
+
+<span class="na">workers</span><span class="pi">:</span>
+  <span class="na">persistence</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">false</span>
+
+
+<span class="na">webserver</span><span class="pi">:</span>
+<span class="c1">#  replicas: 2 # Seems to need session storage for more than 1 replica</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">1</span>
+  <span class="na">service</span><span class="pi">:</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">LoadBalancer</span>
+    <span class="na">loadBalancerIP</span><span class="pi">:</span> <span class="s">4.205.236.238</span>
+
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">limits</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">600m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">2048Mi</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">100m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">128Mi</span>
+
+  <span class="na">nodeSelector</span><span class="pi">:</span>
+    <span class="na">agentpool</span><span class="pi">:</span> <span class="s">depnodes</span>
+
+<span class="na">triggerer</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">2</span>
+  <span class="na">persistence</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">false</span>
+
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">limits</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">400m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">1024Mi</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">100m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">128Mi</span>
+
+  <span class="na">nodeSelector</span><span class="pi">:</span>
+    <span class="na">agentpool</span><span class="pi">:</span> <span class="s">depnodes</span>
+
+<span class="na">scheduler</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">2</span>
+
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">limits</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">400m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">1024Mi</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">100m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">128Mi</span>
+
+  <span class="na">nodeSelector</span><span class="pi">:</span>
+    <span class="na">agentpool</span><span class="pi">:</span> <span class="s">depnodes</span>
+
+<span class="na">statsd</span><span class="pi">:</span>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">limits</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">400m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">1024Mi</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">100m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">128Mi</span>
+
+  <span class="na">nodeSelector</span><span class="pi">:</span>
+    <span class="na">agentpool</span><span class="pi">:</span> <span class="s">depnodes</span>
+
+<span class="na">redis</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">false</span>
+
+
+
+
+
+<span class="na">dags</span><span class="pi">:</span>
+  <span class="na">persistence</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">existingClaim</span><span class="pi">:</span> <span class="s">pvc-blob-airflow-storage</span>
+    <span class="na">subPath</span><span class="pi">:</span> <span class="s">airflow-dags</span>
+
+
+<span class="na">logs</span><span class="pi">:</span>
+  <span class="na">persistence</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">existingClaim</span><span class="pi">:</span> <span class="s">pvc-blob-airflow-logs</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>For Redis, we don&#8217;t need it in this example, so we set the redis.enabled to false.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-airflow-using-helm-chart">Install Airflow using Helm chart</h3>
+<div class="sect3">
+<h4 id="using-custom-values-yaml">Using custom-values.yaml</h4>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nb">install </span>airflow ~/Dev/helm/charts/apache-airflow/airflow-1.15.0.tgz <span class="nt">-f</span> custom-values.yaml <span class="nt">--namespace</span> airflow
+<span class="c">#$ helm install airflow apache-airflow/airflow -f custom-values.yaml --namespace airflow</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">verify the installation</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> airflow get pods
+
+<span class="c"># Output</span>
+NAME                                 READY   STATUS    RESTARTS   AGE
+airflow-postgresql-0                 1/1     Running   0          3h50m
+airflow-scheduler-744d89ff99-7tfbj   2/2     Running   0          3h50m
+airflow-statsd-86d5c76fcd-f8pbm      1/1     Running   0          3h50m
+airflow-triggerer-6c894b7777-7t666   2/2     Running   0          3h50m
+airflow-webserver-6444986b76-jlcdh   1/1     Running   0          3h50m</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="uninstall-airflow">Uninstall Airflow</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In case you want to uninstall Airflow, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm uninstall airflow <span class="nt">--namespace</span> airflow</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="hello-world-dag">Hello World DAG</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Here is a sample Hello World DAG that can be used in Airflow:</p>
+</div>
+<div class="listingblock">
+<div class="title">dags/hello_world_dag.py</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="python"><span class="kn">from</span> <span class="n">airflow</span> <span class="kn">import</span> <span class="n">DAG</span>
+<span class="kn">from</span> <span class="n">airflow.operators.bash</span> <span class="kn">import</span> <span class="n">BashOperator</span>
+<span class="kn">from</span> <span class="n">airflow.operators.python</span> <span class="kn">import</span> <span class="n">PythonOperator</span>
+<span class="kn">from</span> <span class="n">datetime</span> <span class="kn">import</span> <span class="n">datetime</span>
+
+
+<span class="k">def</span> <span class="nf">helloWorld</span><span class="p">():</span>
+    <span class="nf">print</span><span class="p">(</span><span class="sh">'</span><span class="s">Hello World</span><span class="sh">'</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">done</span><span class="p">():</span>
+    <span class="nf">print</span><span class="p">(</span><span class="sh">'</span><span class="s">Done</span><span class="sh">'</span><span class="p">)</span>
+
+<span class="k">with</span> <span class="nc">DAG</span><span class="p">(</span><span class="n">dag_id</span><span class="o">=</span><span class="sh">"</span><span class="s">hello_world_dag</span><span class="sh">"</span><span class="p">,</span>
+         <span class="n">start_date</span><span class="o">=</span><span class="nf">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span><span class="mi">3</span><span class="p">,</span><span class="mi">27</span><span class="p">),</span>
+         <span class="n">schedule_interval</span><span class="o">=</span><span class="sh">"</span><span class="s">@hourly</span><span class="sh">"</span><span class="p">,</span>
+         <span class="n">catchup</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span> <span class="k">as</span> <span class="n">dag</span><span class="p">:</span>
+
+    <span class="n">task1</span> <span class="o">=</span> <span class="nc">PythonOperator</span><span class="p">(</span>
+        <span class="n">task_id</span><span class="o">=</span><span class="sh">"</span><span class="s">hello_world</span><span class="sh">"</span><span class="p">,</span>
+        <span class="n">python_callable</span><span class="o">=</span><span class="n">helloWorld</span>
+    <span class="p">)</span>
+
+    <span class="n">sleepTask</span> <span class="o">=</span> <span class="nc">BashOperator</span><span class="p">(</span>
+        <span class="n">task_id</span><span class="o">=</span><span class="sh">'</span><span class="s">sleep</span><span class="sh">'</span><span class="p">,</span>
+        <span class="n">bash_command</span><span class="o">=</span><span class="sh">'</span><span class="s">sleep 10s</span><span class="sh">'</span>
+    <span class="p">)</span>
+
+    <span class="n">task2</span> <span class="o">=</span> <span class="nc">PythonOperator</span><span class="p">(</span>
+        <span class="n">task_id</span><span class="o">=</span><span class="sh">"</span><span class="s">done</span><span class="sh">"</span><span class="p">,</span>
+        <span class="n">python_callable</span><span class="o">=</span><span class="n">done</span>
+    <span class="p">)</span>
+
+
+<span class="n">task1</span> <span class="o">&gt;&gt;</span> <span class="n">sleepTask</span> <span class="o">&gt;&gt;</span> <span class="n">task2</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>There are 3 tasks in this DAG:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>task1: print 'Hello World'</p>
+</li>
+<li>
+<p>sleepTask: sleep for 10 seconds</p>
+</li>
+<li>
+<p>task2: print 'Done'</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>If you want to inspect the PODs, increase the sleep time in the sleepTask task and use 'kubectl exec' command to inspect the PODs.</p>
+</div>
+<div class="paragraph">
+<p>This DAG is scheduled to run every hour.</p>
+</div>
+<div class="paragraph">
+<p>I saved this file in the dags directory, and it will be mounted to the /opt/airflow/dags directory in the Airflow webserver pod.</p>
+</div>
+<div class="sect2">
+<h3 id="hello_world_dag-graph-view">hello_world_dag - Graph View</h3>
+<div class="paragraph">
+<p>We can see the graph view of the DAG in the Airflow UI.</p>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="./images/hello-world-dag-graph.png" alt="hello world dag graph">
+</div>
+<div class="title">Figure 1. hello_world_dag - Graph View</div>
+</div>
+<div class="paragraph">
+<p>To run this DAG manually, just click on the 'Trigger DAG' button in the Airflow UI.</p>
+</div>
+<div class="paragraph">
+<p>Use -w option to watch the logs of the tasks.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> airflow get pods <span class="nt">-airflow</span>
+
+<span class="c"># Output</span>
+
+NAME                                 READY   STATUS    RESTARTS   AGE
+airflow-postgresql-0                 1/1     Running   0          4h7m
+airflow-scheduler-744d89ff99-7tfbj   2/2     Running   0          4h7m
+airflow-statsd-86d5c76fcd-f8pbm      1/1     Running   0          4h7m
+airflow-triggerer-6c894b7777-7t666   2/2     Running   0          4h7m
+airflow-webserver-6444986b76-jlcdh   1/1     Running   0          4h7m
+hello-world-dag-hello-world-st86d1gh   0/1     Pending   0          0s
+hello-world-dag-hello-world-st86d1gh   0/1     Pending   0          0s
+hello-world-dag-hello-world-st86d1gh   0/1     ContainerCreating   0          0s
+hello-world-dag-hello-world-st86d1gh   1/1     Running             0          1s
+hello-world-dag-sleep-x10pcggl         0/1     Pending             0          0s
+hello-world-dag-sleep-x10pcggl         0/1     ContainerCreating   0          0s
+hello-world-dag-hello-world-st86d1gh   0/1     Completed           0          12s
+hello-world-dag-sleep-x10pcggl         1/1     Running             0          1s
+hello-world-dag-hello-world-st86d1gh   0/1     Terminating         0          13s
+hello-world-dag-done-6nw3izng          0/1     Pending             0          0s
+hello-world-dag-done-6nw3izng          0/1     ContainerCreating   0          0s
+hello-world-dag-sleep-x10pcggl         0/1     Completed           0          22s
+hello-world-dag-done-6nw3izng          1/1     Running             0          1s
+hello-world-dag-sleep-x10pcggl         0/1     Terminating         0          24s
+hello-world-dag-done-6nw3izng          0/1     Completed           0          17s
+hello-world-dag-done-6nw3izng          0/1     Terminating         0          17s</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>From the above output, you can see that the tasks are running in the PODs. And all the tasks are using the same image that we created earlier which is 'airflow-cncf-kubernetes:2.9.3'.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="hello_world_dag-logs">hello_world_dag - Logs</h3>
+<div class="paragraph">
+<p>We can see the logs of the tasks in the Airflow UI.</p>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="./images/hello-world-dag-logs.png" alt="hello world dag logs">
+</div>
+<div class="title">Figure 2. hello_world_dag - Logs</div>
+</div>
+<div class="paragraph">
+<p>Click on the task to see the logs first, then 'Logs' tab appears. Click on the 'Logs' tab to see the logs of the task.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this guide, we saw how to install Airflow on Kubernetes. We also saw how to create a custom Docker image and use it in the Airflow Helm chart. We also saw how to create a Hello World DAG and run it in the Airflow webserver.</p>
+</div>
+<div class="paragraph">
+<p>Since the Kubernetes Executor uses the same image for all tasks, managing complex tasks becomes challenging.</p>
+</div>
+<div class="paragraph">
+<p>In the next article, we will see how to use custom images for the tasks and how to use the KubernetesPodOperator to run the tasks in the Kubernetes cluster.</p>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Apache Airflow - Postgres Hook</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+        min-width: 0;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+        flex-shrink: 0;
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;           /* fallback scroll if absolutely needed */
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre-wrap;      /* enables line wrap */
+        word-wrap: break-word;      /* breaks long words if needed */
+        overflow-wrap: break-word;  /* ensures content wraps in small containers */
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        white-space: pre;
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+        margin-top: 1rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    /* Optional container max width per role */
+    .img-small img {
+        max-width: 400px;
+    }
+
+    .img-medium img {
+        max-width: 700px;
+    }
+
+    .img-wide img {
+        max-width: 1000px;
+    }
+
+    @media (max-width: 768px) {
+        .img-wide img {
+            max-width: 100%;
+        }
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/bigdata-foundry/">BigData Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 style="font-size: 2rem; font-weight: bold; margin-bottom: 1rem; color: #1f2937;">
+            Apache Airflow - Postgres Hook
+        </h1>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#what-is-hook-in-airflow">What is Hook in Airflow</a></li>
+<li><a href="#what-is-postgreshook">What is PostgresHook</a></li>
+<li><a href="#description-of-the-example">Description of the example</a></li>
+<li><a href="#create-a-configmap-for-this-example">Create a ConfigMap for this example</a></li>
+<li><a href="#add-a-postgres-connection">Add a Postgres connection</a></li>
+<li><a href="#load-data-from-postgres-to-pandas-dataframe-using-postgreshook">Load data from Postgres to Pandas DataFrame using PostgresHook</a></li>
+<li><a href="#save-pandas-dataframe-to-postgres-using-postgreshook">Save Pandas DataFrame to Postgres using PostgresHook</a></li>
+<li><a href="#use-a-configmap-for-environment-variables">Use a Configmap for environment variables</a></li>
+<li><a href="#sample-dag-of-postgreshook">Sample DAG of PostgresHook</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#referencers">Referencers</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/postgres-hook-intro.png" alt="postgres hook intro">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this article, we are going to see how to use PostgresHook in Apache Airflow to interact with Postgres database.</p>
+</div>
+<div class="paragraph">
+<p>In this example, we will cover the following:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>How to set up a Postgres connection in Apache Airflow</p>
+</li>
+<li>
+<p>How to use PostgresHook to interact with Postgres database</p>
+</li>
+<li>
+<p>How to load data from Postgres to Pandas DataFrame using PostgresHook</p>
+</li>
+<li>
+<p>How to save Pandas DataFrame to Postgres using PostgresHook</p>
+</li>
+<li>
+<p>How to handle JSON data in Postgres</p>
+</li>
+<li>
+<p>How to use a Configmap for environment variables</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-is-hook-in-airflow">What is Hook in Airflow</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In Apache Airflow, a Hook is an interface to interact with external systems like databases, cloud services, and APIs. Hooks are used to connect to external systems and execute operations like reading data, writing data, and running commands.</p>
+</div>
+<div class="paragraph">
+<p>For more information, refer to the official documentation: <a href="https://airflow.apache.org/docs/apache-airflow/stable/authoring-and-scheduling/connections.html#hooks" class="bare">https://airflow.apache.org/docs/apache-airflow/stable/authoring-and-scheduling/connections.html#hooks</a></p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-is-postgreshook">What is PostgresHook</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>PostgresHook is a hook that allows you to interact with a Postgres database. It provides methods to execute SQL queries, load data into a Pandas DataFrame, and save data from a Pandas DataFrame to a Postgres table.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="description-of-the-example">Description of the example</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this example, we will create a simple DAG that loads data from a Postgres table to a Pandas DataFrame using PostgresHook and saves the DataFrame back to another Postgres table using PostgresHook.</p>
+</div>
+<div class="paragraph">
+<p>This example has two tasks:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>static_sql_example: It loads data using static SQL from a Postgres table to a Pandas DataFrame and saves the DataFrame back to another Postgres table. This has a JSON column in the Postgres table.</p>
+</li>
+<li>
+<p>sql_from_env_example: It uses environment variables for the SQL to load data from a Postgres table to a Pandas DataFrame and saves the DataFrame back to another Postgres table. We can use a ConfigMap to store the SQL and other environment variables.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-a-configmap-for-this-example">Create a ConfigMap for this example</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this ConfigMap, it has the following environment variables:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>SAMPLE_SQL : SQL to load data from a Postgres table to a Pandas DataFrame</p>
+</li>
+<li>
+<p>TARGET_DB_SCHEMA: Target Postgres schema to save the data</p>
+</li>
+<li>
+<p>TARGET_DB_TABLE: Target Postgres table to save the data</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">postgres-hook-configmap.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">data</span><span class="pi">:</span>
+  <span class="na">SAMPLE_SQL</span><span class="pi">:</span> <span class="pi">|-</span>
+    <span class="s">SELECT * from your_table</span>
+    <span class="s">WHERE start_date=?</span>
+  <span class="na">TARGET_DB_SCHEMA</span><span class="pi">:</span> <span class="s2">"</span><span class="s">postgres_hook_example"</span>
+  <span class="na">TARGET_DB_TABLE</span><span class="pi">:</span> <span class="s2">"</span><span class="s">sql_from_env_example_view"</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ConfigMap</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">postgres-hook</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">airflow</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="add-a-postgres-connection">Add a Postgres connection</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>First, we need to add a Postgres connection on the Airflow Web UI.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Go to the Airflow Web UI and click on the Admin menu</p>
+</li>
+<li>
+<p>Click on Connections</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Then, you can see the list of connections. Click on the Create button to add a new connection.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/postgres-connection.png" alt="postgres connection">
+</div>
+<div class="title">Figure 1. Add Connection Form for Postgres</div>
+</div>
+<div class="paragraph">
+<p>Fill in the following fields:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Connection Id</strong>: connection id for the Postgres connection.</p>
+</li>
+<li>
+<p><strong>Connection Type</strong>: Postgres</p>
+</li>
+<li>
+<p><strong>Host</strong>: Postgres host</p>
+</li>
+<li>
+<p><strong>Database</strong>: Postgres database</p>
+</li>
+<li>
+<p><strong>Login</strong>: Postgres user</p>
+</li>
+<li>
+<p><strong>Password</strong>: Postgres password</p>
+</li>
+<li>
+<p><strong>Port</strong>: Postgres port</p>
+</li>
+<li>
+<p><strong>Extra</strong>: Extra connection parameters like sslmode</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Click on the Save button to save the connection.</p>
+</div>
+<div class="paragraph">
+<p>We are going to use the Connection Id in the DAG to connect to the Postgres database.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="load-data-from-postgres-to-pandas-dataframe-using-postgreshook">Load data from Postgres to Pandas DataFrame using PostgresHook</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The following code snippet shows how to load data from a Postgres table to a Pandas DataFrame using PostgresHook.</p>
+</div>
+<div class="listingblock">
+<div class="title">load data from Postgres to Pandas DataFrame using PostgresHook</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="python"><span class="n">POSTGRES_CONN_ID</span> <span class="o">=</span> <span class="sh">"</span><span class="s">your_postgres_conn_id</span><span class="sh">"</span>
+
+<span class="n">pg_hook</span> <span class="o">=</span> <span class="n">PostgresHook</span><span class="p">.</span><span class="nf">get_hook</span><span class="p">(</span><span class="n">POSTGRES_CONN_ID</span><span class="p">)</span>
+
+<span class="n">df</span> <span class="o">=</span> <span class="n">pg_hook</span><span class="p">.</span><span class="nf">get_pandas_df</span><span class="p">(</span><span class="n">sql</span><span class="p">)</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="save-pandas-dataframe-to-postgres-using-postgreshook">Save Pandas DataFrame to Postgres using PostgresHook</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The following code snippet shows how to save a Pandas DataFrame to a Postgres table using PostgresHook.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="python"><span class="n">engine</span> <span class="o">=</span> <span class="n">pg_hook</span><span class="p">.</span><span class="nf">get_sqlalchemy_engine</span><span class="p">()</span>
+
+<span class="n">df</span><span class="p">.</span><span class="nf">to_sql</span><span class="p">(</span><span class="n">table_name</span><span class="p">,</span> <span class="n">engine</span><span class="p">,</span> <span class="n">if_exists</span><span class="o">=</span><span class="sh">"</span><span class="s">replace</span><span class="sh">"</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">schema</span><span class="o">=</span><span class="n">schema_name</span><span class="p">,</span>  <span class="n">dtype</span><span class="o">=</span><span class="n">datatype</span><span class="p">,)</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="use-a-configmap-for-environment-variables">Use a Configmap for environment variables</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The following code snippet shows how to use a ConfigMap for environment variables in Airflow. We can use the environment variables defined in the ConfigMap in the DAG.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="python"><span class="c1"># Use a ConfigMap for environment variables
+</span><span class="n">common_executor_config</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="sh">"</span><span class="s">pod_override</span><span class="sh">"</span><span class="p">:</span> <span class="n">k8s</span><span class="p">.</span><span class="nc">V1Pod</span><span class="p">(</span>
+        <span class="n">spec</span><span class="o">=</span><span class="n">k8s</span><span class="p">.</span><span class="nc">V1PodSpec</span><span class="p">(</span>
+            <span class="n">containers</span><span class="o">=</span><span class="p">[</span>
+                <span class="n">k8s</span><span class="p">.</span><span class="nc">V1Container</span><span class="p">(</span>
+                    <span class="n">name</span><span class="o">=</span><span class="sh">"</span><span class="s">base</span><span class="sh">"</span><span class="p">,</span>
+                    <span class="n">env_from</span><span class="o">=</span><span class="p">[</span>
+                        <span class="n">k8s</span><span class="p">.</span><span class="nc">V1EnvFromSource</span><span class="p">(</span><span class="n">config_map_ref</span><span class="o">=</span><span class="n">k8s</span><span class="p">.</span><span class="nc">V1ConfigMapEnvSource</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="sh">"</span><span class="s">postgres-hook</span><span class="sh">"</span><span class="p">)),</span>
+                    <span class="p">],</span>
+                <span class="p">)</span>
+            <span class="p">]</span>
+        <span class="p">)</span>
+    <span class="p">),</span>
+<span class="p">}</span>
+
+
+
+    <span class="nd">@task</span><span class="p">(</span><span class="n">executor_config</span><span class="o">=</span><span class="n">common_executor_config</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">sql_from_env_example</span><span class="p">():</span>
+        <span class="sh">"""</span><span class="s">
+        Load data from a SQL query from an environment variable and save it into a table.
+        This function demonstrates how to use environment variables defined in a ConfigMap in Airflow.
+        :return:
+        </span><span class="sh">"""</span>
+        <span class="c1"># get SAMPLE_SQL environment variable
+</span>        <span class="n">sql</span> <span class="o">=</span> <span class="n">os</span><span class="p">.</span><span class="nf">getenv</span><span class="p">(</span><span class="sh">"</span><span class="s">SAMPLE_SQL</span><span class="sh">"</span><span class="p">)</span>
+
+        <span class="n">target_db_schema</span> <span class="o">=</span> <span class="n">os</span><span class="p">.</span><span class="nf">getenv</span><span class="p">(</span><span class="sh">"</span><span class="s">TARGET_DB_SCHEMA</span><span class="sh">"</span><span class="p">)</span>
+        <span class="n">target_db_table</span> <span class="o">=</span> <span class="n">os</span><span class="p">.</span><span class="nf">getenv</span><span class="p">(</span><span class="sh">"</span><span class="s">TARGET_DB_TABLE</span><span class="sh">"</span><span class="p">)</span>
+
+        <span class="nf">load_from_sql_save_into_table</span><span class="p">(</span><span class="n">sql</span><span class="p">,</span> <span class="n">target_db_table</span><span class="p">,</span> <span class="n">target_db_schema</span><span class="p">,</span> <span class="p">)</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="sample-dag-of-postgreshook">Sample DAG of PostgresHook</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Here is the sample DAG that demonstrates how to use PostgresHook in Apache Airflow.</p>
+</div>
+<div class="listingblock">
+<div class="title">postgres_hook_example.py</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="python"><span class="kn">import</span> <span class="n">logging</span>
+<span class="kn">import</span> <span class="n">os</span>
+<span class="kn">import</span> <span class="n">pandas</span>
+<span class="kn">import</span> <span class="n">sqlalchemy</span>
+<span class="kn">from</span> <span class="n">airflow</span> <span class="kn">import</span> <span class="n">DAG</span>
+<span class="kn">import</span> <span class="n">pendulum</span>
+<span class="kn">from</span> <span class="n">airflow.providers.postgres.hooks.postgres</span> <span class="kn">import</span> <span class="n">PostgresHook</span>
+<span class="kn">from</span> <span class="n">airflow.operators.python</span> <span class="kn">import</span> <span class="n">PythonOperator</span>
+<span class="kn">from</span> <span class="n">airflow.decorators</span> <span class="kn">import</span> <span class="n">dag</span><span class="p">,</span> <span class="n">task</span>
+<span class="kn">from</span> <span class="n">sqlalchemy</span> <span class="kn">import</span> <span class="n">create_engine</span>
+<span class="kn">from</span> <span class="n">kubernetes.client</span> <span class="kn">import</span> <span class="n">models</span> <span class="k">as</span> <span class="n">k8s</span>
+
+
+<span class="c1"># Change these to your identifiers, if needed.
+</span><span class="n">POSTGRES_CONN_ID</span> <span class="o">=</span> <span class="sh">"</span><span class="s">your_postgres_conn_id</span><span class="sh">"</span>
+
+
+<span class="k">def</span> <span class="nf">load_from_sql_save_into_table</span><span class="p">(</span><span class="n">sql</span><span class="p">:</span><span class="nb">str</span><span class="p">,</span> <span class="n">table_name</span><span class="p">:</span><span class="nb">str</span><span class="p">,</span> <span class="n">schema_name</span><span class="p">:</span><span class="nb">str</span> <span class="o">=</span> <span class="sh">"</span><span class="s">public</span><span class="sh">"</span><span class="p">,</span> <span class="n">datatype</span><span class="p">:</span><span class="nb">dict</span> <span class="o">=</span> <span class="bp">None</span><span class="p">):</span>
+    <span class="sh">"""</span><span class="s">
+    Load data from a SQL query and save it into a table.
+    :param sql: SQL for extracting data
+    :param table_name:  DB table name to save the data
+    :param schema_name: DB schema name to save the data
+    :param datatype:  Data type for special columns (e.g. JSON)
+    :return: void
+    </span><span class="sh">"""</span>
+    <span class="n">pg_hook</span> <span class="o">=</span> <span class="n">PostgresHook</span><span class="p">.</span><span class="nf">get_hook</span><span class="p">(</span><span class="n">POSTGRES_CONN_ID</span><span class="p">)</span>
+    <span class="n">logging</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sh">"</span><span class="s">Save query to another table</span><span class="sh">"</span><span class="p">)</span>
+    <span class="n">logging</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">Query: </span><span class="si">{</span><span class="n">sql</span><span class="si">}</span><span class="sh">"</span><span class="p">)</span>
+    <span class="n">logging</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">Table name: </span><span class="si">{</span><span class="n">table_name</span><span class="si">}</span><span class="sh">"</span><span class="p">)</span>
+    <span class="n">logging</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">Schema name: </span><span class="si">{</span><span class="n">schema_name</span><span class="si">}</span><span class="sh">"</span><span class="p">)</span>
+    <span class="n">logging</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">pg_hook: </span><span class="si">{</span><span class="n">pg_hook</span><span class="si">}</span><span class="sh">"</span><span class="p">)</span>
+
+    <span class="c1"># create engine
+</span>    <span class="n">engine</span> <span class="o">=</span> <span class="n">pg_hook</span><span class="p">.</span><span class="nf">get_sqlalchemy_engine</span><span class="p">()</span>
+    <span class="n">logging</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">## engine created: </span><span class="si">{</span><span class="n">engine</span><span class="si">}</span><span class="sh">"</span><span class="p">)</span>
+
+    <span class="n">df</span> <span class="o">=</span> <span class="n">pg_hook</span><span class="p">.</span><span class="nf">get_pandas_df</span><span class="p">(</span><span class="n">sql</span><span class="p">)</span>
+    <span class="n">logging</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">DataFrame: </span><span class="si">{</span><span class="n">df</span><span class="si">}</span><span class="sh">"</span><span class="p">)</span>
+
+    <span class="c1"># save dataframe to postgres view
+</span>    <span class="n">df</span><span class="p">.</span><span class="nf">to_sql</span><span class="p">(</span><span class="n">table_name</span><span class="p">,</span> <span class="n">engine</span><span class="p">,</span> <span class="n">if_exists</span><span class="o">=</span><span class="sh">"</span><span class="s">replace</span><span class="sh">"</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">schema</span><span class="o">=</span><span class="n">schema_name</span><span class="p">,</span>  <span class="n">dtype</span><span class="o">=</span><span class="n">datatype</span><span class="p">,)</span>
+
+<span class="c1"># set environment variables from ConfigMap named postgres-hook
+</span><span class="n">common_executor_config</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="sh">"</span><span class="s">pod_override</span><span class="sh">"</span><span class="p">:</span> <span class="n">k8s</span><span class="p">.</span><span class="nc">V1Pod</span><span class="p">(</span>
+        <span class="n">spec</span><span class="o">=</span><span class="n">k8s</span><span class="p">.</span><span class="nc">V1PodSpec</span><span class="p">(</span>
+            <span class="n">containers</span><span class="o">=</span><span class="p">[</span>
+                <span class="n">k8s</span><span class="p">.</span><span class="nc">V1Container</span><span class="p">(</span>
+                    <span class="n">name</span><span class="o">=</span><span class="sh">"</span><span class="s">base</span><span class="sh">"</span><span class="p">,</span>
+                    <span class="n">env_from</span><span class="o">=</span><span class="p">[</span>
+                        <span class="n">k8s</span><span class="p">.</span><span class="nc">V1EnvFromSource</span><span class="p">(</span><span class="n">config_map_ref</span><span class="o">=</span><span class="n">k8s</span><span class="p">.</span><span class="nc">V1ConfigMapEnvSource</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="sh">"</span><span class="s">postgres-hook</span><span class="sh">"</span><span class="p">)),</span>
+                    <span class="p">],</span>
+                <span class="p">)</span>
+            <span class="p">]</span>
+        <span class="p">)</span>
+    <span class="p">),</span>
+<span class="p">}</span>
+
+<span class="k">with</span> <span class="nc">DAG</span><span class="p">(</span>
+    <span class="n">dag_id</span><span class="o">=</span><span class="sh">"</span><span class="s">postgres_hook</span><span class="sh">"</span><span class="p">,</span>
+    <span class="n">start_date</span><span class="o">=</span><span class="n">pendulum</span><span class="p">.</span><span class="nf">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">13</span><span class="p">),</span>
+    <span class="n">schedule</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+    <span class="c1"># schedule_interval="@daily",
+</span>    <span class="n">catchup</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="k">as</span> <span class="n">dag</span><span class="p">:</span>
+
+    <span class="nd">@task</span><span class="p">()</span>
+    <span class="k">def</span> <span class="nf">static_sql_example</span><span class="p">():</span>
+        <span class="sh">"""</span><span class="s">
+        Load data from a static SQL query and save it into a table.
+        Handle a column with JSON data type.
+        </span><span class="sh">"""</span>
+        <span class="nf">load_from_sql_save_into_table</span><span class="p">(</span>
+            <span class="sh">"</span><span class="s">SELECT * from decision_support.medrec_history limit 10</span><span class="sh">"</span><span class="p">,</span>
+            <span class="sh">"</span><span class="s">static_sql_example_view</span><span class="sh">"</span><span class="p">,</span>
+            <span class="sh">"</span><span class="s">postgres_hook_example</span><span class="sh">"</span><span class="p">,</span>
+            <span class="p">{</span><span class="sh">"</span><span class="s">history</span><span class="sh">"</span><span class="p">:</span> <span class="n">sqlalchemy</span><span class="p">.</span><span class="n">types</span><span class="p">.</span><span class="n">JSON</span><span class="p">})</span>
+
+
+    <span class="nd">@task</span><span class="p">(</span><span class="n">executor_config</span><span class="o">=</span><span class="n">common_executor_config</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">sql_from_env_example</span><span class="p">():</span>
+        <span class="sh">"""</span><span class="s">
+        Load data from a SQL query from an environment variable and save it into a table.
+        This function demonstrates how to use environment variables defined in a ConfigMap in Airflow.
+        :return:
+        </span><span class="sh">"""</span>
+        <span class="c1"># get SAMPLE_SQL environment variable
+</span>        <span class="n">sql</span> <span class="o">=</span> <span class="n">os</span><span class="p">.</span><span class="nf">getenv</span><span class="p">(</span><span class="sh">"</span><span class="s">SAMPLE_SQL</span><span class="sh">"</span><span class="p">)</span>
+        <span class="n">logging</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">SQL: </span><span class="si">{</span><span class="n">sql</span><span class="si">}</span><span class="sh">"</span><span class="p">)</span>
+        <span class="c1"># replace start_date=? with start_date='2018-06-06'
+</span>        <span class="n">sql</span> <span class="o">=</span> <span class="n">sql</span><span class="p">.</span><span class="nf">replace</span><span class="p">(</span><span class="sh">"</span><span class="s">start_date=?</span><span class="sh">"</span><span class="p">,</span> <span class="sh">"</span><span class="s">start_date=</span><span class="sh">'</span><span class="s">2018-06-06</span><span class="sh">'"</span><span class="p">)</span>
+        <span class="n">target_db_schema</span> <span class="o">=</span> <span class="n">os</span><span class="p">.</span><span class="nf">getenv</span><span class="p">(</span><span class="sh">"</span><span class="s">TARGET_DB_SCHEMA</span><span class="sh">"</span><span class="p">)</span>
+        <span class="n">target_db_table</span> <span class="o">=</span> <span class="n">os</span><span class="p">.</span><span class="nf">getenv</span><span class="p">(</span><span class="sh">"</span><span class="s">TARGET_DB_TABLE</span><span class="sh">"</span><span class="p">)</span>
+        <span class="n">logging</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">Updated SQL: </span><span class="si">{</span><span class="n">sql</span><span class="si">}</span><span class="sh">"</span><span class="p">)</span>
+        <span class="n">logging</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">Schema: </span><span class="si">{</span><span class="n">target_db_schema</span><span class="si">}</span><span class="sh">"</span><span class="p">)</span>
+        <span class="n">logging</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">Table: </span><span class="si">{</span><span class="n">target_db_table</span><span class="si">}</span><span class="sh">"</span><span class="p">)</span>
+
+        <span class="nf">load_from_sql_save_into_table</span><span class="p">(</span><span class="n">sql</span><span class="p">,</span> <span class="n">target_db_table</span><span class="p">,</span> <span class="n">target_db_schema</span><span class="p">,</span> <span class="p">)</span>
+
+    <span class="n">static_sql_example_task</span> <span class="o">=</span> <span class="nf">static_sql_example</span><span class="p">()</span>
+    <span class="n">sql_from_env_example_task</span> <span class="o">=</span> <span class="nf">sql_from_env_example</span><span class="p">()</span>
+
+    <span class="c1"># run the tasks in parallel
+</span>    <span class="p">[</span><span class="n">static_sql_example_task</span><span class="p">,</span> <span class="n">sql_from_env_example_task</span><span class="p">]</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this article, we have seen how to use PostgresHook in Apache Airflow to interact with a Postgres database. We have also seen how to load data from a Postgres table to a Pandas DataFrame and save the DataFrame back to another Postgres table using PostgresHook.
+In addition, we have seen how to use a ConfigMap for environment variables in Airflow.</p>
+</div>
+<div class="paragraph">
+<p>All my LinkedIn articles are available at <a href="https://www.linkedin.com/pulse/my-linkedin-article-library-young-gyu-kim-2jihc">All My LinkedIn Articles</a>.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="referencers">Referencers</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://www.sqlalchemy.org/" class="bare">https://www.sqlalchemy.org/</a></p>
+</li>
+<li>
+<p><a href="https://docs.sqlalchemy.org/en/20/core/engines.html" class="bare">https://docs.sqlalchemy.org/en/20/core/engines.html</a></p>
+</li>
+<li>
+<p><a href="https://sorokin.engineer/posts/en/apache_airflow_sqlalchemy_operator.html" class="bare">https://sorokin.engineer/posts/en/apache_airflow_sqlalchemy_operator.html</a></p>
+</li>
+<li>
+<p><a href="https://docs.sqlalchemy.org/en/20/core/type_basics.html" class="bare">https://docs.sqlalchemy.org/en/20/core/type_basics.html</a></p>
+</li>
+<li>
+<p><a href="https://gist.github.com/antweiss/a6716339983bcc93aa505fd0c620b013">PostgresHook example</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Apache Airflow - Data Migration using Sling</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+        min-width: 0;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+        flex-shrink: 0;
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;           /* fallback scroll if absolutely needed */
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre-wrap;      /* enables line wrap */
+        word-wrap: break-word;      /* breaks long words if needed */
+        overflow-wrap: break-word;  /* ensures content wraps in small containers */
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        white-space: pre;
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+        margin-top: 1rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    /* Optional container max width per role */
+    .img-small img {
+        max-width: 400px;
+    }
+
+    .img-medium img {
+        max-width: 700px;
+    }
+
+    .img-wide img {
+        max-width: 1000px;
+    }
+
+    @media (max-width: 768px) {
+        .img-wide img {
+            max-width: 100%;
+        }
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/bigdata-foundry/">BigData Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 style="font-size: 2rem; font-weight: bold; margin-bottom: 1rem; color: #1f2937;">
+            Apache Airflow - Data Migration using Sling
+        </h1>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#what-is-sling">What is Sling?</a></li>
+<li><a href="#airflow-kubernetespodoperator-for-sling-in-a-parallelized-way">Airflow KubernetesPodOperator for Sling in a parallelized way</a></li>
+</ul>
+</li>
+<li><a href="#create-a-secret-for-env-yaml">Create a secret for env.yaml</a></li>
+<li><a href="#create-a-pvc-for-sling-scripts">Create a PVC for sling scripts</a></li>
+<li><a href="#push-docker-image-to-acr">Push Docker image to ACR</a></li>
+<li><a href="#pharmanet-schedculer-app">pharmanet-schedculer-app</a>
+<ul class="sectlevel2">
+<li><a href="#create-a-secret-for-environment-variables-for-the-pharmanet-schedculer-app">Create a secret for environment variables for the pharmanet-schedculer-app</a></li>
+<li><a href="#create-a-configmap-for-the-pharmanet-schedculer-app">Create a ConfigMap for the pharmanet-schedculer-app</a></li>
+</ul>
+</li>
+<li><a href="#check-postgresql-connection">Check PostgreSQL connection</a></li>
+<li><a href="#write-airflow-dag">Write Airflow DAG</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/sling-and-spark.png" alt="sling and spark">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This article is the following of the previous article: <a href="https://www.linkedin.com/pulse/apache-airflow-kubernetes-pod-operator-young-gyu-kim-m75fc/">Apache Airflow KubernetesPodOperator</a> and assumes that you have already installed Apache Airflow on AKS.</p>
+</div>
+<div class="sect2">
+<h3 id="what-is-sling">What is Sling?</h3>
+<div class="paragraph">
+<p>Sling is a data migration tool that helps to move data from one database to another. It is a command-line tool that can be used to move data from one database to another. Sling is a good tool for moving relatively small amounts of data from one database to another.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="airflow-kubernetespodoperator-for-sling-in-a-parallelized-way">Airflow KubernetesPodOperator for Sling in a parallelized way</h3>
+<div class="paragraph">
+<p>In this example, we will use the KubernetesPodOperator to run the Sling tool in an Airflow DAG. The KubernetesPodOperator is an operator that runs a task in a Kubernetes Pod in a parallelized way.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/sling-pod.png" alt="sling pod">
+</div>
+<div class="title">Figure 1. Sling Pod</div>
+</div>
+<div class="paragraph">
+<p>The env.yaml file will be mounted as a secret in the Sling Pod. The env.yaml file contains the connection details for the source and destination databases.</p>
+</div>
+<div class="paragraph">
+<p>The Sling scripts will be mounted as a PVC in the Sling Pod. The Sling scripts are the scripts that are used to move the data from the source database to the destination database.</p>
+</div>
+<div class="paragraph">
+<p>In each KubernetesPodOperator task, we will run a Sling script to move the data from one source database to the destination database.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/airflow-graph.png" alt="airflow graph">
+</div>
+<div class="title">Figure 2. Airflow Graph</div>
+</div>
+<div class="paragraph">
+<p>All the Sling scripts in a dag will run in parallel.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-a-secret-for-env-yaml">Create a secret for env.yaml</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In env.yaml, we will store the environment variables that are required to run the Sling tool. In the env.yaml file, we will store the connection details for the source and destination databases. For this example, we will use 3 source databases and 1 destination database.</p>
+</div>
+<div class="listingblock">
+<div class="title">env.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">connections</span><span class="pi">:</span>
+  <span class="na">SRC_DB_1</span><span class="pi">:</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">postgres</span>
+    <span class="na">host</span><span class="pi">:</span> <span class="s">postgresql-prod-server1</span>
+    <span class="na">user</span><span class="pi">:</span> <span class="s">user1</span>
+    <span class="na">password</span><span class="pi">:</span> <span class="s">password1</span>
+    <span class="na">port</span><span class="pi">:</span> <span class="m">5432</span>
+    <span class="na">database</span><span class="pi">:</span> <span class="s">db_1</span>
+    <span class="na">sslmode</span><span class="pi">:</span> <span class="s">require</span>
+  <span class="na">SRC_DB_2</span><span class="pi">:</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">postgres</span>
+    <span class="na">host</span><span class="pi">:</span> <span class="s">postgresql-prod-server2</span>
+    <span class="na">user</span><span class="pi">:</span> <span class="s">user2</span>
+    <span class="na">password</span><span class="pi">:</span> <span class="s">password2</span>
+    <span class="na">port</span><span class="pi">:</span> <span class="m">5432</span>
+    <span class="na">database</span><span class="pi">:</span> <span class="s">db_2</span>
+    <span class="c1">#schema: public</span>
+    <span class="na">sslmode</span><span class="pi">:</span> <span class="s">require</span>
+  <span class="na">SRC_DB_3</span><span class="pi">:</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">postgres</span>
+    <span class="na">host</span><span class="pi">:</span> <span class="s">postgresql-prod-server3</span>
+    <span class="na">user</span><span class="pi">:</span> <span class="s">user3</span>
+    <span class="na">password</span><span class="pi">:</span> <span class="s">password3</span>
+    <span class="na">port</span><span class="pi">:</span> <span class="m">5432</span>
+    <span class="na">database</span><span class="pi">:</span> <span class="s">db_3</span>
+    <span class="c1">#schema: public</span>
+    <span class="na">sslmode</span><span class="pi">:</span> <span class="s">require</span>
+  <span class="na">DEST_DB_1</span><span class="pi">:</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">postgres</span>
+    <span class="na">host</span><span class="pi">:</span> <span class="s">dest-postgresql-server</span>
+    <span class="na">user</span><span class="pi">:</span> <span class="s">dest_user</span>
+    <span class="na">password</span><span class="pi">:</span> <span class="s">dest_password</span>
+    <span class="na">port</span><span class="pi">:</span> <span class="m">5432</span>
+    <span class="na">database</span><span class="pi">:</span> <span class="s">datalake</span>
+    <span class="c1">#schema: public</span>
+    <span class="na">sslmode</span><span class="pi">:</span> <span class="s">disable</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To create a secret for env.yaml, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c">#$ kubectl -n airflow delete secret sling-env</span>
+<span class="c">#$ kubectl -n airflow create secret generic sling-env --from-file=env.yaml</span>
+
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> airflow create secret generic sling-env <span class="nt">--from-file</span><span class="o">=</span>env.yaml <span class="nt">--dry-run</span><span class="o">=</span>client <span class="nt">-o</span> yaml | yq <span class="nb">eval</span> <span class="s1">'del(.metadata.creationTimestamp)'</span> <span class="o">&gt;</span> sling-env-secret.yaml
+
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> airflow apply <span class="nt">-f</span> sling-env-secret.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To verify that the secret has been created successfully, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> airflow get secret
+
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> airflow get secret sling-env <span class="nt">-o</span> yaml
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> airflow get secret sling-env <span class="nt">-o</span> yaml | yq <span class="s1">'.data.["env.yaml"]'</span> | <span class="nb">base64</span> <span class="nt">-d</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-a-pvc-for-sling-scripts">Create a PVC for sling scripts</h2>
+<div class="sectionbody">
+<table class="tableblock frame-all grid-all stretch">
+<caption class="title">Table 1. File share for sling scripts</caption>
+<colgroup>
+<col style="width: 50%;">
+<col style="width: 50%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Property</th>
+<th class="tableblock halign-left valign-top">Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Storage Account</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">your-storage-account-name</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Fileshare name</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">sling-scripts</p></td>
+</tr>
+</tbody>
+</table>
+<div class="paragraph">
+<p>In this example, we will use Azure Fileshare storage to store the Sling scripts. We will create a PVC for the Sling scripts.</p>
+</div>
+<div class="paragraph">
+<p>Here is the manifest file for the PVC:</p>
+</div>
+<div class="listingblock">
+<div class="title">pvc-sling-scripts.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolume</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pv-sling-scripts-storage</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">environment</span><span class="pi">:</span> <span class="s">airflow</span>
+    <span class="na">app</span><span class="pi">:</span> <span class="s">airflow</span>
+
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">capacity</span><span class="pi">:</span>
+    <span class="na">storage</span><span class="pi">:</span> <span class="s">1Gi</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">azurefile</span>
+  <span class="na">azureFile</span><span class="pi">:</span>
+    <span class="na">secretNamespace</span><span class="pi">:</span> <span class="s1">'</span><span class="s">airflow'</span>
+    <span class="c1"># This secret contains iclinicaksstorage and key</span>
+    <span class="na">secretName</span><span class="pi">:</span> <span class="s">aksdepstorage-secret</span>
+    <span class="c1"># QC2 will use the same IDOC storage as COLO.</span>
+    <span class="na">shareName</span><span class="pi">:</span> <span class="s">sling-scripts</span>
+    <span class="na">readOnly</span><span class="pi">:</span> <span class="kc">false</span>
+  <span class="na">mountOptions</span><span class="pi">:</span>
+    <span class="c1"># data directory "/var/lib/postgresql/data" has invalid permissions</span>
+    <span class="c1"># Permissions should be u=rwx (0700) or u=rwx,g=rx (0750).</span>
+    <span class="c1">#    - dir_mode=0777</span>
+    <span class="c1">#    - file_mode=0777</span>
+    <span class="pi">-</span> <span class="s">dir_mode=0777</span>
+    <span class="pi">-</span> <span class="s">file_mode=0777</span>
+    <span class="c1"># uid and gid used to be 1000, and then 65534, now its value is 0</span>
+    <span class="c1"># the value came from values-3.5.0-debian-11-r0.yaml, and cache and nosharesock are added recently.</span>
+    <span class="c1"># see https://docs.microsoft.com/en-us/azure/aks/azure-files-volume#mount-file-share-as-a-persistent-volume</span>
+
+    <span class="c1"># use the same uid and gid as the airflow container</span>
+    <span class="pi">-</span> <span class="s">uid=0</span>
+    <span class="pi">-</span> <span class="s">gid=0</span>
+    <span class="pi">-</span> <span class="s">mfsymlinks</span>
+    <span class="pi">-</span> <span class="s">cache=strict</span>
+    <span class="pi">-</span> <span class="s">nosharesock</span>
+    <span class="pi">-</span> <span class="s">nobrl</span>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolumeClaim</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">data-sling-scripts</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">airflow</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">environment</span><span class="pi">:</span> <span class="s">airflow</span>
+    <span class="na">app</span><span class="pi">:</span> <span class="s">airflow</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="c1"># code = InvalidArgument desc = Volume capability not supported, default does not support ReadWriteMany</span>
+    <span class="c1">#    - ReadWriteMany</span>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">azurefile</span>
+  <span class="c1"># PostgreSQL does not work with Azure file. This is because PostgreSQL requires hard links in the Azure File directory,</span>
+  <span class="c1"># and since Azure File does not support hard links the pod fails to start.</span>
+  <span class="c1">#  storageClassName: azurefile</span>
+  <span class="na">volumeName</span><span class="pi">:</span> <span class="s">pv-sling-scripts-storage</span>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">storage</span><span class="pi">:</span> <span class="s">1Gi</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To create a PVC for sling scripts, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> airflow apply <span class="nt">-f</span> pvc-sling-scripts.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="push-docker-image-to-acr">Push Docker image to ACR</h2>
+<div class="sectionbody">
+<div class="listingblock">
+<div class="title">docker/Dockerfile</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="dockerfile"><span class="k">FROM</span><span class="s"> slingdata/sling</span>
+
+<span class="c">#FROM apache/airflow:2.9.3</span>
+
+
+
+<span class="c">#RUN pip install --no-cache-dir --upgrade pip &amp;&amp; \</span>
+<span class="c">#    pip install --no-cache-dir apache-airflow-providers-cncf-kubernetes</span>
+
+<span class="c">#WORKDIR /home/airflow</span>
+<span class="c">#WORKDIR /home/sling</span>
+<span class="k">WORKDIR</span><span class="s"> /usr/app</span>
+
+<span class="c">#RUN curl -LO 'https://github.com/slingdata-io/sling-cli/releases/latest/download/sling_linux_amd64.tar.gz' \</span>
+<span class="c">#  &amp;&amp; tar xf sling_linux_amd64.tar.gz \</span>
+<span class="c">#  &amp;&amp; rm -f sling_linux_amd64.tar.gz \</span>
+<span class="c">#  &amp;&amp; chmod +x sling</span>
+
+
+<span class="c"># env.yaml will be mounted as a secret (sling-env) in the k8s deployment</span>
+<span class="c">#COPY env.yaml /home/sling/.sling/env.yaml</span>
+
+<span class="c">#--COPY env.yaml /home/airflow/.sling/env.yaml</span>
+<span class="c">#--COPY replication.yaml /usr/app/replication.yaml</span>
+
+<span class="c"># script files will be mounted as a volume in the k8s deployment</span>
+<span class="c">#COPY run-sling.sh /usr/app/run-sling.sh</span>
+<span class="c">#COPY run-sling.sh /home/airflow/run-sling.sh</span>
+
+<span class="c"># Run Sling</span>
+<span class="c">#CMD ["sh", "run-sling.sh"]</span>
+<span class="c">#CMD ["/bin/bash"]</span>
+
+<span class="c"># override ENTRYPOINT from base image</span>
+<span class="c"># ENTRYPOINT ["sling"]</span>
+<span class="c">#ENTRYPOINT ["sh", "run-sling.sh"]</span>
+<span class="c">#ENTRYPOINT ["sh"]</span>
+<span class="k">ENTRYPOINT</span><span class="s"> ["ls", "-l", "/usr/app/"]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To push the Docker image to ACR, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ ACR_NAME</span><span class="o">=</span>your-acr-name
+<span class="c"># login to ACR</span>
+<span class="nv">$ </span>az acr login <span class="nt">--name</span> <span class="nv">$ACR_NAME</span>
+
+<span class="c"># push the Docker image to ACR</span>
+<span class="nv">$ </span>az acr build <span class="nt">--registry</span> <span class="nv">$ACR_NAME</span> <span class="nt">--image</span> dep-sling:0.1.0 ./docker</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="pharmanet-schedculer-app">pharmanet-schedculer-app</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Environment variables for the pharmanet-schedculer-app:</p>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<caption class="title">Table 2. Environment variables</caption>
+<colgroup>
+<col style="width: 25%;">
+<col style="width: 25%;">
+<col style="width: 25%;">
+<col style="width: 25%;">
+</colgroup>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Name</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Store Type</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Value</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Description</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">GET_MEDREC_SERVICE_REQUESTS_SQL</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">ConfigMap</p></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">APPOINTMENT_JDBC_URL</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Secret</p></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">APPOINTMENT_DB_USERNAME</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Secret</p></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">APPOINTMENT_DB_PASSWORD</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Secret</p></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">PHARMANET_JDBC_URL</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Secret</p></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">PHARMANET_DB_USERNAME</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Secret</p></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">PHARMANET_DB_PASSWORD</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Secret</p></td>
+<td class="tableblock halign-left valign-top"></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">ICLINIC_MODULES_PATIENT_ENABLED</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">ConfigMap</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">false</p></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">PHARMANET_DB_SCHEMA</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">ConfigMap</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">decision_support</p></td>
+<td class="tableblock halign-left valign-top"></td>
+</tr>
+</tbody>
+</table>
+<div class="sect2">
+<h3 id="create-a-secret-for-environment-variables-for-the-pharmanet-schedculer-app">Create a secret for environment variables for the pharmanet-schedculer-app</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> airflow create secret generic pharmanet-scheduler-app <span class="se">\</span>
+  <span class="nt">--from-literal</span> <span class="nv">APPOINTMENT_JDBC_URL</span><span class="o">=</span>jdbc:postgresql://postgresql.dep:5432/datalake <span class="se">\</span>
+  <span class="nt">--from-literal</span> <span class="nv">APPOINTMENT_DB_USERNAME</span><span class="o">=</span>iclinic <span class="se">\</span>
+  <span class="nt">--from-literal</span> <span class="nv">APPOINTMENT_DB_PASSWORD</span><span class="o">=</span><span class="s2">"ENC(bLkn/dI6MYx5inMzcKrKPLz5A2GXB5ze)"</span> <span class="se">\</span>
+  <span class="nt">--from-literal</span> <span class="nv">PHARMANET_JDBC_URL</span><span class="o">=</span>jdbc:postgresql://postgresql.dep:5432/datalake <span class="se">\</span>
+  <span class="nt">--from-literal</span> <span class="nv">PHARMANET_DB_USERNAME</span><span class="o">=</span>iclinic <span class="se">\</span>
+  <span class="nt">--from-literal</span> <span class="nv">PHARMANET_DB_PASSWORD</span><span class="o">=</span><span class="s2">"ENC(bLkn/dI6MYx5inMzcKrKPLz5A2GXB5ze)"</span> <span class="se">\</span>
+  <span class="nt">--dry-run</span><span class="o">=</span>client <span class="nt">-o</span> yaml | yq <span class="nb">eval</span> <span class="s1">'del(.metadata.creationTimestamp)'</span> <span class="o">&gt;</span> pharmanet-scheduler-app-secret.yaml
+
+<span class="nv">$ </span>kubectl apply <span class="nt">-f</span> pharmanet-scheduler-app-secret.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-a-configmap-for-the-pharmanet-schedculer-app">Create a ConfigMap for the pharmanet-schedculer-app</h3>
+<div class="listingblock">
+<div class="title">get-medrec-service-requests.sql</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sql"><span class="k">SELECT</span> <span class="n">a</span><span class="p">.</span><span class="n">id</span> <span class="k">as</span> <span class="n">appointment_id</span><span class="p">,</span> <span class="n">a</span><span class="p">.</span><span class="n">patient_id</span><span class="p">,</span> <span class="n">a</span><span class="p">.</span><span class="n">practitioner_id</span><span class="p">,</span> <span class="n">u</span><span class="p">.</span><span class="n">id</span> <span class="k">as</span> <span class="n">user_id</span><span class="p">,</span> <span class="n">u</span><span class="p">.</span><span class="n">pharmanet_global_id</span><span class="p">,</span> <span class="n">p</span><span class="p">.</span><span class="n">phn</span>
+<span class="k">FROM</span> <span class="n">staging_appointment</span><span class="p">.</span><span class="n">appointments</span> <span class="n">a</span>
+         <span class="k">INNER</span> <span class="k">JOIN</span> <span class="n">staging_user</span><span class="p">.</span><span class="n">_shell_users</span> <span class="n">u</span>
+                    <span class="k">ON</span> <span class="n">a</span><span class="p">.</span><span class="n">practitioner_id</span> <span class="o">=</span> <span class="n">u</span><span class="p">.</span><span class="n">practitioner_id</span>
+         <span class="k">INNER</span> <span class="k">JOIN</span> <span class="n">staging_patient</span><span class="p">.</span><span class="n">patients</span> <span class="n">p</span>
+                    <span class="k">ON</span> <span class="n">a</span><span class="p">.</span><span class="n">patient_id</span> <span class="o">=</span> <span class="n">p</span><span class="p">.</span><span class="n">id</span> <span class="k">and</span> <span class="n">a</span><span class="p">.</span><span class="n">patient_id</span> <span class="o">!=</span> <span class="mi">0</span>
+    <span class="k">INNER</span> <span class="k">JOIN</span> <span class="n">staging_doctor</span><span class="p">.</span><span class="n">practitioners</span> <span class="n">pr</span>
+<span class="k">ON</span> <span class="n">a</span><span class="p">.</span><span class="n">practitioner_id</span> <span class="o">=</span> <span class="n">pr</span><span class="p">.</span><span class="n">id</span> <span class="k">and</span> <span class="n">pr</span><span class="p">.</span><span class="n">record_type</span> <span class="o">=</span> <span class="s1">'Practitioner'</span>
+<span class="k">WHERE</span> <span class="n">start_date</span><span class="o">=?</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> airflow create configmap pharmanet-scheduler-app <span class="se">\</span>
+  <span class="nt">--from-file</span><span class="o">=</span><span class="nv">GET_MEDREC_SERVICE_REQUESTS_SQL</span><span class="o">=</span>./get-medrec-service-requests.sql <span class="se">\</span>
+  <span class="nt">--from-file</span><span class="o">=</span><span class="nv">GET_DECISION_SUPPORT_TARGETS_SQL</span><span class="o">=</span>./get-decision-support-targets.sql <span class="se">\</span>
+  <span class="nt">--from-literal</span> <span class="nv">PHARMANET_DB_SCHEMA</span><span class="o">=</span><span class="s2">"decision_support"</span> <span class="se">\</span>
+  <span class="nt">--dry-run</span><span class="o">=</span>client <span class="nt">-o</span> yaml | yq <span class="nb">eval</span> <span class="s1">'del(.metadata.creationTimestamp)'</span> <span class="o">&gt;</span> pharmanet-scheduler-app-configmap.yaml
+
+<span class="nv">$ </span>kubectl apply <span class="nt">-f</span> pharmanet-scheduler-app-configmap.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="check-postgresql-connection">Check PostgreSQL connection</h2>
+<div class="sectionbody">
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c"># Run a pod to test the Postgresql connection in airflow namespace</span>
+
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> airflow run postgres-client <span class="nt">--image</span><span class="o">=</span>postgres <span class="nt">--env</span><span class="o">=</span><span class="s2">"POSTGRES_PASSWORD=skunkwerks2010"</span> <span class="nt">--env</span><span class="o">=</span><span class="s2">"POD_NAMESPACE=airflow"</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> airflow <span class="nb">exec</span> <span class="nt">-it</span> postgres-client <span class="nt">--</span> bash
+
+<span class="c"># in the pod</span>
+<span class="nv">$ </span>psql <span class="nt">-h</span> iclinic-staging-flex-db.postgres.database.azure.com <span class="nt">--username</span><span class="o">=</span>iclinic <span class="nt">-W</span> <span class="nt">-d</span> icliniccore
+
+<span class="c"># password: Pronouncement38#</span>
+Pronouncement38#</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="write-airflow-dag">Write Airflow DAG</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Here is the DAG file for the Sling migration:</p>
+</div>
+<div class="listingblock">
+<div class="title">/dags/sling_dag.py</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="python"><span class="kn">import</span> <span class="n">pendulum</span>
+<span class="kn">from</span> <span class="n">airflow</span> <span class="kn">import</span> <span class="n">DAG</span>
+<span class="kn">from</span> <span class="n">airflow.decorators</span> <span class="kn">import</span> <span class="n">dag</span><span class="p">,</span> <span class="n">task</span>
+
+<span class="kn">from</span> <span class="n">airflow.providers.cncf.kubernetes.operators.kubernetes_pod</span> <span class="kn">import</span> <span class="n">KubernetesPodOperator</span>
+<span class="kn">from</span> <span class="n">airflow.providers.cncf.kubernetes.operators.spark_kubernetes</span> <span class="kn">import</span> <span class="n">SparkKubernetesOperator</span>
+<span class="kn">from</span> <span class="n">kubernetes.client</span> <span class="kn">import</span> <span class="n">models</span> <span class="k">as</span> <span class="n">k8s</span>
+
+
+<span class="k">with</span> <span class="nc">DAG</span><span class="p">(</span>
+    <span class="n">dag_id</span><span class="o">=</span><span class="sh">"</span><span class="s">sling-migration</span><span class="sh">"</span><span class="p">,</span>
+    <span class="n">start_date</span><span class="o">=</span><span class="n">pendulum</span><span class="p">.</span><span class="nf">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">13</span><span class="p">),</span>
+    <span class="n">schedule_interval</span><span class="o">=</span><span class="sh">"</span><span class="s">@daily</span><span class="sh">"</span><span class="p">,</span>
+    <span class="n">catchup</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+    <span class="n">tags</span><span class="o">=</span><span class="p">[</span><span class="sh">"</span><span class="s">sling</span><span class="sh">"</span><span class="p">,</span> <span class="sh">"</span><span class="s">migration</span><span class="sh">"</span><span class="p">],</span>
+<span class="p">)</span> <span class="k">as</span> <span class="n">dag</span><span class="p">:</span>
+    <span class="n">scripts</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="c1">#"staging1-icliniccore-public-migration.sh",
+</span>        <span class="c1">#"qc2-legacy_replica-colo-migration.sh",
+</span>        <span class="c1"># "example1.sh",
+</span>        <span class="c1"># "example2.sh",
+</span>        <span class="c1"># "example3.sh",
+</span>        <span class="sh">"</span><span class="s">staging_appointment-datalake.sh</span><span class="sh">"</span><span class="p">,</span>
+        <span class="sh">"</span><span class="s">staging_files-datalake.sh</span><span class="sh">"</span><span class="p">,</span>
+        <span class="sh">"</span><span class="s">staging_icliniccore-datalake.sh</span><span class="sh">"</span><span class="p">,</span>
+        <span class="sh">"</span><span class="s">staging_patient-datalake.sh</span><span class="sh">"</span><span class="p">,</span>
+
+    <span class="p">]</span>
+    <span class="c1"># date string format: YYYY-MM-DD
+</span>    <span class="n">date_string</span> <span class="o">=</span> <span class="n">pendulum</span><span class="p">.</span><span class="nf">now</span><span class="p">().</span><span class="nf">format</span><span class="p">(</span><span class="sh">"</span><span class="s">YYYY-MM-DD</span><span class="sh">"</span><span class="p">)</span>
+    <span class="n">millisecond</span> <span class="o">=</span> <span class="n">pendulum</span><span class="p">.</span><span class="nf">now</span><span class="p">().</span><span class="nf">format</span><span class="p">(</span><span class="sh">"</span><span class="s">x</span><span class="sh">"</span><span class="p">)</span>
+    <span class="n">working_dir</span> <span class="o">=</span> <span class="sa">f</span><span class="sh">"</span><span class="s">/decision-support/</span><span class="si">{</span><span class="n">date_string</span><span class="si">}</span><span class="s">/</span><span class="si">{</span><span class="n">millisecond</span><span class="si">}</span><span class="s">/</span><span class="sh">"</span>
+
+    <span class="n">volumes</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">k8s</span><span class="p">.</span><span class="nc">V1Volume</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="sh">"</span><span class="s">sling-env</span><span class="sh">"</span><span class="p">,</span>
+            <span class="n">secret</span><span class="o">=</span><span class="n">k8s</span><span class="p">.</span><span class="nc">V1SecretVolumeSource</span><span class="p">(</span><span class="n">secret_name</span><span class="o">=</span><span class="sh">"</span><span class="s">sling-env</span><span class="sh">"</span><span class="p">),</span>
+        <span class="p">),</span>
+        <span class="n">k8s</span><span class="p">.</span><span class="nc">V1Volume</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="sh">"</span><span class="s">scripts-volume</span><span class="sh">"</span><span class="p">,</span>
+            <span class="n">persistent_volume_claim</span><span class="o">=</span><span class="n">k8s</span><span class="p">.</span><span class="nc">V1PersistentVolumeClaimVolumeSource</span><span class="p">(</span><span class="n">claim_name</span><span class="o">=</span><span class="sh">"</span><span class="s">data-sling-scripts</span><span class="sh">"</span><span class="p">),</span>
+        <span class="p">),</span>
+    <span class="p">]</span>
+    <span class="n">volume_mounts</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">k8s</span><span class="p">.</span><span class="nc">V1VolumeMount</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="sh">"</span><span class="s">sling-env</span><span class="sh">"</span><span class="p">,</span>
+            <span class="n">mount_path</span><span class="o">=</span><span class="sh">"</span><span class="s">/home/sling/.sling/env.yaml</span><span class="sh">"</span><span class="p">,</span>
+            <span class="n">sub_path</span><span class="o">=</span><span class="sh">"</span><span class="s">env.yaml</span><span class="sh">"</span><span class="p">,</span>
+        <span class="p">),</span>
+        <span class="n">k8s</span><span class="p">.</span><span class="nc">V1VolumeMount</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="sh">"</span><span class="s">scripts-volume</span><span class="sh">"</span><span class="p">,</span>
+            <span class="n">mount_path</span><span class="o">=</span><span class="sh">"</span><span class="s">/usr/app/scripts/</span><span class="sh">"</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="p">]</span>
+
+    <span class="n">resource_requests</span> <span class="o">=</span> <span class="n">k8s</span><span class="p">.</span><span class="nc">V1ResourceRequirements</span><span class="p">(</span>
+        <span class="n">requests</span><span class="o">=</span><span class="p">{</span><span class="sh">"</span><span class="s">cpu</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">500m</span><span class="sh">"</span><span class="p">,</span> <span class="sh">"</span><span class="s">memory</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">512Mi</span><span class="sh">"</span><span class="p">},</span>
+        <span class="n">limits</span><span class="o">=</span><span class="p">{</span><span class="sh">"</span><span class="s">cpu</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">500m</span><span class="sh">"</span><span class="p">,</span> <span class="sh">"</span><span class="s">memory</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">1Gi</span><span class="sh">"</span><span class="p">},</span>
+    <span class="p">)</span>
+
+
+
+
+    <span class="n">migration_tasks</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">script</span> <span class="ow">in</span> <span class="n">scripts</span><span class="p">:</span>
+        <span class="n">migration_tasks</span><span class="p">.</span><span class="nf">append</span><span class="p">(</span><span class="nc">KubernetesPodOperator</span><span class="p">(</span>
+            <span class="n">task_id</span><span class="o">=</span><span class="sa">f</span><span class="sh">"</span><span class="s">migrate_</span><span class="si">{</span><span class="n">script</span><span class="si">}</span><span class="sh">"</span><span class="p">,</span>
+            <span class="n">name</span><span class="o">=</span><span class="sa">f</span><span class="sh">"</span><span class="s">migrate_</span><span class="si">{</span><span class="n">script</span><span class="si">}</span><span class="sh">"</span><span class="p">,</span>
+            <span class="n">namespace</span><span class="o">=</span><span class="sh">"</span><span class="s">airflow</span><span class="sh">"</span><span class="p">,</span>
+            <span class="n">image</span><span class="o">=</span><span class="sh">"</span><span class="s">iclinicacr.azurecr.io/dep-sling:0.1.0</span><span class="sh">"</span><span class="p">,</span>
+
+            <span class="n">image_pull_policy</span><span class="o">=</span><span class="sh">"</span><span class="s">Always</span><span class="sh">"</span><span class="p">,</span>
+            <span class="c1">#cmds=["sh", "-c"],
+</span>            <span class="c1">#cmds=["sleep", "5m"],
+</span>            <span class="c1">#cmds=["ls", "-la", "/usr/app/scripts/"],
+</span>            <span class="n">cmds</span><span class="o">=</span><span class="p">[</span><span class="sh">"</span><span class="s">sh</span><span class="sh">"</span><span class="p">,</span> <span class="sh">"</span><span class="s">-c</span><span class="sh">"</span><span class="p">,</span> <span class="sa">f</span><span class="sh">"</span><span class="s">/usr/app/scripts/</span><span class="si">{</span><span class="n">script</span><span class="si">}</span><span class="sh">"</span><span class="p">],</span>
+            <span class="c1">#arguments=[f"bash /usr/app/scripts/{script}"],
+</span>            <span class="c1"># arguments=[f"/usr/app/scripts/{script}"],
+</span>            <span class="n">container_resources</span><span class="o">=</span><span class="n">resource_requests</span><span class="p">,</span>
+            <span class="n">volumes</span><span class="o">=</span><span class="n">volumes</span><span class="p">,</span>
+            <span class="n">volume_mounts</span><span class="o">=</span><span class="n">volume_mounts</span><span class="p">,</span>
+            <span class="n">is_delete_operator_pod</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+            <span class="n">get_logs</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+        <span class="p">))</span>
+
+    <span class="nd">@task</span>
+    <span class="k">def</span> <span class="nf">start_migration</span><span class="p">():</span>
+        <span class="k">return</span> <span class="sh">"</span><span class="s">Migration started</span><span class="sh">"</span>
+
+    <span class="c1"># @task
+</span>    <span class="c1"># def end_migration():
+</span>    <span class="c1">#     return "Migration ended"
+</span>
+    <span class="n">sparkApp</span> <span class="o">=</span> <span class="nc">SparkKubernetesOperator</span><span class="p">(</span>
+        <span class="n">task_id</span><span class="o">=</span><span class="sh">'</span><span class="s">spark_app</span><span class="sh">'</span><span class="p">,</span>
+        <span class="n">namespace</span><span class="o">=</span><span class="sh">'</span><span class="s">airflow</span><span class="sh">'</span><span class="p">,</span>
+        <span class="n">trigger_rule</span><span class="o">=</span><span class="sh">"</span><span class="s">all_success</span><span class="sh">"</span><span class="p">,</span>
+        <span class="n">depends_on_past</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+        <span class="n">retries</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+        <span class="c1">#application_file='/opt/airflow/app/spark/spark-apps/spark-pi.yaml',
+</span>        <span class="c1"># relative path from DAG file
+</span>        <span class="n">application_file</span><span class="o">=</span><span class="sh">'</span><span class="s">k8s-spark-operator/decision-support-spark-app.yaml</span><span class="sh">'</span><span class="p">,</span>
+        <span class="n">kubernetes_conn_id</span><span class="o">=</span><span class="sh">'</span><span class="s">k8s_conn</span><span class="sh">'</span><span class="p">,</span>
+        <span class="n">do_xcom_push</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="n">start_task</span> <span class="o">=</span> <span class="nf">start_migration</span><span class="p">()</span>
+    <span class="c1"># end_task = end_migration()
+</span>
+    <span class="c1"># start_task &gt;&gt; migration_tasks &gt;&gt; end_task
+</span>    <span class="n">start_task</span> <span class="o">&gt;&gt;</span> <span class="n">migration_tasks</span> <span class="o">&gt;&gt;</span> <span class="n">sparkApp</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This Dag file is supposed to run every day at 00:00 UTC. There is a task before the Sling tasks and after the Sling tasks. The end_task will run after all the Sling tasks are completed.</p>
+</div>
+<div class="paragraph">
+<p>In the DAG file, we have defined 3 tasks for each source database. Each task will run a Sling script to move the data from the source database to the destination database.</p>
+</div>
+<div class="paragraph">
+<p>From the DAG file, we can learn how to use VolumeMount and Volume in the KubernetesPodOperator to mount the secret and PVC in the Sling Pod. And we also learn how to specify the resource limits and requests for the Sling Pod.</p>
+</div>
+<div class="paragraph">
+<p>By using cmds=["sh", "-c", f"/usr/app/scripts/{script}"], we can run the Sling tool in the Sling Pod.</p>
+</div>
+<div class="paragraph">
+<p>Here is an example of a Sling script file used in the DAG:</p>
+</div>
+<div class="listingblock">
+<div class="title">scripts/example1.sh</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c">#!/bin/sh</span>
+
+<span class="nb">echo</span> <span class="s2">"##### Starting migration of example1 content to sling"</span>
+
+<span class="nb">echo</span> <span class="s2">"### Migrating table_1 data from SRC_DB_1 to DEST_DB_1"</span>
+sling run <span class="nt">--src-conn</span> SRC_DB_1 <span class="nt">--src-stream</span> <span class="s1">'public.table_1'</span> <span class="se">\</span>
+  <span class="nt">--tgt-conn</span> DEST_DB_1 <span class="nt">--tgt-object</span> <span class="s2">"src_db_1.table_1"</span> <span class="se">\</span>
+  <span class="nt">--mode</span> incremental <span class="se">\</span>
+  <span class="nt">--primary-key</span> <span class="s2">"id"</span> <span class="se">\</span>
+  <span class="nt">--update-key</span> <span class="s2">"last_update_date"</span> <span class="se">\</span>
+
+<span class="nb">echo</span> <span class="s2">"### Migrating table_2 data from SRC_DB_1 to DEST_DB_1"</span>
+sling run <span class="nt">--src-conn</span> SRC_DB_1 <span class="nt">--src-stream</span> <span class="s1">'public.table_2'</span> <span class="se">\</span>
+  <span class="nt">--tgt-conn</span> DEST_DB_1 <span class="nt">--tgt-object</span> <span class="s2">"src_db_1.table_2"</span> <span class="se">\</span>
+  <span class="nt">--mode</span> incremental <span class="se">\</span>
+  <span class="nt">--primary-key</span> <span class="s2">"id"</span> <span class="se">\</span>
+  <span class="nt">--update-key</span> <span class="s2">"last_update_date"</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This Sling script file moves the incremental data from the source database to the destination database.</p>
+</div>
+<div class="paragraph">
+<p>After the Sling tasks are completed, we can check the logs of the Sling tasks in the Airflow UI and verify that the data has been moved successfully from the source database to the destination database.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this article, we have seen how to use the KubernetesPodOperator to run the Sling tool in an Airflow DAG. We have created a secret for the env.yaml file, a PVC for the Sling scripts, and pushed the Docker image to ACR. We have also written an Airflow DAG file for the Sling migration and run the Sling tasks in parallel using the KubernetesPodOperator. We have also seen an example of a Sling script file that moves the data from the source database to the destination database.</p>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>
