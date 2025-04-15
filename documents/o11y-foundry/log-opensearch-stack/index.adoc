@@ -1,0 +1,955 @@
+---
+layout: documents
+title:  Centralized Logging with OpenTelemetry and OpenSearch stack on Kubernetes
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+// docs/centralized-logging/part-8-opensearch/index.adoc
+= Centralized Logging with OpenTelemetry and OpenSearch stack on Kubernetes
+
+:imagesdir: images
+== Introduction
+
+This document describes how to centralize application logs using OpenSearch and OpenTelemetry on Kubernetes.
+
+This article covers the red box at the top-right of the image below.
+
+image::centralized-logging-architecture.png[width=1000, align="center"]
+
+=== OpenSearch Stack
+
+OpenSearch Stack consists of the following components:
+
+* OpenSearch
+* OpenSearch Dashboards
+* OpenSearch Data Prepper
+
+OpenSearch is a distributed, RESTful search and analytics engine capable of solving a growing number of use cases. As the heart of the OpenSearch project, OpenSearch itself is a distributed search and analytics engine that is built on Apache Lucene. OpenSearch is a fork of Elasticsearch and Kibana.
+
+=== What we get from this article
+
+When we complete this article, we will be able to centralize application logs using OpenSearch and OpenTelemetry on Kubernetes. We will be able to search application logs using OpenSearch Dashboards.
+
+image::dashboards-dql-severity.png[width=1000, align="center"]
+
+
+
+=== Components for Centralized Logging
+
+Centralized logging is a common use case for OpenSearch. The following components are used for centralized logging:
+
+* OpenTelemetry Instrumentation
+* OpenTelemetry Collector
+* OpenSearch Data Prepper
+* OpenSearch
+* OpenSearch Dashboards
+
+This article does not cover OpenTelemetry Instrumentation and OpenTelemetry Collector. The focus is on OpenSearch, OpenSearch Dashboards, and OpenSearch Data Prepper.
+
+==== OpenTelemetry Instrumentation
+
+OpenTelemetry Instrumentation is used to collect traces, metrics, and logs from applications. The collected data is sent to the OpenTelemetry Collector. In this article, we use OpenTelemetry Instrumentation for Java applications.
+
+==== OpenTelemetry Collector
+
+OpenTelemetry Collector is a vendor-agnostic, vendor-neutral, and open-source project that collects, processes, and exports telemetry data. The OpenTelemetry Collector can receive traces, metrics, and logs from OpenTelemetry Instrumentation and other sources. The OpenTelemetry Collector can export data to various backends, such as OpenSearch, Prometheus, and Jaeger.
+
+In this article, we use OpenTelemetry Collector to collect logs from OpenTelemetry Instrumentation and send them to OpenSearch Data Prepper using OTLP(OpenTelemetry Protocol). We will cover how to configure OpenTelemetry Collector to send logs to OpenSearch Data Prepper later in this article.
+
+==== OpenSearch
+
+OpenSearch is a distributed, RESTful search and analytics engine capable of solving a growing number of use cases. OpenSearch is a fork of Elasticsearch and Kibana. OpenSearch is used to store logs and provide search capabilities.
+
+==== OpenSearch Dashboards
+
+OpenSearch Dashboards is a visualization tool that is used to visualize data stored in OpenSearch. OpenSearch Dashboards is used to visualize logs stored in OpenSearch. We will cover how to search and visualize logs using OpenSearch Dashboards later in this article.
+
+==== OpenSearch Data Prepper
+
+OpenSearch Data Prepper is a data prepper that is used to ingest data from various sources and send it to OpenSearch. In this article, we use OpenSearch Data Prepper to ingest logs from OpenTelemetry Collector and send them to OpenSearch.
+
+=== Prerequisites
+
+* Helm 3
+* Kubernetes cluster
+* kubectl
+* Spring Boot application with OpenTelemetry Instrumentation
+
+== Install OpenSearch
+
+=== Preparation for Azure Kubernetes Service (AKS)
+
+==== vm.max_map_count Issue
+
+When installing OpenSearch on Azure Kubernetes Service (AKS), we need to set `vm.max_map_count` to at least `262144`. The default value of `vm.max_map_count` on AKS is `65530`, which is too low for OpenSearch.
+
+The error message below is displayed when starting OpenSearch on AKS:
+
+[source,shell]
+----
+ERROR: [1] bootstrap checks failed
+[1]: max virtual memory areas vm.max_map_count [65530] is too low, increase to at least [262144]
+----
+
+In order to resolve this issue, we need to set `vm.max_map_count` to at least `262144` to nodes that run OpenSearch on AKS.
+
+==== Add node pool
+
+In this article, we add a new node pool with the `vm.max_map_count` setting to at least `262144`. The new node pool is used to run OpenSearch. The name of the new node pool is `linuxnodes` and this will be used in the Helm chart later to set the nodeSelector.
+
+On AKS, the default `vm.max_map_count` is set to `65530`. This value is too low for OpenSearch. We need to set `vm.max_map_count` to at least `262144`.
+
+* https://learn.microsoft.com/en-us/cli/azure/aks/nodepool?view=azure-cli-latest#az-aks-nodepool-add
+* https://learn.microsoft.com/en-us/azure/aks/custom-node-configuration?tabs=linux-node-pools
+* https://devopsforyou.com/setting-up-an-opensearch-cluster-on-aks-0a8ef2acb91d
+
+==== Add node pool with vm.max_map_count setting
+
+[source,shell]
+----
+$ export AZURE_RESOURCE_GROUP=iclinicK8sResourceGroup
+$ export AZURE_CLUSTER_NAME=iclinicK8sCluster
+$ export OLD_NODE_POOL_NAME=depnodes
+$ export NEW_NODE_POOL_NAME=linuxnodes
+
+# list node pools in the cluster
+$ az aks nodepool list --cluster-name $AZURE_CLUSTER_NAME \
+  --resource-group $AZURE_RESOURCE_GROUP --output table
+
+# show the node pool details to see the vm.max_map_count
+$ az aks nodepool show --cluster-name $AZURE_CLUSTER_NAME \
+  --resource-group $AZURE_RESOURCE_GROUP --name $OLD_NODE_POOL_NAME
+----
+
+.linuxconfig.json
+[source,json]
+----
+{
+  "sysctls": {
+    "vmMaxMapCount": 262144
+  }
+}
+----
+
+To create a new node pool with the `vm.max_map_count` setting to at least `262144`, run the command below:
+
+[source,shell]
+----
+$ az aks nodepool add --cluster-name $AZURE_CLUSTER_NAME \
+  --resource-group $AZURE_RESOURCE_GROUP --name $NEW_NODE_POOL_NAME \
+  --node-count 1 --node-vm-size Standard_E2ds_v5 --mode User \
+  --os-type Linux --os-sku Ubuntu --node-osdisk-size 128 \
+  --node-osdisk-type Managed --enable-cluster-autoscaler \
+  --min-count 1 --max-count 3 --linux-os-config linuxosconfig.json
+
+# check the vm.max_map_count
+$ az aks nodepool show --cluster-name $AZURE_CLUSTER_NAME \
+--resource-group $AZURE_RESOURCE_GROUP --name $NEW_NODE_POOL_NAME | \
+jq '.linuxOsConfig | .sysctls | .vmMaxMapCount'
+
+262144
+----
+
+.whole output
+[%collapsible]
+====
+
+[source,shell]
+----
+$ az aks nodepool show --cluster-name $AZURE_CLUSTER_NAME \
+  --resource-group $AZURE_RESOURCE_GROUP --name $NEW_NODE_POOL_NAME
+----
+
+====
+
+=== Add the OpenSearch Helm repository
+
+To install OpenSearch using Helm, we need to add the OpenSearch Helm repository. This repository contains the Helm charts for OpenSearch, OpenSearch Dashboards, and OpenSearch Data Prepper.
+
+[source,shell]
+----
+$ helm repo add opensearch https://opensearch-project.github.io/helm-charts/
+
+$ helm repo update
+
+$ helm search repo opensearch
+
+NAME                                    CHART VERSION   APP VERSION     DESCRIPTION
+opensearch/opensearch                   2.23.0          2.16.0          A Helm chart for OpenSearch
+opensearch/opensearch-dashboards        2.21.0          2.16.0          A Helm chart for OpenSearch Dashboards
+opensearch/data-prepper                 0.1.0           2.8.0           A Helm chart for Data Prepper
+----
+
+=== Get values.yaml
+
+To get better understanding of the values.yaml, we can get the values.yaml of the Helm chart.
+
+[source,shell]
+----
+$ helm show values opensearch/opensearch > opensearch-opensearch-values.yaml
+----
+
+
+=== Refreshing demo certificates
+
+Refer to links below:
+
+* link:https://github.com/opensearch-project/security/blob/main/DEVELOPER_GUIDE.md#refreshing-demo-certificates[]
+* link:https://medium.com/@spawnrider/creating-a-multi-domain-san-ssl-certificate-using-openssl-2a3865ccb62a[]]
+
+.Retry on Jan/20/2025
+====
+
+.create certificates
+[source,shell]
+----
+$ mkdir certs-20250120 && cd certs-20250120
+
+$ openssl genrsa -out root-ca-key.pem 2048
+
+# root-ca-key.pem file is created
+
+$ openssl req -new -x509 -sha256 -days 3650 -key root-ca-key.pem \
+  -subj "/DC=com/DC=example/O=Example Com Inc./OU=Example Com Inc. Root CA/CN=Example Com Inc. Root CA" \
+  -addext "basicConstraints = critical,CA:TRUE" \
+  -addext "keyUsage = critical, digitalSignature, keyCertSign, cRLSign" \
+  -addext "subjectKeyIdentifier = hash" \
+  -addext "authorityKeyIdentifier = keyid:always,issuer:always" -out root-ca.pem
+
+# root-ca.pem file is created
+
+
+$ openssl genrsa -out esnode-key-temp.pem 2048
+
+# esnode-key-temp.pem file is created
+
+$ openssl pkcs8 -inform PEM -outform PEM -in esnode-key-temp.pem \
+  -topk8 -nocrypt -v1 PBE-SHA1-3DES -out esnode-key.pem
+
+
+
+$ openssl req -new -sha256 -key esnode-key.pem \
+  -out esnode.csr -config san.cnf
+
+# esnode.csr file is created
+
+# verify the certificate signing request(CSR)
+$ openssl req -in esnode.csr -noout -text
+
+$ openssl x509 -req -in esnode.csr -out esnode.pem -CA root-ca.pem \
+  -CAkey root-ca-key.pem -CAcreateserial -days 3650
+
+# esnode.pem file is created
+----
+
+.create a secret to hold the certificates as a yaml file
+[source,shell]
+----
+$ kubectl -n nsa2 create secret generic esnode-certs --from-file=esnode.pem \
+  --from-file=esnode-key.pem --from-file=root-ca.pem \
+  --dry-run=client -o yaml > esnode-certs.yaml
+
+$ kubectl -n nsa2 apply -f esnode-certs.yaml
+----
+
+====
+
+. This section is deprecated
+[%collapsible]
+====
+
+* https://github.com/opensearch-project/security/blob/main/DEVELOPER_GUIDE.md#refreshing-demo-certificates
+
+[source,shell]
+----
+$ mkdir certs && cd certs
+
+$ openssl genrsa -out root-ca-key.pem 2048
+# root-ca-key.pem file is created
+
+$ openssl req -new -x509 -sha256 -days 3650 -key root-ca-key.pem \
+  -subj "/DC=com/DC=example/O=Example Com Inc./OU=Example Com Inc. Root CA/CN=Example Com Inc. Root CA" \
+  -addext "basicConstraints = critical,CA:TRUE" \
+  -addext "keyUsage = critical, digitalSignature, keyCertSign, cRLSign" \
+  -addext "subjectKeyIdentifier = hash" \
+  -addext "authorityKeyIdentifier = keyid:always,issuer:always" \
+  -out root-ca.pem
+# root-ca.pem file is created
+
+
+$ openssl genrsa -out esnode-key-temp.pem 2048
+# esnode-key-temp.pem file is created
+
+$ openssl pkcs8 -inform PEM -outform PEM -in esnode-key-temp.pem \
+  -topk8 -nocrypt -v1 PBE-SHA1-3DES -out esnode-key.pem
+# esnode-key.pem file is created
+
+$ openssl req -new -key esnode-key.pem \
+  -subj "/C=de/L=test/O=node/OU=node/CN=node-0.example.com" \
+  -out esnode.csr
+# esnode.csr file is created
+
+$ printf "subjectAltName = RID:1.2.3.4.5.5, DNS:node-0.example.com, \
+  DNS:localhost, IP:::1, IP:127.0.0.1\nkeyUsage = digitalSignature, \
+  nonRepudiation, keyEncipherment\nextendedKeyUsage = serverAuth, \
+  clientAuth\nbasicConstraints = critical,CA:FALSE" > esnode_ext.conf
+# esnode_ext.conf file is created
+
+$ openssl x509 -req -in esnode.csr -out esnode.pem -CA root-ca.pem \
+  -CAkey root-ca-key.pem -CAcreateserial -days 3650 -extfile esnode_ext.conf
+# esnode.pem file is created
+----
+
+.create a secret to hold the certificates
+[source,shell]
+----
+$ kubectl -n nsa2 create secret generic esnode-certs \
+  --from-file=esnode.pem --from-file=esnode-key.pem \
+  --from-file=root-ca.pem
+
+----
+
+
+.certificates error
+[source,shell]
+----
+java.lang.IllegalStateException: failed to load plugin class
+[org.opensearch.security.OpenSearchSecurityPlugin]
+Likely root cause:
+OpenSearchException[Unable to read /usr/share/opensearch/config/esnode.pem
+(/usr/share/opensearch/config/esnode.pem).
+Please make sure this files exists and is readable regarding to permissions.
+Property: plugins.security.ssl.transport.pemcert_filepath]
+
+----
+====
+
+=== Customize values.yaml
+
+To customize the values.yaml, we need to create a new values.yaml file. The values.yaml file contains the configuration for OpenSearch.
+
+.nsa2-opensearch-values.yaml
+[source,yaml]
+----
+
+
+
+# Please re-try with a minimum 8 character password and must contain at least one uppercase letter,
+# one lowercase letter, one digit, and one special character that is strong.
+# Password strength can be tested here: https://lowe.github.io/tryzxcvbn
+extraEnvs:
+  - name: OPENSEARCH_INITIAL_ADMIN_PASSWORD
+    value: your-password
+  - name: DISABLE_INSTALL_DEMO_CONFIG
+    value: "false"
+
+secretMounts:
+  - name: esnode-certs
+    secretName: esnode-certs
+    path: /usr/share/opensearch/config/certs
+    defaultMode: "0600"
+
+image:
+  repository: "opensearchproject/opensearch"
+  # override image tag, which is .Chart.AppVersion by default
+  tag: "2.16.0"
+  pullPolicy: "IfNotPresent"
+
+resources:
+  limits:
+    cpu: "400m"
+    memory: "2048Mi"
+  requests:
+    cpu: "200m"
+    memory: "1024Mi"
+
+# ERROR: [1] bootstrap checks failed
+#[1]: max virtual memory areas vm.max_map_count [65530] is too low, increase to at least [262144]
+#sysctlVmMaxMapCount: 262144
+
+nodeSelector:
+  agentpool: linuxnodes
+----
+
+In the nsa2-opensearch-values.yaml file, we set the following values:
+
+* extraEnvs: We set the `OPENSEARCH_INITIAL_ADMIN_PASSWORD` environment variable to set the initial password for the admin user.
+* image tag: We set the image tag to `2.16.0`.
+* resources: We set the resource limits for the OpenSearch pods.
+* nodeSelector: We set the nodeSelector to use the `linuxnodes` node pool. This node pool has the `vm.max_map_count` setting to at least `262144`.
+
+=== Admin password
+
+The admin password should be strong enough to meet the requirements of the security plugin.
+
+The website below can be used to test the password.
+
+* https://lowe.github.io/tryzxcvbn/
+
+Its score should be at least 4.
+
+
+=== Install OpenSearch using Helm
+
+[source,shell]
+----
+$ helm -n nsa2 install opensearch opensearch/opensearch \
+-f nsa2-opensearch-opensearch-values.yaml
+
+NAME: opensearch
+LAST DEPLOYED: Mon Sep  9 20:14:13 2024
+NAMESPACE: nsa2
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+Watch all cluster members come up.
+  $ kubectl get pods --namespace=nsa2 -l app.kubernetes.io/component=opensearch-cluster-master -w
+
+----
+
+=== Access OpenSearch
+
+[source,shell]
+----
+$ kubectl -n nsa2 port-forward service/opensearch-cluster-master 9200:9200
+----
+
+Open the browser and access `http://localhost:9200` with admin username and password.
+
+[source,shell]
+----
+$ curl --insecure -u admin:$OS_ADMIN_PASSWORD https://localhost:9200
+
+{
+  "name" : "opensearch-cluster-master-0",
+  "cluster_name" : "opensearch-cluster",
+  "cluster_uuid" : "6U4IvOgoQbeYO1ONU8z4pg",
+  "version" : {
+    "distribution" : "opensearch",
+    "number" : "2.16.0",
+    "build_type" : "tar",
+    "build_hash" : "f84a26e76807ea67a69822c37b1a1d89e7177d9b",
+    "build_date" : "2024-08-06T20:30:45.209655408Z",
+    "build_snapshot" : false,
+    "lucene_version" : "9.11.1",
+    "minimum_wire_compatibility_version" : "7.10.0",
+    "minimum_index_compatibility_version" : "7.0.0"
+  },
+  "tagline" : "The OpenSearch Project: https://opensearch.org/"
+}
+----
+
+
+=== Uninstall OpenSearch
+
+If needed, uninstall OpenSearch using the command below.
+
+[source,shell]
+----
+$ helm -n nsa2 uninstall opensearch
+----
+
+Do not forget to delete the PVCs if you want to delete the data.
+
+[source,shell]
+----
+$ kubectl -n nsa2 delete pvc -l app.kubernetes.io/instance=opensearch
+
+----
+
+== Install OpenSearch Dashboards
+
+=== Get values.yaml
+
+The command below gets the values.yaml for OpenSearch Dashboards and saves it to a file named `opensearch-dashboards-values.yaml`.
+
+[source,shell]
+----
+$ helm show values opensearch/opensearch-dashboards > opensearch-dashboards-values.yaml
+----
+
+=== Customize values.yaml
+
+You can customize the values.yaml for OpenSearch Dashboards.
+
+.nsa2-opensearch-dashboards-values.yaml
+[source,yaml]
+----
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "512M"
+  limits:
+    cpu: "400m"
+    memory: "2048M"
+
+nodeSelector:
+#  agentpool: linuxnodes
+  agentpool: depnodes
+----
+
+In the nsa2-opensearch-dashboards-values.yaml file, we set the following values:
+
+resources: We set the resource limits for the OpenSearch Dashboards pods.
+
+
+=== Install OpenSearch Dashboards using Helm
+
+[source,shell]
+----
+$ helm -n nsa2 install opensearch-dashboards opensearch/opensearch-dashboards \
+  -f nsa2-opensearch-dashboards-values.yaml
+----
+
+=== Uninstall OpenSearch Dashboards
+
+If needed, uninstall OpenSearch Dashboards.
+
+[source,shell]
+----
+$ helm -n nsa2 uninstall opensearch-dashboards
+----
+
+=== Access OpenSearch Dashboards
+
+[source,shell]
+----
+$ kubectl -n nsa2 port-forward service/opensearch-dashboards 5601:5601
+----
+
+Open the browser and access `http://localhost:5601`.
+
+image::dashboards-login.png[width=1000, align="center"]
+
+Use admin and Ehdrkddkwl100$ as the username and password.
+
+image::dashboards-tenant-select.png[width=1000, align="center"]
+
+Select Private tenant which is the default tenant. Click on the `Confirm` button.
+
+On the main page, click on the `Dev Tools` menu.
+
+image::dashboards-devtool-indices.png[width=1000, align="center"]
+
+In the Dev Tools, run the following command to list the indices.
+----
+GET /_cat/indices?v
+----
+
+You should see the list of indices on the right side.
+
+== Defining users and roles using API
+
+We can define users and roles using either the API or OpenSearch Dashboards UI.
+
+=== Port-forward the OpenSearch service
+
+Let's port-forward the OpenSearch service to access the API.
+
+[source,shell]
+----
+$ kubectl -n nsa2 port-forward svc/opensearch-cluster-master 9200:9200
+----
+
+=== Create a role
+
+Refer to the link below to create a role using the API.
+
+* https://opensearch.org/docs/latest/security/access-control/api/#create-role
+
+.nsa2-role.json
+[source,json]
+----
+{
+  "cluster_permissions": [
+    "cluster_composite_ops",
+    "indices_monitor"
+  ],
+  "index_permissions": [{
+    "index_patterns": [
+      "nsa2*"
+    ],
+    "dls": "",
+    "fls": [],
+    "masked_fields": [],
+    "allowed_actions": [
+      "indices:admin/create", "read", "write"
+    ]
+  }],
+  "tenant_permissions": [{
+    "tenant_patterns": [
+      "human_resources"
+    ],
+    "allowed_actions": [
+      "kibana_all_read"
+    ]
+  }]
+}
+----
+
+[source,shell]
+----
+# OS_ADMIN_PASSWORD is the password for the admin user
+
+$ curl -X PUT "https://localhost:9200/_plugins/_security/api/roles/nsa2_role" \
+  -H 'Content-Type: application/json' -d @nsa2-role.json \
+  -k -u admin:$OS_ADMIN_PASSWORD
+
+{"status":"CREATED","message":"'nsa2_role' created."}
+----
+
+=== Delete a role
+
+[source,shell]
+----
+$ curl -X DELETE "https://localhost:9200/_plugins/_security/api/roles/nsa2_role" \
+  -k -u admin:$OS_ADMIN_PASSWORD
+
+{"status":"OK","message":"'nsa2_role' deleted."}
+----
+
+=== Create a user
+
+Refer to the link below to create a user using the API.
+
+* https://opensearch.org/docs/latest/security/access-control/api/#create-user
+
+.nsa2-user.json
+[source,json]
+----
+{
+  "password": "Ehdrkddkwl100$",
+  "backend_roles": ["nsa2_role"],
+  "attributes": {
+    "created_by": "nsa2",
+    "privider": "alexamy"
+  }
+}
+----
+
+[source,shell]
+----
+$ curl -X PUT "https://localhost:9200/_plugins/_security/api/internalusers/nsa2" \
+  -H 'Content-Type: application/json' -\
+  d @nsa2-user.json -k -u admin:$OS_ADMIN_PASSWORD
+
+{"status":"CREATED","message":"'nsa2' created."}
+----
+
+==== Troubleshooting
+
+. If you see the following error, the password is too weak.
+----
+{"status":"error","reason":"Weak password"}
+----
+
+=== Map a role to a user
+
+.nsa2-rolesmapping.json
+[source,json]
+----
+{
+  "backend_roles" : [],
+  "hosts" : [ "*" ],
+  "users" : [ "nsa2" ]
+}
+----
+
+[source,shell]
+----
+$ curl -X PUT "https://localhost:9200/_plugins/_security/api/rolesmapping/nsa2_role" \
+  -H 'Content-Type: application/json' \
+  -d @nsa2-rolesmapping.json \
+  -k -u admin:$OS_ADMIN_PASSWORD
+
+{"status":"CREATED","message":"'nsa2_role' created."}
+----
+
+
+== Defining users and roles using OpenSearch Dashboards UI
+
+. Choose `Security`, `Internal Users` from the left menu and Click on the `Create user` button.
+
+image::dashboards-internal-users-create-1.png[width=1000, align="center"]
+
+[start=2]
+. Provide a username and password. The Security plugin automatically hashes the password and stores it in the .opendistro_security index.
+
+== Opensearch Data Prepper
+
+Opensearch Data Prepper is used to ingest data from OpenTelemetry Collector and send it to OpenSearch.
+
+By default, OpenSearch Data Prepper provides OpenTelemetry Collector integration for logs, traces, and metrics. In this article, we cover how to ingest logs from OpenTelemetry Collector and send them to OpenSearch.
+
+=== Get values.yaml
+
+To get the values.yaml for OpenSearch Data Prepper, run the command below.
+
+[source,shell]
+----
+$ helm show values opensearch/data-prepper > opensearch-data-prepper-values.yaml
+----
+
+=== Customize values.yaml
+
+.nsa2-opensearch-data-prepper-values.yaml
+[source,yaml]
+----
+
+#image:
+#  tag: ""
+
+#config:
+
+pipelineConfig:
+  config:
+   otel-logs-pipeline:
+     workers: 5
+     delay: 10
+     source:
+       otel_logs_source:
+         #port: 21892
+         #path: /v1/logs
+         ssl: false
+     buffer:
+       bounded_blocking:
+     sink:
+       - opensearch:
+           hosts: ["https://opensearch-cluster-master:9200"]
+           username: "admin"
+           password: "Ehdrkddkwl100$"
+           insecure: true
+#           cert: /etc/opensearch/certs/esnode-ca.pem
+#           verify_hostname: false
+           index_type: custom
+           index: nsa2-%{yyyy.MM.dd}
+           #max_retries: 20
+           bulk_size: 4
+
+resources:
+  limits:
+    cpu: 400m
+    memory: 1024Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+
+# Additional volumes on the output Deployment definition.
+volumes:
+# - name: opensearch-certs
+ - name: esnode-certs
+   secret:
+     secretName: esnode-certs
+     optional: false
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts:
+# - name: opensearch-certs
+ - name: esnode-certs
+   mountPath: "/etc/opensearch/certs"
+   readOnly: true
+# - name: foo
+#   mountPath: "/etc/foo"
+#   readOnly: true
+
+nodeSelector:
+#  agentpool: depnodes
+  agentpool: depnodes
+----
+
+In the nsa2-opensearch-data-prepper-values.yaml file, we set the following values:
+
+* pipelineConfig: We set the pipeline configuration to ingest logs from OpenTelemetry Collector and send them to OpenSearch.
+* resources: We set the resource limits for the OpenSearch Data Prepper pods.
+
+=== Ports
+
+Opensearch Data Prepper uses the following ports:
+
+* http-source: 2021
+* otel-traces: 21890
+* otel-metrics: 21891
+* otel-logs: 21892
+
+
+=== Install OpenSearch Data Prepper using Helm
+
+The command below installs OpenSearch Data Prepper using Helm.
+
+[source,shell]
+----
+$ helm -n nsa2 install opensearch-data-prepper opensearch/data-prepper \
+  -f nsa2-opensearch-data-prepper-values.yaml
+----
+
+=== Uninstall OpenSearch Data Prepper
+
+[source,shell]
+----
+$ helm -n nsa2 uninstall opensearch-data-prepper
+----
+
+=== References
+
+* https://medium.com/@erikstrm_11611/demystify-opentelemetry-with-opensearch-as-a-single-plane-of-glass-919f884eb568
+
+== Fluent-bit configuration
+
+[WARNING]
+====
+This section is deprecated.
+====
+
+[%collapsible]
+====
+
+=== Get certificates
+
+[source,shell]
+----
+# tar: Removing leading `/' from member names
+#$ kubectl -n nsa2 cp opensearch-cluster-master-0:/usr/share/opensearch/config/esnode.pem esnode.pem
+
+$ kubectl -n nsa2 cp opensearch-cluster-master-0:config/esnode.pem esnode.pem
+$ kubectl -n nsa2 cp opensearch-cluster-master-0:config/root-ca.pem root-ca.pem
+
+# add a blank line to the root-ca.pem file
+$ echo "" >> root-ca.pem
+
+# merge the certificates with a blank line in between
+$ cat root-ca.pem esnode.pem > esnode-ca.pem
+----
+
+=== Create a secret
+
+* opensearch-credentials
+* opensearch-certs
+
+==== opensearch-credentials
+
+[source,shell]
+----
+# OS_NSA2_PASSWORD is the password for the nsa2 user
+
+$ kubectl -n nsa2 create secret generic opensearch-credentials --from-literal=username=nsa2 --from-literal=password=$OS_NSA2_PASSWORD
+----
+
+==== opensearch-certs
+[source,shell]
+----
+$ kubectl -n nsa2 create secret generic opensearch-certs --from-file=esnode-ca.pem --from-file=esnode.pem --from-file=root-ca.pem
+----
+====
+
+== OpenTelemetry Collector configuration for OpenSearch Data Prepper
+
+----
+    exporters:
+
+      otlp/data-prepper-logs:
+        endpoint: http://opensearch-data-prepper:21892
+
+        tls:
+          insecure: true
+
+
+    service:
+      pipelines:
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [debug, otlphttp/nsa2, otlp/data-prepper-logs]
+----
+
+In the OpenTelemetry Collector configuration, we define an exporter named `otlp/data-prepper-logs` to send logs to OpenSearch Data Prepper. We set the endpoint to `http://opensearch-data-prepper:21892`.
+
+And I added `otlp/data-prepper-logs` to the `exporters` section for logs.
+
+
+== Search and visualize logs using OpenSearch Dashboards
+
+=== Create an index pattern
+
+
+To search and visualize logs using OpenSearch Dashboards, we need to create an index pattern.
+
+==== Define the index pattern
+
+. Go to OpenSearch Dashboards, and select Management > Dashboards Management > Index patterns.
+. Select Create index pattern.
+. From the Create index pattern window, define the index pattern by entering a name for your index pattern in the Index pattern name field. Dashboards automatically adds a wildcard, *, once you start typing. Using a wildcard is helpful for matching an index pattern to multiple sources or indexes. A dropdown list displaying all the indexes that match your index pattern appears when you start typing.
+. Select Next step.
+
+==== Time field
+
+. Select `time` or `observedTime` field for `Time field`
+
+OpenTelemetry generates logs with the `time` field. We can use the `time` field as the `Time field` for the index pattern.
+
+
+For more information, refer to the link below:
+
+https://opensearch.org/docs/latest/dashboards/management/index-patterns/
+
+
+=== Call Application API to generate logs
+
+[source,shell]
+----
+# to generate logs with stack trace
+$  curl -X POST http://localhost:8080/log/INVALID -d "this is error message"
+
+# to generate normal logs
+$ curl http://localhost:8080/error-logs/notify
+----
+
+=== Search logs with service name and log level
+
+.DQL for searching logs with service name and log level
+[source,dql]
+----
+serviceName: nsa2-opentelemetry-example AND severityText: INFO
+----
+
+image::dashboards-dql-severity.png[width=1000, align="center"]
+
+=== Search logs with stack trace
+
+.DQL for searching logs with stack trace
+[source,dql]
+----
+log.attributes.exception@stacktrace: *LoggingExampleServiceImpl*
+----
+
+image::dashboards-dql-stacktrace.png[width=1000, align="center"]
+
+.stack trace message
+image::dashboards-dql-stacktrace-2.png[width=1000, align="center"]
+
+== Conclusion
+
+This article covered how to install OpenSearch, OpenSearch Dashboards, and OpenSearch Data Prepper using Helm. We also covered how to define users and roles using the API and OpenSearch Dashboards UI. Finally, we covered how to search and visualize logs using OpenSearch Dashboards.
+
+
+
+
+
+== References
+
+* https://opensearch-project.github.io/helm-charts/
+* https://opensearch.org/docs/latest/install-and-configure/install-opensearch/helm/
+* https://github.com/opensearch-project/helm-charts/tree/main/charts/opensearch
+
+=== OpenSearch on AKS
+* https://devopsforyou.com/setting-up-an-opensearch-cluster-on-aks-0a8ef2acb91d
+

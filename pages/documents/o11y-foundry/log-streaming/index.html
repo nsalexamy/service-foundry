@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Centralized Logging - Part 7 : Real-time Log Streaming with Kafka</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre,
+    pre code {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre;
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+    <div class="logo text-xl font-semibold">Service Foundry</div>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#centralized-logging-series">Centralized Logging series</a></li>
+<li><a href="#prerequisites">Prerequisites</a></li>
+</ul>
+</li>
+<li><a href="#fluent-bit-configuration">Fluent-bit Configuration</a></li>
+<li><a href="#spring-boot-reactor-kafka-consumer-for-real-time-log-streaming">Spring Boot - Reactor Kafka Consumer for Real-time Log Streaming</a></li>
+<li><a href="#running-the-application">Running the Application</a></li>
+<li><a href="#testing-the-application">Testing the Application</a>
+<ul class="sectlevel2">
+<li><a href="#nsa2-logging-example-application">nsa2-logging-example application</a></li>
+<li><a href="#kafka-topic-nsa2-error-logs">Kafka topic nsa2-error-logs</a></li>
+<li><a href="#postgresql-database">PostgreSQL database</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this tutorial, we will learn how to stream logs in real-time using Apache Kafka. We are going to use rewrite_tag filter to route ERROR logs to Kafka Output Plugin. We will use the Kafka Connect to stream logs from the Fluent-bit to Kafka. This way we can add the real-time log streaming capability to our centralized logging system.</p>
+</div>
+<div class="sect2">
+<h3 id="centralized-logging-series">Centralized Logging series</h3>
+<div class="paragraph">
+<p>This tutorial is the 6th part of the Centralized Logging series. The series covers the following topics:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><a href="https://www.linkedin.com/pulse/centralized-logging-part-1-spring-boot-application-young-gyu-kim-p3n0c">Part 1 - Logging in Spring Boot Application</a></p>
+</li>
+<li>
+<p><a href="https://www.linkedin.com/pulse/part-2-deploying-spring-boot-application-kubernetes-young-gyu-kim-ewaqc">Part 2 - Deploying Spring Boot Application to Kubernetes</a></p>
+</li>
+<li>
+<p><a href="https://www.linkedin.com/pulse/part-3-installing-elasticsearch-kibana-young-gyu-kim-5yxtc">Part 3 - Installing Elasticsearch and Kibana to Kubernetes</a></p>
+</li>
+<li>
+<p><a href="https://www.linkedin.com/pulse/centralized-logging-part-4-fluent-bit-young-gyu-kim-ezgdf">Part 4 - Centralized Logging with Fluent-bit and Elasticsearch(Kubernetes)</a></p>
+</li>
+<li>
+<p><a href="https://www.linkedin.com/pulse/centralized-logging-part-5-fluent-bit-young-gyu-kim-b6syc">Part 5 - Centralized Logging with Fluent-bit and Elasticsearch(On-premise)</a></p>
+</li>
+<li>
+<p><a href="https://www.linkedin.com/pulse/centralized-logging-part-6-log-analysis-apache-spark-young-gyu-kim-xty7c">Part 6 - Log Analysis with Apache Spark</a></p>
+</li>
+<li>
+<p><a href="https://www.linkedin.com/pulse/centralized-logging-part-6-log-analysis-apache-spark-young-gyu-kim-xty7c">Part 7 - Real-time Log Streaming with Kafka</a></p>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect2">
+<h3 id="prerequisites">Prerequisites</h3>
+<div class="paragraph">
+<p>Before you start this tutorial, you need to have the following prerequisites:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>A Kubernetes cluster</p>
+</li>
+<li>
+<p>A Kafka cluster</p>
+</li>
+<li>
+<p>Java 17 or later</p>
+</li>
+<li>
+<p>Gradle 8.0 or later</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="fluent-bit-configuration">Fluent-bit Configuration</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We are going to add Filters and Outputs to the Fluent-bit configuration to route ERROR logs to Kafka. We will use the rewrite_tag filter to route ERROR logs to the Kafka Output Plugin.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Add a filter to add a tag to the ERROR logs after parsing the logs.</p>
+</li>
+<li>
+<p>Add a filter to add UUID field to records of ERROR logs.</p>
+</li>
+<li>
+<p>Add a Kafka Output Plugin to send the ERROR logs to Kafka.</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">fluent-bit.yaml - filters section after multiline parser</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">    <span class="pi">[</span><span class="nv">FILTER</span><span class="pi">]</span>
+        <span class="s">Name                rewrite_tag</span>
+        <span class="s">Match               nsa2.*</span>
+        <span class="s">Rule                $log .[\d]{3}Z\sERROR\s error_row </span><span class="kc">true</span>
+
+    <span class="s">[FILTER]</span>
+        <span class="s">Name         record_modifier</span>
+        <span class="s">Match        error_row</span>
+        <span class="s">Uuid_key     message_key</span>
+
+    <span class="s"># If needed to debug the logs, you can use stdout filter</span>
+    <span class="s">[FILTER]</span>
+        <span class="s">Name                stdout</span>
+        <span class="s">Match               error_row</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The rewrite_tag filter adds a tag to the logs that match the specified rule. The new tag is error_row, and it keeps the old tag. The record_modifier filter adds a UUID field to the records having the error_row tag. The message_key field is used when sending log messages to Kafka. The stdout filter is used for debugging purposes.</p>
+</div>
+<div class="listingblock">
+<div class="title">fluent-bit.yaml - outputs section</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">    <span class="pi">[</span><span class="nv">OUTPUT</span><span class="pi">]</span>
+        <span class="s">Name kafka</span>
+        <span class="s">Match error_row</span>
+        <span class="s">Brokers ${KAFKA_BROKERS}</span>
+        <span class="s">Topics nsa2-error-logs</span>
+        <span class="s">Message_key_field message_key</span>
+        <span class="s">rdkafka.security.protocol SASL_PLAINTEXT</span>
+        <span class="s">rdkafka.sasl.mechanism  SCRAM-SHA-256</span>
+        <span class="s">rdkafka.sasl.username   ${KAFKA_USERNAME}</span>
+        <span class="s">rdkafka.sasl.password   ${KAFKA_PASSWORD}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The Kafka Output Plugin sends the logs to the Kafka cluster. The Match error_row specifies that the logs with the error_row tag will be sent to Kafka. Note that message_key_field should be the same as the Uuid_key in the record_modifier filter.</p>
+</div>
+<div class="paragraph">
+<p>Here is an example of logs written to console after applying stdout filter to the Fluent-bit configuration. Note that the message_key field is added to the logs.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>[0] error_row: [[1719518938.116059862, {}], {"logTime"=&gt;"2024-06-27T20:08:58.115Z",
+"level"=&gt;"ERROR", "appName"=&gt;"nsa2-logging-example",
+"loggerClass"=&gt;"LoggingExampleService",
+"message"=&gt;" Writing log - level: ERROR, message: This is a sample of ERROR level messages",
+"log"=&gt;"2024-06-27T20:08:58.115Z ERROR 1 --- [nsa2-logging-example]
+[or-http-epoll-4]
+c.a.n.e.l.service.LoggingExampleService  : Writing log -
+level: ERROR, message: This is a sample of ERROR level messages",
+"message_key"=&gt;"b52fba70-8e01-4f71-8619-55f6e4045cb2"}]</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>At the Kafka cluster, we can see the logs written to the nsa2-error-logs topic.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/conduktor-topics-2.png" alt="conduktor topics 2" width="1000">
+</div>
+</div>
+<div class="paragraph">
+<p>Here is an example of logs written to the nsa2-error-logs topic.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+	</span><span class="nl">"timestamp"</span><span class="p">:</span><span class="w"> </span><span class="mf">1719518938.11606</span><span class="p">,</span><span class="w">
+	</span><span class="nl">"logTime"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-27T20:08:58.115Z"</span><span class="p">,</span><span class="w">
+	</span><span class="nl">"level"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ERROR"</span><span class="p">,</span><span class="w">
+	</span><span class="nl">"appName"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nsa2-logging-example"</span><span class="p">,</span><span class="w">
+	</span><span class="nl">"loggerClass"</span><span class="p">:</span><span class="w"> </span><span class="s2">"LoggingExampleService"</span><span class="p">,</span><span class="w">
+	</span><span class="nl">"message"</span><span class="p">:</span><span class="w"> </span><span class="s2">" Writing log - level: ERROR, message: This is a sample of ERROR level messages"</span><span class="p">,</span><span class="w">
+	</span><span class="nl">"log"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-27T20:08:58.115Z
+ERROR 1 --- [nsa2-logging-example] [or-http-epoll-4] c.a.n.e.l.service.LoggingExampleService  :
+Writing log - level: ERROR, message: This is a sample of ERROR level messages"</span><span class="p">,</span><span class="w">
+	</span><span class="nl">"message_key"</span><span class="p">:</span><span class="w"> </span><span class="s2">"b52fba70-8e01-4f71-8619-55f6e4045cb2"</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="spring-boot-reactor-kafka-consumer-for-real-time-log-streaming">Spring Boot - Reactor Kafka Consumer for Real-time Log Streaming</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Now that we have the logs streaming to Kafka, we can consume the logs in a Spring Boot Application. We are going to use the Reactor Kafka to consume the logs from the Kafka cluster. The consumer will save the logs to the PostgreSQL database using R2DBC.</p>
+</div>
+<div class="paragraph">
+<p>In this section, we will go through source codes below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>build.gradle</p>
+</li>
+<li>
+<p>application.yml</p>
+</li>
+<li>
+<p>ReactiveKafkaConsumerConfig.java</p>
+</li>
+<li>
+<p>LogConsumerService.java</p>
+</li>
+<li>
+<p>LogPayload.java</p>
+</li>
+<li>
+<p>LogErrorNotification.java</p>
+</li>
+<li>
+<p>LogPayloadMapper.java</p>
+</li>
+<li>
+<p>ErrorLogNotificationRepository.java</p>
+</li>
+<li>
+<p>schema.sql</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>To implement and run this application, I chose Java 21, Spring Boot 3.3.1 and Gradle 8.0.</p>
+</div>
+<div class="paragraph">
+<p>We need to create a Spring Boot Application with the following dependencies:</p>
+</div>
+<div class="listingblock">
+<div class="title">build.gradle - dependencies</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="gradle"><span class="k">dependencies</span> <span class="o">{</span>
+    <span class="n">implementation</span> <span class="s1">'org.springframework.boot:spring-boot-starter-actuator'</span>
+    <span class="n">implementation</span> <span class="s1">'org.springframework.boot:spring-boot-starter-webflux'</span>
+    <span class="n">implementation</span> <span class="s1">'org.springframework.kafka:spring-kafka'</span>
+    <span class="n">implementation</span> <span class="s1">'org.springframework.boot:spring-boot-starter-data-r2dbc'</span>
+    <span class="n">implementation</span> <span class="s1">'io.projectreactor.kafka:reactor-kafka'</span>
+    <span class="n">implementation</span> <span class="s1">'org.mapstruct:mapstruct:1.5.5.Final'</span>
+    <span class="n">runtimeOnly</span> <span class="s1">'org.postgresql:r2dbc-postgresql'</span>
+    <span class="n">compileOnly</span> <span class="s1">'org.projectlombok:lombok'</span>
+
+    <span class="n">annotationProcessor</span> <span class="s1">'org.projectlombok:lombok'</span>
+    <span class="n">annotationProcessor</span> <span class="s1">'org.mapstruct:mapstruct-processor:1.5.5.Final'</span>
+
+    <span class="n">developmentOnly</span> <span class="s1">'org.springframework.boot:spring-boot-devtools'</span>
+    <span class="n">testImplementation</span> <span class="s1">'org.springframework.boot:spring-boot-starter-test'</span>
+    <span class="n">testImplementation</span> <span class="s1">'io.projectreactor:reactor-test'</span>
+    <span class="n">testImplementation</span> <span class="s1">'org.springframework.kafka:spring-kafka-test'</span>
+    <span class="n">testRuntimeOnly</span> <span class="s1">'org.junit.platform:junit-platform-launcher'</span>
+    <span class="n">testCompileOnly</span> <span class="s1">'org.projectlombok:lombok'</span>
+    <span class="n">testAnnotationProcessor</span> <span class="s1">'org.projectlombok:lombok'</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>reactor-kafka is a reactive API for Kafka. We will use this library to consume logs from the Kafka cluster. We will use R2DBC to save the logs to the PostgreSQL database. And mapstruct is used for mapping between DTOs and Entities. In this case, LogPayload will be mapped to ErrorLogNotification</p>
+</div>
+<div class="paragraph">
+<p>Please note that there are two annotationProcessor for lombok and mapstruct. These are used for generating the code for lombok and mapstruct. These processors are used during the compilation phase and create the necessary code for lombok and mapstruct.</p>
+</div>
+<div class="listingblock">
+<div class="title">src/main/resources/application.yml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">server</span><span class="pi">:</span>
+  <span class="na">port</span><span class="pi">:</span> <span class="m">38081</span>
+<span class="na">spring</span><span class="pi">:</span>
+  <span class="na">main</span><span class="pi">:</span>
+    <span class="na">banner-mode</span><span class="pi">:</span> <span class="s">off</span>
+
+  <span class="na">application</span><span class="pi">:</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">nsa2-logging-kafka-reactive-consumer-example</span>
+
+  <span class="na">r2dbc</span><span class="pi">:</span>
+    <span class="na">url</span><span class="pi">:</span> <span class="s">${R2DBC_URL:r2dbc:postgresql://localhost:5432/nsa2}</span>
+    <span class="na">username</span><span class="pi">:</span> <span class="s">${DB_USERNAME:nsa2}</span>
+    <span class="na">password</span><span class="pi">:</span> <span class="s">${DB_PASSWORD:nsa2}</span>
+
+  <span class="na">kafka</span><span class="pi">:</span>
+    <span class="na">bootstrap-servers</span><span class="pi">:</span> <span class="s">${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}</span>
+
+    <span class="na">consumer</span><span class="pi">:</span>
+      <span class="na">group-id</span><span class="pi">:</span> <span class="s">${KAFKA_GROUP_ID:nsa2-logging-kafka-reactive-consumer-example}</span>
+      <span class="na">key-deserializer</span><span class="pi">:</span> <span class="s">org.apache.kafka.common.serialization.UUIDDeserializer</span>
+      <span class="na">auto-offset-reset</span><span class="pi">:</span> <span class="s">earliest</span>
+      <span class="na">value-deserializer</span><span class="pi">:</span> <span class="s">org.springframework.kafka.support.serializer.JsonDeserializer</span>
+      <span class="na">security</span><span class="pi">:</span>
+        <span class="na">protocol</span><span class="pi">:</span> <span class="s">SASL_PLAINTEXT</span>
+      <span class="na">properties</span><span class="pi">:</span>
+        <span class="na">sasl.jaas.config</span><span class="pi">:</span> <span class="s">org.apache.kafka.common.security.scram.ScramLoginModule</span>
+<span class="s">required username="${KAFKA_USERNAME}" password="${KAFKA_PASSWORD}";</span>
+        <span class="s">sasl.mechanism</span><span class="err">:</span> <span class="s">SCRAM-SHA-256</span>
+        <span class="s">spring.json</span><span class="err">:</span>
+          <span class="na">trusted.packages</span><span class="pi">:</span> <span class="s1">'</span><span class="s">*'</span> <span class="c1"># Allow all packages to be deserialized</span>
+          <span class="na">type.headers</span><span class="pi">:</span> <span class="kc">false</span>
+          <span class="na">value</span><span class="pi">:</span>
+            <span class="na">default</span><span class="pi">:</span>
+              <span class="na">type</span><span class="pi">:</span> <span class="s">com.alexamy.nsa2.example.logging.kafka.reactive.consumer.model.LogPayload</span>
+<span class="na">app</span><span class="pi">:</span>
+  <span class="na">kafka</span><span class="pi">:</span>
+    <span class="na">topic</span><span class="pi">:</span> <span class="s">${KAFKA_TOPIC:nsa2-error-logs}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In the application.yml, we set properties for the r2dbc and kafka.consumer. As for the security protocol, we use SASL_PLAINTEXT. The sasl.jaas.config is set to SCRAM-SHA-256. The spring.json.trusted.packages is set to '*' to allow all packages to be deserialized. This depends on the security policy of the Kafka cluster. Because we are using UUID as the key, we set the key-deserializer to org.apache.kafka.common.serialization.UUIDDeserializer. The value-deserializer is set to org.springframework.kafka.support.serializer.JsonDeserializer.</p>
+</div>
+<div class="paragraph">
+<p>The property <code>app.kafka.topic</code> is set to nsa2-error-logs. This is the topic where the logs are written to by the Fluent-bit.</p>
+</div>
+<div class="listingblock">
+<div class="title">ReactiveKafkaConsumerConfig.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="kn">package</span> <span class="nn">com.alexamy.nsa2.example.logging.kafka.reactive.config</span><span class="o">;</span>
+
+<span class="kn">import</span> <span class="nn">com.alexamy.nsa2.example.logging.kafka.reactive.consumer.model.LogPayload</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">lombok.RequiredArgsConstructor</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">lombok.extern.slf4j.Slf4j</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.apache.kafka.clients.CommonClientConfigs</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.apache.kafka.clients.consumer.ConsumerConfig</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.apache.kafka.common.config.SaslConfigs</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.apache.kafka.common.security.scram.ScramLoginModule</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.apache.kafka.common.serialization.StringDeserializer</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.apache.kafka.common.serialization.UUIDDeserializer</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.beans.factory.annotation.Value</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.boot.autoconfigure.kafka.KafkaProperties</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.context.annotation.Bean</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.context.annotation.Configuration</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.kafka.annotation.EnableKafka</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.kafka.core.reactive.ReactiveKafkaConsumerTemplate</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.kafka.support.serializer.JsonDeserializer</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">reactor.kafka.receiver.ReceiverOptions</span><span class="o">;</span>
+
+<span class="kn">import</span> <span class="nn">java.util.*</span><span class="o">;</span>
+
+<span class="nd">@Slf4j</span>
+<span class="nd">@RequiredArgsConstructor</span>
+<span class="nd">@EnableKafka</span>
+<span class="nd">@Configuration</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">ReactiveKafkaConsumerConfig</span> <span class="o">{</span>
+    <span class="kd">public</span> <span class="kd">static</span> <span class="kd">final</span> <span class="nc">String</span> <span class="no">BEAN_NAME_KAFKA_CONSUMER_TEMPLATE</span> <span class="o">=</span> <span class="s">"logConsumerTemplate"</span><span class="o">;</span>
+    <span class="nd">@Value</span><span class="o">(</span><span class="s">"${app.kafka.topic}"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">kafkaTopic</span><span class="o">;</span>
+
+    <span class="nd">@Value</span><span class="o">(</span><span class="s">"${spring.kafka.bootstrap-servers}"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">bootstrapServers</span><span class="o">;</span>
+
+    <span class="nd">@Value</span><span class="o">(</span><span class="s">"${spring.kafka.consumer.group-id}"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">groupId</span><span class="o">;</span>
+
+    <span class="nd">@Value</span><span class="o">(</span><span class="s">"${spring.kafka.consumer.auto-offset-reset}"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">autoOffsetReset</span><span class="o">;</span>
+
+
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nc">KafkaProperties</span> <span class="n">kafkaProperties</span><span class="o">;</span>
+
+    <span class="c1">// https://utronics.hashnode.dev/spring-webflux-reactive-kafka-cassandra-complete-reactive-spring-apps</span>
+    <span class="nd">@Bean</span>
+    <span class="kd">public</span> <span class="nc">ReceiverOptions</span><span class="o">&lt;</span><span class="no">UUID</span><span class="o">,</span> <span class="nc">LogPayload</span><span class="o">&gt;</span> <span class="nf">kafkaReceiverOptions</span><span class="o">()</span> <span class="o">{</span>
+<span class="c1">//        log.info("=====&gt; Creating Kafka receiver options. bootstrapServers: {}, groupId: {}, kafkaTopic: {}",</span>
+<span class="c1">//                bootstrapServers, groupId, kafkaTopic);</span>
+<span class="c1">//        log.info("=====&gt; Kafka properties: {}", kafkaProperties);</span>
+
+<span class="c1">//        Map&lt;String, Object&gt; consumerProperties = kafkaProperties.buildConsumerProperties();</span>
+<span class="c1">//        log.info("=====&gt; Kafka consumer properties: {}", consumerProperties);</span>
+
+        <span class="nc">ReceiverOptions</span><span class="o">&lt;</span><span class="no">UUID</span><span class="o">,</span> <span class="nc">LogPayload</span><span class="o">&gt;</span> <span class="n">basicReceiverOptions</span> <span class="o">=</span>
+                <span class="nc">ReceiverOptions</span><span class="o">.</span><span class="na">create</span><span class="o">(</span><span class="n">kafkaProperties</span><span class="o">.</span><span class="na">buildConsumerProperties</span><span class="o">());</span>
+
+
+        <span class="k">return</span> <span class="n">basicReceiverOptions</span><span class="o">.</span><span class="na">subscription</span><span class="o">(</span><span class="nc">Collections</span><span class="o">.</span><span class="na">singleton</span><span class="o">(</span><span class="n">kafkaTopic</span><span class="o">))</span>
+                <span class="o">.</span><span class="na">addAssignListener</span><span class="o">(</span><span class="n">partitions</span> <span class="o">-&gt;</span> <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"=====&gt; Assigned partitions: {}"</span><span class="o">,</span> <span class="n">partitions</span><span class="o">))</span>
+                <span class="o">.</span><span class="na">addRevokeListener</span><span class="o">(</span><span class="n">partitions</span> <span class="o">-&gt;</span> <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"=====&gt; Revoked partitions: {}"</span><span class="o">,</span> <span class="n">partitions</span><span class="o">));</span>
+
+    <span class="o">}</span>
+
+<span class="c1">//    @Bean</span>
+    <span class="kd">public</span> <span class="nc">ReceiverOptions</span><span class="o">&lt;</span><span class="no">UUID</span><span class="o">,</span> <span class="nc">LogPayload</span><span class="o">&gt;</span> <span class="nf">kafkaReceiverOptions_____</span><span class="o">()</span> <span class="o">{</span>
+        <span class="kd">final</span> <span class="nc">String</span> <span class="n">jaasConfig</span> <span class="o">=</span> <span class="nc">String</span><span class="o">.</span><span class="na">format</span><span class="o">(</span>
+                <span class="s">"%s required username=\"%s\" "</span> <span class="o">+</span>
+                <span class="s">"password=\"%s\";"</span><span class="o">,</span> <span class="nc">ScramLoginModule</span><span class="o">.</span><span class="na">class</span><span class="o">.</span><span class="na">getName</span><span class="o">(),</span>
+                <span class="s">"iclinic"</span><span class="o">,</span> <span class="s">"Test2010!"</span>
+        <span class="o">);</span>
+
+        <span class="nc">Map</span><span class="o">&lt;</span><span class="nc">String</span><span class="o">,</span> <span class="nc">Object</span><span class="o">&gt;</span> <span class="n">consumerProps</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">HashMap</span><span class="o">&lt;&gt;();</span>
+
+        <span class="n">consumerProps</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="nc">ConsumerConfig</span><span class="o">.</span><span class="na">BOOTSTRAP_SERVERS_CONFIG</span><span class="o">,</span> <span class="n">bootstrapServers</span><span class="o">);</span>
+        <span class="n">consumerProps</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="nc">ConsumerConfig</span><span class="o">.</span><span class="na">GROUP_ID_CONFIG</span><span class="o">,</span> <span class="n">groupId</span><span class="o">);</span>
+        <span class="n">consumerProps</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="nc">ConsumerConfig</span><span class="o">.</span><span class="na">KEY_DESERIALIZER_CLASS_CONFIG</span><span class="o">,</span> <span class="nc">UUIDDeserializer</span><span class="o">.</span><span class="na">class</span><span class="o">.</span><span class="na">getName</span><span class="o">());</span>
+        <span class="n">consumerProps</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="nc">ConsumerConfig</span><span class="o">.</span><span class="na">VALUE_DESERIALIZER_CLASS_CONFIG</span><span class="o">,</span> <span class="nc">JsonDeserializer</span><span class="o">.</span><span class="na">class</span><span class="o">.</span><span class="na">getName</span><span class="o">());</span>
+        <span class="n">consumerProps</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="nc">ConsumerConfig</span><span class="o">.</span><span class="na">AUTO_OFFSET_RESET_CONFIG</span><span class="o">,</span> <span class="n">autoOffsetReset</span><span class="o">);</span>
+        <span class="n">consumerProps</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="nc">JsonDeserializer</span><span class="o">.</span><span class="na">USE_TYPE_INFO_HEADERS</span><span class="o">,</span> <span class="kc">false</span><span class="o">);</span>
+        <span class="n">consumerProps</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="nc">JsonDeserializer</span><span class="o">.</span><span class="na">TRUSTED_PACKAGES</span><span class="o">,</span> <span class="s">"*"</span><span class="o">);</span>
+        <span class="n">consumerProps</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="nc">JsonDeserializer</span><span class="o">.</span><span class="na">VALUE_DEFAULT_TYPE</span><span class="o">,</span> <span class="nc">LogPayload</span><span class="o">.</span><span class="na">class</span><span class="o">.</span><span class="na">getName</span><span class="o">());</span>
+
+        <span class="n">consumerProps</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="nc">CommonClientConfigs</span><span class="o">.</span><span class="na">SECURITY_PROTOCOL_CONFIG</span><span class="o">,</span> <span class="s">"SASL_PLAINTEXT"</span><span class="o">);</span>
+        <span class="n">consumerProps</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="nc">SaslConfigs</span><span class="o">.</span><span class="na">SASL_MECHANISM</span><span class="o">,</span> <span class="s">"SCRAM-SHA-256"</span><span class="o">);</span>
+        <span class="n">consumerProps</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="nc">SaslConfigs</span><span class="o">.</span><span class="na">SASL_JAAS_CONFIG</span><span class="o">,</span> <span class="n">jaasConfig</span><span class="o">);</span>
+
+
+        <span class="k">return</span> <span class="nc">ReceiverOptions</span><span class="o">.&lt;</span><span class="no">UUID</span><span class="o">,</span> <span class="nc">LogPayload</span><span class="o">&gt;</span><span class="n">create</span><span class="o">(</span><span class="n">consumerProps</span><span class="o">)</span>
+                <span class="o">.</span><span class="na">withKeyDeserializer</span><span class="o">(</span><span class="k">new</span> <span class="nc">UUIDDeserializer</span><span class="o">())</span>
+                <span class="o">.</span><span class="na">withValueDeserializer</span><span class="o">(</span><span class="k">new</span> <span class="nc">JsonDeserializer</span><span class="o">&lt;&gt;(</span><span class="nc">LogPayload</span><span class="o">.</span><span class="na">class</span><span class="o">))</span>
+                <span class="o">.</span><span class="na">subscription</span><span class="o">(</span><span class="nc">Set</span><span class="o">.</span><span class="na">of</span><span class="o">(</span><span class="n">kafkaTopic</span><span class="o">));</span>
+    <span class="o">}</span>
+
+    <span class="nd">@Bean</span><span class="o">(</span><span class="no">BEAN_NAME_KAFKA_CONSUMER_TEMPLATE</span><span class="o">)</span>
+    <span class="kd">public</span> <span class="nc">ReactiveKafkaConsumerTemplate</span><span class="o">&lt;</span><span class="no">UUID</span><span class="o">,</span> <span class="nc">LogPayload</span><span class="o">&gt;</span> <span class="nf">logConsumerTemplate</span><span class="o">()</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="k">new</span> <span class="nc">ReactiveKafkaConsumerTemplate</span><span class="o">&lt;&gt;(</span><span class="n">kafkaReceiverOptions</span><span class="o">());</span>
+    <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>All required configurations for the Kafka consumer are set in the <code>application.yml</code> file. The Kafka consumer configuration is set in the
+ReactiveKafkaConsumerConfig class. The configuration is set using the @Configuration annotation. The ReceiverOptions are set using the ReceiverOptions.create method. The ReceiverOptions are set with the properties from the application.yml file. The ReceiverOptions are used to create the KafkaReceiver. The KafkaReceiver consumes logs from the Kafka cluster. The logs are consumed from the nsa2-error-logs topic. The logs are deserialized to LogPayload using the JsonDeserializer. The logs are consumed in a reactive way using the KafkaReceiver.receive method. The logs are saved to the PostgreSQL database using the LogConsumerService class. ReactiveKafkaConsumerTemplate&lt;UUID, LogPayload&gt; is used to consume logs from the Kafka cluster. The logs are consumed in a reactive way using the KafkaReceiver.receive method.</p>
+</div>
+<div class="paragraph">
+<p>Refer to <a href="https://docs.spring.io/spring-boot/appendix/application-properties/index.html" class="bare">https://docs.spring.io/spring-boot/appendix/application-properties/index.html</a> for more information on the properties.</p>
+</div>
+<div class="listingblock">
+<div class="title">LogConsumerService.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="kn">package</span> <span class="nn">com.alexamy.nsa2.example.logging.kafka.reactive.consumer.service</span><span class="o">;</span>
+
+<span class="kn">import</span> <span class="nn">com.alexamy.nsa2.example.logging.kafka.reactive.config.ReactiveKafkaConsumerConfig</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">com.alexamy.nsa2.example.logging.kafka.reactive.consumer.model.LogPayload</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">com.alexamy.nsa2.example.logging.kafka.reactive.mapper.LogPayloadMapper</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">com.alexamy.nsa2.example.logging.kafka.reactive.r2dbc.model.ErrorLogNotification</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">com.alexamy.nsa2.example.logging.kafka.reactive.r2dbc.repository.ErrorLogNotificationRepository</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">jakarta.annotation.PostConstruct</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">lombok.RequiredArgsConstructor</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">lombok.extern.slf4j.Slf4j</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.beans.factory.annotation.Qualifier</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.boot.context.event.ApplicationStartedEvent</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.context.event.EventListener</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.kafka.core.reactive.ReactiveKafkaConsumerTemplate</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.stereotype.Component</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">reactor.core.publisher.Flux</span><span class="o">;</span>
+
+<span class="kn">import</span> <span class="nn">java.util.UUID</span><span class="o">;</span>
+
+<span class="nd">@Slf4j</span>
+<span class="nd">@RequiredArgsConstructor</span>
+<span class="nd">@Component</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">LogConsumerService</span> <span class="o">{</span>
+    <span class="nd">@Qualifier</span><span class="o">(</span><span class="nc">ReactiveKafkaConsumerConfig</span><span class="o">.</span><span class="na">BEAN_NAME_KAFKA_CONSUMER_TEMPLATE</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nc">ReactiveKafkaConsumerTemplate</span><span class="o">&lt;</span><span class="no">UUID</span><span class="o">,</span> <span class="nc">LogPayload</span><span class="o">&gt;</span> <span class="n">logConsumerTemplate</span><span class="o">;</span>
+
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nc">ErrorLogNotificationRepository</span> <span class="n">notificationRepository</span><span class="o">;</span>
+
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nc">LogPayloadMapper</span> <span class="n">logPayloadMapper</span><span class="o">;</span>
+
+<span class="c1">//    @EventListener(ApplicationStartedEvent.class)</span>
+    <span class="nd">@PostConstruct</span>
+    <span class="kd">public</span> <span class="kt">void</span> <span class="nf">init</span><span class="o">()</span> <span class="o">{</span>
+        <span class="n">startConsuming</span><span class="o">().</span><span class="na">subscribe</span><span class="o">();</span>
+    <span class="o">}</span>
+
+    <span class="kd">public</span> <span class="nc">Flux</span><span class="o">&lt;</span><span class="nc">ErrorLogNotification</span><span class="o">&gt;</span> <span class="nf">startConsuming</span><span class="o">()</span> <span class="o">{</span>
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"=====&gt; Starting to consume logs"</span><span class="o">);</span>
+
+        <span class="k">return</span> <span class="n">logConsumerTemplate</span><span class="o">.</span><span class="na">receiveAutoAck</span><span class="o">()</span>
+                <span class="o">.</span><span class="na">map</span><span class="o">(</span><span class="n">record</span> <span class="o">-&gt;</span> <span class="n">record</span><span class="o">.</span><span class="na">value</span><span class="o">())</span>
+                <span class="o">.</span><span class="na">doOnNext</span><span class="o">(</span><span class="n">record</span> <span class="o">-&gt;</span> <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"Received log: {}"</span><span class="o">,</span> <span class="n">record</span><span class="o">))</span>
+                <span class="o">.</span><span class="na">map</span><span class="o">(</span><span class="nl">logPayloadMapper:</span><span class="o">:</span><span class="n">mapToErrorLogNotification</span><span class="o">)</span>
+                <span class="o">.</span><span class="na">flatMap</span><span class="o">(</span><span class="nl">notificationRepository:</span><span class="o">:</span><span class="n">save</span><span class="o">)</span>
+                <span class="o">.</span><span class="na">doOnNext</span><span class="o">(</span><span class="n">saved</span> <span class="o">-&gt;</span> <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"Saved error log notification: {}"</span><span class="o">,</span> <span class="n">saved</span><span class="o">))</span>
+                <span class="o">.</span><span class="na">doOnError</span><span class="o">(</span><span class="n">e</span> <span class="o">-&gt;</span> <span class="n">log</span><span class="o">.</span><span class="na">error</span><span class="o">(</span><span class="s">"Error occurred while consuming log"</span><span class="o">,</span> <span class="n">e</span><span class="o">));</span>
+
+    <span class="o">}</span>
+
+
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>LogConsumerService.java is a service class that consumes logs from the Kafka cluster. The startConsuming method consumes logs from the Kafka cluster. The logs are saved to the PostgreSQL database using the LogErrorNotificationRepository class.</p>
+</div>
+<div class="paragraph">
+<p>Let&#8217;s look into the LogPayload and LogErrorNotification classes.</p>
+</div>
+<div class="paragraph">
+<p>LogPayload.java</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="kn">package</span> <span class="nn">com.alexamy.nsa2.example.logging.kafka.reactive.consumer.model</span><span class="o">;</span>
+
+<span class="c1">//public record LogPayload(String timestamp, String logTime, String level,</span>
+<span class="c1">//                         String appName, String loggerClass, String message, String log, String message_key) {</span>
+<span class="c1">//}</span>
+
+<span class="kn">import</span> <span class="nn">com.fasterxml.jackson.annotation.JsonFormat</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">lombok.*</span><span class="o">;</span>
+
+<span class="kn">import</span> <span class="nn">java.time.LocalDateTime</span><span class="o">;</span>
+
+<span class="nd">@Getter</span>
+<span class="nd">@Setter</span>
+<span class="nd">@NoArgsConstructor</span>
+<span class="nd">@AllArgsConstructor</span>
+<span class="nd">@ToString</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">LogPayload</span> <span class="o">{</span>
+    <span class="nc">String</span> <span class="n">timestamp</span><span class="o">;</span>
+    <span class="nd">@JsonFormat</span><span class="o">(</span><span class="n">pattern</span><span class="o">=</span><span class="s">"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"</span><span class="o">)</span>
+    <span class="nc">LocalDateTime</span> <span class="n">logTime</span><span class="o">;</span>
+    <span class="nc">String</span> <span class="n">level</span><span class="o">;</span>
+    <span class="nc">String</span> <span class="n">appName</span><span class="o">;</span>
+    <span class="nc">String</span> <span class="n">loggerClass</span><span class="o">;</span>
+    <span class="nc">String</span> <span class="n">message</span><span class="o">;</span>
+    <span class="nc">String</span> <span class="n">log</span><span class="o">;</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>LogPayload represents the log payload that is written to the Kafka topic. The logTime field is annotated with @JsonFormat to specify the date format.</p>
+</div>
+<div class="listingblock">
+<div class="title">ErrorLogNotification.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="kn">package</span> <span class="nn">com.alexamy.nsa2.example.logging.kafka.reactive.r2dbc.model</span><span class="o">;</span>
+
+<span class="kn">import</span> <span class="nn">lombok.AllArgsConstructor</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">lombok.Getter</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">lombok.NoArgsConstructor</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">lombok.Setter</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.data.annotation.Id</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.data.relational.core.mapping.Column</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.data.relational.core.mapping.Table</span><span class="o">;</span>
+
+<span class="kn">import</span> <span class="nn">java.time.LocalDateTime</span><span class="o">;</span>
+
+<span class="nd">@Getter</span>
+<span class="nd">@Setter</span>
+<span class="nd">@NoArgsConstructor</span>
+<span class="nd">@AllArgsConstructor</span>
+<span class="nd">@Table</span><span class="o">(</span><span class="n">schema</span> <span class="o">=</span> <span class="s">"logging"</span><span class="o">,</span> <span class="n">name</span> <span class="o">=</span> <span class="s">"error_log_notification"</span><span class="o">)</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">ErrorLogNotification</span> <span class="o">{</span>
+    <span class="nd">@Id</span>
+    <span class="kd">private</span> <span class="nc">Long</span> <span class="n">id</span><span class="o">;</span>
+    <span class="kd">private</span> <span class="nc">LocalDateTime</span> <span class="n">timestamp</span><span class="o">;</span>
+    <span class="nd">@Column</span><span class="o">(</span><span class="s">"log_time"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">LocalDateTime</span> <span class="n">logTime</span><span class="o">;</span>
+    <span class="nd">@Column</span><span class="o">(</span><span class="s">"log_level"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">logLevel</span><span class="o">;</span>
+    <span class="nd">@Column</span><span class="o">(</span><span class="s">"application_name"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">applicationName</span><span class="o">;</span>
+    <span class="nd">@Column</span><span class="o">(</span><span class="s">"logger_class"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">loggerClass</span><span class="o">;</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">message</span><span class="o">;</span>
+    <span class="nd">@Column</span><span class="o">(</span><span class="s">"stack_trace"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">stackTrace</span><span class="o">;</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>ErrorLogNotification represents the log payload that is saved to the PostgreSQL database.</p>
+</div>
+<div class="listingblock">
+<div class="title">LogPayloadMapper.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="kn">package</span> <span class="nn">com.alexamy.nsa2.example.logging.kafka.reactive.mapper</span><span class="o">;</span>
+
+<span class="kn">import</span> <span class="nn">com.alexamy.nsa2.example.logging.kafka.reactive.consumer.model.LogPayload</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">com.alexamy.nsa2.example.logging.kafka.reactive.r2dbc.model.ErrorLogNotification</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.mapstruct.Mapper</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.mapstruct.Mapping</span><span class="o">;</span>
+
+<span class="nd">@Mapper</span><span class="o">(</span><span class="n">componentModel</span> <span class="o">=</span> <span class="s">"spring"</span><span class="o">)</span>
+<span class="kd">public</span> <span class="kd">interface</span> <span class="nc">LogPayloadMapper</span> <span class="o">{</span>
+
+    <span class="nd">@Mapping</span><span class="o">(</span><span class="n">target</span> <span class="o">=</span> <span class="s">"logLevel"</span><span class="o">,</span> <span class="n">source</span> <span class="o">=</span> <span class="s">"level"</span><span class="o">)</span>
+    <span class="nd">@Mapping</span><span class="o">(</span><span class="n">target</span> <span class="o">=</span> <span class="s">"applicationName"</span><span class="o">,</span> <span class="n">source</span> <span class="o">=</span> <span class="s">"appName"</span><span class="o">)</span>
+    <span class="nd">@Mapping</span><span class="o">(</span><span class="n">target</span> <span class="o">=</span> <span class="s">"stackTrace"</span><span class="o">,</span> <span class="n">source</span> <span class="o">=</span> <span class="s">"log"</span><span class="o">)</span>
+    <span class="nd">@Mapping</span><span class="o">(</span><span class="n">target</span> <span class="o">=</span> <span class="s">"id"</span><span class="o">,</span> <span class="n">ignore</span> <span class="o">=</span> <span class="kc">true</span><span class="o">)</span>
+    <span class="nd">@Mapping</span><span class="o">(</span><span class="n">target</span> <span class="o">=</span> <span class="s">"timestamp"</span><span class="o">,</span> <span class="n">expression</span> <span class="o">=</span> <span class="s">"java(java.time.LocalDateTime.now())"</span><span class="o">)</span>
+    <span class="nc">ErrorLogNotification</span> <span class="nf">mapToErrorLogNotification</span><span class="o">(</span><span class="nc">LogPayload</span> <span class="n">payload</span><span class="o">);</span>
+
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>LogPayloadMapper is a mapper class that maps LogPayload to ErrorLogNotification.</p>
+</div>
+<div class="paragraph">
+<p>The mapstruct annotation @Mapper is used to generate the mapper implementation. The mapper implementation is generated during the compilation phase by the annotation processor which provides quite fast mapping between DTOs and Entities.</p>
+</div>
+<div class="listingblock">
+<div class="title">LogPayloadMapperImpl.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@Component</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">LogPayloadMapperImpl</span> <span class="kd">implements</span> <span class="nc">LogPayloadMapper</span> <span class="o">{</span>
+    <span class="kd">public</span> <span class="nf">LogPayloadMapperImpl</span><span class="o">()</span> <span class="o">{</span>
+    <span class="o">}</span>
+
+    <span class="kd">public</span> <span class="nc">ErrorLogNotification</span> <span class="nf">mapToErrorLogNotification</span><span class="o">(</span><span class="nc">LogPayload</span> <span class="n">payload</span><span class="o">)</span> <span class="o">{</span>
+        <span class="k">if</span> <span class="o">(</span><span class="n">payload</span> <span class="o">==</span> <span class="kc">null</span><span class="o">)</span> <span class="o">{</span>
+            <span class="k">return</span> <span class="kc">null</span><span class="o">;</span>
+        <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+            <span class="nc">ErrorLogNotification</span> <span class="n">errorLogNotification</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">ErrorLogNotification</span><span class="o">();</span>
+            <span class="n">errorLogNotification</span><span class="o">.</span><span class="na">setLogLevel</span><span class="o">(</span><span class="n">payload</span><span class="o">.</span><span class="na">getLevel</span><span class="o">());</span>
+            <span class="n">errorLogNotification</span><span class="o">.</span><span class="na">setApplicationName</span><span class="o">(</span><span class="n">payload</span><span class="o">.</span><span class="na">getAppName</span><span class="o">());</span>
+            <span class="n">errorLogNotification</span><span class="o">.</span><span class="na">setStackTrace</span><span class="o">(</span><span class="n">payload</span><span class="o">.</span><span class="na">getLog</span><span class="o">());</span>
+            <span class="n">errorLogNotification</span><span class="o">.</span><span class="na">setLogTime</span><span class="o">(</span><span class="n">payload</span><span class="o">.</span><span class="na">getLogTime</span><span class="o">());</span>
+            <span class="n">errorLogNotification</span><span class="o">.</span><span class="na">setLoggerClass</span><span class="o">(</span><span class="n">payload</span><span class="o">.</span><span class="na">getLoggerClass</span><span class="o">());</span>
+            <span class="n">errorLogNotification</span><span class="o">.</span><span class="na">setMessage</span><span class="o">(</span><span class="n">payload</span><span class="o">.</span><span class="na">getMessage</span><span class="o">());</span>
+            <span class="n">errorLogNotification</span><span class="o">.</span><span class="na">setTimestamp</span><span class="o">(</span><span class="nc">LocalDateTime</span><span class="o">.</span><span class="na">now</span><span class="o">());</span>
+            <span class="k">return</span> <span class="n">errorLogNotification</span><span class="o">;</span>
+        <span class="o">}</span>
+    <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">ErrorLogNotificationRepository.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="kn">package</span> <span class="nn">com.alexamy.nsa2.example.logging.kafka.reactive.r2dbc.repository</span><span class="o">;</span>
+
+<span class="kn">import</span> <span class="nn">com.alexamy.nsa2.example.logging.kafka.reactive.r2dbc.model.ErrorLogNotification</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.data.r2dbc.repository.R2dbcRepository</span><span class="o">;</span>
+
+<span class="kd">public</span> <span class="kd">interface</span> <span class="nc">ErrorLogNotificationRepository</span>
+    <span class="kd">extends</span> <span class="nc">R2dbcRepository</span><span class="o">&lt;</span><span class="nc">ErrorLogNotification</span><span class="o">,</span> <span class="nc">Long</span><span class="o">&gt;</span>  <span class="o">{</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>ErrorLogNotificationRepository is a repository class that saves logs to the PostgreSQL database. For this example, we do not have to implement the methods. Spring Data R2DBC provides the implementation for the repository. This data will be used by the notification service to send notifications to the users. In this example, we are not going to implement the notification service.</p>
+</div>
+<div class="listingblock">
+<div class="title">src/main/resources/sql/schema.sql</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sql"><span class="k">CREATE</span> <span class="k">TABLE</span> <span class="n">logging</span><span class="p">.</span><span class="n">error_log_notification</span>
+<span class="p">(</span>
+    <span class="n">id</span>               <span class="nb">SERIAL</span> <span class="k">PRIMARY</span> <span class="k">KEY</span><span class="p">,</span>
+    <span class="nb">timestamp</span>        <span class="nb">TIMESTAMP</span>    <span class="k">NOT</span> <span class="k">NULL</span><span class="p">,</span>
+    <span class="n">log_level</span>        <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span> <span class="k">NOT</span> <span class="k">NULL</span><span class="p">,</span>
+    <span class="n">log_time</span>         <span class="nb">TIMESTAMP</span>    <span class="k">NOT</span> <span class="k">NULL</span><span class="p">,</span>
+    <span class="n">application_name</span> <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">255</span><span class="p">)</span> <span class="k">NOT</span> <span class="k">NULL</span><span class="p">,</span>
+    <span class="n">logger_class</span>     <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">255</span><span class="p">)</span> <span class="k">NOT</span> <span class="k">NULL</span><span class="p">,</span>
+    <span class="n">message</span>          <span class="nb">TEXT</span><span class="p">,</span>
+    <span class="n">stack_trace</span>      <span class="nb">TEXT</span><span class="p">,</span>
+<span class="p">);</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To test this application, we need to create a PostgreSQL database and table. The schema.sql file creates the error_log_notification table.</p>
+</div>
+<div class="paragraph">
+<p>All the source codes listed here are available at <a href="https://github.com/nsalexamy/nsa2-logging-kafka-reactive-consumer-example">Github</a>.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="running-the-application">Running the Application</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To run the application, we need to build the application and run it. We can build the application using the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">export </span><span class="nv">DB_USERNAME</span><span class="o">={</span>db-username<span class="o">}</span>
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">DB_PASSWORD</span><span class="o">={</span>db-password<span class="o">}</span>
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">R2DBC_URL</span><span class="o">=</span>r2dbc:postgresql://localhost:5432/nas2
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">KAFKA_BOOTSTRAP_SERVERS</span><span class="o">={</span>kafka-bootstrap-servers<span class="o">}</span>
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">KAFKA_USERNAME</span><span class="o">={</span>kafka-username<span class="o">}</span>
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">KAFKA_PASSWORD</span><span class="o">={</span>kafka-password<span class="o">}</span>
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">KAFKA_TOPIC</span><span class="o">=</span>nsa2-error-logs
+<span class="nv">$ </span>./gradlew bootRun</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>You can use your onw values for the environment variables.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="testing-the-application">Testing the Application</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In the same way we tested the previous applications, we can test this application. We can check the logs in the PostgreSQL database using the following command:</p>
+</div>
+<div class="sect2">
+<h3 id="nsa2-logging-example-application">nsa2-logging-example application</h3>
+<div class="listingblock">
+<div class="title">how to simulate the error logs</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">echo</span> <span class="s2">"ERROR"</span> | <span class="nb">tr</span> <span class="s2">" "</span> <span class="s1">'\n'</span> <span class="se">\</span>
+  | xargs <span class="nt">-I</span> <span class="o">{}</span> curl <span class="nt">-X</span> POST <span class="nt">-H</span> <span class="s2">"Content-Type: application/json"</span> <span class="se">\</span>
+  <span class="nt">-d</span> <span class="s2">"This is a sample of {} level messages"</span> <span class="se">\</span>
+  http://localhost:18080/v1.0.0/log/<span class="o">{}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="kafka-topic-nsa2-error-logs">Kafka topic nsa2-error-logs</h3>
+<div class="paragraph">
+<p>To check the logs in the Kafka topic nsa2-error-logs, we can use the Conduktor. We can see the logs written to the Kafka topic nsa2-error-logs.</p>
+</div>
+<div class="paragraph">
+<p>For more information on how to use Conduktor, refer to <a href="https://www.conduktor.io/docs/quickstart">Conduktor Quickstart</a>.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="postgresql-database">PostgreSQL database</h3>
+<div class="paragraph">
+<p>To check the logs in the PostgreSQL database, we can use the following query:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sql"><span class="k">select</span> <span class="o">*</span> <span class="k">from</span> <span class="n">logging</span><span class="p">.</span><span class="n">error_log_notification</span><span class="p">;</span></code></pre>
+</div>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/part-7-result-query.png" alt="part 7 result query" width="1000">
+</div>
+<div class="title">Figure 1. Result</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this tutorial, we learned how to stream logs in real-time using Apache Kafka. We used the rewrite_tag filter to route ERROR logs to the Kafka Output Plugin. We used the Kafka Connect to stream logs from the Fluent-bit to Kafka. We also implemented a Spring Boot Application to consume logs from the Kafka cluster. The logs are saved to the PostgreSQL database using R2DBC. This way we can add the real-time log streaming capability to our centralized logging system.</p>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>

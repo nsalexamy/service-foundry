@@ -1,0 +1,1249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Collecting Metrics using Spring Boot Actuator and Visualizing them using Prometheus and Grafana</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <!-- Include Style -->
+    <style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+    }
+
+    /* Header styles */
+    header {
+        background-color: #1f2937; /* gray-900 */
+        color: white;
+        padding: 1rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    header a {
+        color: #d1d5db; /* gray-300 */
+        margin-left: 1rem;
+        text-decoration: none;
+    }
+
+    header a:hover {
+        color: #38bdf8; /* sky-400 */
+    }
+
+    /* Sub-navigation */
+    .subnav {
+        background-color: #374151; /* gray-800 */
+        padding: 0.5rem 2rem;
+    }
+
+    .subnav a {
+        color: #d1d5db;
+        margin-right: 1rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+    }
+
+    .subnav a:hover {
+        color: #ffffff;
+    }
+
+    /* Layout */
+    .container {
+        display: flex;
+    }
+
+    /* TOC sidebar styles (scoped) */
+    .toc-nav {
+        width: 250px;
+        padding: 1rem;
+        background-color: #f8f8f8;
+        border-right: 1px solid #ccc;
+        overflow-y: auto;
+        position: sticky;
+        top: 0;
+        height: calc(100vh - 120px); /* adjust for header + subnav height */
+    }
+
+    main {
+        flex: 1;
+        padding: 2rem;
+    }
+
+    /* Code block styles */
+
+    .listingblock pre,
+    .highlight pre,
+    pre code {
+        background-color: #f3f4f6;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        overflow-x: auto;
+        line-height: 1.6;
+        margin: 0;
+        text-indent: 0;
+        white-space: pre;
+        display: block;
+        tab-size: 2;
+    }
+
+    .highlight pre code {
+        padding: 0;          /* ✅ This removes extra indent from <code> */
+        margin: 0;
+        display: block;      /* ✅ Treat <code> as a block inside <pre> */
+        line-height: 1.4; /* for inline code */
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+
+    /*.listingblock pre,*/
+    /*.highlight pre {*/
+    /*    background-color: #f3f4f6; !* gray-100 *!*/
+    /*    padding: 1rem;*/
+    /*    border-radius: 0.5rem;*/
+    /*    font-size: 0.875rem;*/
+    /*    overflow-x: auto;*/
+    /*    line-height: 1.6; !* <-- add this line *!*/
+    /*    margin: 0;              !* ← prevent extra space before/after *!*/
+    /*    text-indent: 0;         !* ← ensure no first-line indent *!*/
+    /*    white-space: pre-wrap;  !* ← allows wrapping and prevents collapse *!*/
+    /*}*/
+
+    /*code {*/
+    /*    background-color: #f3f4f6;*/
+    /*    padding: 0.1rem 0.3rem;*/
+    /*    border-radius: 0.25rem;*/
+    /*    line-height: 1.4; !* for inline code *!*/
+    /*    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;*/
+    /*}*/
+
+    /* Breadcrumb styles */
+
+    .breadcrumb-wrapper {
+        max-width: 1024px;
+        margin: 0 auto;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        color: #4b5563; /* gray-600 */
+    }
+
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .breadcrumb li {
+        display: flex;
+        align-items: center;
+    }
+
+    .breadcrumb a {
+        color: #0d9488; /* teal-600 */
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .separator {
+        margin: 0 0.5rem;
+        color: #9ca3af; /* gray-400 */
+    }
+    /* Table styles */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1.5rem;
+    }
+
+    table, th, td {
+        border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    }
+
+    th, td {
+        padding: 0.75rem 1rem;
+        text-align: left;
+    }
+
+    thead {
+        background-color: #f3f4f6; /* Tailwind's gray-100 for table headers */
+    }
+
+    /* Admonition styles */
+    .admonitionblock {
+        border-left: 4px solid #0d9488; /* teal-600 */
+        background-color: #f0fdfa;      /* teal-50 */
+        padding: 1rem 1.25rem;
+        margin: 1.5rem 0;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: flex-start;
+    }
+
+    .admonitionblock .icon {
+        font-size: 1.25rem;
+        margin-right: 0.75rem;
+        line-height: 1;
+    }
+
+    .admonitionblock .content {
+        flex: 1;
+    }
+
+    .admonitionblock.note .icon::before {
+        content: "💡";
+    }
+
+    .admonitionblock.tip .icon::before {
+        content: "✨";
+    }
+
+    .admonitionblock.warning .icon::before {
+        content: "⚠️";
+    }
+
+    .admonitionblock.important .icon::before {
+        content: "🚨";
+    }
+
+    .admonitionblock.caution .icon::before {
+        content: "🛑";
+    }
+
+    /* Table of Contents styles */
+    #toc {
+        font-size: 0.875rem;
+        line-height: 1.4;
+    }
+
+    #toc ul {
+        margin: 0;
+        padding-left: 1rem;
+        list-style-type: disc;
+    }
+
+    #toc li {
+        margin: 0.25rem 0; /* tighten vertical spacing */
+    }
+
+    #toc a {
+        text-decoration: none;
+        color: #0d9488; /* teal-600 */
+    }
+
+    #toc a:hover {
+        text-decoration: underline;
+    }
+
+    /* Image caption styles */
+    /* Image caption inside .imageblock */
+    .imageblock > .title {
+        text-align: center;
+        font-size: 0.875rem;
+        font-style: italic;
+        color: #6b7280; /* gray-500 */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Code block title inside .listingblock */
+    .listingblock > .title {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #1f2937; /* gray-800 */
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+    }
+    /*.imageblock[style*="text-align: center;"] .content {*/
+    /*    display: flex;*/
+    /*    justify-content: center;*/
+    /*}*/
+
+    .imageblock img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+    }
+
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+    <div class="logo text-xl font-semibold">Service Foundry</div>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+
+<nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div style="text-align: right; font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem;">
+            
+            Young Gyu Kim
+            
+            
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+            
+        </div>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#centralized-logging-series">Centralized Logging series</a></li>
+<li><a href="#prerequisites">Prerequisites</a></li>
+</ul>
+</li>
+<li><a href="#create-scala-project-in-intellij-idea">Create Scala Project in IntelliJ IDEA</a>
+<ul class="sectlevel2">
+<li><a href="#properties-of-the-scala-project">Properties of the Scala project</a></li>
+<li><a href="#build-sbt">build.sbt</a></li>
+<li><a href="#spark-conf">spark.conf</a></li>
+<li><a href="#sparkapputil-scala">SparkAppUtil.scala</a></li>
+<li><a href="#elasticsearchdocumentcountapp-scala">ElasticsearchDocumentCountApp.scala</a></li>
+</ul>
+</li>
+<li><a href="#nsa2loganalyticsdailybatchapp">Nsa2LogAnalyticsDailyBatchApp</a>
+<ul class="sectlevel2">
+<li><a href="#document-formats-saved-in-elasticsearch">Document formats saved in Elasticsearch</a></li>
+<li><a href="#nsa2loganalyticsdailybatchapp-scala">Nsa2LogAnalyticsDailyBatchApp.scala</a></li>
+</ul>
+</li>
+<li><a href="#deploy-spark-application-to-kubernetes">Deploy Spark Application to Kubernetes</a>
+<ul class="sectlevel2">
+<li><a href="#package-spark-application">Package Spark Application</a></li>
+<li><a href="#configuration-for-kubernetes">Configuration for Kubernetes</a></li>
+<li><a href="#deploy-spark-application-to-kubernetes-using-spark-submit">Deploy Spark Application to Kubernetes using spark-submit</a></li>
+</ul>
+</li>
+<li><a href="#test-scripts">Test scripts</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this tutorial, we will create a Scala project to analyze log messages stored in Elasticsearch using Apache Spark. The Spark application will read log messages from Elasticsearch, archive the messages as Parquet files to HDFS, and save all ERROR messages to a Relational Database for further analysis. On development, we will use the local filesystem as HDFS and PostgreSQL as the Relational Database. And then deploy the Spark application to Kubernetes.</p>
+</div>
+<div class="sect2">
+<h3 id="centralized-logging-series">Centralized Logging series</h3>
+<div class="paragraph">
+<p>This tutorial is the 6th part of the Centralized Logging series. The series covers the following topics:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Part 1 - Logging in Spring Boot Application</p>
+</li>
+<li>
+<p>Part 2 - Deploying Spring Boot Application to Kubernetes</p>
+</li>
+<li>
+<p>Part 3 - Installing Elasticsearch and Kibana to Kubernetes</p>
+</li>
+<li>
+<p>Part 4 - Centralized Logging with Fluent-bit and Elasticsearch(Kubernetes)</p>
+</li>
+<li>
+<p>Part 5 - Centralized Logging with Fluent-bit and Elasticsearch(On-premise)</p>
+</li>
+<li>
+<p>Part 6 - Log Analysis with Apache Spark</p>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect2">
+<h3 id="prerequisites">Prerequisites</h3>
+<div class="ulist">
+<ul>
+<li>
+<p>Java 11</p>
+</li>
+<li>
+<p>Scala 2.12</p>
+</li>
+<li>
+<p>IntelliJ IDEA</p>
+</li>
+<li>
+<p>sbt 1.10</p>
+</li>
+<li>
+<p>Apache Spark 3.5.1</p>
+</li>
+<li>
+<p>Elasticsearch up and running</p>
+</li>
+<li>
+<p>Kibana up and running(Optional)</p>
+</li>
+<li>
+<p>PostgreSQL up and running</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-scala-project-in-intellij-idea">Create Scala Project in IntelliJ IDEA</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Before we start, make sure you have installed Java 11, Scala 2.12, IntelliJ IDEA, and sbt. And do not forget to install Scala plugin in IntelliJ IDEA.</p>
+</div>
+<div class="paragraph">
+<p>To create a new Scala project in IntelliJ IDEA, follow the steps below:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Open IntelliJ IDEA and click on <code>New</code> &#8594; <code>Project</code> from the main menu.</p>
+</li>
+<li>
+<p>Select <code>Scala</code> from the left panel and <code>sbt</code> from the right panel.</p>
+</li>
+<li>
+<p>Fill in the project name, location, and other details as shown below:</p>
+</li>
+<li>
+<p>Click on <code>Finish</code> to create the project.</p>
+</li>
+</ol>
+</div>
+<div class="sect2">
+<h3 id="properties-of-the-scala-project">Properties of the Scala project</h3>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 50%;">
+<col style="width: 50%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Property</th>
+<th class="tableblock halign-left valign-top">Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Name</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">nsa-log-analytics</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Location</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">~/Dev/workspace</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Language</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Scala</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Build system</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">sbt</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">JDK</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">11</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">sbt</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">1.10.0</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Scala</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">2.12.18</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Package prefix</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">com.alexamy.nsa2.analytics.log</p></td>
+</tr>
+</tbody>
+</table>
+<div class="paragraph">
+<p>Note that Scala version 2.12.18 is used in this tutorial because Apache Spark 3.5.1 is compatible with Scala 2.12.</p>
+</div>
+<div class="paragraph">
+<p>The project structure will look like this:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>tree -I 'target|project|\.idea|\.bsp' .
+.
+├── build.sbt
+└── src
+    ├── main
+    │   └── scala
+    └── test
+        └── scala</pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="build-sbt">build.sbt</h3>
+<div class="paragraph">
+<p>The below code snippet is generated by IntelliJ IDEA and it does not include the required dependencies for Apache Spark.</p>
+</div>
+<div class="listingblock">
+<div class="title">build.sbt</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="scala"><span class="nc">ThisBuild</span> <span class="o">/</span> <span class="n">version</span> <span class="o">:=</span> <span class="s">"0.1.0-SNAPSHOT"</span>
+
+<span class="nc">ThisBuild</span> <span class="o">/</span> <span class="n">scalaVersion</span> <span class="o">:=</span> <span class="s">"2.12.18"</span>
+
+<span class="k">lazy</span> <span class="k">val</span> <span class="nv">root</span> <span class="k">=</span> <span class="o">(</span><span class="n">project</span> <span class="n">in</span> <span class="nf">file</span><span class="o">(</span><span class="s">"."</span><span class="o">))</span>
+  <span class="o">.</span><span class="py">settings</span><span class="o">(</span>
+    <span class="n">name</span> <span class="o">:=</span> <span class="s">"new-project"</span><span class="o">,</span>
+    <span class="n">idePackagePrefix</span> <span class="o">:=</span> <span class="nc">Some</span><span class="o">(</span><span class="s">"com.alexamy.nsa2.analytics.log"</span><span class="o">)</span>
+  <span class="o">)</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Let&#8217;s start by adding the required dependencies to the <code>build.sbt</code> file.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="scala"><span class="k">import</span> <span class="nn">scala.collection.Seq</span>
+
+<span class="n">libraryDependencies</span> <span class="o">++=</span> <span class="nc">Seq</span><span class="o">(</span>
+<span class="c1">//  #  Apache Spark</span>
+  <span class="s">"org.apache.spark"</span> <span class="o">%%</span> <span class="s">"spark-core"</span> <span class="o">%</span> <span class="s">"3.5.1"</span><span class="o">,</span> <span class="c1">// % "provided",</span>
+  <span class="s">"org.apache.spark"</span> <span class="o">%%</span> <span class="s">"spark-sql"</span> <span class="o">%</span> <span class="s">"3.5.1"</span><span class="o">,</span> <span class="c1">// % "provided",</span>
+
+<span class="c1">//  # Hadoop client</span>
+  <span class="s">"org.apache.hadoop"</span> <span class="o">%</span> <span class="s">"hadoop-client"</span> <span class="o">%</span> <span class="s">"3.3.4"</span><span class="o">,</span>
+  <span class="s">"org.apache.hadoop"</span> <span class="o">%</span> <span class="s">"hadoop-client-api"</span> <span class="o">%</span> <span class="s">"3.3.4"</span><span class="o">,</span>
+  <span class="s">"org.apache.hadoop"</span> <span class="o">%</span> <span class="s">"hadoop-common"</span> <span class="o">%</span> <span class="s">"3.3.4"</span><span class="o">,</span>
+
+<span class="c1">//  # Log4j</span>
+  <span class="s">"org.apache.logging.log4j"</span> <span class="o">%</span> <span class="s">"log4j-api-scala_2.12"</span> <span class="o">%</span> <span class="s">"13.0.0"</span><span class="o">,</span>
+  <span class="s">"org.apache.logging.log4j"</span> <span class="o">%</span> <span class="s">"log4j-core"</span> <span class="o">%</span> <span class="s">"2.19.0"</span> <span class="o">%</span> <span class="nc">Runtime</span><span class="o">,</span>
+
+<span class="c1">//  # Elasticsearch and PostgreSQL</span>
+  <span class="s">"org.postgresql"</span> <span class="o">%</span> <span class="s">"postgresql"</span> <span class="o">%</span> <span class="s">"42.7.0"</span><span class="o">,</span>
+  <span class="s">"org.elasticsearch"</span> <span class="o">%%</span> <span class="s">"elasticsearch-spark-30"</span> <span class="o">%</span> <span class="s">"8.14.0"</span><span class="o">,</span>
+
+<span class="c1">//  # Azure Storage for Hadoop. Required for Azure Blob Storage</span>
+  <span class="s">"org.apache.hadoop"</span> <span class="o">%</span> <span class="s">"hadoop-azure"</span> <span class="o">%</span> <span class="s">"3.2.0"</span><span class="o">,</span>
+  <span class="s">"com.microsoft.azure"</span> <span class="o">%</span> <span class="s">"azure-storage"</span> <span class="o">%</span> <span class="s">"8.6.3"</span>
+<span class="o">)</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="spark-conf">spark.conf</h3>
+<div class="paragraph">
+<p>In the project root directory, create a new file named <code>spark.conf</code> and add the following configurations.</p>
+</div>
+<div class="listingblock">
+<div class="title">spark.conf</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="properties"><span class="c"># Apache Spark and Hadop configurations
+</span><span class="py">spark.sql.warehouse.dir</span> <span class="p">=</span> <span class="s">/tmp/spark/warehouse/</span>
+<span class="py">spark.hadoop.fs.defaultFS</span> <span class="p">=</span> <span class="s">file:///tmp/spark/warehouse/</span>
+
+<span class="c"># Elasticsearch configurations
+# https://www.elastic.co/guide/en/elasticsearch/hadoop/current/configuration.html
+</span><span class="py">es.net.ssl</span> <span class="p">=</span> <span class="s">true</span>
+<span class="py">es.net.ssl.cert.allow.self.signed</span> <span class="p">=</span> <span class="s">true</span>
+<span class="py">es.nodes</span> <span class="p">=</span> <span class="s">elasticsearch-master</span>
+<span class="py">es.port</span> <span class="p">=</span> <span class="s">9200</span>
+<span class="py">es.net.http.auth.user</span> <span class="p">=</span> <span class="s">elastic</span>
+<span class="py">es.net.http.auth.pass</span> <span class="p">=</span> <span class="s">changeit</span>
+<span class="py">es.net.ssl.truststore.location</span> <span class="p">=</span> <span class="s">elastic-certificates.p12</span>
+<span class="py">es.net.ssl.truststore.pass</span> <span class="p">=</span> <span class="s">changeit</span>
+<span class="py">es.read.metadata</span> <span class="p">=</span> <span class="s">true</span>
+
+<span class="c"># Application configurations
+</span><span class="py">app.es_index</span> <span class="p">=</span> <span class="s">nsa2-2024.06.17</span>
+<span class="py">app.jdbc.url</span> <span class="p">=</span> <span class="s">jdbc:postgresql://127.0.0.1:5432/nsa2</span>
+<span class="py">app.jdbc.username</span> <span class="p">=</span> <span class="s">{dbusername}</span>
+<span class="py">app.jdbc.password</span> <span class="p">=</span> <span class="s">{dbpassword}</span>
+<span class="py">app.jdbc.table</span> <span class="p">=</span> <span class="s">logging.log_history</span>
+<span class="py">app.parquetBaseLocation</span><span class="p">=</span><span class="s">./data/parquet/</span>
+
+<span class="c"># Azure Storage configurations
+</span><span class="py">spark.hadoop.fs.azure.account.key.aksdepstorage.dfs.core.windows.net</span><span class="p">=</span><span class="s">{azure-storage-account-key}</span>
+<span class="py">spark.hadoop.fs.azure.skipUserGroupMetadataDuringInitialization</span><span class="p">=</span><span class="s">true</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>All these configurations are required to run the Spark application on my local machine. We will use another configuration file for the Spark application running on Kubernetes.</p>
+</div>
+<div class="paragraph">
+<p>The first part of the configuration is for Apache Spark and Hadoop. The <code>spark.sql.warehouse.dir</code> is the location where Spark stores the metadata of the tables. The <code>spark.hadoop.fs.defaultFS</code> is the default filesystem URI.</p>
+</div>
+<div class="paragraph">
+<p>The second part is for Elasticsearch configurations. The <code>es.net.ssl</code> is set to <code>true</code> to enable SSL. The <code>es.net.ssl.cert.allow.self.signed</code> is set to <code>true</code> to allow self-signed certificates. The <code>es.nodes</code> is the Elasticsearch hostname. The <code>es.port</code> is the Elasticsearch port. The <code>es.net.http.auth.user</code> and <code>es.net.http.auth.pass</code> are the Elasticsearch username and password. The <code>es.net.ssl.truststore.location</code> is the location of the truststore file. The <code>es.net.ssl.truststore.pass</code> is the password of the truststore file. The <code>es.read.metadata</code> is set to <code>true</code> to read metadata from Elasticsearch.</p>
+</div>
+<div class="paragraph">
+<p>The third part is for application configurations. The <code>app.es_index</code> is the Elasticsearch index name. The <code>app.jdbc.url</code> is the JDBC URL of the PostgreSQL database. The <code>app.jdbc.username</code> and <code>app.jdbc.password</code> are the username and password of the PostgreSQL database. The <code>app.jdbc.table</code> is the table name where the error logs will be saved. The <code>app.parquetBaseLocation</code> is the base location where the Parquet files will be saved. In terms of truststore, the <code>es.net.ssl.truststore.location</code> is the location of the truststore file. If it is saved in src/main/resources directory of the project, we can specify its location as its filename. The <code>es.net.ssl.truststore.pass</code> is the password of the truststore file.</p>
+</div>
+<div class="paragraph">
+<p>The last part is for Azure Storage configurations. The <code>spark.hadoop.fs.azure.account.key.aksdepstorage.dfs.core.windows.net</code> is the Azure Storage account key. The <code>spark.hadoop.fs.azure.skipUserGroupMetadataDuringInitialization</code> is set to <code>true</code> to skip user group metadata during initialization. This is not required until we deploy the Spark application to Azure Kubernetes Service(AKS).</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="sparkapputil-scala">SparkAppUtil.scala</h3>
+<div class="paragraph">
+<p>I added a new Scala object class named <code>SparkAppUtil</code> in the <code>com.alexamy.nsa2.analytics.log.util</code> package. This object contains two methods: <code>sparkAppConf</code> and <code>sparkSession</code>.
+The sparkAppConf method reads the configurations from the <code>spark.conf</code> file and sets them to the SparkConf object. The sparkSession method creates a new SparkSession object with the given configurations.
+And the sparkSession method creates a new SparkSession object with the given configurations.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="scala"><span class="k">package</span> <span class="nn">com.alexamy.nsa2.analytics.log</span>
+<span class="k">package</span> <span class="nn">util</span>
+
+<span class="k">import</span> <span class="nn">org.apache.spark.SparkConf</span>
+<span class="k">import</span> <span class="nn">org.apache.spark.sql.SparkSession</span>
+<span class="k">import</span> <span class="nn">org.apache.spark.internal.Logging</span>
+
+<span class="k">import</span> <span class="nn">java.nio.file.</span><span class="o">{</span><span class="nc">Files</span><span class="o">,</span> <span class="nc">Paths</span><span class="o">}</span>
+<span class="k">import</span> <span class="nn">java.util.Properties</span>
+<span class="k">import</span> <span class="nn">scala.io.Source</span>
+
+<span class="k">object</span> <span class="nc">SparkAppUtil</span> <span class="k">extends</span> <span class="nc">Logging</span> <span class="o">{</span>
+
+  <span class="k">def</span> <span class="nf">sparkAppConf</span><span class="o">()</span><span class="k">:</span> <span class="kt">SparkConf</span> <span class="o">=</span> <span class="o">{</span>
+    <span class="k">val</span> <span class="nv">sparkAppConf</span> <span class="k">=</span> <span class="k">new</span> <span class="nc">SparkConf</span>
+
+    <span class="k">var</span> <span class="n">configFile</span> <span class="k">=</span> <span class="nv">System</span><span class="o">.</span><span class="py">getenv</span><span class="o">(</span><span class="s">"SPARK_APP_CONF"</span><span class="o">)</span>
+
+    <span class="nf">if</span><span class="o">(</span><span class="n">configFile</span> <span class="o">==</span> <span class="kc">null</span><span class="o">)</span> <span class="o">{</span>
+      <span class="n">configFile</span> <span class="k">=</span> <span class="nv">System</span><span class="o">.</span><span class="py">getProperty</span><span class="o">(</span><span class="s">"SPARK_APP_CONF"</span><span class="o">,</span> <span class="s">"spark.conf"</span><span class="o">)</span>
+    <span class="o">}</span>
+
+    <span class="nf">logInfo</span><span class="o">(</span><span class="n">s</span><span class="s">"CONFIG FILE: $configFile"</span><span class="o">)</span>
+
+    <span class="nf">if</span><span class="o">(</span><span class="n">configFile</span> <span class="o">!=</span> <span class="kc">null</span> <span class="o">&amp;&amp;</span> <span class="nv">Files</span><span class="o">.</span><span class="py">exists</span><span class="o">(</span><span class="nv">Paths</span><span class="o">.</span><span class="py">get</span><span class="o">(</span><span class="n">configFile</span><span class="o">)))</span> <span class="o">{</span>
+      <span class="k">val</span> <span class="nv">props</span> <span class="k">=</span> <span class="k">new</span> <span class="nc">Properties</span>
+      <span class="nv">props</span><span class="o">.</span><span class="py">load</span><span class="o">(</span><span class="nv">Source</span><span class="o">.</span><span class="py">fromFile</span><span class="o">(</span><span class="n">configFile</span><span class="o">).</span><span class="py">bufferedReader</span><span class="o">())</span>
+
+      <span class="nf">logInfo</span><span class="o">(</span><span class="s">"======&gt; props: "</span> <span class="o">+</span> <span class="n">props</span><span class="o">)</span>
+      <span class="nv">props</span><span class="o">.</span><span class="py">forEach</span><span class="o">((</span><span class="n">k</span><span class="o">,</span> <span class="n">v</span><span class="o">)</span> <span class="k">=&gt;</span> <span class="nv">sparkAppConf</span><span class="o">.</span><span class="py">set</span><span class="o">(</span><span class="nv">k</span><span class="o">.</span><span class="py">toString</span><span class="o">,</span> <span class="nv">v</span><span class="o">.</span><span class="py">toString</span><span class="o">))</span>
+    <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+      <span class="nf">logError</span><span class="o">(</span><span class="n">s</span><span class="s">"File Not Found: $configFile"</span><span class="o">)</span>
+    <span class="o">}</span>
+
+    <span class="n">sparkAppConf</span>
+  <span class="o">}</span>
+
+  <span class="k">def</span> <span class="nf">sparkSession</span><span class="o">(</span><span class="n">appName</span><span class="k">:</span> <span class="kt">String</span><span class="o">,</span> <span class="n">conf</span><span class="k">:</span> <span class="kt">SparkConf</span><span class="o">)</span><span class="k">:</span> <span class="kt">SparkSession</span> <span class="o">=</span> <span class="o">{</span>
+    <span class="nc">SparkSession</span>
+      <span class="o">.</span><span class="py">builder</span>
+      <span class="o">.</span><span class="py">appName</span><span class="o">(</span><span class="n">appName</span><span class="o">)</span>
+      <span class="o">.</span><span class="py">master</span><span class="o">(</span><span class="s">"local[*]"</span><span class="o">)</span>
+      <span class="o">.</span><span class="py">config</span><span class="o">(</span><span class="n">conf</span><span class="o">)</span>
+      <span class="o">.</span><span class="py">getOrCreate</span><span class="o">()</span>
+  <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="elasticsearchdocumentcountapp-scala">ElasticsearchDocumentCountApp.scala</h3>
+<div class="paragraph">
+<p>We are going to write a simple Spark application to count the number of documents in the Elasticsearch index. The application reads the Elasticsearch index name from the <code>spark.conf</code> file and counts the number of documents in the index.
+From this simple application, we can see how to read configurations from the <code>spark.conf</code> file and create a SparkSession object using the <code>SparkAppUtil</code> object. And then read the Elasticsearch index name from the configurations and count the number of documents in the index.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="scala"><span class="k">package</span> <span class="nn">com.alexamy.nsa2.analytics.log</span>
+<span class="k">package</span> <span class="nn">app</span>
+
+<span class="k">import</span> <span class="nn">com.alexamy.nsa2.analytics.log.util.SparkAppUtil</span>
+<span class="k">import</span> <span class="nn">org.apache.spark.internal.Logging</span>
+<span class="k">import</span> <span class="nn">org.elasticsearch.spark.sparkContextFunctions</span>
+
+<span class="k">object</span> <span class="nc">ElasticsearchDocumentCountApp</span> <span class="k">extends</span> <span class="nc">App</span> <span class="k">with</span> <span class="nc">Logging</span> <span class="o">{</span>
+
+  <span class="c1">// start main</span>
+  <span class="k">val</span> <span class="nv">sparkConf</span> <span class="k">=</span> <span class="nv">SparkAppUtil</span><span class="o">.</span><span class="py">sparkAppConf</span>
+
+  <span class="k">val</span> <span class="nv">spark</span> <span class="k">=</span> <span class="nv">SparkAppUtil</span><span class="o">.</span><span class="py">sparkSession</span><span class="o">(</span><span class="s">"ElasticsearchDocumentCount"</span><span class="o">,</span> <span class="n">sparkConf</span><span class="o">)</span>
+
+  <span class="k">val</span> <span class="nv">indexName</span> <span class="k">=</span> <span class="nv">sparkConf</span><span class="o">.</span><span class="py">get</span><span class="o">(</span><span class="s">"app.es_index"</span><span class="o">)</span>
+
+  <span class="k">val</span> <span class="nv">count</span> <span class="k">=</span> <span class="nv">spark</span><span class="o">.</span><span class="py">sparkContext</span><span class="o">.</span><span class="py">esRDD</span><span class="o">(</span><span class="n">indexName</span><span class="o">).</span><span class="py">count</span><span class="o">()</span>
+
+  <span class="nf">logInfo</span><span class="o">(</span>
+    <span class="n">s</span><span class="s">"""
+      |
+      | ##### Elasticsearch Document Count #####
+      | Index Name: ${indexName}
+      | Document Count: ${count}
+      | #######################################
+      |"""</span><span class="o">.</span><span class="py">stripMargin</span><span class="o">)</span>
+<span class="c1">//  logInfo(s"Document count for ${indexName}: ${count}")</span>
+
+  <span class="nv">spark</span><span class="o">.</span><span class="py">stop</span><span class="o">()</span>
+  <span class="c1">// end main</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The source code is simple and straight-forward. It reads the configurations from the <code>spark.conf</code> file and create a SparkSession object using the <code>SparkAppUtil</code> object. It reads the Elasticsearch index name from the configurations and count the number of documents in the index. And then log the index name and the document count.</p>
+</div>
+<div class="sect3">
+<h4 id="run-elasticsearchdocumentcountapp">Run ElasticsearchDocumentCountApp</h4>
+<div class="sect4">
+<h5 id="in-intellij-idea">In IntelliJ IDEA</h5>
+<div class="paragraph">
+<p>To run the <code>ElasticsearchDocumentCountApp</code> application in IntelliJ IDEA, press <code>Ctrl + Shift + R</code> or right-click on the <code>ElasticsearchDocumentCountApp</code> object and select <code>Run ElasticsearchDocumentCountApp</code>.</p>
+</div>
+<div class="paragraph">
+<p>We can see the log message in the console as shown below:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre> ##### Elasticsearch Document Count #####
+ Index Name: nsa2-2024.06.17
+ Document Count: 16
+ #######################################</pre>
+</div>
+</div>
+</div>
+<div class="sect4">
+<h5 id="in-terminal">In Terminal</h5>
+<div class="paragraph">
+<p>To run the <code>ElasticsearchDocumentCountApp</code> application in a terminal window, follow the steps below:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>sbt clean package
+<span class="nv">$ </span>sbt run</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="nsa2loganalyticsdailybatchapp">Nsa2LogAnalyticsDailyBatchApp</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We are going to implement a Spark application to read log messages from Elasticsearch, archive the messages as Parquet files to HDFS, and save all ERROR messages to a Relational Database for further analysis. This application will be run daily to process the log messages of the previous day.</p>
+</div>
+<div class="paragraph">
+<p>The application will have the following steps:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Read log messages from Elasticsearch for the previous day. The log messages are stored in the Elasticsearch index with the name <code>nsa2-YYYY.MM.DD</code>.</p>
+</li>
+<li>
+<p>If the data already exists in the PostgreSQL database, delete the data for the index.</p>
+</li>
+<li>
+<p>Parse the log messages using Named Capturing Groups of the regular expression.</p>
+</li>
+<li>
+<p>Archive all the log messages as Parquet files to HDFS in a nested directory structure like nsa2/YYYY/MM/DD in Overwrite mode.</p>
+</li>
+<li>
+<p>Save all ERROR messages to a Relational Database. They will be saved to the <code>logging.log_history</code> table in the PostgreSQL database.</p>
+</li>
+</ol>
+</div>
+<div class="sect2">
+<h3 id="document-formats-saved-in-elasticsearch">Document formats saved in Elasticsearch</h3>
+<div class="listingblock">
+<div class="title">An example of a document saved in Elasticsearch which contains a normal log message.</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"timestamp"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-20T15:46:35.475Z"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"log"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-20T15:46:35.475Z
+ERROR 82128 ---[nsa2-logging-example] [reactor-http-nio-8] c.a.n.e.l.service.LoggingExampleService  :
+Writing log - level: ERROR, message: This is a sample of ERROR level messages</span><span class="se">\n</span><span class="s2">"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"hostname"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Youngs-MacBook-Workbench.local"</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">An example of a document saved in Elasticsearch which contains an error log message.</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"timestamp"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-20T15:48:15.010Z"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"log"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2024-06-20T15:48:15.010Z ERROR 82128 --- [nsa2-logging-example]
+[reactor-http-nio-9] c.a.n.e.l.c.LoggingExampleController     :
+=====&gt; onErrorResume: No enum constant org.slf4j.event.Level.INVALID</span><span class="se">\n\n</span><span class="s2">
+java.lang.IllegalArgumentException:
+No enum constant org.slf4j.event.Level.INVALID</span><span class="se">\n\t</span><span class="s2">
+at java.base/java.lang.Enum.valueOf(Enum.java:273) ~[na:na]</span><span class="se">\n\t</span><span class="s2">
+at org.slf4j.event.Level.valueOf(Level.java:16) ~[slf4j-api-2.0.13.jar:2.0.13]</span><span class="se">\n\t</span><span class="s2">
+at java.base/java.lang.Thread.run(Thread.java:840)
+~[na:na]</span><span class="se">\n\n</span><span class="s2">"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"hostname"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Youngs-MacBook-Workbench.local"</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>From those samples of log messages, we can see that each log message contains the timestamp, log level, application name, thread name, logger class, and message. To get these fields from the log message, we need to use the following regular expression pattern. We will use the Named Capturing Groups of the regular expression to parse the log message.</p>
+</div>
+<div class="listingblock">
+<div class="title">regular expression pattern to parse the log message</div>
+<div class="content">
+<pre>^(?&lt;timestamp&gt;[0-9-]+T[:0-9\.]+\d{3}Z)\s+(?&lt;level&gt;[A-Z]+)
+\s+\d+\s\-{3}\s+\[(?&lt;appName&gt;[\w\-\d]+)\]+\s+\[\s*(?&lt;thread&gt;[\w\-\d]+)\]+
+\s+[\w\d\.]*\.(?&lt;loggerClass&gt;[\w\.\d]+)\s+:(?&lt;message&gt;.*)</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The Elasticsearch index name and document id can be read from the metadata of the document. The <code>_metadata._index</code> is the index name and the <code>_metadata._id</code> is the document id.</p>
+</div>
+<div class="paragraph">
+<p>All those fields will be saved in the PostgreSQL database for further analysis. We will save the log messages to the <code>logging.log_history</code> table in the PostgreSQL database. Our scenario is to save all ERROR messages to the database for the operational team to analyze the error logs.</p>
+</div>
+<div class="listingblock">
+<div class="title">ddl.sql - logging.log_history table</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sql"><span class="k">create</span> <span class="k">table</span> <span class="n">logging</span><span class="p">.</span><span class="n">log_history</span>
+<span class="p">(</span>
+    <span class="n">id</span>           <span class="n">uuid</span> <span class="k">not</span> <span class="k">null</span> <span class="k">primary</span> <span class="k">key</span><span class="p">,</span>
+    <span class="n">log_time</span>     <span class="nb">timestamp</span><span class="p">,</span>
+    <span class="n">log_level</span>    <span class="nb">varchar</span><span class="p">(</span><span class="mi">10</span><span class="p">),</span>
+    <span class="n">app_name</span>     <span class="nb">varchar</span><span class="p">(</span><span class="mi">50</span><span class="p">),</span>
+    <span class="n">thread</span>       <span class="nb">varchar</span><span class="p">(</span><span class="mi">50</span><span class="p">),</span>
+    <span class="n">logger_class</span> <span class="nb">varchar</span><span class="p">(</span><span class="mi">50</span><span class="p">),</span>
+    <span class="n">message</span>      <span class="nb">text</span><span class="p">,</span>
+    <span class="n">raw_data</span>     <span class="nb">text</span><span class="p">,</span>
+    <span class="n">es_id</span>        <span class="nb">varchar</span><span class="p">(</span><span class="mi">50</span><span class="p">),</span>
+    <span class="n">es_index</span>     <span class="nb">varchar</span><span class="p">(</span><span class="mi">50</span><span class="p">),</span>
+    <span class="n">hostname</span>     <span class="nb">varchar</span><span class="p">(</span><span class="mi">50</span><span class="p">)</span>
+<span class="p">);</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Because it is not easy to use Sequence based primary key in Spark, we use UUID as the primary key. The <code>log_time</code> is the timestamp of the log message. The <code>log_level</code> is the log level of the log message. The <code>app_name</code> is the application name. The <code>thread</code> is the thread name. The <code>logger_class</code> is the logger class. The <code>message</code> is the log message. The <code>raw_data</code> is the raw log message. The <code>es_id</code> is the document id of the log message. The <code>es_index</code> is the index name of the log message. The <code>hostname</code> is the hostname of the log message.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="nsa2loganalyticsdailybatchapp-scala">Nsa2LogAnalyticsDailyBatchApp.scala</h3>
+<div class="paragraph">
+<p>I added a new object named <code>Nsa2LogAnalyticsDailyBatchApp</code> in the <code>com.alexamy.nsa2.analytics.log.app</code> package. This object contains the main method to process the log messages of the previous day.</p>
+</div>
+<div class="listingblock">
+<div class="title">Nsa2LogAnalyticsDailyBatchApp.scala</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="scala"><span class="k">package</span> <span class="nn">com.alexamy.nsa2.analytics.log</span>
+<span class="k">package</span> <span class="nn">app</span>
+
+<span class="k">import</span> <span class="nn">util.SparkAppUtil</span>
+
+<span class="k">import</span> <span class="nn">org.apache.spark.internal.Logging</span>
+<span class="k">import</span> <span class="nn">org.apache.spark.sql.SaveMode</span>
+<span class="k">import</span> <span class="nn">org.apache.spark.sql.functions.</span><span class="o">{</span><span class="n">col</span><span class="o">,</span> <span class="n">regexp_extract</span><span class="o">,</span> <span class="n">uuid</span><span class="o">}</span>
+<span class="k">import</span> <span class="nn">org.apache.spark.sql.types._</span>
+
+<span class="k">import</span> <span class="nn">java.sql.</span><span class="o">{</span><span class="nc">Connection</span><span class="o">,</span> <span class="nc">DriverManager</span><span class="o">,</span> <span class="nc">PreparedStatement</span><span class="o">,</span> <span class="nc">SQLException</span><span class="o">}</span>
+
+<span class="k">object</span> <span class="nc">Nsa2LogAnalyticsDailyBatchApp</span> <span class="k">extends</span> <span class="nc">App</span> <span class="k">with</span> <span class="nc">Logging</span> <span class="o">{</span>
+
+  <span class="c1">// start main</span>
+  <span class="k">val</span> <span class="nv">sparkConf</span> <span class="k">=</span> <span class="nv">SparkAppUtil</span><span class="o">.</span><span class="py">sparkAppConf</span>
+
+
+  <span class="k">val</span> <span class="nv">spark</span> <span class="k">=</span> <span class="nv">SparkAppUtil</span><span class="o">.</span><span class="py">sparkSession</span><span class="o">(</span><span class="s">"Nsa2LogAnalyticsDailyBatchApp"</span><span class="o">,</span> <span class="n">sparkConf</span><span class="o">)</span>
+
+  <span class="k">private</span> <span class="k">val</span> <span class="nv">indexName</span> <span class="k">=</span> <span class="nv">sparkConf</span><span class="o">.</span><span class="py">get</span><span class="o">(</span><span class="s">"app.es_index"</span><span class="o">)</span>
+  <span class="k">private</span> <span class="k">val</span> <span class="nv">jdbcDriver</span> <span class="k">=</span> <span class="s">"org.postgresql.Driver"</span>
+  <span class="k">private</span> <span class="k">val</span> <span class="nv">jdbcUrl</span> <span class="k">=</span> <span class="nv">sparkConf</span><span class="o">.</span><span class="py">get</span><span class="o">(</span><span class="s">"app.jdbc.url"</span><span class="o">)</span>
+  <span class="k">private</span> <span class="k">val</span> <span class="nv">jdbcUsername</span> <span class="k">=</span> <span class="nv">sparkConf</span><span class="o">.</span><span class="py">get</span><span class="o">(</span><span class="s">"app.jdbc.username"</span><span class="o">)</span>
+  <span class="k">private</span> <span class="k">val</span> <span class="nv">jdbcPassword</span> <span class="k">=</span> <span class="nv">sparkConf</span><span class="o">.</span><span class="py">get</span><span class="o">(</span><span class="s">"app.jdbc.password"</span><span class="o">)</span>
+  <span class="k">private</span> <span class="k">val</span> <span class="nv">jdbcTable</span> <span class="k">=</span> <span class="nv">sparkConf</span><span class="o">.</span><span class="py">get</span><span class="o">(</span><span class="s">"app.jdbc.table"</span><span class="o">)</span>
+  <span class="k">private</span> <span class="k">val</span> <span class="nv">parquetBaseLocation</span> <span class="k">=</span> <span class="nv">sparkConf</span><span class="o">.</span><span class="py">get</span><span class="o">(</span><span class="s">"app.parquetBaseLocation"</span><span class="o">)</span>
+
+  <span class="c1">// delete records from the table that have the same indexName</span>
+  <span class="k">private</span> <span class="k">def</span> <span class="nf">deleteIndexRecordsFromDatabaseIfExists</span><span class="o">(</span><span class="n">indexName</span><span class="k">:</span> <span class="kt">String</span><span class="o">)</span><span class="k">:</span> <span class="kt">Unit</span> <span class="o">=</span> <span class="o">{</span>
+    <span class="nf">logInfo</span><span class="o">(</span><span class="n">s</span><span class="s">"trying to delete records from ${jdbcTable} where es_index = ${indexName}"</span><span class="o">)</span>
+
+    <span class="k">try</span> <span class="o">{</span>
+      <span class="nv">Class</span><span class="o">.</span><span class="py">forName</span><span class="o">(</span><span class="n">jdbcDriver</span><span class="o">)</span>
+    <span class="o">}</span> <span class="k">catch</span> <span class="o">{</span>
+      <span class="k">case</span> <span class="n">e</span><span class="k">:</span> <span class="kt">ClassNotFoundException</span> <span class="o">=&gt;</span>
+        <span class="nf">logError</span><span class="o">(</span><span class="n">s</span><span class="s">"JDBC driver not found: ${jdbcDriver}"</span><span class="o">)</span>
+        <span class="nv">System</span><span class="o">.</span><span class="py">exit</span><span class="o">(</span><span class="mi">1</span><span class="o">)</span>
+    <span class="o">}</span>
+
+    <span class="k">val</span> <span class="nv">sql</span> <span class="k">=</span> <span class="n">s</span><span class="s">"""
+                 |DELETE FROM ${jdbcTable}
+                 |WHERE es_index = ?
+                 |"""</span><span class="o">.</span><span class="py">stripMargin</span>
+
+    <span class="k">var</span> <span class="n">connection</span><span class="k">:</span> <span class="kt">Connection</span> <span class="o">=</span> <span class="kc">null</span>
+    <span class="k">var</span> <span class="n">statement</span><span class="k">:</span> <span class="kt">PreparedStatement</span> <span class="o">=</span> <span class="kc">null</span>
+    <span class="k">try</span> <span class="o">{</span>
+      <span class="n">connection</span> <span class="k">=</span> <span class="nv">DriverManager</span><span class="o">.</span><span class="py">getConnection</span><span class="o">(</span><span class="n">jdbcUrl</span><span class="o">,</span> <span class="n">jdbcUsername</span><span class="o">,</span> <span class="n">jdbcPassword</span><span class="o">)</span>
+      <span class="n">statement</span> <span class="k">=</span> <span class="nv">connection</span><span class="o">.</span><span class="py">prepareStatement</span><span class="o">(</span><span class="n">sql</span><span class="o">)</span>
+
+      <span class="nv">statement</span><span class="o">.</span><span class="py">setString</span><span class="o">(</span><span class="mi">1</span><span class="o">,</span> <span class="n">indexName</span><span class="o">)</span>
+      <span class="k">val</span> <span class="nv">deletedRow</span> <span class="k">=</span> <span class="nv">statement</span><span class="o">.</span><span class="py">executeUpdate</span><span class="o">()</span>
+      <span class="nf">logInfo</span><span class="o">(</span><span class="n">s</span><span class="s">"${deletedRow} rows deleted from ${jdbcTable} where es_index = ${indexName}"</span><span class="o">)</span>
+
+    <span class="o">}</span> <span class="k">catch</span> <span class="o">{</span>
+      <span class="k">case</span> <span class="n">e</span><span class="k">:</span> <span class="kt">SQLException</span> <span class="o">=&gt;</span>
+        <span class="nf">logError</span><span class="o">(</span><span class="n">s</span><span class="s">"Error deleting rows from ${jdbcTable} where es_index = ${indexName}: ${e.getMessage}"</span><span class="o">)</span>
+        <span class="nv">System</span><span class="o">.</span><span class="py">exit</span><span class="o">(</span><span class="mi">1</span><span class="o">)</span>
+    <span class="o">}</span> <span class="k">finally</span> <span class="o">{</span>
+      <span class="nf">if</span> <span class="o">(</span><span class="n">statement</span> <span class="o">!=</span> <span class="kc">null</span><span class="o">)</span> <span class="o">{</span>
+        <span class="nv">statement</span><span class="o">.</span><span class="py">close</span><span class="o">()</span>
+      <span class="o">}</span>
+      <span class="nf">if</span> <span class="o">(</span><span class="n">connection</span> <span class="o">!=</span> <span class="kc">null</span><span class="o">)</span> <span class="o">{</span>
+        <span class="nv">connection</span><span class="o">.</span><span class="py">close</span><span class="o">()</span>
+      <span class="o">}</span>
+    <span class="o">}</span>
+  <span class="o">}</span>
+
+
+  <span class="nf">logInfo</span><span class="o">(</span><span class="n">s</span><span class="s">"indexName: ${indexName}"</span><span class="o">)</span>
+
+  <span class="nf">if</span><span class="o">(</span><span class="n">indexName</span> <span class="o">==</span> <span class="kc">null</span> <span class="o">||</span> <span class="nv">indexName</span><span class="o">.</span><span class="py">isEmpty</span><span class="o">())</span> <span class="o">{</span>
+    <span class="nf">logError</span><span class="o">(</span><span class="s">"indexName is required. Please set app.es_index in spark.conf."</span><span class="o">)</span>
+    <span class="nv">System</span><span class="o">.</span><span class="py">exit</span><span class="o">(</span><span class="mi">1</span><span class="o">)</span>
+  <span class="o">}</span>
+
+  <span class="nf">deleteIndexRecordsFromDatabaseIfExists</span><span class="o">(</span><span class="n">indexName</span><span class="o">)</span>
+
+
+  <span class="k">private</span> <span class="k">val</span> <span class="nv">rawDF</span> <span class="k">=</span> <span class="nv">spark</span><span class="o">.</span><span class="py">read</span><span class="o">.</span><span class="py">format</span><span class="o">(</span><span class="s">"org.elasticsearch.spark.sql"</span><span class="o">).</span><span class="py">load</span><span class="o">(</span><span class="n">indexName</span><span class="o">)</span>
+
+  <span class="k">val</span> <span class="nv">pattern</span> <span class="k">=</span> <span class="s">"""^(?&lt;timestamp&gt;[0-9-]+T[:0-9\.]+\d{3}Z)\s+(?&lt;level&gt;[A-Z]+)\s+\d+\s\-{3}
+\s+\[(?&lt;appName&gt;[\w\-\d]+)\]+\s+\[\s*(?&lt;thread&gt;[\w\-\d]+)\]+
+\s+[\w\d\.]*\.(?&lt;loggerClass&gt;[\w\.\d]+)\s+:(?&lt;message&gt;.*)"""</span>
+
+  <span class="c1">//  nsa2-2024.06.17 -&gt; nsa2/2024/06/17</span>
+  <span class="k">private</span> <span class="k">val</span> <span class="nv">parquetPathForRawData</span> <span class="k">=</span> <span class="n">s</span><span class="s">"${parquetBaseLocation}raw/${indexName.replace('-', '/').replace('.', '/')}"</span>
+  <span class="k">private</span> <span class="k">val</span> <span class="nv">parquetPath</span> <span class="k">=</span> <span class="n">s</span><span class="s">"${parquetBaseLocation}processed/${indexName.replace('-', '/').replace('.', '/')}"</span>
+
+  <span class="nf">logInfo</span><span class="o">(</span><span class="n">s</span><span class="s">"parquetPathForRawData: ${parquetPathForRawData}"</span><span class="o">)</span>
+  <span class="nf">logInfo</span><span class="o">(</span><span class="n">s</span><span class="s">"parquetPath: ${parquetPath}"</span><span class="o">)</span>
+
+  <span class="nv">rawDF</span><span class="o">.</span><span class="py">write</span>
+    <span class="o">.</span><span class="py">mode</span><span class="o">(</span><span class="nv">SaveMode</span><span class="o">.</span><span class="py">Overwrite</span><span class="o">)</span>
+    <span class="o">.</span><span class="py">parquet</span><span class="o">(</span><span class="n">parquetPathForRawData</span><span class="o">)</span>
+
+  <span class="nv">rawDF</span><span class="o">.</span><span class="py">printSchema</span><span class="o">()</span>
+
+  <span class="k">val</span> <span class="nv">processedDF</span> <span class="k">=</span> <span class="n">rawDF</span>
+    <span class="o">.</span><span class="py">withColumn</span><span class="o">(</span><span class="s">"id"</span><span class="o">,</span> <span class="nf">uuid</span><span class="o">())</span>
+    <span class="o">.</span><span class="py">withColumn</span><span class="o">(</span><span class="s">"log_time"</span><span class="o">,</span> <span class="nf">regexp_extract</span><span class="o">(</span><span class="nf">rawDF</span><span class="o">(</span><span class="s">"log"</span><span class="o">),</span> <span class="n">pattern</span><span class="o">,</span> <span class="mi">1</span><span class="o">).</span><span class="py">cast</span><span class="o">(</span><span class="nc">TimestampType</span><span class="o">))</span>
+    <span class="o">.</span><span class="py">withColumn</span><span class="o">(</span><span class="s">"log_level"</span><span class="o">,</span> <span class="nf">regexp_extract</span><span class="o">(</span><span class="nf">rawDF</span><span class="o">(</span><span class="s">"log"</span><span class="o">),</span> <span class="n">pattern</span><span class="o">,</span> <span class="mi">2</span><span class="o">))</span>
+    <span class="o">.</span><span class="py">withColumn</span><span class="o">(</span><span class="s">"app_name"</span><span class="o">,</span> <span class="nf">regexp_extract</span><span class="o">(</span><span class="nf">rawDF</span><span class="o">(</span><span class="s">"log"</span><span class="o">),</span> <span class="n">pattern</span><span class="o">,</span> <span class="mi">3</span><span class="o">))</span>
+    <span class="o">.</span><span class="py">withColumn</span><span class="o">(</span><span class="s">"thread"</span><span class="o">,</span> <span class="nf">regexp_extract</span><span class="o">(</span><span class="nf">rawDF</span><span class="o">(</span><span class="s">"log"</span><span class="o">),</span> <span class="n">pattern</span><span class="o">,</span> <span class="mi">4</span><span class="o">))</span>
+    <span class="o">.</span><span class="py">withColumn</span><span class="o">(</span><span class="s">"logger_class"</span><span class="o">,</span> <span class="nf">regexp_extract</span><span class="o">(</span><span class="nf">rawDF</span><span class="o">(</span><span class="s">"log"</span><span class="o">),</span> <span class="n">pattern</span><span class="o">,</span> <span class="mi">5</span><span class="o">))</span>
+    <span class="o">.</span><span class="py">withColumn</span><span class="o">(</span><span class="s">"message"</span><span class="o">,</span> <span class="nf">regexp_extract</span><span class="o">(</span><span class="nf">rawDF</span><span class="o">(</span><span class="s">"log"</span><span class="o">),</span> <span class="n">pattern</span><span class="o">,</span> <span class="mi">6</span><span class="o">))</span>
+    <span class="o">.</span><span class="py">withColumn</span><span class="o">(</span><span class="s">"es_id"</span><span class="o">,</span> <span class="nf">col</span><span class="o">(</span><span class="s">"_metadata._id"</span> <span class="o">))</span>
+    <span class="o">.</span><span class="py">withColumn</span><span class="o">(</span><span class="s">"es_index"</span><span class="o">,</span> <span class="nf">col</span><span class="o">(</span><span class="s">"_metadata._index"</span> <span class="o">))</span>
+    <span class="o">.</span><span class="py">withColumnRenamed</span><span class="o">(</span><span class="s">"log"</span><span class="o">,</span> <span class="s">"raw_data"</span><span class="o">)</span>
+    <span class="o">.</span><span class="py">drop</span><span class="o">(</span><span class="s">"@timestamp"</span><span class="o">,</span> <span class="s">"timestamp"</span><span class="o">,</span> <span class="s">"_metadata"</span><span class="o">)</span>
+
+  <span class="n">processedDF</span>
+    <span class="o">.</span><span class="py">write</span>
+    <span class="o">.</span><span class="py">mode</span><span class="o">(</span><span class="nv">SaveMode</span><span class="o">.</span><span class="py">Overwrite</span><span class="o">)</span>
+    <span class="o">.</span><span class="py">parquet</span><span class="o">(</span><span class="n">parquetPath</span><span class="o">)</span>
+
+  <span class="nv">processedDF</span><span class="o">.</span><span class="py">show</span><span class="o">(</span><span class="mi">20</span><span class="o">)</span>
+
+  <span class="n">processedDF</span>
+    <span class="o">.</span><span class="py">filter</span><span class="o">(</span><span class="nf">col</span><span class="o">(</span><span class="s">"log_level"</span><span class="o">).</span><span class="py">equalTo</span><span class="o">(</span><span class="s">"ERROR"</span><span class="o">))</span>
+    <span class="o">.</span><span class="py">write</span>
+    <span class="o">.</span><span class="py">format</span><span class="o">(</span><span class="s">"jdbc"</span><span class="o">)</span>
+    <span class="o">.</span><span class="py">option</span><span class="o">(</span><span class="s">"url"</span><span class="o">,</span> <span class="n">jdbcUrl</span><span class="o">)</span>
+    <span class="o">.</span><span class="py">option</span><span class="o">(</span><span class="s">"driver"</span><span class="o">,</span>  <span class="n">jdbcDriver</span><span class="o">)</span>
+    <span class="o">.</span><span class="py">option</span><span class="o">(</span><span class="s">"user"</span><span class="o">,</span> <span class="n">jdbcUsername</span><span class="o">)</span>
+    <span class="o">.</span><span class="py">option</span><span class="o">(</span><span class="s">"password"</span><span class="o">,</span> <span class="n">jdbcPassword</span><span class="o">)</span>
+    <span class="o">.</span><span class="py">option</span><span class="o">(</span><span class="s">"truncate"</span><span class="o">,</span> <span class="s">"false"</span><span class="o">)</span>
+    <span class="o">.</span><span class="py">option</span><span class="o">(</span><span class="s">"dbtable"</span><span class="o">,</span> <span class="n">jdbcTable</span><span class="o">)</span>
+    <span class="o">.</span><span class="py">option</span><span class="o">(</span><span class="s">"stringtype"</span><span class="o">,</span> <span class="s">"unspecified"</span> <span class="o">)</span>
+    <span class="o">.</span><span class="py">mode</span><span class="o">(</span><span class="nv">SaveMode</span><span class="o">.</span><span class="py">Append</span><span class="o">)</span>
+    <span class="o">.</span><span class="py">save</span><span class="o">()</span>
+
+  <span class="nv">spark</span><span class="o">.</span><span class="py">stop</span><span class="o">()</span>
+  <span class="c1">// end main</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>At the beginning of the main method, we read the configurations from the <code>spark.conf</code> file and create a SparkSession object using the <code>SparkAppUtil</code> object. We read the Elasticsearch index name, JDBC URL, JDBC username, JDBC password, JDBC table name, and Parquet base location from the configurations.</p>
+</div>
+<div class="paragraph">
+<p>We have a method named <code>deleteIndexRecordsFromDatabaseIfExists</code> to delete records from the table that have the same indexName. We use the JDBC driver to connect to the PostgreSQL database and delete the records from the table where the es_index is equal to the indexName.</p>
+</div>
+<div class="paragraph">
+<p>The variable rawDF is a DataFrame that reads the log messages from the Elasticsearch index. We use the <code>org.elasticsearch.spark.sql</code> format to read the data from Elasticsearch.</p>
+</div>
+<div class="paragraph">
+<p>And we have a regular expression pattern to parse the log message. We use the <code>regexp_extract</code> function to parse the log message and create a new DataFrame named processedDF. The processedDF DataFrame contains the parsed log messages and metadata.</p>
+</div>
+<div class="paragraph">
+<p>All data saved in the rawDF and processedDF DataFrames are saved as Parquet files to HDFS. The rawDF DataFrame is saved to the <code>parquetPathForRawData</code> location. The processedDF DataFrame is saved to the <code>parquetPath</code> location. These are archived in a nested directory structure like nsa2/YYYY/MM/DD in Overwrite mode for possible future use.</p>
+</div>
+<div class="paragraph">
+<p>And for operational purposes, we save all ERROR messages to the PostgreSQL database. We filter the processedDF DataFrame where the log_level is equal to ERROR and save the data to the <code>logging.log_history</code> table in the PostgreSQL database. We might need to implement an administrative interface to view the error logs in the future.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>.option("stringtype", "unspecified" )</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Please note that stringtype is set to unspecified to save UUID data in PostgreSQL database. Spark saves UUID data as a string type by default. If we do not set the stringtype to unspecified, the UUID data will be saved as a text type in the PostgreSQL database.</p>
+</div>
+<div class="paragraph">
+<p>Here is a sample parquet file saved in HDFS. We can see the directory structure and the Parquet file. The image below is taken from the Parquet Viewer.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/parquet-viewer.png" alt="Parquet Viewer" width="1000">
+</div>
+</div>
+<div class="paragraph">
+<p>Here is a sample of the log_history table in the PostgreSQL database. We can see the log messages saved in the table. The image below is taken from the IntelliJ IDEA Database tool.</p>
+</div>
+<div class="imageblock text-center">
+<div class="content">
+<img src="images/db-query-log_history.png" alt="Query log_history table" width="1000">
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deploy-spark-application-to-kubernetes">Deploy Spark Application to Kubernetes</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Deploying the Spark application to Kubernetes is not an easy task. We need to create a Docker image for the Spark application and deploy it to Kubernetes. We also need to create Blob Storage for HDFS and a PostgreSQL database for the Relational Database.</p>
+</div>
+<div class="paragraph">
+<p>In this section, we will simply look at how to deploy the Spark application to Kubernetes. We are not going to cover the whole process of deploying the Spark application to Kubernetes. We will only cover the deployment part of the Spark application.</p>
+</div>
+<div class="sect2">
+<h3 id="package-spark-application">Package Spark Application</h3>
+<div class="listingblock">
+<div class="title">Package the Spark application using sbt.</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>sbt clean package
+<span class="nv">$ </span><span class="nb">ls</span> <span class="nt">-l</span> target/scala-2.12/nsa2-log-analytics_2.12-0.1.0-SNAPSHOT.jar</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The packaged jar file is located in the target/scala-2.12 directory and we are going to use this jar file to deploy the Spark application to Kubernetes.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="configuration-for-kubernetes">Configuration for Kubernetes</h3>
+<div class="paragraph">
+<p>We need a configuration file for the Spark application that will be running on Kubernetes. The Elasticsearch hostname and port, the JDBC URL, the JDBC username, the JDBC password, the Parquet base location, and the Azure Storage account key are required for the Spark application.</p>
+</div>
+<div class="listingblock">
+<div class="title">conf/aks/spark.conf</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="properties"><span class="py">spark.sql.warehouse.dir</span> <span class="p">=</span>
+<span class="py">abfs</span><span class="p">:</span><span class="s">//{your-container}@{your-storage-account}.dfs.core.windows.net/nsa2-log-analytics/warehouse/</span>
+
+<span class="c"># org.apache.hadoop.fs.azurebfs.constants.ConfigurationKeys.AZURE_SKIP_USER_GROUP_METADATA_DURING_INITIALIZATION
+# https://hadoop.apache.org/docs/stable/hadoop-azure/abfs.html
+# make sure to add spark.hadoop. at the beginning
+</span><span class="py">spark.hadoop.fs.azure.skipUserGroupMetadataDuringInitialization</span><span class="p">=</span><span class="s">true</span>
+
+
+<span class="c"># https://www.elastic.co/guide/en/elasticsearch/hadoop/current/configuration.html
+</span><span class="py">es.net.ssl</span> <span class="p">=</span> <span class="s">true</span>
+<span class="py">es.net.ssl.cert.allow.self.signed</span> <span class="p">=</span> <span class="s">true</span>
+
+<span class="py">es.nodes</span> <span class="p">=</span> <span class="s">elasticsearch-master</span>
+<span class="py">es.port</span> <span class="p">=</span> <span class="s">9200</span>
+<span class="py">es.net.http.auth.user</span> <span class="p">=</span> <span class="s">elastic</span>
+<span class="py">es.net.http.auth.pass</span> <span class="p">=</span> <span class="s">changeit</span>
+<span class="py">es.net.ssl.truststore.location</span> <span class="p">=</span> <span class="s">elastic-certificates.p12</span>
+<span class="py">es.net.ssl.truststore.pass</span> <span class="p">=</span> <span class="s">changeit</span>
+
+<span class="py">es.read.metadata</span> <span class="p">=</span> <span class="s">true</span>
+
+<span class="py">app.es_index</span> <span class="p">=</span> <span class="s">nsa2-2024.06.20</span>
+<span class="py">app.jdbc.url</span> <span class="p">=</span> <span class="s">jdbc:postgresql://postgresql:5432/nsa2</span>
+<span class="py">app.jdbc.username</span> <span class="p">=</span> <span class="s">{your-username}</span>
+<span class="py">app.jdbc.password</span> <span class="p">=</span> <span class="s">{your-password}</span>
+<span class="py">app.jdbc.table</span> <span class="p">=</span> <span class="s">logging.log_history</span>
+<span class="py">app.parquetBaseLocation</span><span class="p">=</span>
+<span class="py">abfs</span><span class="p">:</span><span class="s">//{your-container}@{your-storage-account}.dfs.core.windows.net/nsa2-log-analytics/data/parquet/</span>
+
+<span class="py">spark.hadoop.fs.azure.account.key.aksdepstorage.dfs.core.windows.net</span><span class="p">=</span><span class="s">{your-storage-account-key}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="deploy-spark-application-to-kubernetes-using-spark-submit">Deploy Spark Application to Kubernetes using spark-submit</h3>
+<div class="paragraph">
+<p>To deploy the Spark application to Kubernetes, we need to use the <code>spark-submit</code> command. The <code>spark-submit</code> command is used to submit a Spark application to the cluster. We need to set the configurations for the Spark application and the Kubernetes cluster.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">export </span><span class="nv">SPARK_JAR</span><span class="o">=</span>target/scala-2.12/nsa-log-analytics_2.12-0.1.0-SNAPSHOT.jar
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">K8S_CONTROL_PLANE_URL</span><span class="o">={</span>your-control-plane-url<span class="o">}</span>
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">K8S_NAMESPACE</span><span class="o">={</span>your-namespace<span class="o">}</span>
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">K8S_AGENT_POOL</span><span class="o">={</span>your-agent-pool<span class="o">}</span>
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">AZ_STORAGE_ACCOUNT</span><span class="o">={</span>your-storage-account<span class="o">}</span>
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">AZ_STORAGE_ACCOUNT_KEY</span><span class="o">={</span>your-storage-account-key<span class="o">}</span>
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">BLOB_CONTAINER</span><span class="o">={</span>your-container<span class="o">}</span>
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">SPARK_SA</span><span class="o">={</span>your-service-account-name-for-spark<span class="o">}</span>
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">SPARK_DOCKER_IMAGE</span><span class="o">={</span>your-spark-docker-image<span class="o">}</span>
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">SPARK_MASTER_URL</span><span class="o">={</span>your-spark-master-url<span class="o">}</span>
+
+<span class="nv">$ </span>spark-submit <span class="se">\</span>
+  <span class="nt">--master</span> k8s://<span class="k">${</span><span class="nv">K8S_CONTROL_PLANE_URL</span><span class="k">}</span> <span class="se">\</span>
+  <span class="nt">--deploy-mode</span> cluster <span class="se">\</span>
+  <span class="nt">--files</span> conf/aks/spark.conf <span class="se">\</span>
+  <span class="nt">--name</span> nsa2-log-analytics-app <span class="se">\</span>
+  <span class="nt">--conf</span> spark.executor.instances<span class="o">=</span>3 <span class="se">\</span>
+  <span class="nt">--conf</span> spark.log.level<span class="o">=</span>DEBUG <span class="se">\</span>
+  <span class="nt">--conf</span> spark.kubernetes.container.image.pullPolicy<span class="o">=</span>Always <span class="se">\</span>
+  <span class="nt">--conf</span> spark.kubernetes.authenticate.driver.serviceAccountName<span class="o">=</span><span class="k">${</span><span class="nv">SPARK_SA</span><span class="k">}</span> <span class="se">\</span>
+  <span class="nt">--conf</span> spark.kubernetes.authenticate.executor.serviceAccountName<span class="k">${</span><span class="nv">SPARK_SA</span><span class="k">}</span> <span class="se">\</span>
+  <span class="nt">--conf</span> spark.kubernetes.container.image<span class="o">=</span><span class="k">${</span><span class="nv">SPARK_DOCKER_IMAGE</span><span class="k">}</span><span class="se">\</span>
+  <span class="nt">--conf</span> <span class="s2">"spark.kubernetes.node.selector.agentpool=</span><span class="k">${</span><span class="nv">K8S_AGENT_POOL</span><span class="k">}</span><span class="s2">"</span> <span class="se">\</span>
+  <span class="nt">--conf</span> <span class="s2">"spark.kubernetes.namespace=</span><span class="k">${</span><span class="nv">K8S_NAMESPACE</span><span class="k">}</span><span class="s2">"</span> <span class="se">\</span>
+  <span class="nt">--conf</span> <span class="s2">"spark.hadoop.fs.azure.account.key.aksdepstorage.dfs.core.windows.net=</span><span class="k">${</span><span class="nv">AZ_STORAGE_ACCOUNT_KEY</span><span class="k">}</span><span class="s2">"</span> <span class="se">\</span>
+  <span class="nt">--packages</span> org.apache.hadoop:hadoop-azure:3.2.0,
+com.microsoft.azure:azure-storage:8.6.3,org.postgresql:postgresql:42.7.0,
+org.elasticsearch:elasticsearch-spark-30:8.14.0,
+com.squareup.okhttp3:okhttp:4.12.0 <span class="se">\</span>
+  <span class="nt">--conf</span> spark.driver.extraJavaOptions<span class="o">=</span><span class="s2">"-Divy.cache.dir=/tmp -Divy.home=/tmp"</span> <span class="se">\</span>
+  <span class="nt">--conf</span> spark.kubernetes.file.upload.path<span class="o">=</span>
+<span class="s2">"abfs://</span><span class="k">${</span><span class="nv">BLOB_CONTAINER</span><span class="k">}</span><span class="s2">@{AZ_STORAGE_ACCOUNT}.dfs.core.windows.net/nsa2-log-analytics/upload"</span> <span class="se">\</span>
+  <span class="nt">--conf</span> spark.kubernetes.driverEnv.SPARK_MASTER_URL<span class="o">=</span>spark://<span class="k">${</span><span class="nv">SPARK_MASTER_URL</span><span class="k">}</span>:7077 <span class="se">\</span>
+  <span class="nt">--conf</span> spark.kubernetes.driverEnv.HADOOP_OPTIONAL_TOOLS<span class="o">=</span>hadoop-azure <span class="se">\</span>
+  <span class="nt">--conf</span> spark.executorEnv.HADOOP_OPTIONAL_TOOLS<span class="o">=</span>hadoop-azure <span class="se">\</span>
+  <span class="nt">--conf</span> spark.kubernetes.driver.request.cores<span class="o">=</span><span class="s2">"0.1"</span> <span class="se">\</span>
+  <span class="nt">--conf</span> spark.kubernetes.executor.request.cores<span class="o">=</span><span class="s2">"0.1"</span> <span class="se">\</span>
+  <span class="nt">--conf</span> spark.kubernetes.driver.limit.cores<span class="o">=</span><span class="s2">"0.2"</span> <span class="se">\</span>
+  <span class="nt">--conf</span> spark.kubernetes.executor.limit.cores<span class="o">=</span><span class="s2">"0.2"</span> <span class="se">\</span>
+  <span class="nt">--conf</span> spark.kubernetes.driver.master<span class="o">=</span><span class="s2">"</span><span class="k">${</span><span class="nv">K8S_CONTROL_PLANE_URL</span><span class="k">}</span><span class="s2">"</span> <span class="se">\</span>
+  <span class="nt">--class</span> <span class="s2">"com.alexamy.nsa2.analytics.log.app.Nsa2LogAnalyticsDailyBatchApp"</span> <span class="se">\</span>
+  <span class="k">${</span><span class="nv">SPARK_JAR</span><span class="k">}</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="test-scripts">Test scripts</h2>
+<div class="sectionbody">
+<div class="listingblock">
+<div class="title">Delete Elasticsearch index</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>curl <span class="nt">-u</span> <span class="s2">"elastic:changeit"</span> <span class="nt">-X</span> DELETE <span class="s2">"https://10.0.0.2:9200/nsa2-2024.06.20"</span> <span class="nt">--insecure</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">Write Log messages</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">echo</span> <span class="s2">"TRACE DEBUG INFO WARN ERROR"</span> | <span class="se">\</span>
+  <span class="nb">tr</span> <span class="s2">" "</span> <span class="s1">'\n'</span> | <span class="se">\</span>
+  xargs <span class="nt">-I</span> <span class="o">{}</span> curl <span class="nt">-X</span> POST <span class="nt">-H</span> <span class="s2">"Content-Type: application/json"</span> <span class="se">\</span>
+  <span class="nt">-d</span> <span class="s2">"This is a sample of {} level messages"</span> <span class="se">\</span>
+  http://localhost:18080/v1.0.0/log/<span class="o">{}</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">Write Error logs</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="k">for </span>i <span class="k">in</span> <span class="o">{</span>1..10<span class="o">}</span><span class="p">;</span> <span class="se">\</span>
+  <span class="k">do  </span>curl <span class="nt">-X</span> POST <span class="nt">-H</span> <span class="s2">"Content-Type: application/json"</span> <span class="se">\</span>
+  <span class="nt">-d</span> <span class="s2">"This is n invalid log message - </span><span class="nv">$i</span><span class="s2">"</span> <span class="se">\</span>
+  http://localhost:18080/v1.0.0/log/INVALID<span class="p">;</span> <span class="k">done</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this tutorial, we created a Scala project to analyze log messages stored in Elasticsearch using Apache Spark. We created a Spark application to read log messages from Elasticsearch, archive the messages as Parquet files to HDFS, and save all ERROR messages to a Relational Database for further analysis. We tested the Spark application in IntelliJ IDEA and deployed it to Kubernetes.</p>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+</body>
+</html>
