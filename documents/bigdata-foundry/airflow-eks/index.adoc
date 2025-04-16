@@ -1,0 +1,749 @@
+---
+layout: documents
+title:  Deploying Apache Airflow on Amazon EKS with Amazon EFS
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: BigData Foundry
+    url: /documents/bigdata-foundry/
+---
+// docs/airflow/airflow-on-eks/index.adoc
+= Deploying Apache Airflow on Amazon EKS with Amazon EFS
+
+:imagesdir: images
+
+[.img-wide]
+image::airflow-in-eks.png[]
+
+== Introduction
+
+This guide provides step-by-step instructions on how to install **Apache Airflow** on **Amazon Elastic Kubernetes Service (EKS)**, leveraging **Amazon Elastic File System (EFS)** for persistent storage and configuring essential networking components.
+
+**Topics Covered**
+
+In this guide, you will learn how to:
+
+  * Configure **EFS** as a persistent storage solution for **Airflow logs and DAGs**, using the **ReadWriteMany (RWX) access mode** to enable multiple pods to access the same storage.
+  * Utilize **EFS Access Points** to streamline permissions and enhance security.
+  * Set up an **Airflow web server** with a public IP address for external accessibility.
+
+
+**Why Use Persistent Volume Claims (PVCs) with ReadWriteMany?**
+
+Apache Airflow is an excellent use case for Persistent Volume Claims (PVCs) with ReadWriteMany (RWX) mode, allowing multiple Airflow components—including the web server, trigger, and scheduler—to share access to the same logs and DAGs.
+
+However, it is important to note that:
+
+ * The Airflow web server stores logs on PVCs but does not use PVCs for DAGs.
+ * Instead, DAGs are handled differently in Airflow 2, and they no longer need to be mounted in the web server pod.
+ * The Airflow web server relies on Kubernetes Secrets for managing the Fernet key and web server authentication credentials.
+
+For additional details on DAG mounting behavior in Airflow 2, refer to the official documentation:
+
+
+
+* link:https://github.com/apache/airflow/issues/17662[DAGs Volume Not Getting Mounted in Web Server Pod.]
+
+=== Prerequisites
+
+To follow this guide, you need to have the following tools installed:
+
+* kubectl
+* helm
+* AWS CLI
+* eksctl
+* Elastic Kubernetes Service (EKS) cluster
+* Elastic File System (EFS)
+
+=== Limitations
+
+This guide is based on **Apache Airflow 2.9.3** and **Helm chart version 1.15.0**. If you are using a different version, you may need to modify the configurations in the **custom-values.yaml** file accordingly.
+
+For compatibility details and configuration changes, refer to the official **Apache Airflow Helm Chart** documentation.
+
+
+== Elastic File System (EFS) Configuration for Persistent Volume Claims (PVCs)
+
+This section covers how to configure **Amazon Elastic File System (EFS)** as persistent storage for **Apache Airflow** in an **Amazon EKS** cluster.
+
+
+[NOTE]
+====
+In this document, following topics are not covered:
+
+* How to create IAM roles for EFS CSI driver.
+* How to install and configure the EFS CSI driver.
+* How to create a storage class for EFS.
+* How to create Mount Targets for EFS.
+
+These topics are all required to use EFS with Amazon EKS. However, in this document, we assume that you have already completed these steps.
+
+For more information, see link:https://docs.aws.amazon.com/eks/latest/userguide/efs-csi.html[Amazon EFS CSI driver for Kubernetes].
+====
+
+=== Step 1: Create a Namespace for Airflow
+
+Before deploying **Airflow**, create a dedicated **Kubernetes namespace:**
+
+[source,shell]
+----
+$ kubectl create namespace airflow
+----
+
+
+=== Step 2: Set Up Amazon EFS
+
+==== Check if an EFS File System Exists
+
+Run the following command to verify if you already have an **Amazon EFS file system:**
+[source,shell]
+----
+$ airflow-on-eks % aws efs describe-file-systems | yq '.FileSystems[].FileSystemArn'
+----
+
+**Example Output**
+[source,shell]
+----
+arn:aws:elasticfilesystem:ca-central-1:{your-aws-account-id}:file-system/{your-efs-id}
+----
+
+==== Create an EFS File System (If Not Available)
+
+If no EFS file system exists, create one using:
+
+[source,shell]
+----
+$ aws efs create-file-system --creation-token airflow-efs --tags Key=Name,Value=airflow-efs
+----
+
+==== Store the EFS ID for Later Use
+
+Assign the **EFS ID** to a variable:
+
+[source,shell]
+----
+$ EFS_ID=$(aws efs describe-file-systems | yq '.FileSystems[] | select(.Tags[].Value == "airflow-efs") | .FileSystemId')
+----
+
+
+=== Step 3: Configure EFS Access Points
+
+==== What is EFS Access Point?
+
+An **EFS Access Point** provides a controlled entry point into an **Amazon EFS** file system, making it easier to manage **application-specific access** to shared storage. It:
+
+ * Defines **subdirectories** for different applications.
+ * Assigns **user and group ownership** for proper access control.
+ * Works with **IAM policies** to enhance security.
+
+For example:
+
+ * The **Airflow image** uses UID 50000 and GID 0 (root).
+ * The **Spark image** uses UID 185 and GID 185.
+
+To **prevent permission conflicts**, create separate access points for each application.
+
+==== Create Access Points for Airflow
+
+
+.Create Access Point for DAGs
+[source,shell]
+----
+aws efs create-access-point --file-system-id $EFS_ID \
+  --region $AWS_REGION \
+  --root-directory "Path=/airflow-dags,CreationInfo={OwnerUid=50000,OwnerGid=0,Permissions=0750}" \
+  --tags Key=Name,Value=airflow-dags
+----
+
+.Create Access Point for Logs
+[source,shell]
+----
+aws efs create-access-point --file-system-id $EFS_ID \
+  --region $AWS_REGION \
+  --root-directory "Path=/airflow-logs,CreationInfo={OwnerUid=50000,OwnerGid=0,Permissions=0770}" \
+  --tags Key=Name,Value=airflow-logs
+----
+
+=== Step 4: Create Persistent Volumes (PVs) and Persistent Volume Claims (PVCs)
+
+==== Understanding Volume Handles for EFS Storage
+
+When using **EFS access points** in a **Persistent Volume (PV)**, specify the **access point ID** in the volumeHandle field:
+
+
+
+.Persistent Volume (PV) with EFS (Without Access Point)
+[source,yaml]
+----
+spec:
+  csi:
+    volumeHandle: {efs-id}
+----
+
+.Persistent Volume (PV) with EFS and Access Point
+[source,yaml]
+----
+spec:
+  csi:
+    volumeHandle: {efs-id}::{access-point-id}
+----
+
+==== Create PV and PVC for Airflow DAGs and logs
+
+.Persistent Volume and PVC for Airflow DAGs (pvc-dags.yaml)
+[source,yaml]
+----
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-efs-airflow-dags
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: efs-sc
+  csi:
+    driver: efs.csi.aws.com
+    volumeHandle: efs-id::access-point-id # <1>
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-efs-airflow-dags
+  namespace: airflow
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: efs-sc
+  volumeName: pv-efs-airflow-dags  # <2>
+  resources:
+    requests:
+      storage: 5Gi
+----
+
+<1> Replace {efs-id} and {access-point-id} with the EFS ID and access point ID.
+<2> volumeName can be explicitly set to the PV name.
+
+==== Persistent Volume and PVC for Airflow Logs
+
+Create another manifest file similar to pvc-dags.yaml, but with **different PV and PVC names**, and reference the **logs access point ID**.
+
+=== Step 5: Apply PVCs to the Kubernetes Cluster
+
+Deploy the **PV and PVC manifests** for **Airflow DAGs and Logs:**
+
+[source,sh]
+----
+kubectl apply -f pvc-dags.yaml -f pvc-logs.yaml
+----
+
+=== Step 6: Verify the PVCs
+
+Check the status of the **Persistent Volume Claims (PVCs):**
+
+[source,shell]
+----
+$ kubectl -n airflow get pvc
+----
+**Example Output**
+----
+NAME                   STATUS   VOLUME                CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+pvc-efs-airflow-dags   Bound    pv-efs-airflow-dags   5Gi        RWX            efs-sc         <unset>                 4m43s
+pvc-efs-airflow-logs   Bound    pv-efs-airflow-logs   5Gi        RWX            efs-sc         <unset>                 2m46s
+----
+
+== Installing Apache Airflow on Amazon EKS Using Helm
+
+This section explains how to install Apache Airflow on an Amazon EKS cluster using Helm, configure EFS for persistent storage, and expose the Airflow web server.
+
+For more details on installing Apache Airflow with Helm, refer to:
+
+* link:https://www.linkedin.com/pulse/apache-airflow-kubernetes-executor-young-gyu-kim-brenc/[Apache Airflow on Kubernetes Executor]
+
+NOTE:: This guide focuses on integrating **EFS with Apache Airflow**.
+
+=== Step 1: Create Secrets for Airflow
+
+Apache Airflow requires a **Fernet key** and a **web server password** to encrypt and decrypt connections and variables. Apply the required secrets using:
+
+These files can be found from the link above.
+
+[source,shell]
+----
+$ kubectl apply -f airflow-fernet-key-secret.yaml -f airflow-webserver-secret.yaml
+----
+
+
+=== Step 2: Define Custom Helm Values
+
+To override the default Helm chart values, create a custom-values.yaml file.
+
+
+**Example: custom-values.yaml**
+[source,yaml]
+----
+fernetKeySecretName: "airflow-fernet-key-secret"
+webserverSecretKeySecretName: "airflow-webserver-secret"
+
+executor: KubernetesExecutor
+
+workers:
+  persistence:
+    enabled: false
+
+webserver:
+  replicas: 1
+
+triggerer:
+  replicas: 2
+  persistence:
+    enabled: false
+
+scheduler:
+  replicas: 2
+
+redis:
+  enabled: false
+
+# <1>
+dags:
+  persistence:
+    enabled: true
+    existingClaim: pvc-efs-airflow-dags
+    accessMode: ReadWriteMany
+    storageClassName: efs-sc
+
+# <2>
+logs:
+  persistence:
+    enabled: true
+    existingClaim: pvc-efs-airflow-logs
+----
+
+==== Key Configurations
+
+1. **DAGs Storage** (dags.persistence):
+ * Uses a **Persistent Volume Claim (PVC)** for storing DAG files.
+ * Mounted to **EFS** using pvc-efs-airflow-dags.
+2. **Logs Storage** (logs.persistence):
+ * Uses **PVC** for storing logs.
+ * Mounted to **EFS** using pvc-efs-airflow-logs.
+3. **Customizing Resources (Optional)**
+You can allocate **CPU, memory, and node selectors** for specific components:
+
+[source,yaml]
+----
+scheduler:
+  replicas: 2
+
+  resources:
+    limits:
+      cpu: 400m
+      memory: 1024Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  nodeSelector:
+    nodegroup-label-key: nodegroup-label-value
+----
+
+
+=== Step 3: Deploy Apache Airflow Using Helm
+
+Install **Apache Airflow** using **Helm** with the customized values:
+
+[source,shell]
+----
+#$ helm install airflow ~/Dev/helm/charts/apache-airflow/airflow-1.15.0.tgz -f custom-values.yaml --namespace airflow
+
+$ helm upgrade --install airflow apache-airflow/airflow -f custom-values.yaml --namespace airflow
+----
+
+=== Step 4: Access the Airflow Web Server
+
+By default, the **Airflow web server** is not exposed publicly. To access it locally, use **port forwarding**:
+
+
+[source,shell]
+----
+$ kubectl port-forward svc/airflow-webserver 8080:8080 -n airflow
+----
+
+Now, open your browser and go to:
+
+link:http://localhost:8080[http://localhost:8080].
+
+**Login Credentials:**
+
+ * Username: admin
+ * Password: admin
+
+
+=== Upload DAGs to Amazon EFS
+
+Unlike **Azure Files** or **Blob Storage**, Amazon **EFS** does not provide a direct UI or CLI tool to upload DAGs. Instead, you can:
+
+ * Mount EFS using AWS efs-utils (only on Linux or macOS running on an EC2 instance).
+ * Use kubectl cp to copy DAGs into the EFS-mounted Airflow pod.
+
+
+==== Copy DAGs Using kubectl cp
+
+Since **EFS is mounted** to the **Airflow scheduler and triggerer pods**, use the following command to copy DAGs:
+
+[source,shell]
+----
+$ kubectl -n airflow get pods | grep airflow-scheduler | head -n 1 | awk '{print $1}' | xargs -I {} kubectl -n airflow cp dags/hello_world_dag.py {}:dags/hello_world_dag.py
+----
+
+==== Verify DAGs Were Uploaded
+
+[source,shell]
+----
+$ kubectl -n airflow get pods | grep airflow-scheduler | head -n 1 | awk '{print $1}' | xargs -I {} kubectl -n airflow exec -it {} -- ls -l dags/
+----
+
+=== Step 6: Example Hello World DAG
+
+.dags/hello_world_dag.py
+[source,shell]
+----
+from airflow import DAG
+from airflow.operators.bash import BashOperator
+from airflow.operators.python import PythonOperator
+from datetime import datetime
+from airflow.decorators import dag, task
+from kubernetes.client import models as k8s
+
+
+default_executor_config = {
+    "pod_override": k8s.V1Pod(
+        spec=k8s.V1PodSpec(
+            containers=[
+                k8s.V1Container(
+                    name="base",
+                    resources=k8s.V1ResourceRequirements(
+                        requests={"cpu": "100m", "memory": "128Mi"},
+                        limits={"cpu": "200m", "memory": "256Mi"}
+                    )
+                )
+            ]
+        )
+    )
+} # end of default_executor_config
+
+with DAG(dag_id="hello_world_dag",
+         start_date=datetime(2024,3,27),
+         schedule_interval="@hourly",
+         catchup=False) as dag:
+
+    @task(
+        task_id="hello_world",
+        executor_config=default_executor_config
+    )
+    def hello_world():
+        print('Hello World')
+
+
+
+    @task.bash(
+        task_id="sleep",
+        #executor_config=default_executor_config
+    )
+    def sleep_task() -> str:
+        return "sleep 10"
+
+
+
+    @task(
+        task_id="done",
+        #executor_config=default_executor_config
+    )
+    def done():
+        print('Done')
+
+
+    hello_world_task = hello_world()
+    sleep_task = sleep_task()
+    done_task = done()
+
+
+    hello_world_task >> sleep_task >> done_task
+
+----
+
+.Hello World DAG
+[.img-wide]
+image::hello_world_dag.png[]
+
+=== Step 7: Exposing the Airflow Web Server via a Load Balancer
+
+For more information about Load balancing, see link:https://docs.aws.amazon.com/eks/latest/best-practices/load-balancing.html[Load balancing for Amazon EKS].
+
+To expose Apache Airflow Web Server to the public, use the AWS Load Balancer Controller.
+
+**Modify custom-values.yaml**
+[source,yaml]
+----
+webserver:
+  replicas: 1
+
+  service:
+    type: LoadBalancer  # <1>
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip # <2>
+    # loadBalancerIP: "xx.xx.xx.xx"  # <3>
+----
+**Key Configurations**
+
+<1> **Set Service Type to LoadBalancer** (service.type: LoadBalancer)
+<2> **Use AWS Load Balancer Controller Annotation** (aws-load-balancer-nlb-target-type: ip)
+<3> **Do NOT specify loadBalancerIP** (Setting loadBalancerIP results in an error).
+
+=== Step 8: Apply Load Balancer Changes
+
+Run the following command to update the **Airflow web server** service:
+
+[source,shell]
+----
+$ helm upgrade --install airflow apache-airflow/airflow -f custom-values.yaml --namespace airflow
+
+----
+
+=== Step 9: Get the External IP
+
+To access the public Airflow web server, retrieve the **EXTERNAL-IP**:
+
+[source,shell]
+----
+$ kubectl -n airflow get service airflow-webserver
+
+NAME                TYPE           CLUSTER-IP      EXTERNAL-IP                                                                  PORT(S)          AGE
+airflow-webserver   LoadBalancer   10.100.22.247   a3b0729c2f6af4ce39exxxxxxxxxx-111111111.ca-central-1.elb.amazonaws.com   8080:30796/TCP   20m
+----
+
+Now, access Apache Airflow at:
+http://a3b0729c2f6af4ce39xxxxxxx-111111111.ca-central-1.elb.amazonaws.com:8080
+
+
+// == Exposing Airflow Web Server
+//
+// . Attach IAM policy for AWSLoadBalancerControllerIAMPolicy
+// . Install Load Balancer Controller
+// . Create Public IP address
+// . Update the Airflow web server service
+//
+// === Attach IAM policy for AWSLoadBalancerControllerIAMPolicy
+//
+// Ensure that your EKS IAM Role for Service Account(IRSA) has the required permissions to create and manage the Load Balancer.
+//
+// [source,shell]
+// ----
+// $ kubectl get serviceaccount aws-load-balancer-controller -n kube-system -o jsonpath='{.metadata.annotations.eks\.amazonaws\.com/role-arn}'
+// ----
+//
+// This should return the IAM role ARN for the AWS Load Balancer Controller.
+// [source,shell]
+// ----
+// arn:aws:iam::123456789012:role/aws-load-balancer-controller-role
+// ----
+// OR
+// [source,shell]
+// ----
+// Error from server (NotFound): serviceaccounts "aws-load-balancer-controller" not found
+// ----
+//
+// if you don't have the IAM role, create one using the following command:
+//
+// [source,shell]
+// ----
+// $ aws iam list-attached-role-policies --role-name aws-load-balancer-controller-role
+// ----
+//
+// If you see the following error, you need to attach the AWSLoadBalancerControllerIAMPolicy to the IAM role.
+// [source,shell]
+// ----
+// An error occurred (NoSuchEntity) when calling the ListAttachedRolePolicies operation: The role with name aws-load-balancer-controller-role cannot be found.
+// ----
+//
+// Run the following command to attach the AWSLoadBalancerControllerIAMPolicy to the IAM role:
+//
+// [source,shell]
+// ----
+// aws iam attach-role-policy \
+//   --role-name aws-load-balancer-controller-role \
+//   --policy-arn arn:aws:iam::aws:policy/AWSLoadBalancerControllerIAMPolicy
+// ----
+//
+//
+//
+// === Install Load Balancer Controller
+//
+// To expose the Airflow web server to the public, you can use the Load Balancer Controller.
+//
+// Add the AWS Load Balancer Controller Helm repository:
+//
+// [source,shell]
+// ----
+// $ helm repo add eks https://aws.github.io/eks-charts
+// $ helm repo update eks
+// ----
+//
+//
+// [source,shell]
+// ----
+// $ helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+//   --set clusterName=$EKS_CLUSTER \
+//   --set replicaCount=3 \
+//   --set serviceAccount.create=false \
+//   --set serviceAccount.name=aws-load-balancer-controller \
+//   -n kube-system
+//
+// $ helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
+//   --set clusterName=$EKS_CLUSTER \
+//   --set serviceAccount.create=false \
+//   --set replicaCount=3 \
+//   --set serviceAccount.name=aws-load-balancer-controller \
+//   -n kube-system
+// ----
+//
+// === Create Public IP address per Availability Zone
+//
+// To check subnets in the VPC, run the following command:
+//
+// [source,shell]
+// ----
+// $ VPC_ID=$(aws eks describe-cluster --name $EKS_CLUSTER --query "cluster.resourcesVpcConfig.vpcId" --output text)
+// ----
+//
+// [source,shell]
+// ----
+// $ aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" --query "Subnets[*].[SubnetId]" --output text
+// ----
+//
+// .output
+// [source,shell]
+// ----
+// NAME: aws-load-balancer-controller
+// LAST DEPLOYED: Thu Mar  6 16:51:59 2025
+// NAMESPACE: kube-system
+// STATUS: deployed
+// REVISION: 1
+// TEST SUITE: None
+// NOTES:
+// AWS Load Balancer controller installed!
+// ----
+//
+// === Create Public IP address
+//
+// To create a Public IP address, run the following command:
+//
+// [source,shell]
+// ----
+// $ aws ec2 allocate-address --domain vpc --region $AWS_REGION
+// AllocationId: eipalloc-0dfa6439c6e27c1c0
+// Domain: vpc
+// NetworkBorderGroup: ca-central-1
+// PublicIp: 3.98.100.181
+// PublicIpv4Pool: amazon
+//
+// $ aws ec2 allocate-address --domain vpc --region $AWS_REGION
+// AllocationId: eipalloc-09ee6b9096680575e
+// Domain: vpc
+// NetworkBorderGroup: ca-central-1
+// PublicIp: 35.182.203.131
+// PublicIpv4Pool: amazon
+//
+//
+// $ aws ec2 allocate-address --domain vpc --region $AWS_REGION
+// AllocationId: eipalloc-02f0ad51c3ded49c0
+// Domain: vpc
+// NetworkBorderGroup: ca-central-1
+// PublicIp: 15.157.155.139
+// PublicIpv4Pool: amazon
+// ----
+//
+// [source,shell]
+// ----
+// $ aws ec2 describe-addresses --filters "Name=public-ip,Values=3.98.100.181" --query "Addresses[*].AllocationId" --output text
+//
+// $ ALLOCATION_ID=$(aws ec2 describe-addresses --filters "Name=public-ip,Values=3.98.100.181" --query "Addresses[*].AllocationId" --output text)
+// $ echo $ALLOCATION_ID
+// ----
+//
+// === Delete Public IP address
+//
+// To delete the Public IP address, run the following command:
+//
+// [source,shell]
+// ----
+// $ aws ec2 describe-addresses --query "Addresses[*].[PublicIp,AllocationId]" --output table
+//
+//
+// $ aws ec2 release-address --allocation-id $ALLOCATION_ID
+// $ aws ec2 release-address --allocation-id eipalloc-09a5b3782ce23ae6f
+// ----
+//
+// === Update the Airflow web server service
+//
+//
+// .custom-values.yaml - webserver
+// [source,yaml]
+// ----
+// webserver:
+//   # omitted for brevity
+//
+//   service:
+//     type: LoadBalancer
+//     annotations:
+//       service.beta.kubernetes.io/aws-load-balancer-type: "nlb"  # Use Network Load Balancer
+// #      service.beta.kubernetes.io/aws-load-balancer-eip-allocations: "eipalloc-0dfa6439c6e27c1c0"
+// ----
+//
+// .update Airflow web server service
+// [source,shell]
+// ----
+// $ helm upgrade --install airflow apache-airflow/airflow -f custom-values.yaml --namespace airflow
+//
+// ----
+//
+
+== Conclusion
+
+In this guide, we covered the complete process of installing Apache Airflow on Amazon EKS using Helm, ensuring a scalable and efficient deployment.
+
+=== Key Takeaways
+
+1. **Installing Apache Airflow on EKS**
+ * We deployed Apache Airflow using Helm, leveraging the Kubernetes Executor for distributed task execution.
+2. **Configuring Amazon EFS for Persistent Storage**
+ * We integrated Amazon Elastic File System (EFS) to store Airflow logs and DAGs, enabling multiple pods (scheduler, web server, and triggerer) to share the same storage using the ReadWriteMany (RWX) access mode.
+3. **Utilizing EFS Access Points**
+ * We created EFS Access Points to simplify permissions management and avoid conflicts when multiple applications access the same storage.
+4. **Exposing the Airflow Web Server**
+ * We explored different access methods, including port forwarding for local access and using an AWS Load Balancer to expose the Airflow web server via a public IP address.
+
+By following this guide, you now have a **fully functional Apache Airflow setup on Amazon EKS**, equipped with scalable storage and networking configurations.
+
+For further optimizations, consider:
+
+ * **Enabling autoscaling** for different Airflow components.
+ * **Integrating monitoring and logging tools** like Amazon CloudWatch or Grafana.
+ * **Using secrets management** (e.g., AWS Secrets Manager) for secure credential handling.
+
+With this setup, you are well-equipped to orchestrate workflows efficiently while leveraging the scalability and resilience of Amazon EKS.
+
+
+All my LinkedIn articles can be found here:
+
+* link:https://www.linkedin.com/pulse/my-linkedin-article-library-young-gyu-kim-2jihc/[My LinkedIn Article Library]
+
+Internal Link: docs/airflow/airflow-on-eks/index.adoc
