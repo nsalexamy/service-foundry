@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Deploying Apache Airflow on Amazon EKS with Amazon EFS</title>
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+</head>
+<body>
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    <a href="/service-foundry/pages/documents/index.html" class="text-teal-400 border-b-2 border-teal-400 pb-1">Docs</a>
+    <a href="/service-foundry/pages/architecture/index.html" class="hover:text-teal-400">Architecture</a>
+    <a href="/service-foundry/pages/getting-started/index.html" class="hover:text-teal-400">Getting Started</a>
+    <a href="https://github.com/nsalexamy/service-foundry" class="hover:text-teal-400">GitHub</a>
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>
+    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>
+    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>
+    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>
+    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/bigdata-foundry/">BigData Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+    <nav id="toc-container" class="toc-nav"></nav>
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Deploying Apache Airflow on Amazon EKS with Amazon EFS
+        </h1>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#limitations">Limitations</a></li>
+</ul>
+</li>
+<li><a href="#elastic-file-system-efs-configuration-for-persistent-volume-claims-pvcs">Elastic File System (EFS) Configuration for Persistent Volume Claims (PVCs)</a>
+<ul class="sectlevel2">
+<li><a href="#step-1-create-a-namespace-for-airflow">Step 1: Create a Namespace for Airflow</a></li>
+<li><a href="#step-2-set-up-amazon-efs">Step 2: Set Up Amazon EFS</a></li>
+<li><a href="#step-3-configure-efs-access-points">Step 3: Configure EFS Access Points</a></li>
+<li><a href="#step-4-create-persistent-volumes-pvs-and-persistent-volume-claims-pvcs">Step 4: Create Persistent Volumes (PVs) and Persistent Volume Claims (PVCs)</a></li>
+<li><a href="#step-5-apply-pvcs-to-the-kubernetes-cluster">Step 5: Apply PVCs to the Kubernetes Cluster</a></li>
+<li><a href="#step-6-verify-the-pvcs">Step 6: Verify the PVCs</a></li>
+</ul>
+</li>
+<li><a href="#installing-apache-airflow-on-amazon-eks-using-helm">Installing Apache Airflow on Amazon EKS Using Helm</a>
+<ul class="sectlevel2">
+<li><a href="#step-1-create-secrets-for-airflow">Step 1: Create Secrets for Airflow</a></li>
+<li><a href="#step-2-define-custom-helm-values">Step 2: Define Custom Helm Values</a></li>
+<li><a href="#step-3-deploy-apache-airflow-using-helm">Step 3: Deploy Apache Airflow Using Helm</a></li>
+<li><a href="#step-4-access-the-airflow-web-server">Step 4: Access the Airflow Web Server</a></li>
+<li><a href="#upload-dags-to-amazon-efs">Upload DAGs to Amazon EFS</a></li>
+<li><a href="#step-6-example-hello-world-dag">Step 6: Example Hello World DAG</a></li>
+<li><a href="#step-7-exposing-the-airflow-web-server-via-a-load-balancer">Step 7: Exposing the Airflow Web Server via a Load Balancer</a></li>
+<li><a href="#step-8-apply-load-balancer-changes">Step 8: Apply Load Balancer Changes</a></li>
+<li><a href="#step-9-get-the-external-ip">Step 9: Get the External IP</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a>
+<ul class="sectlevel2">
+<li><a href="#key-takeaways">Key Takeaways</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/airflow-in-eks.png" alt="airflow in eks">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide provides step-by-step instructions on how to install <strong>Apache Airflow</strong> on <strong>Amazon Elastic Kubernetes Service (EKS)</strong>, leveraging <strong>Amazon Elastic File System (EFS)</strong> for persistent storage and configuring essential networking components.</p>
+</div>
+<div class="paragraph">
+<p><strong>Topics Covered</strong></p>
+</div>
+<div class="paragraph">
+<p>In this guide, you will learn how to:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Configure <strong>EFS</strong> as a persistent storage solution for <strong>Airflow logs and DAGs</strong>, using the <strong>ReadWriteMany (RWX) access mode</strong> to enable multiple pods to access the same storage.</p>
+</li>
+<li>
+<p>Utilize <strong>EFS Access Points</strong> to streamline permissions and enhance security.</p>
+</li>
+<li>
+<p>Set up an <strong>Airflow web server</strong> with a public IP address for external accessibility.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Why Use Persistent Volume Claims (PVCs) with ReadWriteMany?</strong></p>
+</div>
+<div class="paragraph">
+<p>Apache Airflow is an excellent use case for Persistent Volume Claims (PVCs) with ReadWriteMany (RWX) mode, allowing multiple Airflow components—including the web server, trigger, and scheduler—to share access to the same logs and DAGs.</p>
+</div>
+<div class="paragraph">
+<p>However, it is important to note that:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>The Airflow web server stores logs on PVCs but does not use PVCs for DAGs.</p>
+</li>
+<li>
+<p>Instead, DAGs are handled differently in Airflow 2, and they no longer need to be mounted in the web server pod.</p>
+</li>
+<li>
+<p>The Airflow web server relies on Kubernetes Secrets for managing the Fernet key and web server authentication credentials.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>For additional details on DAG mounting behavior in Airflow 2, refer to the official documentation:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/apache/airflow/issues/17662">DAGs Volume Not Getting Mounted in Web Server Pod.</a></p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="prerequisites">Prerequisites</h3>
+<div class="paragraph">
+<p>To follow this guide, you need to have the following tools installed:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>kubectl</p>
+</li>
+<li>
+<p>helm</p>
+</li>
+<li>
+<p>AWS CLI</p>
+</li>
+<li>
+<p>eksctl</p>
+</li>
+<li>
+<p>Elastic Kubernetes Service (EKS) cluster</p>
+</li>
+<li>
+<p>Elastic File System (EFS)</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="limitations">Limitations</h3>
+<div class="paragraph">
+<p>This guide is based on <strong>Apache Airflow 2.9.3</strong> and <strong>Helm chart version 1.15.0</strong>. If you are using a different version, you may need to modify the configurations in the <strong>custom-values.yaml</strong> file accordingly.</p>
+</div>
+<div class="paragraph">
+<p>For compatibility details and configuration changes, refer to the official <strong>Apache Airflow Helm Chart</strong> documentation.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="elastic-file-system-efs-configuration-for-persistent-volume-claims-pvcs">Elastic File System (EFS) Configuration for Persistent Volume Claims (PVCs)</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This section covers how to configure <strong>Amazon Elastic File System (EFS)</strong> as persistent storage for <strong>Apache Airflow</strong> in an <strong>Amazon EKS</strong> cluster.</p>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+<div class="paragraph">
+<p>In this document, following topics are not covered:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>How to create IAM roles for EFS CSI driver.</p>
+</li>
+<li>
+<p>How to install and configure the EFS CSI driver.</p>
+</li>
+<li>
+<p>How to create a storage class for EFS.</p>
+</li>
+<li>
+<p>How to create Mount Targets for EFS.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>These topics are all required to use EFS with Amazon EKS. However, in this document, we assume that you have already completed these steps.</p>
+</div>
+<div class="paragraph">
+<p>For more information, see <a href="https://docs.aws.amazon.com/eks/latest/userguide/efs-csi.html">Amazon EFS CSI driver for Kubernetes</a>.</p>
+</div>
+</td>
+</tr>
+</table>
+</div>
+<div class="sect2">
+<h3 id="step-1-create-a-namespace-for-airflow">Step 1: Create a Namespace for Airflow</h3>
+<div class="paragraph">
+<p>Before deploying <strong>Airflow</strong>, create a dedicated <strong>Kubernetes namespace:</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl create namespace airflow</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="step-2-set-up-amazon-efs">Step 2: Set Up Amazon EFS</h3>
+<div class="sect3">
+<h4 id="check-if-an-efs-file-system-exists">Check if an EFS File System Exists</h4>
+<div class="paragraph">
+<p>Run the following command to verify if you already have an <strong>Amazon EFS file system:</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>airflow-on-eks % aws efs describe-file-systems | yq <span class="s1">'.FileSystems[].FileSystemArn'</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Example Output</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">arn:aws:elasticfilesystem:ca-central-1:<span class="o">{</span>your-aws-account-id<span class="o">}</span>:file-system/<span class="o">{</span>your-efs-id<span class="o">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="create-an-efs-file-system-if-not-available">Create an EFS File System (If Not Available)</h4>
+<div class="paragraph">
+<p>If no EFS file system exists, create one using:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>aws efs create-file-system <span class="nt">--creation-token</span> airflow-efs <span class="nt">--tags</span> <span class="nv">Key</span><span class="o">=</span>Name,Value<span class="o">=</span>airflow-efs</code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="store-the-efs-id-for-later-use">Store the EFS ID for Later Use</h4>
+<div class="paragraph">
+<p>Assign the <strong>EFS ID</strong> to a variable:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ EFS_ID</span><span class="o">=</span><span class="si">$(</span>aws efs describe-file-systems | yq <span class="s1">'.FileSystems[] | select(.Tags[].Value == "airflow-efs") | .FileSystemId'</span><span class="si">)</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="step-3-configure-efs-access-points">Step 3: Configure EFS Access Points</h3>
+<div class="sect3">
+<h4 id="what-is-efs-access-point">What is EFS Access Point?</h4>
+<div class="paragraph">
+<p>An <strong>EFS Access Point</strong> provides a controlled entry point into an <strong>Amazon EFS</strong> file system, making it easier to manage <strong>application-specific access</strong> to shared storage. It:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Defines <strong>subdirectories</strong> for different applications.</p>
+</li>
+<li>
+<p>Assigns <strong>user and group ownership</strong> for proper access control.</p>
+</li>
+<li>
+<p>Works with <strong>IAM policies</strong> to enhance security.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>For example:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>The <strong>Airflow image</strong> uses UID 50000 and GID 0 (root).</p>
+</li>
+<li>
+<p>The <strong>Spark image</strong> uses UID 185 and GID 185.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>To <strong>prevent permission conflicts</strong>, create separate access points for each application.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="create-access-points-for-airflow">Create Access Points for Airflow</h4>
+<div class="listingblock">
+<div class="title">Create Access Point for DAGs</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">aws efs create-access-point <span class="nt">--file-system-id</span> <span class="nv">$EFS_ID</span> <span class="se">\</span>
+  <span class="nt">--region</span> <span class="nv">$AWS_REGION</span> <span class="se">\</span>
+  <span class="nt">--root-directory</span> <span class="s2">"Path=/airflow-dags,CreationInfo={OwnerUid=50000,OwnerGid=0,Permissions=0750}"</span> <span class="se">\</span>
+  <span class="nt">--tags</span> <span class="nv">Key</span><span class="o">=</span>Name,Value<span class="o">=</span>airflow-dags</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">Create Access Point for Logs</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">aws efs create-access-point <span class="nt">--file-system-id</span> <span class="nv">$EFS_ID</span> <span class="se">\</span>
+  <span class="nt">--region</span> <span class="nv">$AWS_REGION</span> <span class="se">\</span>
+  <span class="nt">--root-directory</span> <span class="s2">"Path=/airflow-logs,CreationInfo={OwnerUid=50000,OwnerGid=0,Permissions=0770}"</span> <span class="se">\</span>
+  <span class="nt">--tags</span> <span class="nv">Key</span><span class="o">=</span>Name,Value<span class="o">=</span>airflow-logs</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="step-4-create-persistent-volumes-pvs-and-persistent-volume-claims-pvcs">Step 4: Create Persistent Volumes (PVs) and Persistent Volume Claims (PVCs)</h3>
+<div class="sect3">
+<h4 id="understanding-volume-handles-for-efs-storage">Understanding Volume Handles for EFS Storage</h4>
+<div class="paragraph">
+<p>When using <strong>EFS access points</strong> in a <strong>Persistent Volume (PV)</strong>, specify the <strong>access point ID</strong> in the volumeHandle field:</p>
+</div>
+<div class="listingblock">
+<div class="title">Persistent Volume (PV) with EFS (Without Access Point)</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">spec</span><span class="pi">:</span>
+  <span class="na">csi</span><span class="pi">:</span>
+    <span class="na">volumeHandle</span><span class="pi">:</span> <span class="pi">{</span><span class="nv">efs-id</span><span class="pi">}</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">Persistent Volume (PV) with EFS and Access Point</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">spec</span><span class="pi">:</span>
+  <span class="na">csi</span><span class="pi">:</span>
+    <span class="na">volumeHandle</span><span class="pi">:</span> <span class="pi">{</span><span class="nv">efs-id</span><span class="pi">}</span><span class="s">::{access-point-id}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="create-pv-and-pvc-for-airflow-dags-and-logs">Create PV and PVC for Airflow DAGs and logs</h4>
+<div class="listingblock">
+<div class="title">Persistent Volume and PVC for Airflow DAGs (pvc-dags.yaml)</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolume</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pv-efs-airflow-dags</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">capacity</span><span class="pi">:</span>
+    <span class="na">storage</span><span class="pi">:</span> <span class="s">5Gi</span>
+  <span class="na">volumeMode</span><span class="pi">:</span> <span class="s">Filesystem</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+  <span class="na">persistentVolumeReclaimPolicy</span><span class="pi">:</span> <span class="s">Retain</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">efs-sc</span>
+  <span class="na">csi</span><span class="pi">:</span>
+    <span class="na">driver</span><span class="pi">:</span> <span class="s">efs.csi.aws.com</span>
+    <span class="na">volumeHandle</span><span class="pi">:</span> <span class="s">efs-id::access-point-id</span> <i class="conum" data-value="1"></i><b>(1)</b>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolumeClaim</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pvc-efs-airflow-dags</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">airflow</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">efs-sc</span>
+  <span class="na">volumeName</span><span class="pi">:</span> <span class="s">pv-efs-airflow-dags</span>  <i class="conum" data-value="2"></i><b>(2)</b>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">storage</span><span class="pi">:</span> <span class="s">5Gi</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Replace {efs-id} and {access-point-id} with the EFS ID and access point ID.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>volumeName can be explicitly set to the PV name.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect3">
+<h4 id="persistent-volume-and-pvc-for-airflow-logs">Persistent Volume and PVC for Airflow Logs</h4>
+<div class="paragraph">
+<p>Create another manifest file similar to pvc-dags.yaml, but with <strong>different PV and PVC names</strong>, and reference the <strong>logs access point ID</strong>.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="step-5-apply-pvcs-to-the-kubernetes-cluster">Step 5: Apply PVCs to the Kubernetes Cluster</h3>
+<div class="paragraph">
+<p>Deploy the <strong>PV and PVC manifests</strong> for <strong>Airflow DAGs and Logs:</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sh">kubectl apply <span class="nt">-f</span> pvc-dags.yaml <span class="nt">-f</span> pvc-logs.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="step-6-verify-the-pvcs">Step 6: Verify the PVCs</h3>
+<div class="paragraph">
+<p>Check the status of the <strong>Persistent Volume Claims (PVCs):</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> airflow get pvc</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Example Output</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>NAME                   STATUS   VOLUME                CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+pvc-efs-airflow-dags   Bound    pv-efs-airflow-dags   5Gi        RWX            efs-sc         &lt;unset&gt;                 4m43s
+pvc-efs-airflow-logs   Bound    pv-efs-airflow-logs   5Gi        RWX            efs-sc         &lt;unset&gt;                 2m46s</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-apache-airflow-on-amazon-eks-using-helm">Installing Apache Airflow on Amazon EKS Using Helm</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This section explains how to install Apache Airflow on an Amazon EKS cluster using Helm, configure EFS for persistent storage, and expose the Airflow web server.</p>
+</div>
+<div class="paragraph">
+<p>For more details on installing Apache Airflow with Helm, refer to:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://www.linkedin.com/pulse/apache-airflow-kubernetes-executor-young-gyu-kim-brenc/">Apache Airflow on Kubernetes Executor</a></p>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">NOTE</dt>
+<dd>
+<p>This guide focuses on integrating <strong>EFS with Apache Airflow</strong>.</p>
+</dd>
+</dl>
+</div>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="step-1-create-secrets-for-airflow">Step 1: Create Secrets for Airflow</h3>
+<div class="paragraph">
+<p>Apache Airflow requires a <strong>Fernet key</strong> and a <strong>web server password</strong> to encrypt and decrypt connections and variables. Apply the required secrets using:</p>
+</div>
+<div class="paragraph">
+<p>These files can be found from the link above.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> airflow-fernet-key-secret.yaml <span class="nt">-f</span> airflow-webserver-secret.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="step-2-define-custom-helm-values">Step 2: Define Custom Helm Values</h3>
+<div class="paragraph">
+<p>To override the default Helm chart values, create a custom-values.yaml file.</p>
+</div>
+<div class="paragraph">
+<p><strong>Example: custom-values.yaml</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">fernetKeySecretName</span><span class="pi">:</span> <span class="s2">"</span><span class="s">airflow-fernet-key-secret"</span>
+<span class="na">webserverSecretKeySecretName</span><span class="pi">:</span> <span class="s2">"</span><span class="s">airflow-webserver-secret"</span>
+
+<span class="na">executor</span><span class="pi">:</span> <span class="s">KubernetesExecutor</span>
+
+<span class="na">workers</span><span class="pi">:</span>
+  <span class="na">persistence</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">false</span>
+
+<span class="na">webserver</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">1</span>
+
+<span class="na">triggerer</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">2</span>
+  <span class="na">persistence</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">false</span>
+
+<span class="na">scheduler</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">2</span>
+
+<span class="na">redis</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">false</span>
+
+<i class="conum" data-value="1"></i><b>(1)</b>
+<span class="na">dags</span><span class="pi">:</span>
+  <span class="na">persistence</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">existingClaim</span><span class="pi">:</span> <span class="s">pvc-efs-airflow-dags</span>
+    <span class="na">accessMode</span><span class="pi">:</span> <span class="s">ReadWriteMany</span>
+    <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">efs-sc</span>
+
+<i class="conum" data-value="2"></i><b>(2)</b>
+<span class="na">logs</span><span class="pi">:</span>
+  <span class="na">persistence</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">existingClaim</span><span class="pi">:</span> <span class="s">pvc-efs-airflow-logs</span></code></pre>
+</div>
+</div>
+<div class="sect3">
+<h4 id="key-configurations">Key Configurations</h4>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>DAGs Storage</strong> (dags.persistence):</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Uses a <strong>Persistent Volume Claim (PVC)</strong> for storing DAG files.</p>
+</li>
+<li>
+<p>Mounted to <strong>EFS</strong> using pvc-efs-airflow-dags.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Logs Storage</strong> (logs.persistence):</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Uses <strong>PVC</strong> for storing logs.</p>
+</li>
+<li>
+<p>Mounted to <strong>EFS</strong> using pvc-efs-airflow-logs.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Customizing Resources (Optional)</strong>
+You can allocate <strong>CPU, memory, and node selectors</strong> for specific components:</p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">scheduler</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">2</span>
+
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">limits</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">400m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">1024Mi</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">100m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">128Mi</span>
+
+  <span class="na">nodeSelector</span><span class="pi">:</span>
+    <span class="na">nodegroup-label-key</span><span class="pi">:</span> <span class="s">nodegroup-label-value</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="step-3-deploy-apache-airflow-using-helm">Step 3: Deploy Apache Airflow Using Helm</h3>
+<div class="paragraph">
+<p>Install <strong>Apache Airflow</strong> using <strong>Helm</strong> with the customized values:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c">#$ helm install airflow ~/Dev/helm/charts/apache-airflow/airflow-1.15.0.tgz -f custom-values.yaml --namespace airflow</span>
+
+<span class="nv">$ </span>helm upgrade <span class="nt">--install</span> airflow apache-airflow/airflow <span class="nt">-f</span> custom-values.yaml <span class="nt">--namespace</span> airflow</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="step-4-access-the-airflow-web-server">Step 4: Access the Airflow Web Server</h3>
+<div class="paragraph">
+<p>By default, the <strong>Airflow web server</strong> is not exposed publicly. To access it locally, use <strong>port forwarding</strong>:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl port-forward svc/airflow-webserver 8080:8080 <span class="nt">-n</span> airflow</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now, open your browser and go to:</p>
+</div>
+<div class="paragraph">
+<p><a href="http://localhost:8080">http://localhost:8080</a>.</p>
+</div>
+<div class="paragraph">
+<p><strong>Login Credentials:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Username: admin</p>
+</li>
+<li>
+<p>Password: admin</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="upload-dags-to-amazon-efs">Upload DAGs to Amazon EFS</h3>
+<div class="paragraph">
+<p>Unlike <strong>Azure Files</strong> or <strong>Blob Storage</strong>, Amazon <strong>EFS</strong> does not provide a direct UI or CLI tool to upload DAGs. Instead, you can:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Mount EFS using AWS efs-utils (only on Linux or macOS running on an EC2 instance).</p>
+</li>
+<li>
+<p>Use kubectl cp to copy DAGs into the EFS-mounted Airflow pod.</p>
+</li>
+</ul>
+</div>
+<div class="sect3">
+<h4 id="copy-dags-using-kubectl-cp">Copy DAGs Using kubectl cp</h4>
+<div class="paragraph">
+<p>Since <strong>EFS is mounted</strong> to the <strong>Airflow scheduler and triggerer pods</strong>, use the following command to copy DAGs:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> airflow get pods | <span class="nb">grep </span>airflow-scheduler | <span class="nb">head</span> <span class="nt">-n</span> 1 | <span class="nb">awk</span> <span class="s1">'{print $1}'</span> | xargs <span class="nt">-I</span> <span class="o">{}</span> kubectl <span class="nt">-n</span> airflow <span class="nb">cp </span>dags/hello_world_dag.py <span class="o">{}</span>:dags/hello_world_dag.py</code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="verify-dags-were-uploaded">Verify DAGs Were Uploaded</h4>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> airflow get pods | <span class="nb">grep </span>airflow-scheduler | <span class="nb">head</span> <span class="nt">-n</span> 1 | <span class="nb">awk</span> <span class="s1">'{print $1}'</span> | xargs <span class="nt">-I</span> <span class="o">{}</span> kubectl <span class="nt">-n</span> airflow <span class="nb">exec</span> <span class="nt">-it</span> <span class="o">{}</span> <span class="nt">--</span> <span class="nb">ls</span> <span class="nt">-l</span> dags/</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="step-6-example-hello-world-dag">Step 6: Example Hello World DAG</h3>
+<div class="listingblock">
+<div class="title">dags/hello_world_dag.py</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">from airflow import DAG
+from airflow.operators.bash import BashOperator
+from airflow.operators.python import PythonOperator
+from datetime import datetime
+from airflow.decorators import dag, task
+from kubernetes.client import models as k8s
+
+
+default_executor_config <span class="o">=</span> <span class="o">{</span>
+    <span class="s2">"pod_override"</span>: k8s.V1Pod<span class="o">(</span>
+        <span class="nv">spec</span><span class="o">=</span>k8s.V1PodSpec<span class="o">(</span>
+            <span class="nv">containers</span><span class="o">=[</span>
+                k8s.V1Container<span class="o">(</span>
+                    <span class="nv">name</span><span class="o">=</span><span class="s2">"base"</span>,
+                    <span class="nv">resources</span><span class="o">=</span>k8s.V1ResourceRequirements<span class="o">(</span>
+                        <span class="nv">requests</span><span class="o">={</span><span class="s2">"cpu"</span>: <span class="s2">"100m"</span>, <span class="s2">"memory"</span>: <span class="s2">"128Mi"</span><span class="o">}</span>,
+                        <span class="nv">limits</span><span class="o">={</span><span class="s2">"cpu"</span>: <span class="s2">"200m"</span>, <span class="s2">"memory"</span>: <span class="s2">"256Mi"</span><span class="o">}</span>
+                    <span class="o">)</span>
+                <span class="o">)</span>
+            <span class="o">]</span>
+        <span class="o">)</span>
+    <span class="o">)</span>
+<span class="o">}</span> <span class="c"># end of default_executor_config</span>
+
+with DAG<span class="o">(</span><span class="nv">dag_id</span><span class="o">=</span><span class="s2">"hello_world_dag"</span>,
+         <span class="nv">start_date</span><span class="o">=</span>datetime<span class="o">(</span>2024,3,27<span class="o">)</span>,
+         <span class="nv">schedule_interval</span><span class="o">=</span><span class="s2">"@hourly"</span>,
+         <span class="nv">catchup</span><span class="o">=</span>False<span class="o">)</span> as dag:
+
+    @task<span class="o">(</span>
+        <span class="nv">task_id</span><span class="o">=</span><span class="s2">"hello_world"</span>,
+        <span class="nv">executor_config</span><span class="o">=</span>default_executor_config
+    <span class="o">)</span>
+    def hello_world<span class="o">()</span>:
+        print<span class="o">(</span><span class="s1">'Hello World'</span><span class="o">)</span>
+
+
+
+    @task.bash<span class="o">(</span>
+        <span class="nv">task_id</span><span class="o">=</span><span class="s2">"sleep"</span>,
+        <span class="c">#executor_config=default_executor_config</span>
+    <span class="o">)</span>
+    def sleep_task<span class="o">()</span> -&gt; str:
+        <span class="k">return</span> <span class="s2">"sleep 10"</span>
+
+
+
+    @task<span class="o">(</span>
+        <span class="nv">task_id</span><span class="o">=</span><span class="s2">"done"</span>,
+        <span class="c">#executor_config=default_executor_config</span>
+    <span class="o">)</span>
+    def <span class="k">done</span><span class="o">()</span>:
+        print<span class="o">(</span><span class="s1">'Done'</span><span class="o">)</span>
+
+
+    hello_world_task <span class="o">=</span> hello_world<span class="o">()</span>
+    sleep_task <span class="o">=</span> sleep_task<span class="o">()</span>
+    done_task <span class="o">=</span> <span class="k">done</span><span class="o">()</span>
+
+
+    hello_world_task <span class="o">&gt;&gt;</span> sleep_task <span class="o">&gt;&gt;</span> done_task</code></pre>
+</div>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/hello_world_dag.png" alt="hello world dag">
+</div>
+<div class="title">Figure 1. Hello World DAG</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="step-7-exposing-the-airflow-web-server-via-a-load-balancer">Step 7: Exposing the Airflow Web Server via a Load Balancer</h3>
+<div class="paragraph">
+<p>For more information about Load balancing, see <a href="https://docs.aws.amazon.com/eks/latest/best-practices/load-balancing.html">Load balancing for Amazon EKS</a>.</p>
+</div>
+<div class="paragraph">
+<p>To expose Apache Airflow Web Server to the public, use the AWS Load Balancer Controller.</p>
+</div>
+<div class="paragraph">
+<p><strong>Modify custom-values.yaml</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">webserver</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">1</span>
+
+  <span class="na">service</span><span class="pi">:</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">LoadBalancer</span>  <i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="na">annotations</span><span class="pi">:</span>
+      <span class="na">service.beta.kubernetes.io/aws-load-balancer-nlb-target-type</span><span class="pi">:</span> <span class="s">ip</span> <i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="c1"># loadBalancerIP: "xx.xx.xx.xx"  </span><i class="conum" data-value="3"></i><b>(3)</b></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Key Configurations</strong></p>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td><strong>Set Service Type to LoadBalancer</strong> (service.type: LoadBalancer)</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td><strong>Use AWS Load Balancer Controller Annotation</strong> (aws-load-balancer-nlb-target-type: ip)</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td><strong>Do NOT specify loadBalancerIP</strong> (Setting loadBalancerIP results in an error).</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="step-8-apply-load-balancer-changes">Step 8: Apply Load Balancer Changes</h3>
+<div class="paragraph">
+<p>Run the following command to update the <strong>Airflow web server</strong> service:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm upgrade <span class="nt">--install</span> airflow apache-airflow/airflow <span class="nt">-f</span> custom-values.yaml <span class="nt">--namespace</span> airflow</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="step-9-get-the-external-ip">Step 9: Get the External IP</h3>
+<div class="paragraph">
+<p>To access the public Airflow web server, retrieve the <strong>EXTERNAL-IP</strong>:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> airflow get service airflow-webserver
+
+NAME                TYPE           CLUSTER-IP      EXTERNAL-IP                                                                  PORT<span class="o">(</span>S<span class="o">)</span>          AGE
+airflow-webserver   LoadBalancer   10.100.22.247   a3b0729c2f6af4ce39exxxxxxxxxx-111111111.ca-central-1.elb.amazonaws.com   8080:30796/TCP   20m</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now, access Apache Airflow at:
+<a href="http://a3b0729c2f6af4ce39xxxxxxx-111111111.ca-central-1.elb.amazonaws.com:8080" class="bare">http://a3b0729c2f6af4ce39xxxxxxx-111111111.ca-central-1.elb.amazonaws.com:8080</a></p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this guide, we covered the complete process of installing Apache Airflow on Amazon EKS using Helm, ensuring a scalable and efficient deployment.</p>
+</div>
+<div class="sect2">
+<h3 id="key-takeaways">Key Takeaways</h3>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Installing Apache Airflow on EKS</strong></p>
+<div class="ulist">
+<ul>
+<li>
+<p>We deployed Apache Airflow using Helm, leveraging the Kubernetes Executor for distributed task execution.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Configuring Amazon EFS for Persistent Storage</strong></p>
+<div class="ulist">
+<ul>
+<li>
+<p>We integrated Amazon Elastic File System (EFS) to store Airflow logs and DAGs, enabling multiple pods (scheduler, web server, and triggerer) to share the same storage using the ReadWriteMany (RWX) access mode.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Utilizing EFS Access Points</strong></p>
+<div class="ulist">
+<ul>
+<li>
+<p>We created EFS Access Points to simplify permissions management and avoid conflicts when multiple applications access the same storage.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Exposing the Airflow Web Server</strong></p>
+<div class="ulist">
+<ul>
+<li>
+<p>We explored different access methods, including port forwarding for local access and using an AWS Load Balancer to expose the Airflow web server via a public IP address.</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>By following this guide, you now have a <strong>fully functional Apache Airflow setup on Amazon EKS</strong>, equipped with scalable storage and networking configurations.</p>
+</div>
+<div class="paragraph">
+<p>For further optimizations, consider:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Enabling autoscaling</strong> for different Airflow components.</p>
+</li>
+<li>
+<p><strong>Integrating monitoring and logging tools</strong> like Amazon CloudWatch or Grafana.</p>
+</li>
+<li>
+<p><strong>Using secrets management</strong> (e.g., AWS Secrets Manager) for secure credential handling.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>With this setup, you are well-equipped to orchestrate workflows efficiently while leveraging the scalability and resilience of Amazon EKS.</p>
+</div>
+<div class="paragraph">
+<p>All my LinkedIn articles can be found here:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://www.linkedin.com/pulse/my-linkedin-article-library-young-gyu-kim-2jihc/">My LinkedIn Article Library</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Internal Link: docs/airflow/airflow-on-eks/index.adoc</p>
+</div>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+<!-- TOC relocation script -->
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(--link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">
+    Toggle Theme
+</button>
+
+<script>
+    function toggleTheme() {
+        const html = document.documentElement;
+        const isDark = html.getAttribute("data-theme") === "dark";
+        html.setAttribute("data-theme", isDark ? "light" : "dark");
+        localStorage.setItem("theme", isDark ? "light" : "dark");
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+        const savedTheme = localStorage.getItem("theme") || "light";
+        document.documentElement.setAttribute("data-theme", savedTheme);
+    });
+</script>
+</body>
+</html>
