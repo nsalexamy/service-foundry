@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spring Authorization Server with Userinfo Endpoint</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/blog/" class="">Blog</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/architecture/" class="">Architecture</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="active">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/backend-foundry/">Backend Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Spring Authorization Server with Userinfo Endpoint
+        </h1>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#user-profile-using-userinfo-endpoint">User profile using userinfo endpoint</a></li>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#id-token-vs-access-token-for-backend-for-frontend-bff">ID Token vs Access Token for Backend for Frontend (BFF)</a></li>
+<li><a href="#backend-for-frontend-bff-pattern">Backend for Frontend (BFF) pattern</a></li>
+</ul>
+</li>
+<li><a href="#userinfo-endpoint-to-spring-authorization-server">Userinfo Endpoint to Spring Authorization Server</a>
+<ul class="sectlevel2">
+<li><a href="#userinfo-table">userinfo table</a></li>
+<li><a href="#oidcuserinfoservice-java">OidcUserInfoService.java</a></li>
+</ul>
+</li>
+<li><a href="#get-user-information-from-id-token">Get User Information from ID Token</a></li>
+<li><a href="#test-the-userinfo-endpoint">Test the Userinfo Endpoint</a>
+<ul class="sectlevel2">
+<li><a href="#trace-data-and-log-messages-in-jaeger">Trace Data and Log Messages in Jaeger</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#references">References</a>
+<ul class="sectlevel2">
+<li><a href="#id-token-vs-access-token-for-backend-for-frontend-bff-2">ID Token vs Access Token for Backend for Frontend (BFF)</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/user-profile-architecture.png" alt="user profile architecture">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This article is part of a series on Spring Cloud Gateway. The other articles in the series are:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Part 1: <a href="https://www.linkedin.com/pulse/spring-cloud-gateway-using-virtual-threads-young-gyu-kim-zpoxc/">Spring Cloud Gateway with Virtual Threads</a></p>
+</li>
+<li>
+<p>Part 2: <a href="https://www.linkedin.com/pulse/spring-cloud-gateway-oauth-20-authorization-server-young-gyu-kim-sa4kc/">Spring Cloud Gateway with Spring Authorization Server</a></p>
+</li>
+<li>
+<p>Part 3: <a href="https://www.linkedin.com/pulse/spring-cloud-gateway-authorization-server-using-database-kim-brbbc/">Spring Cloud Gateway with Spring Authorization Server using Database</a></p>
+</li>
+<li>
+<p>Part 4: <a href="https://www.linkedin.com/pulse/spring-cloud-gateway-authorization-server-roles-young-gyu-kim-1m0ac/">Spring Cloud Gateway &amp; Spring Authorization Server with Roles</a></p>
+</li>
+<li>
+<p>Part 5: <a href="https://www.linkedin.com/pulse/spring-cloud-gateway-configwatcher-young-gyu-kim-x4qqc/">Spring Cloud Gateway with ConfigWatcher</a></p>
+</li>
+<li>
+<p>Part 6: <a href="https://www.linkedin.com/pulse/spring-authorization-server-userinfo-endpoint-young-gyu-kim-0duqc/">Spring Authorization Server with Userinfo Endpoint</a></p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>This article covers how to implement userinfo endpoint in Spring Authorization Server that is supposed to be used for a web application to get user information.</p>
+</div>
+<div class="paragraph">
+<p>User information is stored in the ID Token as claims. The ID Token is a JSON Web Token (JWT) that contains user information. The ID Token is signed by the Authorization Server and is sent to the client application.</p>
+</div>
+<div class="sect2">
+<h3 id="user-profile-using-userinfo-endpoint">User profile using userinfo endpoint</h3>
+<div class="paragraph">
+<p>In this article, we will implement the userinfo endpoint in Spring Authorization Server to get user information. The userinfo endpoint is used to get user information after the user has logged in.</p>
+</div>
+<div class="paragraph">
+<p>Here is an example of a user profile using the userinfo endpoint that we can get at the end of this article.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/userinfo-response.png" alt="userinfo response">
+</div>
+<div class="title">Figure 1. User Info Response</div>
+</div>
+<div class="paragraph">
+<p>And this endpoint will be used in the web application to display the user profile in the next article.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="prerequisites">Prerequisites</h3>
+<div class="paragraph">
+<p>Before you start, you need to have the following:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Basic knowledge of ID Token and Access Token</p>
+</li>
+<li>
+<p>Basic knowledge of Backend for Frontend (BFF) pattern</p>
+</li>
+<li>
+<p>Basic knowledge of Spring Cloud Gateway</p>
+</li>
+<li>
+<p>Basic knowledge of Spring Authorization Server</p>
+</li>
+<li>
+<p>CRUD operations in Spring Boot</p>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect2">
+<h3 id="id-token-vs-access-token-for-backend-for-frontend-bff">ID Token vs Access Token for Backend for Frontend (BFF)</h3>
+<div class="paragraph">
+<p>When a user logs in, the Authorization Server issues an ID Token and an Access Token. The ID Token is used to get user information, and the Access Token is used to access protected resources.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/id-token-vs-access-token.png" alt="id token vs access token">
+</div>
+<div class="title">Figure 2. ID Token vs Access Token</div>
+</div>
+<div class="paragraph">
+<p>The image above shows the difference between the ID Token and the Access Token. ID Token is used to verify the identity of an authenticated user, and Access Token is used to access protected resources.</p>
+</div>
+<div class="sect3">
+<h4 id="components-used-in-this-article">Components used in this article</h4>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">Web Application</dt>
+<dd>
+<p>Single Page Application (SPA).</p>
+</dd>
+<dt class="hdlist1">Backend for Frontend (BFF)</dt>
+<dd>
+<p>Spring Cloud Gateway.</p>
+</dd>
+<dt class="hdlist1">Open ID Provider (Authorization Server)</dt>
+<dd>
+<p>Spring Authorization Server.</p>
+</dd>
+<dt class="hdlist1">Authorization Server</dt>
+<dd>
+<p>Spring Authorization Server.</p>
+</dd>
+<dt class="hdlist1">OAuth2 Resource Server(API)</dt>
+<dd>
+<p>Spring Boot Applications.</p>
+</dd>
+</dl>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="backend-for-frontend-bff-pattern">Backend for Frontend (BFF) pattern</h3>
+<div class="paragraph">
+<p>The Backend for Frontend (BFF) is a design pattern that is used to create a separate backend for each frontend. The BFF is responsible for handling requests from the frontend and communicating with the backend services. The BFF is used to improve the performance and security of the frontend application.</p>
+</div>
+<div class="paragraph">
+<p>For more information on BFF, see the links below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://datatracker.ietf.org/doc/html/draft-bertocci-oauth2-tmi-bff-01">Token Mediating and session Information Backend For Frontend</a></p>
+</li>
+<li>
+<p><a href="https://github.com/spring-projects/spring-authorization-server/issues/297#issue-896744390">Implementing guildlines for Browser Based Applications(SPA)</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="userinfo-endpoint-to-spring-authorization-server">Userinfo Endpoint to Spring Authorization Server</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This section is based on the Spring Authorization Server documentation.
+Refer to the link below for more information.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://docs.spring.io/spring-authorization-server/reference/guides/how-to-userinfo.html">Spring Authorization Server Userinfo Endpoint</a></p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="userinfo-table">userinfo table</h3>
+<div class="paragraph">
+<p>First, we need to create a table to store user information. The userinfo table will store user information such as username, email, and profile picture.</p>
+</div>
+<div class="paragraph">
+<p>Here is the ERD diagram for the userinfo table:</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/userinfo-erd.png" alt="userinfo erd">
+</div>
+<div class="title">Figure 3. userinfo table</div>
+</div>
+<div class="paragraph">
+<p>Here is the SQL script to create the userinfo table for PostgreSQL.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sql"><span class="k">CREATE</span> <span class="k">TABLE</span> <span class="n">userinfo</span> <span class="p">(</span>
+    <span class="n">id</span> <span class="nb">SERIAL</span> <span class="k">PRIMARY</span> <span class="k">KEY</span><span class="p">,</span>
+    <span class="n">username</span> <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">255</span><span class="p">)</span> <span class="k">UNIQUE</span> <span class="k">NOT</span> <span class="k">NULL</span><span class="p">,</span>
+    <span class="n">name</span> <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">100</span><span class="p">),</span>
+    <span class="n">given_name</span> <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">100</span><span class="p">),</span>
+    <span class="n">family_name</span> <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">100</span><span class="p">),</span>
+    <span class="n">middle_name</span> <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">100</span><span class="p">),</span>
+    <span class="n">nickname</span> <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">100</span><span class="p">),</span>
+    <span class="n">preferred_username</span> <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">100</span><span class="p">),</span>
+    <span class="n">profile</span> <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">255</span><span class="p">),</span>
+    <span class="n">picture</span> <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">255</span><span class="p">),</span>
+    <span class="n">website</span> <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">255</span><span class="p">),</span>
+    <span class="n">email</span> <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">100</span><span class="p">),</span>
+    <span class="n">email_verified</span> <span class="nb">BOOLEAN</span><span class="p">,</span>
+    <span class="n">gender</span> <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">50</span><span class="p">),</span>
+    <span class="n">birthdate</span> <span class="nb">DATE</span><span class="p">,</span>
+    <span class="n">zoneinfo</span> <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">50</span><span class="p">),</span>
+    <span class="n">locale</span> <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">50</span><span class="p">),</span>
+    <span class="n">phone_number</span> <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">50</span><span class="p">),</span>
+    <span class="n">phone_number_verified</span> <span class="nb">BOOLEAN</span><span class="p">,</span>
+    <span class="n">address</span> <span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">255</span><span class="p">),</span>
+    <span class="n">updated_at</span> <span class="nb">TIMESTAMP</span><span class="p">,</span>
+    <span class="n">created_at</span> <span class="nb">TIMESTAMP</span><span class="p">,</span>
+    <span class="k">constraint</span> <span class="n">fk_userinfo_users</span> <span class="k">foreign</span> <span class="k">key</span><span class="p">(</span><span class="n">username</span><span class="p">)</span> <span class="k">references</span> <span class="n">users</span><span class="p">(</span><span class="n">username</span><span class="p">)</span>
+<span class="p">);</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="oidcuserinfoservice-java">OidcUserInfoService.java</h3>
+<div class="paragraph">
+<p>Next, we need to create a service to get user information. The userinfo service will get user information from the userinfo table.</p>
+</div>
+<div class="paragraph">
+<p>We need to create the following components:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Userinfo (Entity)</p>
+</li>
+<li>
+<p>UserinfoRepository</p>
+</li>
+<li>
+<p>OidcUserInfoService</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">Userinfo.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@Entity</span>
+<span class="nd">@Table</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"userinfo"</span><span class="o">)</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">Userinfo</span> <span class="o">{</span>
+    <span class="nd">@Id</span>
+    <span class="nd">@GeneratedValue</span><span class="o">(</span><span class="n">strategy</span> <span class="o">=</span> <span class="nc">GenerationType</span><span class="o">.</span><span class="na">IDENTITY</span><span class="o">)</span>
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"id"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">Long</span> <span class="n">id</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"username"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">username</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"name"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">name</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"given_name"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">givenName</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"family_name"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">familyName</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"middle_name"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">middleName</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"nickname"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">nickname</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"preferred_username"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">preferredUsername</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"profile"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">profile</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"picture"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">picture</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"website"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">website</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"email"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">email</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"email_verified"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">Boolean</span> <span class="n">emailVerified</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"gender"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">gender</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"birthdate"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">LocalDate</span> <span class="n">birthdate</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"zoneinfo"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">zoneinfo</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"locale"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">locale</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"phone_number"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">phoneNumber</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"phone_number_verified"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">Boolean</span> <span class="n">phoneNumberVerified</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"address"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">address</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"updated_at"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">LocalDateTime</span> <span class="n">updatedAt</span><span class="o">;</span>
+
+    <span class="nd">@Column</span><span class="o">(</span><span class="n">name</span> <span class="o">=</span> <span class="s">"created_at"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">LocalDateTime</span> <span class="n">createdAt</span><span class="o">;</span>
+
+    <span class="c1">// getters and setters</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">UserinfoRepository.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@Repository</span>
+<span class="kd">public</span> <span class="kd">interface</span> <span class="nc">UserinfoRepository</span> <span class="kd">extends</span> <span class="nc">JpaRepository</span><span class="o">&lt;</span><span class="nc">Userinfo</span><span class="o">,</span> <span class="nc">Long</span><span class="o">&gt;</span> <span class="o">{</span>
+    <i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="nc">Optional</span><span class="o">&lt;</span><span class="nc">Userinfo</span><span class="o">&gt;</span> <span class="nf">findByUsername</span><span class="o">(</span><span class="nc">String</span> <span class="n">username</span><span class="o">);</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>findByUsername method to get user information by username.</td>
+</tr>
+</table>
+</div>
+<div class="listingblock">
+<div class="title">OidcUserInfoService.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@Service</span>
+<span class="nd">@RequiredArgsConstructor</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">OidcUserInfoService</span> <span class="o">{</span>
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nc">UserinfoRepository</span> <span class="n">userinfoRepository</span><span class="o">;</span>
+
+    <i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="kd">public</span> <span class="nc">OidcUserInfo</span> <span class="nf">loadUser</span><span class="o">(</span><span class="nc">String</span> <span class="n">username</span><span class="o">)</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="k">new</span> <span class="nf">OidcUserInfo</span><span class="o">(</span><span class="n">findByUsername</span><span class="o">(</span><span class="n">username</span><span class="o">));</span>
+    <span class="o">}</span>
+
+    <i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="kd">private</span> <span class="nc">Map</span><span class="o">&lt;</span><span class="nc">String</span><span class="o">,</span> <span class="nc">Object</span><span class="o">&gt;</span> <span class="nf">findByUsername</span><span class="o">(</span><span class="nc">String</span> <span class="n">username</span><span class="o">)</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="n">userinfoRepository</span><span class="o">.</span><span class="na">findByUsername</span><span class="o">(</span><span class="n">username</span><span class="o">)</span>
+                <span class="o">.</span><span class="na">map</span><span class="o">(</span><span class="n">userinfo</span> <span class="o">-&gt;</span> <span class="nc">OidcUserInfo</span><span class="o">.</span><span class="na">builder</span><span class="o">()</span>
+                        <span class="o">.</span><span class="na">subject</span><span class="o">(</span><span class="n">username</span><span class="o">)</span>
+                        <span class="o">.</span><span class="na">name</span><span class="o">(</span><span class="n">userinfo</span><span class="o">.</span><span class="na">getName</span><span class="o">())</span>
+                        <span class="o">.</span><span class="na">givenName</span><span class="o">(</span><span class="n">userinfo</span><span class="o">.</span><span class="na">getGivenName</span><span class="o">())</span>
+                        <span class="o">.</span><span class="na">familyName</span><span class="o">(</span><span class="n">userinfo</span><span class="o">.</span><span class="na">getFamilyName</span><span class="o">())</span>
+                        <span class="o">.</span><span class="na">nickname</span><span class="o">(</span><span class="n">userinfo</span><span class="o">.</span><span class="na">getNickname</span><span class="o">())</span>
+                        <span class="o">.</span><span class="na">preferredUsername</span><span class="o">(</span><span class="n">userinfo</span><span class="o">.</span><span class="na">getPreferredUsername</span><span class="o">())</span>
+                        <span class="o">.</span><span class="na">profile</span><span class="o">(</span><span class="n">userinfo</span><span class="o">.</span><span class="na">getProfile</span><span class="o">())</span>
+                        <span class="o">.</span><span class="na">picture</span><span class="o">(</span><span class="n">userinfo</span><span class="o">.</span><span class="na">getPicture</span><span class="o">())</span>
+                        <span class="o">.</span><span class="na">website</span><span class="o">(</span><span class="n">userinfo</span><span class="o">.</span><span class="na">getWebsite</span><span class="o">())</span>
+                        <span class="o">.</span><span class="na">email</span><span class="o">(</span><span class="n">userinfo</span><span class="o">.</span><span class="na">getEmail</span><span class="o">())</span>
+                        <span class="o">.</span><span class="na">emailVerified</span><span class="o">(</span><span class="n">userinfo</span><span class="o">.</span><span class="na">getEmailVerified</span><span class="o">())</span>
+                        <span class="o">.</span><span class="na">gender</span><span class="o">(</span><span class="n">userinfo</span><span class="o">.</span><span class="na">getGender</span><span class="o">())</span>
+                        <span class="o">.</span><span class="na">birthdate</span><span class="o">(</span><span class="n">toDateString</span><span class="o">(</span><span class="n">userinfo</span><span class="o">.</span><span class="na">getBirthdate</span><span class="o">()))</span>
+                        <span class="o">.</span><span class="na">zoneinfo</span><span class="o">(</span><span class="n">userinfo</span><span class="o">.</span><span class="na">getZoneinfo</span><span class="o">())</span>
+                        <span class="o">.</span><span class="na">locale</span><span class="o">(</span><span class="n">userinfo</span><span class="o">.</span><span class="na">getLocale</span><span class="o">())</span>
+                        <span class="o">.</span><span class="na">phoneNumber</span><span class="o">(</span><span class="n">userinfo</span><span class="o">.</span><span class="na">getPhoneNumber</span><span class="o">())</span>
+                        <span class="o">.</span><span class="na">phoneNumberVerified</span><span class="o">(</span><span class="n">userinfo</span><span class="o">.</span><span class="na">getPhoneNumberVerified</span><span class="o">())</span>
+                        <span class="o">.</span><span class="na">claim</span><span class="o">(</span><span class="s">"address"</span><span class="o">,</span> <span class="n">userinfo</span><span class="o">.</span><span class="na">getAddress</span><span class="o">())</span>
+                        <span class="o">.</span><span class="na">updatedAt</span><span class="o">(</span><span class="n">toDateTimeString</span><span class="o">(</span><span class="n">userinfo</span><span class="o">.</span><span class="na">getUpdatedAt</span><span class="o">()))</span>
+                        <span class="o">.</span><span class="na">build</span><span class="o">()</span>
+                        <span class="o">.</span><span class="na">getClaims</span><span class="o">())</span>
+                <span class="o">.</span><span class="na">orElse</span><span class="o">(</span><span class="nc">Map</span><span class="o">.</span><span class="na">of</span><span class="o">(</span><span class="s">"sub"</span><span class="o">,</span> <span class="n">username</span><span class="o">));</span>
+
+    <span class="o">}</span>
+
+    <span class="kd">private</span> <span class="nc">String</span> <span class="nf">toDateString</span><span class="o">(</span><span class="nc">LocalDate</span> <span class="n">date</span><span class="o">)</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="n">date</span> <span class="o">!=</span> <span class="kc">null</span> <span class="o">?</span> <span class="n">date</span><span class="o">.</span><span class="na">format</span><span class="o">(</span><span class="nc">DateTimeFormatter</span><span class="o">.</span><span class="na">ISO_DATE</span><span class="o">)</span> <span class="o">:</span> <span class="kc">null</span><span class="o">;</span>
+    <span class="o">}</span>
+
+    <span class="kd">private</span> <span class="nc">String</span> <span class="nf">toDateTimeString</span><span class="o">(</span><span class="nc">LocalDateTime</span> <span class="n">dateTime</span><span class="o">)</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="n">dateTime</span> <span class="o">!=</span> <span class="kc">null</span> <span class="o">?</span> <span class="n">dateTime</span><span class="o">.</span><span class="na">format</span><span class="o">(</span><span class="nc">DateTimeFormatter</span><span class="o">.</span><span class="na">ISO_DATE_TIME</span><span class="o">)</span> <span class="o">:</span> <span class="kc">null</span><span class="o">;</span>
+    <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>loadUser method to get user information by username.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>findByUsername method to get user information from the userinfo table. If the user information is not found, it returns a map with the subject.</td>
+</tr>
+</table>
+</div>
+<div class="listingblock">
+<div class="title">AuthorizationServerConfig - authorizationSecurityFilterChain</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java">    <span class="c1">// @formatter:off</span>
+    <span class="nd">@Order</span><span class="o">(</span><span class="nc">Ordered</span><span class="o">.</span><span class="na">HIGHEST_PRECEDENCE</span><span class="o">)</span>
+    <span class="nd">@Bean</span>
+    <span class="nc">SecurityFilterChain</span> <span class="nf">authorizationSecurityFilterChain</span><span class="o">(</span><span class="nc">HttpSecurity</span> <span class="n">http</span><span class="o">)</span> <span class="kd">throws</span> <span class="nc">Exception</span> <span class="o">{</span>
+
+        <span class="n">applyDefaultSecurity</span><span class="o">(</span><span class="n">http</span><span class="o">);</span>
+
+        <i class="conum" data-value="1"></i><b>(1)</b>
+        <span class="nc">Function</span><span class="o">&lt;</span><span class="nc">OidcUserInfoAuthenticationContext</span><span class="o">,</span> <span class="nc">OidcUserInfo</span><span class="o">&gt;</span> <span class="n">userInfoMapper</span> <span class="o">=</span> <span class="o">(</span><span class="n">context</span><span class="o">)</span> <span class="o">-&gt;</span> <span class="o">{</span>
+            <span class="nc">OidcUserInfoAuthenticationToken</span> <span class="n">authenticationToken</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="na">getAuthentication</span><span class="o">();</span>
+            <span class="nc">JwtAuthenticationToken</span> <span class="n">principal</span> <span class="o">=</span> <span class="o">(</span><span class="nc">JwtAuthenticationToken</span><span class="o">)</span> <span class="n">authenticationToken</span><span class="o">.</span><span class="na">getPrincipal</span><span class="o">();</span>
+
+            <span class="k">return</span> <span class="k">new</span> <span class="nf">OidcUserInfo</span><span class="o">(</span><span class="n">principal</span><span class="o">.</span><span class="na">getToken</span><span class="o">().</span><span class="na">getClaims</span><span class="o">());</span>
+        <span class="o">};</span>
+
+        <span class="kt">var</span> <span class="n">authServerConfigurer</span> <span class="o">=</span> <span class="n">http</span><span class="o">.</span><span class="na">getConfigurer</span><span class="o">(</span><span class="nc">OAuth2AuthorizationServerConfigurer</span><span class="o">.</span><span class="na">class</span><span class="o">);</span>
+
+        <i class="conum" data-value="2"></i><b>(2)</b>
+        <span class="n">authServerConfigurer</span><span class="o">.</span><span class="na">oidc</span><span class="o">((</span><span class="n">oidc</span><span class="o">)</span> <span class="o">-&gt;</span> <span class="n">oidc</span><span class="o">.</span><span class="na">userInfoEndpoint</span><span class="o">((</span><span class="n">userInfo</span><span class="o">)</span> <span class="o">-&gt;</span> <span class="n">userInfo</span>
+                        <span class="o">.</span><span class="na">userInfoMapper</span><span class="o">(</span><span class="n">userInfoMapper</span><span class="o">)));</span>
+
+
+        <span class="n">http</span>
+                <span class="o">.</span><span class="na">oauth2ResourceServer</span><span class="o">(</span><span class="n">oauth2</span> <span class="o">-&gt;</span> <span class="n">oauth2</span><span class="o">.</span><span class="na">jwt</span><span class="o">(</span><span class="nc">Customizer</span><span class="o">.</span><span class="na">withDefaults</span><span class="o">()))</span>
+                <span class="o">.</span><span class="na">with</span><span class="o">(</span><span class="n">authServerConfigurer</span><span class="o">,</span> <span class="nc">Customizer</span><span class="o">.</span><span class="na">withDefaults</span><span class="o">())</span>
+
+                <span class="o">.</span><span class="na">exceptionHandling</span><span class="o">(</span><span class="n">c</span> <span class="o">-&gt;</span>
+                        <span class="n">c</span><span class="o">.</span><span class="na">defaultAuthenticationEntryPointFor</span><span class="o">(</span>
+                                <span class="k">new</span> <span class="nf">LoginUrlAuthenticationEntryPoint</span><span class="o">(</span><span class="s">"/login"</span><span class="o">),</span>
+                                <span class="k">new</span> <span class="nf">MediaTypeRequestMatcher</span><span class="o">(</span><span class="nc">MediaType</span><span class="o">.</span><span class="na">TEXT_HTML</span><span class="o">)))</span>
+
+                <span class="o">.</span><span class="na">formLogin</span><span class="o">(</span><span class="nc">Customizer</span><span class="o">.</span><span class="na">withDefaults</span><span class="o">());</span>
+
+
+        <span class="k">return</span> <span class="n">http</span><span class="o">.</span><span class="na">build</span><span class="o">();</span>
+    <span class="o">}</span>
+    <span class="c1">// @formatter:on</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>userInfoMapper to map the user information.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>userInfoEndpoint to configure the userinfo endpoint.</td>
+</tr>
+</table>
+</div>
+<div class="listingblock">
+<div class="title">AuthorizationServerConfig.java - jwtTokenCustomizer</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java">    <span class="nd">@Bean</span>
+    <span class="kd">public</span> <span class="nc">OAuth2TokenCustomizer</span><span class="o">&lt;</span><span class="nc">JwtEncodingContext</span><span class="o">&gt;</span> <span class="nf">jwtTokenCustomizer</span><span class="o">(</span>
+            <span class="nc">OidcUserInfoService</span> <span class="n">oidcUserInfoService</span><span class="o">)</span> <span class="o">{</span>
+
+        <span class="k">return</span> <span class="o">(</span><span class="n">context</span><span class="o">)</span> <span class="o">-&gt;</span> <span class="o">{</span>
+
+            <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"=====&gt; context.getTokenType(): {}"</span><span class="o">,</span> <span class="n">context</span><span class="o">.</span><span class="na">getTokenType</span><span class="o">().</span><span class="na">getValue</span><span class="o">());</span>
+
+            <i class="conum" data-value="1"></i><b>(1)</b>
+            <span class="k">if</span><span class="o">(</span><span class="nc">OidcParameterNames</span><span class="o">.</span><span class="na">ID_TOKEN</span><span class="o">.</span><span class="na">equals</span><span class="o">(</span><span class="n">context</span><span class="o">.</span><span class="na">getTokenType</span><span class="o">().</span><span class="na">getValue</span><span class="o">()))</span> <span class="o">{</span>
+                <span class="n">log</span><span class="o">.</span><span class="na">debug</span><span class="o">(</span><span class="s">"Adding claims to id token"</span><span class="o">);</span>
+
+                <span class="kt">var</span> <span class="n">principal</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="na">getPrincipal</span><span class="o">();</span>
+                <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"principal: {}, class: {}"</span><span class="o">,</span> <span class="n">principal</span><span class="o">,</span> <span class="n">principal</span><span class="o">.</span><span class="na">getClass</span><span class="o">());</span>
+
+                <span class="nc">OidcUserInfo</span> <span class="n">userInfo</span> <span class="o">=</span> <span class="n">oidcUserInfoService</span><span class="o">.</span><span class="na">loadUser</span><span class="o">(</span>
+                        <span class="n">context</span><span class="o">.</span><span class="na">getPrincipal</span><span class="o">().</span><span class="na">getName</span><span class="o">());</span>
+
+                <span class="n">log</span><span class="o">.</span><span class="na">debug</span><span class="o">(</span><span class="s">"claims: {}"</span><span class="o">,</span> <span class="n">userInfo</span><span class="o">.</span><span class="na">getClaims</span><span class="o">());</span>
+                <span class="n">context</span><span class="o">.</span><span class="na">getClaims</span><span class="o">().</span><span class="na">claims</span><span class="o">(</span><span class="n">claims</span> <span class="o">-&gt;</span> <span class="o">{</span>
+                    <span class="n">claims</span><span class="o">.</span><span class="na">putAll</span><span class="o">(</span><span class="n">userInfo</span><span class="o">.</span><span class="na">getClaims</span><span class="o">());</span>
+                <span class="o">});</span>
+            <span class="o">}</span>
+            <i class="conum" data-value="2"></i><b>(2)</b>
+            <span class="k">if</span><span class="o">(</span><span class="nc">OAuth2TokenType</span><span class="o">.</span><span class="na">ACCESS_TOKEN</span><span class="o">.</span><span class="na">equals</span><span class="o">(</span><span class="n">context</span><span class="o">.</span><span class="na">getTokenType</span><span class="o">()))</span> <span class="o">{</span>
+                <span class="n">log</span><span class="o">.</span><span class="na">debug</span><span class="o">(</span><span class="s">"Adding roles to access token"</span><span class="o">);</span>
+                <span class="n">log</span><span class="o">.</span><span class="na">debug</span><span class="o">(</span><span class="s">"authorities: {}"</span><span class="o">,</span> <span class="n">context</span><span class="o">.</span><span class="na">getPrincipal</span><span class="o">().</span><span class="na">getAuthorities</span><span class="o">());</span>
+
+                <span class="n">context</span><span class="o">.</span><span class="na">getClaims</span><span class="o">().</span><span class="na">claims</span><span class="o">((</span><span class="n">claims</span><span class="o">)</span> <span class="o">-&gt;</span> <span class="o">{</span>
+                    <span class="nc">Set</span><span class="o">&lt;</span><span class="nc">String</span><span class="o">&gt;</span> <span class="n">roles</span> <span class="o">=</span> <span class="nc">AuthorityUtils</span><span class="o">.</span><span class="na">authorityListToSet</span><span class="o">(</span>
+                                    <span class="n">context</span><span class="o">.</span><span class="na">getPrincipal</span><span class="o">().</span><span class="na">getAuthorities</span><span class="o">())</span>
+                            <span class="o">.</span><span class="na">stream</span><span class="o">()</span>
+                            <span class="o">.</span><span class="na">map</span><span class="o">((</span><span class="n">authority</span><span class="o">)</span> <span class="o">-&gt;</span> <span class="n">authority</span><span class="o">.</span><span class="na">replaceFirst</span><span class="o">(</span><span class="s">"^ROLE_"</span><span class="o">,</span> <span class="s">""</span><span class="o">))</span>
+                            <span class="o">.</span><span class="na">collect</span><span class="o">(</span><span class="nc">Collectors</span>
+                                    <span class="o">.</span><span class="na">collectingAndThen</span><span class="o">(</span><span class="nc">Collectors</span><span class="o">.</span><span class="na">toSet</span><span class="o">(),</span>
+                                            <span class="nl">Collections:</span><span class="o">:</span><span class="n">unmodifiableSet</span><span class="o">));</span>
+
+                    <span class="n">log</span><span class="o">.</span><span class="na">debug</span><span class="o">(</span><span class="s">"roles: {}"</span><span class="o">,</span> <span class="n">roles</span><span class="o">);</span>
+                    <span class="n">claims</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="s">"roles"</span><span class="o">,</span> <span class="n">roles</span><span class="o">);</span>
+
+                    <span class="nc">OidcUserInfo</span> <span class="n">userInfo</span> <span class="o">=</span> <span class="n">oidcUserInfoService</span><span class="o">.</span><span class="na">loadUser</span><span class="o">(</span>
+                            <span class="n">context</span><span class="o">.</span><span class="na">getPrincipal</span><span class="o">().</span><span class="na">getName</span><span class="o">());</span>
+
+                    <span class="n">claims</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="s">"email"</span><span class="o">,</span> <span class="n">userInfo</span><span class="o">.</span><span class="na">getEmail</span><span class="o">());</span>
+<span class="c1">//                    claims.put("phone_number", userInfo.getPhoneNumber());</span>
+                <span class="o">});</span>
+            <span class="o">}</span>
+        <span class="o">};</span>
+    <span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Adding claims to the ID Token.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Adding roles to the Access Token. This is covered in the previous article. Refer to the link below for more information.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Part 4: <a href="https://www.linkedin.com/pulse/spring-cloud-gateway-authorization-server-roles-young-gyu-kim-1m0ac/">Spring Cloud Gateway &amp; Spring Authorization Server with Roles</a></p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="get-user-information-from-id-token">Get User Information from ID Token</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>ID Token is not supposed to be used in OAuth2 Resource Server. So I decided to add a new Controller to nsa2-gateway project.</p>
+</div>
+<div class="listingblock">
+<div class="title">UserController.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@RestController</span>
+<span class="nd">@RequestMapping</span><span class="o">(</span><span class="s">"/user"</span><span class="o">)</span>
+<span class="nd">@Slf4j</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">UserController</span> <span class="o">{</span>
+
+    <span class="nd">@Value</span><span class="o">(</span><span class="s">"${app.auth.post-login-redirect"</span><span class="o">)</span>
+    <span class="kd">private</span> <span class="nc">String</span> <span class="n">postLoginRedirect</span><span class="o">;</span>
+
+    <i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="nd">@GetMapping</span><span class="o">(</span><span class="s">"/profile"</span><span class="o">)</span>
+    <span class="kd">public</span> <span class="nc">Map</span><span class="o">&lt;</span><span class="nc">String</span><span class="o">,</span> <span class="nc">Object</span><span class="o">&gt;</span> <span class="nf">idToken</span><span class="o">(</span><span class="nd">@AuthenticationPrincipal</span> <span class="nc">OidcUser</span> <span class="n">oidcUser</span><span class="o">)</span> <span class="o">{</span>
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"oidcUser: {}"</span><span class="o">,</span> <span class="n">oidcUser</span><span class="o">);</span>
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"id token: {}"</span><span class="o">,</span> <span class="n">oidcUser</span><span class="o">.</span><span class="na">getIdToken</span><span class="o">().</span><span class="na">getTokenValue</span><span class="o">());</span>
+
+        <span class="k">if</span><span class="o">(</span><span class="n">oidcUser</span> <span class="o">==</span> <span class="kc">null</span><span class="o">)</span> <span class="o">{</span>
+            <span class="k">return</span> <span class="nc">Map</span><span class="o">.</span><span class="na">of</span><span class="o">(</span><span class="s">"error"</span><span class="o">,</span> <span class="s">"No id_token found"</span><span class="o">,</span> <span class="s">"id_token"</span><span class="o">,</span> <span class="kc">null</span><span class="o">);</span>
+
+        <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+            <span class="k">return</span> <span class="n">oidcUser</span><span class="o">.</span><span class="na">getClaims</span><span class="o">();</span>
+        <span class="o">}</span>
+    <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>idToken method to get the ID Token from the OidcUser. @AuthenticationPrincipal is used to get the OidcUser. It writes the ID Token to the log for debugging.</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="test-the-userinfo-endpoint">Test the Userinfo Endpoint</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>On the web browser, type the following URL in the address bar to get the user information.</p>
+</div>
+<div class="paragraph">
+<p><a href="http://nsa2-gateway:8080/user/profile" class="bare">http://nsa2-gateway:8080/user/profile</a></p>
+</div>
+<div class="paragraph">
+<p>It redirects to the login page. Enter the username and password to log in.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/login.png" alt="login">
+</div>
+<div class="title">Figure 4. Login</div>
+</div>
+<div class="paragraph">
+<p>After logging in, you will see the user information.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/user-profile-result.png" alt="user profile result">
+</div>
+<div class="title">Figure 5. User Profile</div>
+</div>
+<div class="sect2">
+<h3 id="trace-data-and-log-messages-in-jaeger">Trace Data and Log Messages in Jaeger</h3>
+<div class="paragraph">
+<p>We can view trace data and log messages from the Jaeger UI.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/jaeger-query-ui-1.png" alt="jaeger query ui 1">
+</div>
+<div class="title">Figure 6. jaeger-query-ui</div>
+</div>
+<div class="paragraph">
+<p>The value of id_token is displayed in the log. And we can see the body of the id_token like the image below.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/jwt-1.png" alt="jwt 1">
+</div>
+<div class="title">Figure 7. JWT</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this article, we implemented the userinfo endpoint in Spring Authorization Server to get user information. The userinfo endpoint is used to get user information after the user has logged in.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="references">References</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://docs.spring.io/spring-authorization-server/reference/guides/how-to-userinfo.html">Spring Authorization Server Userinfo Endpoint</a></p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="id-token-vs-access-token-for-backend-for-frontend-bff-2">ID Token vs Access Token for Backend for Frontend (BFF)</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://auth0.com/blog/id-token-access-token-what-is-the-difference/">ID Token vs Access Token: What is the Difference?</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+</body>
+</html>

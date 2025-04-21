@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spring Cloud Gateway with ConfigWatcher</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/blog/" class="">Blog</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/architecture/" class="">Architecture</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="active">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/backend-foundry/">Backend Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Spring Cloud Gateway with ConfigWatcher
+        </h1>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#scenario">Scenario</a></li>
+</ul>
+</li>
+<li><a href="#sprig-cloud-kubernetes-configwatcher">Sprig Cloud Kubernetes ConfigWatcher</a></li>
+<li><a href="#new-backend-service-named-nsa2-security-admin">New Backend Service named nsa2-security-admin</a></li>
+<li><a href="#configure-configwatcher-to-spring-cloud-gateway">Configure ConfigWatcher to Spring Cloud Gateway</a>
+<ul class="sectlevel2">
+<li><a href="#add-dependencies">Add dependencies</a></li>
+<li><a href="#configmap-for-application-yaml-file">ConfigMap for application.yaml file</a></li>
+<li><a href="#bootstrap-yaml">bootstrap.yaml</a></li>
+</ul>
+</li>
+<li><a href="#mount-configmap-to-the-pod">Mount ConfigMap to the pod</a>
+<ul class="sectlevel2">
+<li><a href="#for-helm-chart">For Helm chart</a></li>
+<li><a href="#for-kubernetes-deployment">For Kubernetes deployment</a></li>
+</ul>
+</li>
+<li><a href="#create-serviceaccount-role-and-rolebinding">Create ServiceAccount, Role, and RoleBinding</a></li>
+<li><a href="#how-to-test-configwatcher">How to test ConfigWatcher</a>
+<ul class="sectlevel2">
+<li><a href="#port-forward-to-the-pods">Port forward to the pods</a></li>
+<li><a href="#etchosts">/etc/hosts</a></li>
+</ul>
+</li>
+<li><a href="#how-to-add-routes-dynamically">How to add routes dynamically</a>
+<ul class="sectlevel2">
+<li><a href="#test-existing-routes-before-adding-new-routes">Test existing routes before adding new routes</a></li>
+<li><a href="#add-routes-dynamically">Add routes dynamically</a></li>
+<li><a href="#how-to-update-routes-dynamically">How to update routes dynamically</a></li>
+<li><a href="#403-forbidden">403 Forbidden</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#references">References</a></li>
+</ul>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This article is part of a series on Spring Cloud Gateway. The other articles in the series are:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Part 1: <a href="https://www.linkedin.com/pulse/spring-cloud-gateway-using-virtual-threads-young-gyu-kim-zpoxc/">Spring Cloud Gateway with Virtual Threads</a></p>
+</li>
+<li>
+<p>Part 2: <a href="https://www.linkedin.com/pulse/spring-cloud-gateway-oauth-20-authorization-server-young-gyu-kim-sa4kc/">Spring Cloud Gateway with Spring Authorization Server</a></p>
+</li>
+<li>
+<p>Part 3: <a href="https://www.linkedin.com/pulse/spring-cloud-gateway-authorization-server-using-database-kim-brbbc/">Spring Cloud Gateway with Spring Authorization Server using Database</a></p>
+</li>
+<li>
+<p>Part 4: <a href="https://www.linkedin.com/pulse/spring-cloud-gateway-authorization-server-roles-young-gyu-kim-1m0ac/">Spring Cloud Gateway &amp; Spring Authorization Server with Roles</a></p>
+</li>
+<li>
+<p>Part 5: <a href="https://www.linkedin.com/pulse/spring-cloud-gateway-configwatcher-young-gyu-kim-x4qqc/">Spring Cloud Gateway with ConfigWatcher</a></p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>This is the fifth article in the series, which focuses on applying ConfigWatcher to Spring Cloud Gateway.</p>
+</div>
+<div class="paragraph">
+<p>In this article, we are going to learn how to add routes to Spring Cloud Gateway dynamically using ConfigWatcher.</p>
+</div>
+<div class="sect2">
+<h3 id="scenario">Scenario</h3>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>The gateway routes are defined in the <code>application.yaml</code> file.</p>
+</li>
+<li>
+<p>The <code>nsa2-gateway-kubernetes.yaml</code> file is stored in a ConfigMap in Kubernetes.</p>
+</li>
+<li>
+<p>Mount the ConfigMap to the <code>/etc/configs</code> directory in the pod.</p>
+</li>
+<li>
+<p>bootstrap.yaml file contains the ConfigWatcher configuration to reload configuration files saved in the ConfigMap.</p>
+</li>
+<li>
+<p>ConfigWatcher watches the ConfigMap and updates the routes in the Spring Cloud Gateway when the file is changed.</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Add a new route to the <code>nsa2-gateway-kubernetes.yaml</code> file in the ConfigMap.</p>
+</li>
+<li>
+<p>Update the existing route in the <code>nsa2-gateway-kubernetes.yaml</code> file in the ConfigMap.</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="sprig-cloud-kubernetes-configwatcher">Sprig Cloud Kubernetes ConfigWatcher</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>ConfigWatcher is a tool that watches the configuration files and updates the application when the configuration files are changed. For example, if you have a configuration file that contains routes for Spring Cloud Gateway, you can use ConfigWatcher to watch the file and update the routes when the file is changed to add or remove routes when needed.</p>
+</div>
+<div class="paragraph">
+<p>For more information about ConfigWatcher, please refer to the link:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://docs.spring.io/spring-cloud-kubernetes/reference/spring-cloud-kubernetes-configuration-watcher.html">Spring Cloud Kubernetes ConfigWatcher</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="new-backend-service-named-nsa2-security-admin">New Backend Service named nsa2-security-admin</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To demonstrate how ConfigWatcher works, we are going to create a new backend service named <code>nsa2-security-admin</code>. The service will be used to demonstrate how to add a new route to the Spring Cloud Gateway dynamically using ConfigWatcher.</p>
+</div>
+<div class="paragraph">
+<p>The <code>nsa2-security-admin</code> service is a Spring Boot applications that provides REST APIs for managing users, roles, and OAuth2 clients. The service is secured with Spring Security and OAuth2.</p>
+</div>
+<div class="paragraph">
+<p>Here is the <code>UserController</code> class in the <code>nsa2-security-admin</code> service. In this article, we are going to add a new route to the Spring Cloud Gateway to access the <code>nsa2-security-admin</code> service.</p>
+</div>
+<div class="paragraph">
+<p>UserController.java</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@RestController</span>
+<span class="nd">@RequestMapping</span><span class="o">(</span><span class="s">"/users"</span><span class="o">)</span>
+<span class="nd">@RequiredArgsConstructor</span>
+<span class="nd">@Slf4j</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">UserController</span> <span class="kd">implements</span> <span class="nc">UserApi</span> <span class="o">{</span>
+
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nc">UserService</span> <span class="n">userService</span><span class="o">;</span>
+
+    <span class="nd">@PreAuthorize</span><span class="o">(</span><span class="s">"hasRole('NSA2_ADMIN')"</span><span class="o">)</span>
+    <span class="nd">@GetMapping</span>
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="nc">List</span><span class="o">&lt;</span><span class="nc">User</span><span class="o">&gt;</span> <span class="nf">getAllUsers</span><span class="o">()</span> <span class="o">{</span>
+        <span class="k">return</span> <span class="n">userService</span><span class="o">.</span><span class="na">getAllUsers</span><span class="o">();</span>
+    <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Please note that the <code>UserController</code> class is secured with the <code>NSA2_ADMIN</code> role which means only users with the <code>NSA2_ADMIN</code> role can access the <code>/users</code> endpoint.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="configure-configwatcher-to-spring-cloud-gateway">Configure ConfigWatcher to Spring Cloud Gateway</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>For more information about ConfigWatcher, please refer to my article on <a href="https://www.linkedin.com/pulse/auto-reload-config-properties-spring-cloud-k8s-watcher-kim-i4nmc/">Auto Reload Config Properties in Spring Cloud with K8s Config Watcher</a>.</p>
+</div>
+<div class="paragraph">
+<p>Simply put, Spring ConfigWatcher is a tool that watches the ConfigMaps or Secrets in Kubernetes and updates the application when the configuration files are changed. For example, if you have a configuration file that contains routes for Spring Cloud Gateway, you can use ConfigWatcher to watch the file and update the routes when the file is changed to add or remove routes when needed.</p>
+</div>
+<div class="paragraph">
+<p>To implement ConfigWatcher in Spring Cloud Gateway, we need to add the following tasks:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Add dependencies to the <code>build.gradle</code> file</p>
+</li>
+<li>
+<p>Create a ConfigMap in Kubernetes that contains the configuration file named <code>nsa2-gateway-kubernetes.yaml</code>. nsa2-gateway is the application name and kubernetes is the profile name.</p>
+</li>
+<li>
+<p>Add ConfigWatcher configuration to the <code>bootstrap.yaml</code> file.</p>
+</li>
+<li>
+<p>Mount the ConfigMap to the <code>/etc/configs</code> directory in the pod.</p>
+</li>
+<li>
+<p>Create a ServiceAccount and RoleBinding for the Spring Cloud Gateway pod to access the ConfigMap.</p>
+</li>
+</ol>
+</div>
+<div class="sect2">
+<h3 id="add-dependencies">Add dependencies</h3>
+<div class="paragraph">
+<p>To add ConfigWatcher to Spring Cloud Gateway, we need to add the following dependencies to the <code>build.gradle</code> file.</p>
+</div>
+<div class="listingblock">
+<div class="title">build.gradle.kts</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="kotlin">    <span class="nf">implementation</span><span class="p">(</span><span class="s">"org.springframework.cloud:spring-cloud-starter"</span><span class="p">)</span>
+    <span class="nf">implementation</span><span class="p">(</span><span class="s">"org.springframework.cloud:spring-cloud-starter-kubernetes-client"</span><span class="p">)</span>
+    <span class="nf">implementation</span><span class="p">(</span><span class="s">"org.springframework.cloud:spring-cloud-starter-kubernetes-client-config"</span><span class="p">)</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="configmap-for-application-yaml-file">ConfigMap for application.yaml file</h3>
+<div class="paragraph">
+<p>Here is the ConfigMap for the application.yaml file.</p>
+</div>
+<div class="listingblock">
+<div class="title">nsa2-gateway-config.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">kind</span><span class="pi">:</span> <span class="s">ConfigMap</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">nsa2-gateway</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">spring.cloud.kubernetes.config</span><span class="pi">:</span> <span class="s2">"</span><span class="s">true"</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="na">spring.cloud.kubernetes.configmap.apps</span><span class="pi">:</span> <span class="s2">"</span><span class="s">nsa2-gateway"</span>
+<span class="na">data</span><span class="pi">:</span>
+  <span class="c1">#NSA2_OAUTH_ISSUER_URI: http://nsa2-auth-server:9000</span>
+  <span class="c1">#NSA2_RESOURCE_SERVER_URI: http://nsa2-resource-server-example:8080</span>
+
+
+  <span class="na">nsa2-gateway-kubernetes.yml</span><span class="pi">:</span> <span class="pi">|-</span>
+    <span class="s">spring.application.name: nsa2-gateway</span>
+
+    <span class="s">server:</span>
+      <span class="s">tomcat.threads.max: ${TOMCAT_THREADS_MAX:10}</span>
+      <span class="s">servlet.session.cookie:</span>
+        <span class="s">name: ${SESSION_COOKIE_NAME:NSA2SESSION}</span>
+
+    <span class="s">spring:</span>
+      <span class="s">cloud:</span>
+        <span class="s">gateway:</span>
+          <span class="s">mvc:</span>
+            <span class="s">routes:</span>
+              <span class="s">- id: resource-server</span>
+                <span class="s">uri: ${NSA2_RESOURCE_SERVER_URI:http://nsa2-resource-server-example:8080}</span>
+                <span class="s">predicates:</span>
+                  <span class="s">- Path=/resource-server/**</span>
+                <span class="s">filters:</span>
+                  <span class="s">- StripPrefix=1</span>
+    <span class="s">#              - AddRequestHeader=Origin, http://nsa2-gateway.canadacentral.cloudapp.azure.com:8080</span>
+                  <span class="s">- AddRequestHeader=Origin, http://nsa2-gateway:8080</span>
+                  <span class="s">- TokenRelay=</span>
+
+              <span class="s">- id: security-admin</span>
+                <span class="s">uri: ${NSA2_SECURITY_ADMIN:http://nsa2-security-admin:8080}</span>
+                <span class="s">predicates:</span>
+    <span class="s">#              - Path=/security-admin/**</span>
+                  <span class="s">- Path=/admin/**</span>
+                <span class="s">filters:</span>
+                  <span class="s">- StripPrefix=1</span>
+    <span class="s">#              - AddRequestHeader=Origin, http://nsa2-gateway.canadacentral.cloudapp.azure.com:8080</span>
+                  <span class="s">- AddRequestHeader=Origin, http://nsa2-gateway:8080</span>
+                  <span class="s">- TokenRelay=</span>
+
+    <span class="s">spring.threads.virtual.enabled: true</span>
+    <span class="s">logging:</span>
+      <span class="s">level:</span>
+        <span class="s">org.springframework: INFO</span>
+
+    <span class="s">spring.security.oauth2.client:</span>
+      <span class="s">registration:</span>
+        <span class="s">nsa2:</span>
+          <span class="s">provider: ${NSA2_OAUTH_PROVIDER:spring}</span>
+          <span class="s">client-id: ${NSA2_OAUTH_CLIENT_ID:nsa2}</span>
+          <span class="s">client-secret: ${NSA2_OAUTH_CLIENT_SECRET:secret}</span>
+          <span class="s">authorization-grant-type: ${NSA2_OAUTH_GRANT_TYPE:authorization_code}</span>
+          <span class="s">scope: ${NSA2_OAUTH_SCOPE:openid,profile}</span>
+          <span class="s">#      scope: openid,profile,nsa2.user.all,nsa2.user.read,nsa2.user.write,nsa2.admin</span>
+          <span class="s">#      redirect-uri: "http://127.0.0.1:8080/authorized"</span>
+          <span class="s">redirect-uri: ${NSA2_OAUTH_REDIRECT_URI:http://nsa2-gateway:8080/login/oauth2/code/{registrationId}}</span>
+          <span class="s">#client-name: nsa2-oidc</span>
+          <span class="s">#client-authentication-method: ${NSA2_OAUTH_CLIENT_AUTH_METHOD:client_secret_basic}</span>
+          <span class="s">client-name: ${NSA2_OAUTH_CLIENT_NAME:"NSA2 OAuth 2.0 Client"}</span>
+
+
+      <span class="s">provider:</span>
+        <span class="s">spring:</span>
+          <span class="s">issuer-uri: ${NSA2_OAUTH_ISSUER_URI:http://nsa2-auth-server:9000}</span>
+
+
+    <span class="s">management:</span>
+      <span class="s">endpoint.health.probes.enabled: true</span>
+      <span class="s">health:</span>
+        <span class="s">livenessstate.enabled: true</span>
+        <span class="s">readinessstate.enabled: true</span>
+
+      <span class="s">endpoints.web.exposure.include: #info,health,metrics,prometheus</span>
+        <span class="s">- info</span>
+        <span class="s">- health</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Please note that the ConfigMap must contain the label and annotation below in metadata section for ConfigWatcher to work.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">spring.cloud.kubernetes.config</span><span class="pi">:</span> <span class="s2">"</span><span class="s">true"</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="na">spring.cloud.kubernetes.configmap.apps</span><span class="pi">:</span> <span class="s2">"</span><span class="s">nsa2-gateway"</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><code>nsa2-gateway</code> is the application name here.</p>
+</div>
+<div class="paragraph">
+<p>If you want to add routes dynamically, you can add the routes to the <code>application.yaml</code> file in the ConfigMap and Apply the ConfigMap to the Kubernetes cluster. ConfigWatcher will watch the ConfigMap and update the routes in the Spring Cloud Gateway when the file is changed.</p>
+</div>
+<div class="paragraph">
+<p>To apply the ConfigMap to the Kubernetes cluster, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 apply <span class="nt">-f</span> nsa2-gateway-config.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Please note that lines for <code>security-admin</code> route are commented out in the <code>application.yaml</code> file in the ConfigMap. We are going to use this route to demonstrate how ConfigWatcher works later in this article.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="bootstrap-yaml">bootstrap.yaml</h3>
+<div class="paragraph">
+<p>To configure ConfigWatcher, we need to add the following configuration to the <code>bootstrap.yaml</code> file.</p>
+</div>
+<div class="listingblock">
+<div class="title">bootstrap.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><i class="conum" data-value="1"></i><b>(1)</b>
+<span class="na">spring.application.name</span><span class="pi">:</span> <span class="s">nsa2-gateway</span>
+
+<span class="nn">---</span>
+<i class="conum" data-value="2"></i><b>(2)</b>
+<span class="na">spring.config.activate.on-profile</span><span class="pi">:</span> <span class="s">kubernetes</span>
+
+<i class="conum" data-value="3"></i><b>(3)</b>
+<span class="na">spring</span><span class="pi">:</span>
+  <span class="na">config</span><span class="pi">:</span>
+    <span class="na">import</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">/etc/configs/nsa2-gateway-kubernetes.yml</span>
+
+<i class="conum" data-value="4"></i><b>(4)</b>
+<span class="na">spring.cloud.kubernetes</span><span class="pi">:</span>
+  <span class="na">reload</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">monitoring-config-maps</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">monitoring-secrets</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">mode</span><span class="pi">:</span> <span class="s">event</span>
+
+  <i class="conum" data-value="5"></i><b>(5)</b>
+  <span class="na">config</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">default-config</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="s">nsa2</span>
+    <span class="na">sources</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">nsa2-gateway</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Set the application name to <code>nsa2-gateway</code> in the <code>bootstrap.yaml</code> file.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The configuration will be activated when the profile is <code>kubernetes</code>.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Import the configuration file <code>nsa2-gateway-kubernetes.yml</code> from the <code>/etc/configs</code> directory. We need to mount the ConfigMap to the <code>/etc/configs</code> directory in the pod.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>Enable the ConfigWatcher with the monitoring of ConfigMaps and Secrets. The mode is set to <code>event</code>.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td>Set the ConfigWatcher configuration in the sources section. The name is the ConfigMap name <code>nsa2-gateway</code> and the namespace is <code>nsa2</code>.</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="mount-configmap-to-the-pod">Mount ConfigMap to the pod</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="for-helm-chart">For Helm chart</h3>
+<div class="paragraph">
+<p>Here is an example of how to mount the ConfigMap to the pod in the <code>values.yaml</code> file for the Spring Cloud Gateway Helm chart.</p>
+</div>
+<div class="listingblock">
+<div class="title">values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">volumes</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">config-volume</span>
+    <span class="na">configMap</span><span class="pi">:</span>
+      <span class="na">name</span><span class="pi">:</span> <span class="s">nsa2-gateway</span>
+
+<span class="na">volumeMounts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">config-volume</span>
+    <span class="na">mountPath</span><span class="pi">:</span> <span class="s2">"</span><span class="s">/etc/configs"</span>
+    <span class="na">readOnly</span><span class="pi">:</span> <span class="kc">true</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="for-kubernetes-deployment">For Kubernetes deployment</h3>
+<div class="paragraph">
+<p>Here is an example of how to mount the ConfigMap to the pod in the Kubernetes deployment file.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">spec</span><span class="pi">:</span>
+  <span class="na">template</span><span class="pi">:</span>
+    <span class="na">spec</span><span class="pi">:</span>
+      <span class="na">volumes</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">config-volume</span>
+          <span class="na">configMap</span><span class="pi">:</span>
+            <span class="na">name</span><span class="pi">:</span> <span class="s">nsa2-gateway</span>
+
+      <span class="na">containers</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">nsa2-gateway</span>
+          <span class="na">volumeMounts</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">config-volume</span>
+              <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/etc/configs</span>
+              <span class="na">readOnly</span><span class="pi">:</span> <span class="kc">true</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-serviceaccount-role-and-rolebinding">Create ServiceAccount, Role, and RoleBinding</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To access the ConfigMap, we need to create a ServiceAccount and RoleBinding for the Spring Cloud Gateway pod.</p>
+</div>
+<div class="paragraph">
+<p>I have been using Yeoman to generate the Helm chart for Spring Cloud Gateway. The generator creates the ServiceAccount, Role, and RoleBinding in the `src/main/k8s/helm-chart/nsa2-gateway' directory using the templates below.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>templates/service-account.yaml</p>
+</li>
+<li>
+<p>templates/role.yaml</p>
+</li>
+<li>
+<p>templates/role-binding.yaml</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Here are the templates for the ServiceAccount, Role, and RoleBinding.</p>
+</div>
+<div class="listingblock">
+<div class="title">templates/service-account.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Service</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="pi">{{</span> <span class="nv">include "nsa2-gateway.fullname" .</span> <span class="pi">}}</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="pi">{{</span><span class="nv">- include "nsa2-gateway.labels" . | nindent 4</span> <span class="pi">}}</span>
+  <span class="pi">{{</span><span class="nv">- with .Values.service.annotations</span> <span class="pi">}}</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="pi">{{</span><span class="nv">- toYaml . | nindent 4</span> <span class="pi">}}</span>
+  <span class="pi">{{</span><span class="nv">- end</span> <span class="pi">}}</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="pi">{{</span> <span class="nv">.Values.service.type</span> <span class="pi">}}</span>
+  <span class="na">ports</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">port</span><span class="pi">:</span> <span class="pi">{{</span> <span class="nv">.Values.service.port</span> <span class="pi">}}</span>
+      <span class="na">targetPort</span><span class="pi">:</span> <span class="s">http</span>
+      <span class="na">protocol</span><span class="pi">:</span> <span class="s">TCP</span>
+      <span class="na">name</span><span class="pi">:</span> <span class="s">http</span>
+  <span class="na">selector</span><span class="pi">:</span>
+    <span class="pi">{{</span><span class="nv">- include "nsa2-gateway.selectorLabels" . | nindent 4</span> <span class="pi">}}</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">templates/role.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Role</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span>  <span class="pi">{{</span> <span class="nv">include "nsa2-gateway.fullname" .</span> <span class="pi">}}</span><span class="s">-config-reader</span>
+<span class="na">rules</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">apiGroups</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">extensions"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">apps"</span><span class="pi">]</span>
+    <span class="na">resources</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">configmaps"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">secrets"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">pods"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">services"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">namespaces"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">endpoints"</span><span class="pi">]</span>
+    <span class="na">verbs</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">get"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">list"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">watch"</span><span class="pi">]</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">templates/role-binding.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">RoleBinding</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="pi">{{</span><span class="nv">- include "nsa2-gateway.labels" . | nindent 4</span> <span class="pi">}}</span>
+  <span class="na">name</span><span class="pi">:</span>  <span class="pi">{{</span> <span class="nv">include "nsa2-gateway.fullname" .</span> <span class="pi">}}</span><span class="s">:view</span>
+<span class="na">roleRef</span><span class="pi">:</span>
+  <span class="na">kind</span><span class="pi">:</span> <span class="s">Role</span>
+  <span class="na">apiGroup</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io</span>
+  <span class="na">name</span><span class="pi">:</span>  <span class="pi">{{</span> <span class="nv">include "nsa2-gateway.fullname" .</span> <span class="pi">}}</span><span class="s">-config-reader</span>
+<span class="na">subjects</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceAccount</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="pi">{{</span> <span class="nv">include "nsa2-gateway.serviceAccountName" .</span> <span class="pi">}}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The template files will create the ServiceAccount, Role, and RoleBinding for the Spring Cloud Gateway pod.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>nsa2-gateway (ServiceAccount)</p>
+</li>
+<li>
+<p>nsa2-gateway-config-reader (Role)</p>
+</li>
+<li>
+<p>nsa2-gateway:view (RoleBinding)</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="how-to-test-configwatcher">How to test ConfigWatcher</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="port-forward-to-the-pods">Port forward to the pods</h3>
+<div class="paragraph">
+<p>In order to test Cloud Gateway with Auth Server, we need to port-forward to the pods. The urls have to be accessible from the browser.</p>
+</div>
+<div class="listingblock">
+<div class="title">port-forward to nsa2-gateway service</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 port-forward svc/nsa2-gateway 8080:8080</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 port-forward svc/nsa2-auth-server 9000:9000</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We do not need to port-forward to Oauth2 resource server as it is accessed by the Spring Cloud Gateway internally.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="etchosts">/etc/hosts</h3>
+<div class="listingblock">
+<div class="title">/etc/hosts</div>
+<div class="content">
+<pre class="rouge highlight"><code>127.0.0.1    nsa2-gateway
+127.0.0.1    nsa2-auth-server</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="how-to-add-routes-dynamically">How to add routes dynamically</h2>
+<div class="sectionbody">
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Before adding a route dynamically, let&#8217;s test the existing routes.</p>
+<div class="ulist">
+<ul>
+<li>
+<p>expected: 404 error</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p>Add routes dynamically and test the new route.</p>
+<div class="ulist">
+<ul>
+<li>
+<p>expected: 200 OK and returns the response.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p>Update routes dynamically.</p>
+<div class="ulist">
+<ul>
+<li>
+<p>expected: 200 OK and returns the response for the new route and 404 error for the old route.</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+<div class="sect2">
+<h3 id="test-existing-routes-before-adding-new-routes">Test existing routes before adding new routes</h3>
+<div class="paragraph">
+<p>Before adding a route dynamically, let&#8217;s test the existing routes.</p>
+</div>
+<div class="paragraph">
+<p>Go to the browser and access the following routes:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><a href="http://nsa2-gateway:8080/security-admin/users" class="bare">http://nsa2-gateway:8080/security-admin/users</a></p>
+</li>
+</ol>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/login-nsa2admin.png" alt="login nsa2admin">
+</div>
+<div class="title">Figure 1. Login</div>
+</div>
+<div class="paragraph">
+<p>The page will ask you to login. Enter the username and password and click on the <code>Sign in</code> button.</p>
+</div>
+<div class="paragraph">
+<p>You should see the following response:</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/security-admin-notfound.png" alt="security admin notfound">
+</div>
+<div class="title">Figure 2. Security Admin - Not Found</div>
+</div>
+<div class="paragraph">
+<p>Since the route for the <code>security-admin</code> is not defined in the <code>nsa2-gateway-kubernetes.yaml</code> file in the ConfigMap, you will see the 404 error.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="add-routes-dynamically">Add routes dynamically</h3>
+<div class="paragraph">
+<p>To add routes dynamically, you can add the routes to the <code>nsa2-gateway-kubernetes.yaml</code> file in the ConfigMap. In this example, just uncomment the lines for the <code>security-admin</code> route in the <code>application.yaml</code> file in the ConfigMap and Apply the ConfigMap to the Kubernetes cluster.</p>
+</div>
+<div class="listingblock">
+<div class="title">nsa2-gateway-config.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">              <span class="pi">-</span> <span class="na">id</span><span class="pi">:</span> <span class="s">security-admin</span>
+                <span class="na">uri</span><span class="pi">:</span> <span class="s">${NSA2_SECURITY_ADMIN:http://nsa2-security-admin:8080}</span>
+                <span class="na">predicates</span><span class="pi">:</span>
+                  <span class="pi">-</span> <span class="s">Path=/security-admin/**</span>
+                <span class="na">filters</span><span class="pi">:</span>
+                  <span class="pi">-</span> <span class="s">StripPrefix=1</span>
+                  <span class="pi">-</span> <span class="s">AddRequestHeader=Origin, http://nsa2-gateway:8080</span>
+                  <span class="pi">-</span> <span class="s">TokenRelay=</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To apply the ConfigMap to the Kubernetes cluster, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 apply <span class="nt">-f</span> nsa2-gateway-config.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Then Spring Cloud Gateway will reload the routes dynamically, and you can access the new route in the browser.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/security-admin-ok-1.png" alt="security admin ok 1">
+</div>
+<div class="title">Figure 3. Security Admin - OK</div>
+</div>
+<div class="paragraph">
+<p>Now we can access the new route <code>security-admin</code> and get the response.</p>
+</div>
+<div class="paragraph">
+<p>We can get some insights from the traces in the Jaeger UI on how the request is processed. Both nsa2-gateway and nsa2-security-admin services call nsa2-auth-server service to authenticate the user and validate the token.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/jaeger-ui-1.png" alt="jaeger ui 1">
+</div>
+<div class="title">Figure 4. Jaeger UI</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="how-to-update-routes-dynamically">How to update routes dynamically</h3>
+<div class="paragraph">
+<p>Let&#8217;s update the existing route <code>/security-admin/users</code> to <code>/admin/users</code>.</p>
+</div>
+<div class="paragraph">
+<p>Set the predicates of <code>security-admin</code> route to <code>/admin/**</code> in the <code>application.yaml</code> file in the ConfigMap and Apply the ConfigMap to the Kubernetes cluster.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">                <span class="na">predicates</span><span class="pi">:</span>
+                  <span class="pi">-</span> <span class="s">Path=/admin/**</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To apply the ConfigMap to the Kubernetes cluster, run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> nsa2 apply <span class="nt">-f</span> nsa2-gateway-config.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now you can access the new route in the browser.</p>
+</div>
+<div class="paragraph">
+<p><a href="http://nsa2-gateway:8080/admin/users" class="bare">http://nsa2-gateway:8080/admin/users</a></p>
+</div>
+<div class="paragraph">
+<p>And you should see the following response:</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/security-admin-ok-2.png" alt="security admin ok 2">
+</div>
+<div class="title">Figure 5. Security Admin - OK</div>
+</div>
+<div class="paragraph">
+<p>and the old route will return 404.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/security-admin-notfound-2.png" alt="security admin notfound 2">
+</div>
+<div class="title">Figure 6. Security Admin - Not Found</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="403-forbidden">403 Forbidden</h3>
+<div class="paragraph">
+<p>When user does not have the required role, the response will be 403 Forbidden.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/login-nsa2user.png" alt="login nsa2user">
+</div>
+<div class="title">Figure 7. Login</div>
+</div>
+<div class="paragraph">
+<p>When user logs in with the user role, the response will be 403 Forbidden.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/security-admin-forbidden-1.png" alt="security admin forbidden 1">
+</div>
+<div class="title">Figure 8. Security Admin - Forbidden</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this article, we have learned how to add routes to Spring Cloud Gateway dynamically using ConfigWatcher. We have created a ConfigMap in Kubernetes that contains the configuration file for Spring Cloud Gateway. We have added the ConfigWatcher configuration to the <code>bootstrap.yaml</code> file to reload the routes dynamically. We have mounted the ConfigMap to the <code>/etc/configs</code> directory in the pod. We have created a ServiceAccount and RoleBinding for the Spring Cloud Gateway pod to access the ConfigMap. We have tested the existing routes before adding new routes. We have added routes dynamically and tested the new route. We have updated the existing route and tested the new route.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="references">References</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://anjireddy-kata.medium.com/spring-cloud-gateway-dynamic-route-configuration-and-loading-from-the-datastore-a0637e6bd9b4#:~:text=To%20reload%20the%20route%20configurations,Below%20is%20the%20sample%20implementation.&amp;text=After%20defining%20the%20class%2C%20you,to%20reload%20the%20routes%20dynamically.">Spring Cloud Gateway Dynamic Route Configuration and Loading from the Datastore</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+</body>
+</html>

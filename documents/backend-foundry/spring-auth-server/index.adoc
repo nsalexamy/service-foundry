@@ -1,0 +1,673 @@
+---
+layout: documents
+title:  Spring Cloud Gateway with OAuth 2.0 (Spring Authorization Server)
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Backend Foundry
+    url: /documents/backend-foundry/
+---
+// docs/spring-cloud-gateway/2-authorization-server/index.adoc
+= Spring Cloud Gateway with OAuth 2.0 (Spring Authorization Server)
+
+:imagesdir: images
+
+== Introduction
+
+This article is part of a series on Spring Cloud Gateway. The other articles in the series are:
+
+. Part 1: Spring Cloud Gateway with Virtual Threads
+. Part 2: Spring Cloud Gateway with Spring Authorization Server
+. Part 3: Spring Cloud Gateway with Spring Authorization Server using Database
+
+This is the second article in the series, which focuses on using Spring Cloud Gateway with Virtual Threads.
+
+
+Spring Cloud Gateway plays a key role in managing cross-cutting concerns like security, monitoring, and resilience. In this article, we’ll explore how to configure Spring Cloud Gateway as an OAuth2 client to interact with an OAuth2 server. We’ll also dive into setting up Spring Authorization Server as the OAuth2 server. Building on the resource server from the previous article, we’ll demonstrate how Spring Cloud Gateway interacts with the OAuth2 server to access protected resources.
+
+=== Spring Bot and OAuth2
+
+In the previous article, we learned how to implement Spring Cloud Gateway using Virtual Threads. In this article, we will discuss how Spring Cloud Gateway handles security using OAuth2. Spring Cloud Gateway can be used as an OAuth2 client to an OAuth2 server. The OAuth2 server is responsible for issuing access tokens to the client. The client can then use the access token to access protected resources.
+
+.Oauth2 with Spring Authorization Server
+[.img-wide]
+image::oauth2-spring-authorization-server.png[]
+
+There are 3 microservices in this example:
+
+* Spring Cloud Gateway (OAuth2 client, Port 8080)
+* Spring Authorization Server (OAuth2 server, Port 8081)
+* Resource Server example (Port 8082)
+
+
+Spring Boot provides the following dependencies to enable OAuth2 support for OAuth2 client, OAuth2 authorization server, and OAuth2 resource server.
+
+Here are the dependencies respectively:
+
+* org.springframework.boot:spring-boot-starter-oauth2-client
+* org.springframework.boot:spring-boot-starter-oauth2-authorization-server
+* org.springframework.boot:spring-boot-starter-oauth2-resource-server
+
+=== Prerequisites
+
+. Java 21 or later
+. Spring Boot 3.2.0 or later
+. Spring Cloud Gateway
+. Basic knowledge of OAuth2
+
+=== Limitations
+
+In this article, I am not going to cover how OAuth2 works. I assume you have a basic understanding of OAuth2. If you are new to OAuth2, I recommend reading the following documentation:
+
+* link:https://oauth.net/2/[OAuth 2.0]
+
+To focus on the main topic, in this article, I will not use a database to store the client details. Instead, I will use an in-memory client registration. We will discuss how to use a database to store client details in a future article.
+
+
+== Spring Authorization Server as OAuth2 Server
+
+[quote, Introducing Spring Authorization Server, https://docs.spring.io/spring-authorization-server/reference/overview.html]
+____
+Spring Authorization Server is a framework that provides implementations of the OAuth 2.1 and OpenID Connect 1.0 specifications and other related specifications. It is built on top of Spring Security to provide a secure, light-weight, and customizable foundation for building OpenID Connect 1.0 Identity Providers and OAuth2 Authorization Server products.
+____
+
+For more information about Spring Authorization Server, visit the link:https://docs.spring.io/spring-authorization-server/reference/overview.html[Spring Authorization Server].
+
+Let's start by creating a new Spring Boot project using Spring Initializr. Add the following dependencies:
+
+=== Add Dependencies
+
+.build.gradle.kts
+[source,gradle]
+----
+dependencies {
+//         implementation("org.springframework.boot:spring-boot-starter-jdbc")
+	implementation("org.springframework.boot:spring-boot-starter-security")
+	implementation("org.springframework.boot:spring-boot-starter-web")
+	implementation("org.springframework.boot:spring-boot-starter-oauth2-authorization-server")
+	compileOnly("org.projectlombok:lombok")
+// 	runtimeOnly("org.postgresql:postgresql")
+	annotationProcessor("org.projectlombok:lombok")
+	testImplementation("org.springframework.boot:spring-boot-starter-test")
+	testImplementation("org.springframework.security:spring-security-test")
+	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+}
+----
+
+Notice that we have added the `spring-boot-starter-oauth2-authorization-server` dependency to enable OAuth2 authorization server support in the application.
+And I commented out the `spring-boot-starter-jdbc` and `postgresql` dependencies because we are not going to use a database to store the client details in this article.
+
+
+=== application.yaml
+
+.application.yml
+[source,yaml]
+----
+spring.application.name: nsa2-auth-server
+
+server.port: 8081
+
+spring.security.oauth2.authorizationserver:
+  client:
+    nsa2-client:
+      registration:
+        client-id: "nsa2"
+        client-secret: "{noop}secret"
+        client-authentication-methods:
+          - "client_secret_basic"
+        authorization-grant-types:
+          - "authorization_code"
+          - "refresh_token"
+          - "client_credentials"
+        redirect-uris:
+          - "http://127.0.0.1:8080/login/oauth2/code/nsa2"
+        post-logout-redirect-uris:
+          - "http://127.0.0.1:8080/logged-out"
+        scopes:
+            - "openid"
+            - "profile"
+            - "nsa2.user.all"
+            - "nsa2.user.read"
+            - "nsa2.user.write"
+            - "nsa2.admin"
+
+      require-authorization-consent: true
+----
+
+In the `application.yml` file, we have configured the OAuth2 client details. We have defined the client-id, client-secret, authorization-grant-types, redirect-uris, post-logout-redirect-uris, and scopes.
+
+=== Security Configuration
+
+.SecurityConfig.java
+[source,java]
+----
+@Configuration(proxyBeanMethods = false)
+@Slf4j
+public class SecurityConfig {
+
+    @Bean
+    UserDetailsService inMemoryUserDetailsManager() {
+        return new InMemoryUserDetailsManager(
+                User.withUsername("nsa2user")
+                        .password("{noop}password")
+                        .roles("NSA2_USER")
+                        .build(),
+                User.withUsername("nsa2admin")
+                        .password("{noop}password")
+                        .roles("NSA2_ADMIN", "NSA2_USER")
+                        .build()
+
+        );
+    }
+}
+----
+
+In the `SecurityConfig.java` file, we have defined the `inMemoryUserDetailsManager` bean to create in-memory users. We have created two users: `nsa2user` and `nsa2admin`. The `nsa2user` user has the `NSA2_USER` role, and the `nsa2admin` user has the `NSA2_ADMIN` and `NSA2_USER` roles.
+The password for both users is `password`.
+
+=== Authorization Server Configuration
+
+.AuthorizationServerConfig.java
+[source,java]
+----
+@Configuration(proxyBeanMethods = false)
+@Slf4j
+@RequiredArgsConstructor
+public class AuthorizationServerConfig {
+
+    // @formatter:off
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    @Bean
+    SecurityFilterChain authorizationSecurityFilterChain(HttpSecurity http) throws Exception {
+
+        applyDefaultSecurity(http);
+        http.getConfigurer(OAuth2AuthorizationServerConfigurer.class)
+                .oidc(Customizer.withDefaults());
+
+        return http
+                .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
+
+                .exceptionHandling(c ->
+                        c.defaultAuthenticationEntryPointFor(
+                                new LoginUrlAuthenticationEntryPoint("/login"),
+                                new MediaTypeRequestMatcher(MediaType.TEXT_HTML)))
+
+                .formLogin(Customizer.withDefaults())
+                .build();
+    }
+    // @formatter:on
+}
+----
+
+In the `AuthorizationServerConfig.java` file, we have defined the `authorizationSecurityFilterChain` bean to configure the security filter chain for the authorization server. We have applied the default security settings and configured the OAuth2 authorization server and OAuth2 resource server.
+
+=== Run the Application
+
+Now, run the application using the following command:
+
+[source,shell]
+----
+$ ./gradlew bootRun
+----
+
+=== OpenID Configuration
+
+If Authorization Server is running, you can access the OpenID Configuration endpoint using the following URL:
+
+http://localhost:8081/.well-known/openid-configuration
+
+The OpenID Configuration endpoint provides information about the OAuth2 server.
+
+Here is an example of the response from the OpenID Configuration endpoint:
+
+[source,json]
+----
+{
+  "issuer": "http://127.0.0.1:8081",
+  "authorization_endpoint": "http://127.0.0.1:8081/oauth2/authorize",
+  "device_authorization_endpoint": "http://127.0.0.1:8081/oauth2/device_authorization",
+  "token_endpoint": "http://127.0.0.1:8081/oauth2/token",
+  "token_endpoint_auth_methods_supported": [
+    "client_secret_basic",
+    "client_secret_post",
+    "client_secret_jwt",
+    "private_key_jwt",
+    "tls_client_auth",
+    "self_signed_tls_client_auth"
+  ],
+  "jwks_uri": "http://127.0.0.1:8081/oauth2/jwks",
+  "userinfo_endpoint": "http://127.0.0.1:8081/userinfo",
+  "end_session_endpoint": "http://127.0.0.1:8081/connect/logout",
+  "response_types_supported": [
+    "code"
+  ],
+  "grant_types_supported": [
+    "authorization_code",
+    "client_credentials",
+    "refresh_token",
+    "urn:ietf:params:oauth:grant-type:device_code",
+    "urn:ietf:params:oauth:grant-type:token-exchange"
+  ],
+  "revocation_endpoint": "http://127.0.0.1:8081/oauth2/revoke",
+  "revocation_endpoint_auth_methods_supported": [
+    "client_secret_basic",
+    "client_secret_post",
+    "client_secret_jwt",
+    "private_key_jwt",
+    "tls_client_auth",
+    "self_signed_tls_client_auth"
+  ],
+  "introspection_endpoint": "http://127.0.0.1:8081/oauth2/introspect",
+  "introspection_endpoint_auth_methods_supported": [
+    "client_secret_basic",
+    "client_secret_post",
+    "client_secret_jwt",
+    "private_key_jwt",
+    "tls_client_auth",
+    "self_signed_tls_client_auth"
+  ],
+  "code_challenge_methods_supported": [
+    "S256"
+  ],
+  "tls_client_certificate_bound_access_tokens": true,
+  "subject_types_supported": [
+    "public"
+  ],
+  "id_token_signing_alg_values_supported": [
+    "RS256"
+  ],
+  "scopes_supported": [
+    "openid"
+  ]
+}
+----
+
+
+== Spring Cloud Gateway as OAuth2 Client
+
+We are going to use the same Spring Cloud Gateway project that we created in the previous article. We will add the OAuth2 client configuration to the Spring Cloud Gateway project.
+
+=== Add Dependencies
+
+.build.gradle.kts
+[source,kotlin]
+----
+dependencies {
+    implementation("org.springframework.cloud:spring-cloud-starter-gateway-mvc")
+    implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.springframework.boot:spring-boot-starter-oauth2-client") // <1>
+
+    compileOnly("org.projectlombok:lombok")
+    annotationProcessor("org.projectlombok:lombok")
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+----
+
+<1> In the `build.gradle.kts` file, we have added the `spring-boot-starter-oauth2-client` dependency to enable OAuth2 client support in the application.
+
+=== Configure OAuth2 Client
+
+.application.yml
+[source,yaml]
+----
+spring.application.name:
+  nsa2-gateway
+
+
+server:
+  tomcat.threads.max: 10
+  #<1>
+  servlet.session.cookie:
+    name: NSA2SESSION
+
+#<2>
+spring:
+  cloud:
+    gateway:
+      mvc:
+        routes:
+          - id: resource-server
+            uri: ${NSA2_RESOURCE_SERVER_URI:http://127.0.0.1:8082}
+            predicates:
+              - Path=/resource-server/**
+            filters:
+              - StripPrefix=1
+              - AddRequestHeader=Origin, http://nsa2-gateway:8080
+              #<3>
+              - TokenRelay=
+
+#<4>
+spring.threads.virtual.enabled: true
+
+#<5>
+spring.security.oauth2.client:
+  registration:
+    nsa2:
+      provider: spring
+      client-id: nsa2
+      client-secret: secret
+      authorization-grant-type: authorization_code
+      scope: openid,profile,nsa2.user.all,nsa2.user.read,nsa2.user.write,nsa2.admin
+      redirect-uri: "http://127.0.0.1:8080/login/oauth2/code/{registrationId}"
+
+  #<6>
+  provider:
+    spring:
+      issuer-uri: http://127.0.0.1:8081
+
+----
+<1> Cookie name for the session
+<2> Gateway routes configuration
+<3> TokenRelay filter to relay the access token to the downstream service
+<4> Enable Virtual Threads
+<5> OAuth2 client configuration
+<6> OAuth2 provider configuration
+
+Please make sure that client-id and client-secret are the same as the client-id and client-secret defined in the `application.yml` file of the Spring Authorization Server.
+
+=== Run the Application
+
+Now, run the application using the following command:
+
+[source,shell]
+----
+$ ./gradlew bootRun
+----
+
+== Resource Server example
+
+We are going to use the same Resource Server project that we created in the previous article. We will add the OAuth2 resource server configuration to the Resource Server project.
+
+=== Add Dependencies
+
+.build.gradle.kts
+[source,kotlin]
+----
+dependencies {
+    implementation("org.springframework.boot:spring-boot-starter-web")
+    //<1>
+    implementation("org.springframework.boot:spring-boot-starter-oauth2-resource-server")
+    compileOnly("org.projectlombok:lombok")
+    annotationProcessor("org.projectlombok:lombok")
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+----
+
+<1> In the `build.gradle.kts` file, we have added the `spring-boot-starter-oauth2-resource-server` dependency to enable OAuth2 resource server support in the application.
+
+=== Configure OAuth2 Resource Server
+
+.application.yml
+[source,yaml]
+----
+spring.application.name: nsa2-resource-server-example
+
+
+server:
+  #<1>
+  port: 8082
+  #<2>
+  tomcat.threads.max: 10
+
+#<3>
+spring.threads.virtual.enabled: false
+
+#<4>
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${NSA2_JWT_ISSUER_URI:http://localhost:8081}
+----
+
+<1> Server port configuration
+<2> Tomcat threads configuration
+<3> Disable Virtual Threads
+<4> OAuth2 resource server configuration
+
+Please make sure that the issuer-uri is the same as the issuer-uri defined in the `application.yml` file of the Spring Authorization Server.
+
+=== Secure Controller
+
+.SecureController.java
+[source,java]
+----
+
+@RestController
+@Slf4j
+public class SecureController {
+    //<1>
+    @GetMapping("/access_token")
+    public Map<String, String> accessToken(JwtAuthenticationToken jwtToken) {
+        Map<String, Object> tokenAttributes = jwtToken.getTokenAttributes();
+        log.debug("principal class: {}", jwtToken.getPrincipal().getClass());
+
+        var authorities = jwtToken.getAuthorities();
+        log.debug("authorities: {}", authorities);
+        return Map.of(
+                "principal", jwtToken.getName(),
+                "access_token", jwtToken.getToken().getTokenValue(),
+                "authorities", authorities.toString(),
+                "scope",tokenAttributes.containsKey("scope") ? tokenAttributes.get("scope").toString() : ""
+        );
+    }
+
+    //<2>
+    @PreAuthorize("hasAuthority('SCOPE_nsa2.user.all') or hasAuthority('SCOPE_nsa2.user.read') or hasAuthority('SCOPE_nsa2.user.write')")
+    @GetMapping("/hello")
+    public Map<String, String> hello(Principal principal, JwtAuthenticationToken jwtToken) {
+        log.info("principal: {}", principal);
+        log.info("name: {}", jwtToken.getName());
+        log.info("principal class: {}", principal.getClass());
+        log.info("jwtToken class: {}", jwtToken.getClass());
+        log.info("authorities: {}", jwtToken.getAuthorities());
+        return Map.of("message", "ResourceServer - Hello, " + principal.getName());
+    }
+
+    //<3>
+    @PreAuthorize("hasAuthority('SCOPE_nsa2.admin')")
+    @GetMapping("/admin/hello")
+    public Map<String, String> adminHello(Principal principal) {
+        return Map.of("message", "ResourceServer - Admin Hello, " + principal.getName());
+    }
+
+
+}
+
+----
+
+<1> The `accessToken` method returns the access token information.
+<2> The `hello` method is secured with the `SCOPE_nsa2.user.all`, `SCOPE_nsa2.user.read`, and `SCOPE_nsa2.user.write` scopes.
+<3> The `adminHello` method is secured with the `SCOPE_nsa2.admin` scope.
+
+For demonstration purposes, we have added the `accessToken` method to display the access token information. But on production, you should not expose the access token information. Normally access tokens are managed by the OAuth2 client and are not exposed to the browser. Only Session ID is exposed to the browser for security reasons.
+
+=== Run the Application
+
+Now, run the application using the following command:
+
+[source,shell]
+----
+$ ./gradlew bootRun
+----
+
+=== Test Resource Server without Access Token
+
+Now this application is running as a resource server. So an access token is required to access the protected resources.
+
+Let's test the resource server without an access token. Open the browser and access the following URL or using curl command:
+
+[source,shell]
+----
+$ curl http://127.0.0.1:8082/access_token -I
+
+HTTP/1.1 401
+WWW-Authenticate: Bearer
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 0
+Cache-Control: no-cache, no-store, max-age=0, must-revalidate
+Pragma: no-cache
+Expires: 0
+X-Frame-Options: DENY
+Content-Length: 0
+Date: Thu, 26 Sep 2024 15:19:22 GMT
+----
+
+It will return the HTTP status code 401 Unauthorized with the `WWW-Authenticate: Bearer` header. This means that the access token is required to access the protected resources.
+
+
+== Test Gateway and Resource Server all together
+
+Now, open the browser and access the following URL:
+
+http://127.0.0.1:8080/resource-server/access_token
+
+.Login Screen
+[.img-wide]
+image::test-1.png[]
+
+Login screen will appear that is provided by the Authorization Server. Please notice that the port is 8081, which is the port of the Authorization Server.
+
+Enter the username and password. The default username is `nsa2user` and the password is `password`.
+
+.Consent Screen
+[.img-wide]
+image::test-2.png[]
+
+Select all scopes except nsa2.admin and click the `Authorize` button.
+
+
+The response will be as follows:
+
+[source,json]
+----
+{
+  "authorities": "[SCOPE_nsa2.user.write, SCOPE_nsa2.user.all, SCOPE_openid, SCOPE_profile, SCOPE_nsa2.user.read]",
+  "principal": "nsa2user",
+  "scope": "[nsa2.user.write, nsa2.user.all, openid, profile, nsa2.user.read]",
+  "access_token": "eyJraWQiOiJiMTc5YjU0MC0yMTkxLTQ5ZmItYTExYS0yYzJiNmMzNDQ5MzgiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJuc2EydXNlciIsImF1ZCI6Im5zYTIiLCJuYmYiOjE3MjczNDk4OTUsInNjb3BlIjpbIm5zYTIudXNlci53cml0ZSIsIm5zYTIudXNlci5hbGwiLCJvcGVuaWQiLCJwcm9maWxlIiwibnNhMi51c2VyLnJlYWQiXSwiaXNzIjoiaHR0cDovLzEyNy4wLjAuMTo4MDgxIiwiZXhwIjoxNzI3MzUwMTk1LCJpYXQiOjE3MjczNDk4OTUsImp0aSI6ImYyMjMxZWU5LTEwNTAtNDc2Yy1hOTQ5LTMxZWNjYmQwZWNhMiJ9.AxwYP891nlmFF2Z43fFDCRNsSbynC47oi0FsQRn6EurO0OGG7MOT3reJv7I843hiCIaIp6IdxCRRG-1U-gjmTci_WndnUnPS2VxWKWRVLetXGaRl0zLV7oaCDa5YYAaZIPFVa2Qne0A7dmLQu1V7hTii_r1qr-XJsbk33QJSD5S72IJ6P7JqESCt3zTQi9fNTXZBZleS7dwGwi4QGb4DOAq-ysnn2pB30qqms0fZD860LhBGnkydBymJgTLV_jf8rjsUvmNxkA5udcymrh7RUiTlGo3jXv62EXscSQ5XHtVAAITzQ06hiuvudTKwWl3FTgp73G7ONZFdKfGcleG7lA"
+}
+----
+
+The authorities are `SCOPE_nsa2.user.write`, `SCOPE_nsa2.user.all`, `SCOPE_openid`, `SCOPE_profile`, and `SCOPE_nsa2.user.read` which is the format of 'SCOPE_{scope}'.
+
+Now, access the following URL:
+
+http://127.0.0.1:8080/resource-server/hello
+
+[source,java]
+----
+    @PreAuthorize("hasAuthority('SCOPE_nsa2.user.all') or hasAuthority('SCOPE_nsa2.user.read') or hasAuthority('SCOPE_nsa2.user.write')")
+    @GetMapping("/hello")
+    public Map<String, String> hello(Principal principal, JwtAuthenticationToken jwtToken) {
+    }
+----
+
+Because nsa2user has the `SCOPE_nsa2.user.all`, `SCOPE_nsa2.user.read`, and `SCOPE_nsa2.user.write` scopes, the `hello` method will be accessible.
+
+The response will be as follows:
+
+[source,json]
+----
+{
+  "message": "ResourceServer - Hello, nsa2user"
+}
+----
+
+
+Now, access the following URL:
+
+http://127.0.0.1:8080/resource-server/admin/hello
+
+[source,java]
+----
+    @PreAuthorize("hasAuthority('SCOPE_nsa2.admin')")
+    @GetMapping("/admin/hello")
+    public Map<String, String> adminHello(Principal principal) {
+    }
+----
+
+Because nsa2user does not have the `SCOPE_nsa2.admin` scope, the `adminHello` method will not be accessible.
+
+The response will be as follows:
+
+.403 Forbidden Error
+[.img-wide]
+image::test-403-error.png[align="center"]
+
+The HTTP status code is 403 Forbidden.
+
+=== Use Session ID to Access Resource Server through Gateway
+
+Tokens are managed by the OAuth2 client and are not exposed to the browser. Only the Session ID is exposed to the browser for security reasons. The Session ID can be used to access the protected resources through the Gateway.
+
+
+How to get the Session ID?
+
+You can get the Session ID from the browser's developer tools. Open the browser's developer tools and go to the `Application` tab. You will see the `Cookies` section. The Session ID is stored in the `NSA2SESSION` cookie.
+
+.Session Cookie
+[.img-wide]
+image::session-cookie.png[]
+
+To access the URL using the Session ID, you can use the curl command with the -b or --cookie option. Here is how you can do it:
+
+[source,shell]
+----
+$ curl http://127.0.0.1:8080/resource-server/hello -I --cookie NSA2SESSION=7599A59CD27ED74582B9EFAEE82A2CD0
+
+HTTP/1.1 200
+cache-control: no-cache, no-store, max-age=0, must-revalidate
+date: Thu, 26 Sep 2024 15:42:14 GMT
+expires: 0
+pragma: no-cache
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-xss-protection: 0
+Content-Type: application/json
+Transfer-Encoding: chunked
+----
+
+Now, you can see that the HTTP status code is 200 OK. This means that the protected resource is accessible using the Session ID.
+
+=== JWT Token Decoding
+
+You can decode the JWT token using the following URL:
+
+https://jwt.io/
+
+.JWT decoding
+[.img-wide]
+image::jwt-decoding.png[]
+
+== Conclusion
+
+In this article, we discussed how to use Spring Cloud Gateway as an OAuth2 client to an OAuth2 server. We also discussed how to use Spring Authorization Server as an OAuth2 server. We created a Spring Authorization Server project, a Spring Cloud Gateway project, and a Resource Server project. We configured the OAuth2 client, OAuth2 resource server, and secured the controller using the `@PreAuthorize` annotation.
+
+
+== References
+
+* https://www.baeldung.com/spring-cloud-gateway-oauth2[Spring Cloud Gateway with OAuth2]
+
+* https://github.com/spring-cloud-samples/sample-gateway-oauth2login
+
+* https://docs.spring.io/spring-session/reference/index.html
+* https://docs.spring.io/spring-security/reference/servlet/authentication/session-management.html
+* https://docs.spring.io/spring-cloud-gateway/reference/spring-cloud-gateway/gatewayfilter-factories/addrequestheader-factory.html
+* https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/index.html
+
+* https://docs.spring.io/spring-security/reference/servlet/appendix/database-schema.html
+
+=== Articles
+
+* https://dev.to/relive27/spring-cloud-gateway-combined-with-the-security-practice-of-oauth20-protocol-1m3b
+
+https://medium.com/@alperkrtglu/spring-oauth2-with-keycloak-moving-from-scope-to-roles-34247f3ff78e

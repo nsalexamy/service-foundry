@@ -1,0 +1,474 @@
+---
+layout: documents
+title: Spring Authorization Server with Userinfo Endpoint
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Backend Foundry
+    url: /documents/backend-foundry/
+---
+// docs/spring-cloud-gateway/6-userinfo/index.adoc
+= Spring Authorization Server with Userinfo Endpoint
+
+:imagesdir: images
+
+[.img-wide]
+image::user-profile-architecture.png[]
+
+== Introduction
+
+This article is part of a series on Spring Cloud Gateway. The other articles in the series are:
+
+. Part 1: link:https://www.linkedin.com/pulse/spring-cloud-gateway-using-virtual-threads-young-gyu-kim-zpoxc/[Spring Cloud Gateway with Virtual Threads]
+. Part 2: link:https://www.linkedin.com/pulse/spring-cloud-gateway-oauth-20-authorization-server-young-gyu-kim-sa4kc/[Spring Cloud Gateway with Spring Authorization Server]
+. Part 3: link:https://www.linkedin.com/pulse/spring-cloud-gateway-authorization-server-using-database-kim-brbbc/[Spring Cloud Gateway with Spring Authorization Server using Database]
+. Part 4: link:https://www.linkedin.com/pulse/spring-cloud-gateway-authorization-server-roles-young-gyu-kim-1m0ac/[Spring Cloud Gateway & Spring Authorization Server with Roles]
+. Part 5: link:https://www.linkedin.com/pulse/spring-cloud-gateway-configwatcher-young-gyu-kim-x4qqc/[Spring Cloud Gateway with ConfigWatcher]
+. Part 6: link:https://www.linkedin.com/pulse/spring-authorization-server-userinfo-endpoint-young-gyu-kim-0duqc/[Spring Authorization Server with Userinfo Endpoint]
+
+This article covers how to implement userinfo endpoint in Spring Authorization Server that is supposed to be used for a web application to get user information.
+
+User information is stored in the ID Token as claims. The ID Token is a JSON Web Token (JWT) that contains user information. The ID Token is signed by the Authorization Server and is sent to the client application.
+
+=== User profile using userinfo endpoint
+
+In this article, we will implement the userinfo endpoint in Spring Authorization Server to get user information. The userinfo endpoint is used to get user information after the user has logged in.
+
+Here is an example of a user profile using the userinfo endpoint that we can get at the end of this article.
+
+.User Info Response
+[.img-wide]
+image::userinfo-response.png[]
+
+And this endpoint will be used in the web application to display the user profile in the next article.
+
+=== Prerequisites
+
+Before you start, you need to have the following:
+
+. Basic knowledge of ID Token and Access Token
+. Basic knowledge of Backend for Frontend (BFF) pattern
+. Basic knowledge of Spring Cloud Gateway
+. Basic knowledge of Spring Authorization Server
+. CRUD operations in Spring Boot
+
+=== ID Token vs Access Token for Backend for Frontend (BFF)
+
+When a user logs in, the Authorization Server issues an ID Token and an Access Token. The ID Token is used to get user information, and the Access Token is used to access protected resources.
+
+.ID Token vs Access Token
+[.img-wide]
+image::id-token-vs-access-token.png[]
+
+The image above shows the difference between the ID Token and the Access Token. ID Token is used to verify the identity of an authenticated user, and Access Token is used to access protected resources.
+
+====  Components used in this article
+Web Application:: Single Page Application (SPA).
+Backend for Frontend (BFF):: Spring Cloud Gateway.
+Open ID Provider (Authorization Server):: Spring Authorization Server.
+Authorization Server:: Spring Authorization Server.
+OAuth2 Resource Server(API):: Spring Boot Applications.
+
+=== Backend for Frontend (BFF) pattern
+
+The Backend for Frontend (BFF) is a design pattern that is used to create a separate backend for each frontend. The BFF is responsible for handling requests from the frontend and communicating with the backend services. The BFF is used to improve the performance and security of the frontend application.
+
+For more information on BFF, see the links below:
+
+* https://datatracker.ietf.org/doc/html/draft-bertocci-oauth2-tmi-bff-01[Token Mediating and session Information Backend For Frontend]
+* https://github.com/spring-projects/spring-authorization-server/issues/297#issue-896744390[Implementing guildlines for Browser Based Applications(SPA)]
+
+== Userinfo Endpoint to Spring Authorization Server
+
+This section is based on the Spring Authorization Server documentation.
+Refer to the link below for more information.
+
+* https://docs.spring.io/spring-authorization-server/reference/guides/how-to-userinfo.html[Spring Authorization Server Userinfo Endpoint]
+
+=== userinfo table
+
+First, we need to create a table to store user information. The userinfo table will store user information such as username, email, and profile picture.
+
+Here is the ERD diagram for the userinfo table:
+
+.userinfo table
+[.img-wide]
+image::userinfo-erd.png[]
+
+Here is the SQL script to create the userinfo table for PostgreSQL.
+
+[source,sql]
+----
+CREATE TABLE userinfo (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(255) UNIQUE NOT NULL,
+    name VARCHAR(100),
+    given_name VARCHAR(100),
+    family_name VARCHAR(100),
+    middle_name VARCHAR(100),
+    nickname VARCHAR(100),
+    preferred_username VARCHAR(100),
+    profile VARCHAR(255),
+    picture VARCHAR(255),
+    website VARCHAR(255),
+    email VARCHAR(100),
+    email_verified BOOLEAN,
+    gender VARCHAR(50),
+    birthdate DATE,
+    zoneinfo VARCHAR(50),
+    locale VARCHAR(50),
+    phone_number VARCHAR(50),
+    phone_number_verified BOOLEAN,
+    address VARCHAR(255),
+    updated_at TIMESTAMP,
+    created_at TIMESTAMP,
+    constraint fk_userinfo_users foreign key(username) references users(username)
+);
+----
+
+=== OidcUserInfoService.java
+
+Next, we need to create a service to get user information. The userinfo service will get user information from the userinfo table.
+
+We need to create the following components:
+
+* Userinfo (Entity)
+* UserinfoRepository
+* OidcUserInfoService
+
+.Userinfo.java
+[source,java]
+----
+@Entity
+@Table(name = "userinfo")
+public class Userinfo {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
+    private Long id;
+
+    @Column(name = "username")
+    private String username;
+
+    @Column(name = "name")
+    private String name;
+
+    @Column(name = "given_name")
+    private String givenName;
+
+    @Column(name = "family_name")
+    private String familyName;
+
+    @Column(name = "middle_name")
+    private String middleName;
+
+    @Column(name = "nickname")
+    private String nickname;
+
+    @Column(name = "preferred_username")
+    private String preferredUsername;
+
+    @Column(name = "profile")
+    private String profile;
+
+    @Column(name = "picture")
+    private String picture;
+
+    @Column(name = "website")
+    private String website;
+
+    @Column(name = "email")
+    private String email;
+
+    @Column(name = "email_verified")
+    private Boolean emailVerified;
+
+    @Column(name = "gender")
+    private String gender;
+
+    @Column(name = "birthdate")
+    private LocalDate birthdate;
+
+    @Column(name = "zoneinfo")
+    private String zoneinfo;
+
+    @Column(name = "locale")
+    private String locale;
+
+    @Column(name = "phone_number")
+    private String phoneNumber;
+
+    @Column(name = "phone_number_verified")
+    private Boolean phoneNumberVerified;
+
+    @Column(name = "address")
+    private String address;
+
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+
+    // getters and setters
+}
+----
+
+
+.UserinfoRepository.java
+[source,java]
+----
+@Repository
+public interface UserinfoRepository extends JpaRepository<Userinfo, Long> {
+    // <1>
+    Optional<Userinfo> findByUsername(String username);
+}
+----
+
+<1> findByUsername method to get user information by username.
+
+.OidcUserInfoService uses the UserinfoRepository to get user information from the userinfo table.
+
+.OidcUserInfoService.java
+[source,java]
+----
+@Service
+@RequiredArgsConstructor
+public class OidcUserInfoService {
+    private final UserinfoRepository userinfoRepository;
+
+    // <1>
+    public OidcUserInfo loadUser(String username) {
+        return new OidcUserInfo(findByUsername(username));
+    }
+
+    // <2>
+    private Map<String, Object> findByUsername(String username) {
+        return userinfoRepository.findByUsername(username)
+                .map(userinfo -> OidcUserInfo.builder()
+                        .subject(username)
+                        .name(userinfo.getName())
+                        .givenName(userinfo.getGivenName())
+                        .familyName(userinfo.getFamilyName())
+                        .nickname(userinfo.getNickname())
+                        .preferredUsername(userinfo.getPreferredUsername())
+                        .profile(userinfo.getProfile())
+                        .picture(userinfo.getPicture())
+                        .website(userinfo.getWebsite())
+                        .email(userinfo.getEmail())
+                        .emailVerified(userinfo.getEmailVerified())
+                        .gender(userinfo.getGender())
+                        .birthdate(toDateString(userinfo.getBirthdate()))
+                        .zoneinfo(userinfo.getZoneinfo())
+                        .locale(userinfo.getLocale())
+                        .phoneNumber(userinfo.getPhoneNumber())
+                        .phoneNumberVerified(userinfo.getPhoneNumberVerified())
+                        .claim("address", userinfo.getAddress())
+                        .updatedAt(toDateTimeString(userinfo.getUpdatedAt()))
+                        .build()
+                        .getClaims())
+                .orElse(Map.of("sub", username));
+
+    }
+
+    private String toDateString(LocalDate date) {
+        return date != null ? date.format(DateTimeFormatter.ISO_DATE) : null;
+    }
+
+    private String toDateTimeString(LocalDateTime dateTime) {
+        return dateTime != null ? dateTime.format(DateTimeFormatter.ISO_DATE_TIME) : null;
+    }
+}
+----
+
+<1> loadUser method to get user information by username.
+<2> findByUsername method to get user information from the userinfo table. If the user information is not found, it returns a map with the subject.
+
+
+.AuthorizationServerConfig - authorizationSecurityFilterChain
+[source,java]
+----
+    // @formatter:off
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    @Bean
+    SecurityFilterChain authorizationSecurityFilterChain(HttpSecurity http) throws Exception {
+
+        applyDefaultSecurity(http);
+
+        // <1>
+        Function<OidcUserInfoAuthenticationContext, OidcUserInfo> userInfoMapper = (context) -> {
+            OidcUserInfoAuthenticationToken authenticationToken = context.getAuthentication();
+            JwtAuthenticationToken principal = (JwtAuthenticationToken) authenticationToken.getPrincipal();
+
+            return new OidcUserInfo(principal.getToken().getClaims());
+        };
+
+        var authServerConfigurer = http.getConfigurer(OAuth2AuthorizationServerConfigurer.class);
+
+        // <2>
+        authServerConfigurer.oidc((oidc) -> oidc.userInfoEndpoint((userInfo) -> userInfo
+                        .userInfoMapper(userInfoMapper)));
+
+
+        http
+                .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
+                .with(authServerConfigurer, Customizer.withDefaults())
+
+                .exceptionHandling(c ->
+                        c.defaultAuthenticationEntryPointFor(
+                                new LoginUrlAuthenticationEntryPoint("/login"),
+                                new MediaTypeRequestMatcher(MediaType.TEXT_HTML)))
+
+                .formLogin(Customizer.withDefaults());
+
+
+        return http.build();
+    }
+    // @formatter:on
+----
+
+<1> userInfoMapper to map the user information.
+<2> userInfoEndpoint to configure the userinfo endpoint.
+
+
+.AuthorizationServerConfig.java - jwtTokenCustomizer
+[source,java]
+----
+    @Bean
+    public OAuth2TokenCustomizer<JwtEncodingContext> jwtTokenCustomizer(
+            OidcUserInfoService oidcUserInfoService) {
+
+        return (context) -> {
+
+            log.info("=====> context.getTokenType(): {}", context.getTokenType().getValue());
+
+            // <1>
+            if(OidcParameterNames.ID_TOKEN.equals(context.getTokenType().getValue())) {
+                log.debug("Adding claims to id token");
+
+                var principal = context.getPrincipal();
+                log.info("principal: {}, class: {}", principal, principal.getClass());
+
+                OidcUserInfo userInfo = oidcUserInfoService.loadUser(
+                        context.getPrincipal().getName());
+
+                log.debug("claims: {}", userInfo.getClaims());
+                context.getClaims().claims(claims -> {
+                    claims.putAll(userInfo.getClaims());
+                });
+            }
+            // <2>
+            if(OAuth2TokenType.ACCESS_TOKEN.equals(context.getTokenType())) {
+                log.debug("Adding roles to access token");
+                log.debug("authorities: {}", context.getPrincipal().getAuthorities());
+
+                context.getClaims().claims((claims) -> {
+                    Set<String> roles = AuthorityUtils.authorityListToSet(
+                                    context.getPrincipal().getAuthorities())
+                            .stream()
+                            .map((authority) -> authority.replaceFirst("^ROLE_", ""))
+                            .collect(Collectors
+                                    .collectingAndThen(Collectors.toSet(),
+                                            Collections::unmodifiableSet));
+
+                    log.debug("roles: {}", roles);
+                    claims.put("roles", roles);
+
+                    OidcUserInfo userInfo = oidcUserInfoService.loadUser(
+                            context.getPrincipal().getName());
+
+                    claims.put("email", userInfo.getEmail());
+//                    claims.put("phone_number", userInfo.getPhoneNumber());
+                });
+            }
+        };
+    }
+
+----
+
+<1> Adding claims to the ID Token.
+<2> Adding roles to the Access Token. This is covered in the previous article. Refer to the link below for more information.
+
+Part 4: link:https://www.linkedin.com/pulse/spring-cloud-gateway-authorization-server-roles-young-gyu-kim-1m0ac/[Spring Cloud Gateway & Spring Authorization Server with Roles]
+
+== Get User Information from ID Token
+
+ID Token is not supposed to be used in OAuth2 Resource Server. So I decided to add a new Controller to nsa2-gateway project.
+
+.UserController.java
+[source,java]
+----
+@RestController
+@RequestMapping("/user")
+@Slf4j
+public class UserController {
+
+    @Value("${app.auth.post-login-redirect")
+    private String postLoginRedirect;
+
+    // <1>
+    @GetMapping("/profile")
+    public Map<String, Object> idToken(@AuthenticationPrincipal OidcUser oidcUser) {
+        log.info("oidcUser: {}", oidcUser);
+        log.info("id token: {}", oidcUser.getIdToken().getTokenValue());
+
+        if(oidcUser == null) {
+            return Map.of("error", "No id_token found", "id_token", null);
+
+        } else {
+            return oidcUser.getClaims();
+        }
+    }
+}
+----
+
+<1> idToken method to get the ID Token from the OidcUser. @AuthenticationPrincipal is used to get the OidcUser. It writes the ID Token to the log for debugging.
+
+
+== Test the Userinfo Endpoint
+
+On the web browser, type the following URL in the address bar to get the user information.
+
+http://nsa2-gateway:8080/user/profile
+
+It redirects to the login page. Enter the username and password to log in.
+
+.Login
+[.img-wide]
+image::login.png[]
+
+After logging in, you will see the user information.
+
+.User Profile
+[.img-wide]
+image::user-profile-result.png[]
+
+=== Trace Data and Log Messages in Jaeger
+
+We can view trace data and log messages from the Jaeger UI.
+
+.jaeger-query-ui
+[.img-wide]
+image::jaeger-query-ui-1.png[]
+
+The value of id_token is displayed in the log. And we can see the body of the id_token like the image below.
+
+.JWT
+[.img-wide]
+image::jwt-1.png[]
+
+== Conclusion
+
+In this article, we implemented the userinfo endpoint in Spring Authorization Server to get user information. The userinfo endpoint is used to get user information after the user has logged in.
+
+== References
+
+* https://docs.spring.io/spring-authorization-server/reference/guides/how-to-userinfo.html[Spring Authorization Server Userinfo Endpoint]
+
+=== ID Token vs Access Token for Backend for Frontend (BFF)
+
+* https://auth0.com/blog/id-token-access-token-what-is-the-difference/[ID Token vs Access Token: What is the Difference?]
