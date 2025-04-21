@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spring Cloud Gateway using Virtual Threads</title>
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/blog/" class="">Blog</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/architecture/" class="">Architecture</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="active">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/backend-foundry/">Backend Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Spring Cloud Gateway using Virtual Threads
+        </h1>
+        
+
+        <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#java-21-and-virtual-threads">Java 21 and Virtual Threads</a>
+<ul class="sectlevel2">
+<li><a href="#key-features-ofjava-21-virtual-threads">Key Features ofJava 21 Virtual Threads</a></li>
+<li><a href="#benefits-of-java-21-virtual-threads">Benefits of Java 21 Virtual Threads</a></li>
+<li><a href="#java-21-virtual-threads-vs-reactive-programming">Java 21 Virtual Threads vs. Reactive Programming</a></li>
+</ul>
+</li>
+<li><a href="#spring-cloud-gateway">Spring Cloud Gateway</a>
+<ul class="sectlevel2">
+<li><a href="#spring-cloud-gateway-reactive-server">Spring Cloud Gateway Reactive Server</a></li>
+<li><a href="#spring-cloud-gateway-server-mvc">Spring Cloud Gateway Server MVC</a></li>
+</ul>
+</li>
+<li><a href="#spring-boot-applications-for-this-article">Spring Boot applications for this article</a></li>
+<li><a href="#spring-cloud-gateway-server">Spring Cloud Gateway server</a>
+<ul class="sectlevel2">
+<li><a href="#spring-cloud-gateway-server-configuration">Spring Cloud Gateway server configuration</a></li>
+<li><a href="#running-the-spring-cloud-gateway-server">Running the Spring Cloud Gateway server</a></li>
+</ul>
+</li>
+<li><a href="#nsa2-resource-server">nsa2-resource-server</a>
+<ul class="sectlevel2">
+<li><a href="#blocking-endpoint">Blocking endpoint</a></li>
+<li><a href="#running-the-nsa2-resource-server">Running the nsa2-resource-server</a></li>
+</ul>
+</li>
+<li><a href="#comparison-of-performance-with-virtual-threads-enabled-vs-disabled">Comparison of Performance with Virtual Threads Enabled vs. Disabled.</a>
+<ul class="sectlevel2">
+<li><a href="#virtual-threads-disableddefault">Virtual Threads Disabled(Default)</a></li>
+<li><a href="#virtual-threads-enabled">Virtual Threads Enabled</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#references">References</a>
+<ul class="sectlevel2">
+<li><a href="#spring-documentation">Spring documentation</a></li>
+<li><a href="#articles">Articles</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This article will show you how to use Spring Cloud Gateway with Virtual Threads to build an API gateway that routes requests to backend services.</p>
+</div>
+<div class="paragraph">
+<p>This article is part of a series on Spring Cloud Gateway. The other articles in the series are:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Part 1: Spring Cloud Gateway with Virtual Threads</p>
+</li>
+<li>
+<p>Part 2: Spring Cloud Gateway with Spring Authorization Server</p>
+</li>
+<li>
+<p>Part 3: Spring Cloud Gateway with OAuth2 Server(Keycloak)</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>This is the first article in the series, which focuses on using Spring Cloud Gateway with Virtual Threads.</p>
+</div>
+<div class="paragraph">
+<p>Spring Boot applications used in this article will be also used in the other articles in the series.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>nsa2-gateway</p>
+</li>
+<li>
+<p>nsa2-resource-server-example</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="prerequisites">Prerequisites</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p>Java 21</p>
+</li>
+<li>
+<p>Spring Boot 3.2 or newer</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="java-21-and-virtual-threads">Java 21 and Virtual Threads</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Java 21 is the first LTS release that includes Project Loom. Project Loom is an OpenJDK project that aims to make it easier to write, debug, and maintain concurrent applications. It introduces virtual threads, which are lightweight threads that are managed by the JVM. Virtual threads are more efficient than OS threads, and they can be used to handle a large number of connections.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/virtual-threads.png" alt="virtual threads">
+</div>
+<div class="title">Figure 1. Virtual Thread</div>
+</div>
+<div class="sect2">
+<h3 id="key-features-ofjava-21-virtual-threads">Key Features ofJava 21 Virtual Threads</h3>
+<div class="sect3">
+<h4 id="lightweight-threads">Lightweight Threads</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>Virtual threads are much more lightweight compared to traditional (platform) threads, meaning you can create millions of them without consuming excessive system resources like memory and CPU.</p>
+</li>
+<li>
+<p>Traditional threads are backed by native OS threads, which are expensive to create and manage. In contrast, virtual threads are managed entirely by the JVM, making them much cheaper to create and schedule.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="improved-scalability">Improved Scalability</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>With traditional threads, handling a large number of concurrent tasks (e.g., thousands of network requests or database queries) can lead to resource exhaustion. Virtual threads allow you to handle millions of concurrent tasks efficiently.</p>
+</li>
+<li>
+<p>This makes virtual threads ideal for highly scalable applications, such as web servers, microservices, or any application with many concurrent operations.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="simplified-concurrency">Simplified Concurrency</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>Virtual threads allow developers to write blocking code in a simple, imperative style without worrying about performance bottlenecks. You can write code that “waits” for an I/O operation to complete, such as reading from a file or making a network request, but the underlying virtual thread is efficiently managed by the JVM, avoiding the typical issues of blocking system threads.</p>
+</li>
+<li>
+<p>This removes the need for complex asynchronous programming patterns (like callbacks or futures) in many cases.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="interoperability-with-existing-code">Interoperability with Existing Code</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>Virtual threads work seamlessly with existing Java APIs and libraries that use traditional blocking I/O. There’s no need to rewrite your code to adopt them — you can introduce virtual threads incrementally and gain performance improvements without significant refactoring.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="platform-threads-vs-virtual-threads">Platform Threads vs. Virtual Threads</h4>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Platform Threads</strong> (traditional threads) are managed by the OS and mapped one-to-one with native threads. They are limited in number and can become a bottleneck when scaling.</p>
+</li>
+<li>
+<p><strong>Virtual Threads</strong> are managed by the JVM, not the OS, and are much more efficient in terms of memory and CPU usage. A single platform thread can run many virtual threads.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="concurrency-made-easier">Concurrency Made Easier</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>Virtual threads eliminate the need to shift to reactive or asynchronous programming for scalability, making code easier to understand and maintain. You get the benefits of scalable concurrency without sacrificing the simplicity of blocking code.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="benefits-of-java-21-virtual-threads">Benefits of Java 21 Virtual Threads</h3>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">High concurrency</dt>
+<dd>
+<p>Handle millions of concurrent operations without exhausting system resources.</p>
+</dd>
+<dt class="hdlist1">No callback hell</dt>
+<dd>
+<p>Write blocking code without needing complex asynchronous constructs.</p>
+</dd>
+<dt class="hdlist1">Seamless adoption</dt>
+<dd>
+<p>Works with existing blocking code and libraries, requiring minimal changes to your codebase.</p>
+</dd>
+<dt class="hdlist1">Simplified debugging</dt>
+<dd>
+<p>Debugging blocking code in virtual threads is easier than debugging asynchronous code with complex callbacks.</p>
+</dd>
+</dl>
+</div>
+</div>
+<div class="sect2">
+<h3 id="java-21-virtual-threads-vs-reactive-programming">Java 21 Virtual Threads vs. Reactive Programming</h3>
+<div class="paragraph">
+<p>Java 21 Virtual Threads and Reactive Programming are two different approaches to handling concurrency and scaling in applications. Here’s a comparison to make it clearer:</p>
+</div>
+<div class="sect3">
+<h4 id="concurrency-model">Concurrency Model</h4>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">Virtual Threads</dt>
+<dd>
+<p>Virtual threads are lightweight, low-cost threads introduced in Java 21. They allow you to write blocking code in a highly scalable way. Virtual threads operate like traditional threads but with much lower overhead, enabling millions of threads to run concurrently without blocking system resources.</p>
+</dd>
+<dt class="hdlist1">Reactive Programming</dt>
+<dd>
+<p>Reactive programming is a non-blocking, asynchronous programming paradigm that handles concurrency using callbacks, event loops, or streams. It’s designed to react to data flows and events, usually with observables or publishers/subscribers.</p>
+</dd>
+</dl>
+</div>
+</div>
+<div class="sect3">
+<h4 id="programming-style">Programming Style</h4>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">Virtual Threads</dt>
+<dd>
+<p>You can write code in a simple, imperative style (traditional blocking calls), and the virtual threads manage concurrency efficiently under the hood. This makes it easy to retrofit existing codebases without significant changes to code logic.</p>
+</dd>
+<dt class="hdlist1">Reactive Programming</dt>
+<dd>
+<p>It requires a declarative style of programming where code is designed around streams and events, often leading to more complex code. You think in terms of data flow rather than direct execution.</p>
+</dd>
+</dl>
+</div>
+</div>
+<div class="sect3">
+<h4 id="blocking-vs-non-blocking">Blocking vs Non-blocking</h4>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">Virtual Threads</dt>
+<dd>
+<p>They allow you to use blocking calls (e.g., I/O operations), but since virtual threads are so lightweight, this doesn’t cause a bottleneck in the same way traditional threads do.</p>
+</dd>
+<dt class="hdlist1">Reactive Programming</dt>
+<dd>
+<p>It is inherently non-blocking. Instead of waiting for operations like I/O, the program continues running, and results are processed asynchronously when they’re ready. This approach avoids blocking completely.</p>
+</dd>
+</dl>
+</div>
+</div>
+<div class="sect3">
+<h4 id="scalability">Scalability</h4>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">Virtual Threads</dt>
+<dd>
+<p>Scales well by allowing the creation of millions of threads without the traditional memory and performance overhead.</p>
+</dd>
+<dt class="hdlist1">Reactive Programming</dt>
+<dd>
+<p>Scales through non-blocking I/O and asynchronous execution, making it efficient for handling large numbers of concurrent requests without creating many threads.</p>
+</dd>
+</dl>
+</div>
+</div>
+<div class="sect3">
+<h4 id="ease-of-use">Ease of Use</h4>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">Virtual Threads</dt>
+<dd>
+<p>Easier to use for developers familiar with traditional multi-threading, as the code is more readable and closer to sequential programming.</p>
+</dd>
+<dt class="hdlist1">Reactive Programming</dt>
+<dd>
+<p>Can be harder to understand, especially for developers not familiar with functional or event-driven programming. Debugging reactive flows is also more complex.</p>
+</dd>
+</dl>
+</div>
+</div>
+<div class="sect3">
+<h4 id="use-cases">Use Cases</h4>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">Virtual Threads</dt>
+<dd>
+<p>Ideal for applications with traditional blocking I/O or where you want to scale existing thread-based applications with minimal changes.</p>
+</dd>
+<dt class="hdlist1">Reactive Programming</dt>
+<dd>
+<p>Best suited for applications that need to handle asynchronous events and streams of data, such as real-time data processing, reactive web frameworks, or high-throughput applications.</p>
+</dd>
+</dl>
+</div>
+</div>
+<div class="sect3">
+<h4 id="libraries-and-ecosystem">Libraries and Ecosystem</h4>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">Virtual Threads</dt>
+<dd>
+<p>Integrated directly into the JDK, requiring no additional libraries or frameworks. This makes it easy to adopt for new or existing Java applications.</p>
+</dd>
+<dt class="hdlist1">Reactive Programming</dt>
+<dd>
+<p>typically requires additional libraries or frameworks like Reactor, RxJava, or Akka to build reactive systems.</p>
+</dd>
+</dl>
+</div>
+</div>
+<div class="sect3">
+<h4 id="conclusion-of-the-comparison">Conclusion of the comparison</h4>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">Virtual Threads</dt>
+<dd>
+<p>in Java 21 provide a more traditional, developer-friendly approach to concurrency with minimal overhead, making them suitable for most general-purpose applications.</p>
+</dd>
+<dt class="hdlist1">Reactive Programming</dt>
+<dd>
+<p>offers a more complex, but powerful way to handle asynchronous and non-blocking operations, often better suited for systems that need to handle streams of data or large numbers of events efficiently.</p>
+</dd>
+</dl>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="spring-cloud-gateway">Spring Cloud Gateway</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This section is written based on the official Spring Cloud Gateway documentation.</p>
+</div>
+<div class="paragraph">
+<p>Please refer to the official documentation below for more details.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://docs.spring.io/spring-cloud-gateway/reference/index.html">Spring Cloud Gateway Reference</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Spring Cloud Gateway aims to provide a simple, yet effective way to route requests to backend services and provide cross-cutting concerns like security, monitoring, and resiliency. It is built on top of Spring WebFlux, which is a reactive programming framework. Spring Cloud Gateway uses WebClient to make HTTP requests to backend services. WebClient is a reactive HTTP client that is based on Project Reactor.</p>
+</div>
+<div class="paragraph">
+<p>There are two distinct flavors of Spring Cloud Gateway: Server and Proxy Exchange. Each flavor offers WebFlux and MVC compatibility.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>The Server variant is a full-featured API gateway that can be standalong or embedded in a Spring Boot application.</p>
+</li>
+<li>
+<p>The Proxy Exchange variant is exclusively for use in annotation based WebFlux or MVC applications and allows the use of a special ProxyExchange object as a parameter to a web handler method.</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="spring-cloud-gateway-reactive-server">Spring Cloud Gateway Reactive Server</h3>
+<div class="paragraph">
+<p>Spring Cloud Gateway Reactive Server is a full-featured API gateway that can be standalone or embedded in a Spring Boot application. It is built on top of Spring WebFlux, which is a reactive programming framework. Spring Cloud Gateway Reactive Server uses WebClient to make HTTP requests to backend services. WebClient is a reactive HTTP client that is based on Project Reactor.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="spring-cloud-gateway-server-mvc">Spring Cloud Gateway Server MVC</h3>
+<div class="paragraph">
+<p>Spring Cloud Gateway Server MVC is a new programming model that allows you to write blocking code that is executed asynchronously on virtual threads.</p>
+</div>
+<div class="paragraph">
+<p>This article will show you how to use Spring Cloud Gateway Server MVC to build an API gateway that routes requests to backend services.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="spring-boot-applications-for-this-article">Spring Boot applications for this article</h2>
+<div class="sectionbody">
+<div class="dlist">
+<dl>
+<dt class="hdlist1">nsa2-gateway (port 8080)</dt>
+<dd>
+<p>A Spring Cloud Gateway server that routes requests to the nsa2-resource-server. In this article, we are going to use this application to test the performance of Spring Cloud Gateway with Virtual Threads enabled and disabled.</p>
+</dd>
+<dt class="hdlist1">nsa2-resource-server-example (port 8082)</dt>
+<dd>
+<p>A simple REST API server that simulates a backend service. This project is going to have more endpoints to test the gateway later in other articles. In this article, this project is going to have only one endpoint that is blocked for seconds to simulate a slow backend service.</p>
+</dd>
+</dl>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="spring-cloud-gateway-server">Spring Cloud Gateway server</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We are going to create a Spring Boot Application named <code>nsa2-gateway</code></p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/project-gateway-1.png" alt="project gateway 1">
+</div>
+<div class="title">Figure 2. IntelliJ - Create Project</div>
+</div>
+<div class="paragraph">
+<p>Make sure to select Java 21 or newer version to enable Virtual Threads.</p>
+</div>
+<div class="paragraph">
+<p>Spring provides two types of Gateway. Make sure to select the first one from the list to use Virtual Threads.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/dependencies-gateway.png" alt="dependencies gateway">
+</div>
+<div class="title">Figure 3. Gateway and Reactive Gateway</div>
+</div>
+<div class="sect2">
+<h3 id="spring-cloud-gateway-server-configuration">Spring Cloud Gateway server configuration</h3>
+<div class="paragraph">
+<p>We are going to configure the Spring Cloud Gateway server to route requests to the nsa2-resource-server.</p>
+</div>
+<div class="listingblock">
+<div class="title">application.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">spring.application.name</span><span class="pi">:</span>
+  <span class="s">nsa2-gateway</span>
+
+<span class="na">server.tomcat.threads.max</span><span class="pi">:</span> <span class="m">10</span>
+
+<span class="na">spring</span><span class="pi">:</span>
+  <span class="na">cloud</span><span class="pi">:</span>
+    <span class="na">gateway</span><span class="pi">:</span>
+      <span class="na">mvc</span><span class="pi">:</span>
+        <span class="na">routes</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">id</span><span class="pi">:</span> <span class="s">resource-server</span>
+            <span class="na">uri</span><span class="pi">:</span> <span class="s">${NSA2_RESOURCE_SERVER_URI:http://127.0.0.1:8082}</span>
+            <span class="na">predicates</span><span class="pi">:</span>
+              <span class="pi">-</span> <span class="s">Path=/resource-server/**</span>
+            <span class="na">filters</span><span class="pi">:</span>
+              <span class="pi">-</span> <span class="s">StripPrefix=1</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Note that the port number of the nsa2-resource-server is set to 8082. It is because the port 8080 is already used by the nsa2-gateway server.</p>
+</div>
+<div class="sect3">
+<h4 id="how-to-check-the-number-of-cores-in-your-machine">How to check the number of cores in your machine</h4>
+<div class="paragraph">
+<p>I am using a MacBook Pro with 10 cores and I can see the number of cores using the following command.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>sysctl <span class="nt">-n</span> hw.physicalcpu
+10
+
+<span class="c"># or you can use the following command</span>
+<span class="nv">$ </span>sysctl <span class="nt">-n</span> hw.ncpu</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Based on the number of cores, you can set the number of threads in the Tomcat configuration.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">server.tomcat.threads.max</span><span class="pi">:</span> <span class="s">10</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="routing-configuration">Routing configuration</h4>
+<div class="paragraph">
+<p>In application.yaml, we have configured the Spring Cloud Gateway server to route requests to the nsa2-resource-server. The StripPrefix filter is used to remove the <code>/resource-server</code> prefix from the request path before forwarding it to the backend service.</p>
+</div>
+<div class="paragraph">
+<p>Based on the configuration above, the Spring Cloud Gateway server will route requests that match the <code>/resource-server/**</code> path to the nsa2-resource-server after removing /resource-server prefix. For example, a request to <code><a href="http://localhost:8080/resource-server/hello" class="bare">http://localhost:8080/resource-server/hello</a></code> will be routed to <code><a href="http://localhost:8082/hello" class="bare">http://localhost:8082/hello</a></code>.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="running-the-spring-cloud-gateway-server">Running the Spring Cloud Gateway server</h3>
+<div class="paragraph">
+<p>To run the Spring Cloud Gateway server, you can use the following command.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>./gradlew bootRun</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="nsa2-resource-server">nsa2-resource-server</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We are going to create a Spring Boot Application named <code>nsa2-resource-server</code> which is a simple REST API server that simulates a backend service.</p>
+</div>
+<div class="sect2">
+<h3 id="blocking-endpoint">Blocking endpoint</h3>
+<div class="listingblock">
+<div class="title">BlockingController.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="kn">package</span> <span class="nn">com.alexamy.nsa2.example.resourceserver.controller</span><span class="o">;</span>
+
+<span class="kn">import</span> <span class="nn">lombok.extern.slf4j.Slf4j</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.web.bind.annotation.GetMapping</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.web.bind.annotation.PathVariable</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.springframework.web.bind.annotation.RestController</span><span class="o">;</span>
+
+<span class="nd">@RestController</span>
+<span class="nd">@Slf4j</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">BlockingController</span> <span class="o">{</span>
+    <span class="nd">@GetMapping</span><span class="o">(</span><span class="s">"/blocking/{sleepInSecond}"</span><span class="o">)</span>
+    <span class="kd">public</span> <span class="nc">String</span> <span class="nf">blocking</span><span class="o">(</span><span class="nd">@PathVariable</span> <span class="kt">int</span> <span class="n">sleepInSecond</span><span class="o">)</span> <span class="o">{</span>
+        <span class="nc">StringBuffer</span> <span class="n">response</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">StringBuffer</span><span class="o">();</span>
+
+        <span class="n">response</span><span class="o">.</span><span class="na">append</span><span class="o">(</span><span class="s">"Start blocking for "</span><span class="o">).</span><span class="na">append</span><span class="o">(</span><span class="n">sleepInSecond</span><span class="o">).</span><span class="na">append</span><span class="o">(</span><span class="s">" seconds "</span><span class="o">);</span>
+        <span class="n">response</span><span class="o">.</span><span class="na">append</span><span class="o">(</span><span class="s">"thread.name: "</span><span class="o">).</span><span class="na">append</span><span class="o">(</span><span class="nc">Thread</span><span class="o">.</span><span class="na">currentThread</span><span class="o">().</span><span class="na">getName</span><span class="o">());</span>
+        <span class="n">response</span><span class="o">.</span><span class="na">append</span><span class="o">(</span><span class="s">" started at "</span><span class="o">).</span><span class="na">append</span><span class="o">(</span><span class="nc">System</span><span class="o">.</span><span class="na">currentTimeMillis</span><span class="o">());</span>
+
+        <span class="k">try</span> <span class="o">{</span>
+            <span class="nc">Thread</span><span class="o">.</span><span class="na">sleep</span><span class="o">(</span><span class="n">sleepInSecond</span> <span class="o">*</span> <span class="mi">1000</span><span class="o">);</span>
+        <span class="o">}</span> <span class="k">catch</span> <span class="o">(</span><span class="nc">InterruptedException</span> <span class="n">e</span><span class="o">)</span> <span class="o">{</span>
+            <span class="n">log</span><span class="o">.</span><span class="na">error</span><span class="o">(</span><span class="s">"Error occurred while sleeping"</span><span class="o">,</span> <span class="n">e</span><span class="o">);</span>
+        <span class="o">}</span>
+        <span class="n">response</span><span class="o">.</span><span class="na">append</span><span class="o">(</span><span class="s">" ended at "</span><span class="o">).</span><span class="na">append</span><span class="o">(</span><span class="nc">System</span><span class="o">.</span><span class="na">currentTimeMillis</span><span class="o">());</span>
+        <span class="k">return</span> <span class="n">response</span><span class="o">.</span><span class="na">toString</span><span class="o">();</span>
+    <span class="o">}</span>
+
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The blocking endpoint <code>/blocking/{sleepInSecond}</code> simulates a slow backend service by blocking the request for a specified number of seconds. The endpoint takes a path variable <code>sleepInSecond</code> that specifies the number of seconds to block the request. It takes at lease the number of seconds to block the request.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="running-the-nsa2-resource-server">Running the nsa2-resource-server</h3>
+<div class="paragraph">
+<p>To run the nsa2-resource-server, you can use the following command.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>./gradlew bootRun <span class="nt">--args</span><span class="o">=</span><span class="s1">'--server.port=8082'</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The port number is set to 8082 to avoid conflicts with the nsa2-gateway server.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="comparison-of-performance-with-virtual-threads-enabled-vs-disabled">Comparison of Performance with Virtual Threads Enabled vs. Disabled.</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="virtual-threads-disableddefault">Virtual Threads Disabled(Default)</h3>
+<div class="paragraph">
+<p>Let&#8217;s make a request to the blocking endpoint of the nsa2-resource-server using curl like below.</p>
+</div>
+<div class="listingblock">
+<div class="title">call blocking endpoint</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>curl http://localhost:8082/blocking/5
+
+Start blocking <span class="k">for </span>5 seconds thread.name: http-nio-8082-exec-50 started at 1727056985429 ended at 1727056990435</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We can also use ab(Apache Benchmark) command to make multiple requests to the blocking endpoint.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c"># make 1 request to the blocking endpoint</span>
+<span class="nv">$ </span>ab <span class="nt">-n</span> 1 <span class="nt">-c</span> 1 http://localhost:8082/blocking/5
+
+Concurrency Level:      1
+Time taken <span class="k">for </span>tests:   5.021 seconds</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The -n option specifies the number of requests to make, and the -c option specifies the number of concurrent requests. In this case, we made 1 request to the blocking endpoint, and it took 5.021 seconds to complete.</p>
+</div>
+<div class="paragraph">
+<p>We can see that it took more than 5 seconds to complete the request.</p>
+</div>
+<div class="paragraph">
+<p>Now, let&#8217;s make a request to the Spring Cloud Gateway server using ab to see how it performs with Virtual Threads enabled and disabled. And please make sure to set the number of threads in the Tomcat configuration based on the number of cores in your machine which is 10 in my case.</p>
+</div>
+<div class="paragraph">
+<p>Let&#8217;s make a request to gateway server to see if it routes the request to the nsa2-resource-server.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>curl http://localhost:8080/resource-server/blocking/5
+
+Start blocking <span class="k">for </span>5 seconds thread.name: http-nio-8082-exec-66 started at 1727057483174 ended at 1727057488179</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We can see that the request is routed to the nsa2-resource-server, and it took more than 5 seconds to complete.</p>
+</div>
+<div class="paragraph">
+<p>Now, let&#8217;s make multiple requests to the Spring Cloud Gateway server using ab to see how it performs with Virtual Threads enabled and disabled.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>ab <span class="nt">-n</span> 50 <span class="nt">-c</span> 10 http://localhost:8080/resource-server/blocking/5</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>I set the number of concurrency option to 10 to match the number of threads in the Tomcat configuration.</p>
+</div>
+<div class="listingblock">
+<div class="title">output</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">Concurrency Level:      10
+Time taken <span class="k">for </span>tests:   30.277 seconds</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We can expect that it would take more than 25 seconds to complete the 50 requests when concurrency option is set to 10. And it took 30.277 seconds to complete the 50 requests.</p>
+</div>
+<div class="paragraph">
+<p>Now let&#8217;s increase the number of concurrent requests to 50 and see how it performs.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>ab <span class="nt">-n</span> 50 <span class="nt">-c</span> 50 http://localhost:8080/resource-server/blocking/5</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The result is almost the same as the previous one because we are using the maximum number of threads in the Tomcat configuration. Even when we increase the number of concurrent requests, it still takes around 30 seconds to complete the 50 requests.</p>
+</div>
+<div class="listingblock">
+<div class="title">output</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">Concurrency Level:      50
+Time taken <span class="k">for </span>tests:   30.484 seconds</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="virtual-threads-enabled">Virtual Threads Enabled</h3>
+<div class="paragraph">
+<p>Now, let&#8217;s enable Virtual Threads in the Spring Cloud Gateway server and see how it performs.</p>
+</div>
+<div class="paragraph">
+<p>To enable Virtual Threads, you need to set the following properties in the application.yaml file.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">spring.threads.virtual.enabled</span><span class="pi">:</span> <span class="kc">true</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Or you can run the Spring Cloud Gateway server with the following command.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>./gradlew bootRun <span class="nt">--args</span><span class="o">=</span><span class="s1">'--spring.threads.virtual.enabled=true'</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>And then restart the Spring Cloud Gateway server.</p>
+</div>
+<div class="paragraph">
+<p>Run the same ab command to make multiple requests to the Spring Cloud Gateway server.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>ab <span class="nt">-n</span> 50 <span class="nt">-c</span> 50 http://localhost:8080/resource-server/blocking/5</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now the result is different. It took only 10.435 seconds to complete the 50 requests which is much faster than the previous one which was around 30 seconds when Virtual Threads were disabled.</p>
+</div>
+<div class="listingblock">
+<div class="title">output</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">Concurrency Level:      50
+Time taken <span class="k">for </span>tests:   10.435 seconds</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Just by enabling Virtual Threads, we can see a significant improvement in the performance of the Spring Cloud Gateway server. It can now handle a large number of concurrent requests more efficiently.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this article, we have seen how to use Spring Cloud Gateway with Virtual Threads to build an API gateway that routes requests to backend services. We have also compared the performance of Spring Cloud Gateway with Virtual Threads enabled and disabled. We have seen that enabling Virtual Threads can significantly improve the performance of the Spring Cloud Gateway server, allowing it to handle a large number of concurrent requests more efficiently.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="references">References</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="spring-documentation">Spring documentation</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://docs.spring.io/spring-cloud-gateway/reference/index.html">Spring Cloud Gateway Reference</a></p>
+</li>
+<li>
+<p><a href="https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html#GUID-A0E4C745-6BC3-4DAE-87ED-E4A094D20A38">Java 21 Virtual Threads</a></p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="articles">Articles</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://medium.com/att-israel/spring-cloud-gateway-mvc-migration-from-reactive-one-ed2025efc165">Spring Cloud Gateway MVC migration from reactive one</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+</body>
+</html>

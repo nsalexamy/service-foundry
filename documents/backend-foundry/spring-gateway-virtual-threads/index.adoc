@@ -1,0 +1,458 @@
+---
+layout: documents
+title:  Spring Cloud Gateway using Virtual Threads
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Backend Foundry
+    url: /documents/backend-foundry/
+---
+// docs/spring-cloud-gateway/1-virtual-threads/index.adoc
+
+= Spring Cloud Gateway using Virtual Threads
+
+:imagesdir: images
+
+== Introduction
+
+This article will show you how to use Spring Cloud Gateway with Virtual Threads to build an API gateway that routes requests to backend services.
+
+This article is part of a series on Spring Cloud Gateway. The other articles in the series are:
+
+. Part 1: Spring Cloud Gateway with Virtual Threads
+. Part 2: Spring Cloud Gateway with Spring Authorization Server
+. Part 3: Spring Cloud Gateway with OAuth2 Server(Keycloak)
+
+This is the first article in the series, which focuses on using Spring Cloud Gateway with Virtual Threads.
+
+Spring Boot applications used in this article will be also used in the other articles in the series.
+
+* nsa2-gateway
+* nsa2-resource-server-example
+
+== Prerequisites
+
+* Java 21
+* Spring Boot 3.2 or newer
+
+== Java 21 and Virtual Threads
+
+Java 21 is the first LTS release that includes Project Loom. Project Loom is an OpenJDK project that aims to make it easier to write, debug, and maintain concurrent applications. It introduces virtual threads, which are lightweight threads that are managed by the JVM. Virtual threads are more efficient than OS threads, and they can be used to handle a large number of connections.
+
+.Virtual Thread
+[.img-wide]
+image::virtual-threads.png[]
+
+=== Key Features ofJava 21 Virtual Threads
+
+==== Lightweight Threads
+
+* Virtual threads are much more lightweight compared to traditional (platform) threads, meaning you can create millions of them without consuming excessive system resources like memory and CPU.
+* Traditional threads are backed by native OS threads, which are expensive to create and manage. In contrast, virtual threads are managed entirely by the JVM, making them much cheaper to create and schedule.
+
+==== Improved Scalability
+
+* With traditional threads, handling a large number of concurrent tasks (e.g., thousands of network requests or database queries) can lead to resource exhaustion. Virtual threads allow you to handle millions of concurrent tasks efficiently.
+* This makes virtual threads ideal for highly scalable applications, such as web servers, microservices, or any application with many concurrent operations.
+
+==== Simplified Concurrency
+
+* Virtual threads allow developers to write blocking code in a simple, imperative style without worrying about performance bottlenecks. You can write code that “waits” for an I/O operation to complete, such as reading from a file or making a network request, but the underlying virtual thread is efficiently managed by the JVM, avoiding the typical issues of blocking system threads.
+* This removes the need for complex asynchronous programming patterns (like callbacks or futures) in many cases.
+
+==== Interoperability with Existing Code
+
+* Virtual threads work seamlessly with existing Java APIs and libraries that use traditional blocking I/O. There’s no need to rewrite your code to adopt them — you can introduce virtual threads incrementally and gain performance improvements without significant refactoring.
+
+==== Platform Threads vs. Virtual Threads
+
+* *Platform Threads* (traditional threads) are managed by the OS and mapped one-to-one with native threads. They are limited in number and can become a bottleneck when scaling.
+* *Virtual Threads* are managed by the JVM, not the OS, and are much more efficient in terms of memory and CPU usage. A single platform thread can run many virtual threads.
+
+==== Concurrency Made Easier
+
+* Virtual threads eliminate the need to shift to reactive or asynchronous programming for scalability, making code easier to understand and maintain. You get the benefits of scalable concurrency without sacrificing the simplicity of blocking code.
+
+=== Benefits of Java 21 Virtual Threads
+
+High concurrency::
+Handle millions of concurrent operations without exhausting system resources.
+
+No callback hell::
+Write blocking code without needing complex asynchronous constructs.
+
+Seamless adoption::
+Works with existing blocking code and libraries, requiring minimal changes to your codebase.
+
+Simplified debugging::
+Debugging blocking code in virtual threads is easier than debugging asynchronous code with complex callbacks.
+
+=== Java 21 Virtual Threads vs. Reactive Programming
+
+Java 21 Virtual Threads and Reactive Programming are two different approaches to handling concurrency and scaling in applications. Here’s a comparison to make it clearer:
+
+==== Concurrency Model
+
+Virtual Threads::
+Virtual threads are lightweight, low-cost threads introduced in Java 21. They allow you to write blocking code in a highly scalable way. Virtual threads operate like traditional threads but with much lower overhead, enabling millions of threads to run concurrently without blocking system resources.
+Reactive Programming::
+Reactive programming is a non-blocking, asynchronous programming paradigm that handles concurrency using callbacks, event loops, or streams. It’s designed to react to data flows and events, usually with observables or publishers/subscribers.
+
+==== Programming Style
+
+Virtual Threads::
+You can write code in a simple, imperative style (traditional blocking calls), and the virtual threads manage concurrency efficiently under the hood. This makes it easy to retrofit existing codebases without significant changes to code logic.
+Reactive Programming::
+It requires a declarative style of programming where code is designed around streams and events, often leading to more complex code. You think in terms of data flow rather than direct execution.
+
+==== Blocking vs Non-blocking
+
+Virtual Threads::
+They allow you to use blocking calls (e.g., I/O operations), but since virtual threads are so lightweight, this doesn’t cause a bottleneck in the same way traditional threads do.
+Reactive Programming::
+It is inherently non-blocking. Instead of waiting for operations like I/O, the program continues running, and results are processed asynchronously when they’re ready. This approach avoids blocking completely.
+
+==== Scalability
+
+Virtual Threads::
+Scales well by allowing the creation of millions of threads without the traditional memory and performance overhead.
+
+Reactive Programming::
+Scales through non-blocking I/O and asynchronous execution, making it efficient for handling large numbers of concurrent requests without creating many threads.
+
+==== Ease of Use
+
+Virtual Threads::
+Easier to use for developers familiar with traditional multi-threading, as the code is more readable and closer to sequential programming.
+Reactive Programming::
+Can be harder to understand, especially for developers not familiar with functional or event-driven programming. Debugging reactive flows is also more complex.
+
+==== Use Cases
+
+Virtual Threads::
+Ideal for applications with traditional blocking I/O or where you want to scale existing thread-based applications with minimal changes.
+
+Reactive Programming::
+Best suited for applications that need to handle asynchronous events and streams of data, such as real-time data processing, reactive web frameworks, or high-throughput applications.
+
+==== Libraries and Ecosystem
+
+Virtual Threads::
+Integrated directly into the JDK, requiring no additional libraries or frameworks. This makes it easy to adopt for new or existing Java applications.
+
+Reactive Programming::
+typically requires additional libraries or frameworks like Reactor, RxJava, or Akka to build reactive systems.
+
+==== Conclusion of the comparison
+
+Virtual Threads::
+in Java 21 provide a more traditional, developer-friendly approach to concurrency with minimal overhead, making them suitable for most general-purpose applications.
+
+Reactive Programming::
+offers a more complex, but powerful way to handle asynchronous and non-blocking operations, often better suited for systems that need to handle streams of data or large numbers of events efficiently.
+
+
+// Virtual threads are an alternative to reactive programming. Reactive programming is a programming paradigm that uses asynchronous and non-blocking operations to handle a large number of connections. It is based on the reactive streams specification, which defines a set of interfaces for asynchronous stream processing. Reactive programming is supported by frameworks like Spring WebFlux and Vert.x.
+//
+// Virtual threads provide a simpler programming model than reactive programming. They allow you to write blocking code that is executed asynchronously on virtual threads. This makes it easier to write and debug concurrent applications. Virtual threads are also more efficient than reactive programming, as they do not require a separate thread pool to manage connections.
+
+== Spring Cloud Gateway
+
+This section is written based on the official Spring Cloud Gateway documentation.
+
+Please refer to the official documentation below for more details.
+
+* link:https://docs.spring.io/spring-cloud-gateway/reference/index.html[Spring Cloud Gateway Reference]
+
+Spring Cloud Gateway aims to provide a simple, yet effective way to route requests to backend services and provide cross-cutting concerns like security, monitoring, and resiliency. It is built on top of Spring WebFlux, which is a reactive programming framework. Spring Cloud Gateway uses WebClient to make HTTP requests to backend services. WebClient is a reactive HTTP client that is based on Project Reactor.
+
+There are two distinct flavors of Spring Cloud Gateway: Server and Proxy Exchange. Each flavor offers WebFlux and MVC compatibility.
+
+* The Server variant is a full-featured API gateway that can be standalong or embedded in a Spring Boot application.
+* The Proxy Exchange variant is exclusively for use in annotation based WebFlux or MVC applications and allows the use of a special ProxyExchange object as a parameter to a web handler method.
+
+=== Spring Cloud Gateway Reactive Server
+
+Spring Cloud Gateway Reactive Server is a full-featured API gateway that can be standalone or embedded in a Spring Boot application. It is built on top of Spring WebFlux, which is a reactive programming framework. Spring Cloud Gateway Reactive Server uses WebClient to make HTTP requests to backend services. WebClient is a reactive HTTP client that is based on Project Reactor.
+
+=== Spring Cloud Gateway Server MVC
+
+Spring Cloud Gateway Server MVC is a new programming model that allows you to write blocking code that is executed asynchronously on virtual threads.
+
+This article will show you how to use Spring Cloud Gateway Server MVC to build an API gateway that routes requests to backend services.
+
+== Spring Boot applications for this article
+
+nsa2-gateway (port 8080):: A Spring Cloud Gateway server that routes requests to the nsa2-resource-server. In this article, we are going to use this application to test the performance of Spring Cloud Gateway with Virtual Threads enabled and disabled.
+nsa2-resource-server-example (port 8082):: A simple REST API server that simulates a backend service. This project is going to have more endpoints to test the gateway later in other articles. In this article, this project is going to have only one endpoint that is blocked for seconds to simulate a slow backend service.
+
+
+== Spring Cloud Gateway server
+
+We are going to create a Spring Boot Application named `nsa2-gateway`
+
+.IntelliJ - Create Project
+[.img-wide]
+image::project-gateway-1.png[]
+
+Make sure to select Java 21 or newer version to enable Virtual Threads.
+
+
+Spring provides two types of Gateway. Make sure to select the first one from the list to use Virtual Threads.
+
+.Gateway and Reactive Gateway
+[.img-wide]
+image::dependencies-gateway.png[]
+
+=== Spring Cloud Gateway server configuration
+
+We are going to configure the Spring Cloud Gateway server to route requests to the nsa2-resource-server.
+
+.application.yaml
+[source,yaml]
+----
+spring.application.name:
+  nsa2-gateway
+
+server.tomcat.threads.max: 10
+
+spring:
+  cloud:
+    gateway:
+      mvc:
+        routes:
+          - id: resource-server
+            uri: ${NSA2_RESOURCE_SERVER_URI:http://127.0.0.1:8082}
+            predicates:
+              - Path=/resource-server/**
+            filters:
+              - StripPrefix=1
+
+----
+
+Note that the port number of the nsa2-resource-server is set to 8082. It is because the port 8080 is already used by the nsa2-gateway server.
+
+
+==== How to check the number of cores in your machine
+
+I am using a MacBook Pro with 10 cores and I can see the number of cores using the following command.
+
+[source,shell]
+----
+$ sysctl -n hw.physicalcpu
+10
+
+# or you can use the following command
+$ sysctl -n hw.ncpu
+----
+
+Based on the number of cores, you can set the number of threads in the Tomcat configuration.
+
+[source,yaml]
+----
+server.tomcat.threads.max: 10
+----
+
+==== Routing configuration
+
+In application.yaml, we have configured the Spring Cloud Gateway server to route requests to the nsa2-resource-server. The StripPrefix filter is used to remove the `/resource-server` prefix from the request path before forwarding it to the backend service.
+
+Based on the configuration above, the Spring Cloud Gateway server will route requests that match the `/resource-server/**` path to the nsa2-resource-server after removing /resource-server prefix. For example, a request to `http://localhost:8080/resource-server/hello` will be routed to `http://localhost:8082/hello`.
+
+=== Running the Spring Cloud Gateway server
+
+To run the Spring Cloud Gateway server, you can use the following command.
+
+[source,shell]
+----
+$ ./gradlew bootRun
+----
+
+== nsa2-resource-server
+
+We are going to create a Spring Boot Application named `nsa2-resource-server` which is a simple REST API server that simulates a backend service.
+
+=== Blocking endpoint
+
+.BlockingController.java
+[source,java]
+----
+package com.alexamy.nsa2.example.resourceserver.controller;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@Slf4j
+public class BlockingController {
+    @GetMapping("/blocking/{sleepInSecond}")
+    public String blocking(@PathVariable int sleepInSecond) {
+        StringBuffer response = new StringBuffer();
+
+        response.append("Start blocking for ").append(sleepInSecond).append(" seconds ");
+        response.append("thread.name: ").append(Thread.currentThread().getName());
+        response.append(" started at ").append(System.currentTimeMillis());
+
+        try {
+            Thread.sleep(sleepInSecond * 1000);
+        } catch (InterruptedException e) {
+            log.error("Error occurred while sleeping", e);
+        }
+        response.append(" ended at ").append(System.currentTimeMillis());
+        return response.toString();
+    }
+
+}
+
+----
+
+The blocking endpoint `/blocking/{sleepInSecond}` simulates a slow backend service by blocking the request for a specified number of seconds. The endpoint takes a path variable `sleepInSecond` that specifies the number of seconds to block the request. It takes at lease the number of seconds to block the request.
+
+=== Running the nsa2-resource-server
+
+To run the nsa2-resource-server, you can use the following command.
+
+[source,shell]
+----
+$ ./gradlew bootRun --args='--server.port=8082'
+----
+
+The port number is set to 8082 to avoid conflicts with the nsa2-gateway server.
+
+
+== Comparison of Performance with Virtual Threads Enabled vs. Disabled.
+
+
+=== Virtual Threads Disabled(Default)
+
+Let's make a request to the blocking endpoint of the nsa2-resource-server using curl like below.
+
+.call blocking endpoint
+[source,shell]
+----
+$ curl http://localhost:8082/blocking/5
+
+Start blocking for 5 seconds thread.name: http-nio-8082-exec-50 started at 1727056985429 ended at 1727056990435
+----
+
+We can also use ab(Apache Benchmark) command to make multiple requests to the blocking endpoint.
+
+[source,shell]
+----
+# make 1 request to the blocking endpoint
+$ ab -n 1 -c 1 http://localhost:8082/blocking/5
+
+Concurrency Level:      1
+Time taken for tests:   5.021 seconds
+
+----
+
+The -n option specifies the number of requests to make, and the -c option specifies the number of concurrent requests. In this case, we made 1 request to the blocking endpoint, and it took 5.021 seconds to complete.
+
+We can see that it took more than 5 seconds to complete the request.
+
+Now, let's make a request to the Spring Cloud Gateway server using ab to see how it performs with Virtual Threads enabled and disabled. And please make sure to set the number of threads in the Tomcat configuration based on the number of cores in your machine which is 10 in my case.
+
+Let's make a request to gateway server to see if it routes the request to the nsa2-resource-server.
+
+[source,shell]
+----
+$ curl http://localhost:8080/resource-server/blocking/5
+
+Start blocking for 5 seconds thread.name: http-nio-8082-exec-66 started at 1727057483174 ended at 1727057488179
+----
+
+We can see that the request is routed to the nsa2-resource-server, and it took more than 5 seconds to complete.
+
+Now, let's make multiple requests to the Spring Cloud Gateway server using ab to see how it performs with Virtual Threads enabled and disabled.
+
+[source,shell]
+----
+$ ab -n 50 -c 10 http://localhost:8080/resource-server/blocking/5
+----
+
+I set the number of concurrency option to 10 to match the number of threads in the Tomcat configuration.
+
+.output
+[source,shell]
+----
+Concurrency Level:      10
+Time taken for tests:   30.277 seconds
+----
+
+We can expect that it would take more than 25 seconds to complete the 50 requests when concurrency option is set to 10. And it took 30.277 seconds to complete the 50 requests.
+
+Now let's increase the number of concurrent requests to 50 and see how it performs.
+
+[source,shell]
+----
+$ ab -n 50 -c 50 http://localhost:8080/resource-server/blocking/5
+----
+
+The result is almost the same as the previous one because we are using the maximum number of threads in the Tomcat configuration. Even when we increase the number of concurrent requests, it still takes around 30 seconds to complete the 50 requests.
+
+.output
+[source,shell]
+----
+Concurrency Level:      50
+Time taken for tests:   30.484 seconds
+----
+
+=== Virtual Threads Enabled
+
+Now, let's enable Virtual Threads in the Spring Cloud Gateway server and see how it performs.
+
+To enable Virtual Threads, you need to set the following properties in the application.yaml file.
+
+[source,yaml]
+----
+spring.threads.virtual.enabled: true
+----
+
+Or you can run the Spring Cloud Gateway server with the following command.
+[source,shell]
+----
+$ ./gradlew bootRun --args='--spring.threads.virtual.enabled=true'
+----
+
+And then restart the Spring Cloud Gateway server.
+
+Run the same ab command to make multiple requests to the Spring Cloud Gateway server.
+
+[source,shell]
+----
+$ ab -n 50 -c 50 http://localhost:8080/resource-server/blocking/5
+----
+
+Now the result is different. It took only 10.435 seconds to complete the 50 requests which is much faster than the previous one which was around 30 seconds when Virtual Threads were disabled.
+
+.output
+[source,shell]
+----
+Concurrency Level:      50
+Time taken for tests:   10.435 seconds
+----
+
+Just by enabling Virtual Threads, we can see a significant improvement in the performance of the Spring Cloud Gateway server. It can now handle a large number of concurrent requests more efficiently.
+
+== Conclusion
+
+In this article, we have seen how to use Spring Cloud Gateway with Virtual Threads to build an API gateway that routes requests to backend services. We have also compared the performance of Spring Cloud Gateway with Virtual Threads enabled and disabled. We have seen that enabling Virtual Threads can significantly improve the performance of the Spring Cloud Gateway server, allowing it to handle a large number of concurrent requests more efficiently.
+
+== References
+
+=== Spring documentation
+
+* link:https://docs.spring.io/spring-cloud-gateway/reference/index.html[Spring Cloud Gateway Reference]
+* link:https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html#GUID-A0E4C745-6BC3-4DAE-87ED-E4A094D20A38[Java 21 Virtual Threads]
+
+
+
+=== Articles
+* https://medium.com/att-israel/spring-cloud-gateway-mvc-migration-from-reactive-one-ed2025efc165[Spring Cloud Gateway MVC migration from reactive one]

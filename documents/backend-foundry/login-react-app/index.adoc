@@ -1,0 +1,973 @@
+---
+layout: documents
+title: Spring Cloud Gateway and Authorization Server with React Web App
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Backend Foundry
+    url: /documents/backend-foundry/
+---
+// /Users/young/Dev/alexamy/nsa2-login-app/docs/index.adoc
+= Spring Cloud Gateway and Authorization Server with React Web App
+
+:imagesdir: images
+:projectdir: ..
+:sourcedir: {projectdir}/src
+
+[.img-wide]
+image::spa-with-bff.png[]
+
+== Introduction
+
+This article is part of a series on Spring Cloud Gateway. The other articles in the series are:
+
+. Part 1: link:https://www.linkedin.com/pulse/spring-cloud-gateway-using-virtual-threads-young-gyu-kim-zpoxc/[Spring Cloud Gateway with Virtual Threads]
+. Part 2: link:https://www.linkedin.com/pulse/spring-cloud-gateway-oauth-20-authorization-server-young-gyu-kim-sa4kc/[Spring Cloud Gateway with Spring Authorization Server]
+. Part 3: link:https://www.linkedin.com/pulse/spring-cloud-gateway-authorization-server-using-database-kim-brbbc/[Spring Cloud Gateway with Spring Authorization Server using Database]
+. Part 4: link:https://www.linkedin.com/pulse/spring-cloud-gateway-authorization-server-roles-young-gyu-kim-1m0ac/[Spring Cloud Gateway & Spring Authorization Server with Roles]
+. Part 5: link:https://www.linkedin.com/pulse/spring-cloud-gateway-configwatcher-young-gyu-kim-x4qqc/[Spring Cloud Gateway with ConfigWatcher]
+. Part 6: link:https://www.linkedin.com/pulse/spring-authorization-server-userinfo-endpoint-young-gyu-kim-0duqc/[Spring Authorization Server with Userinfo Endpoint]
+. Part 7: link:https://www.linkedin.com/pulse/spring-cloud-gateway-authorization-server-react-web-app-young-gyu-kim-zevoc/[Spring Cloud Gateway and Authorization Server with React Web App]
+
+
+This article covers how to secure a React web application with Spring Security and Spring Cloud Gateway.
+
+
+== Backend for Frontend (BFF) Pattern
+
+To understand how this application works, we need to understand the Backend for Frontend (BFF) pattern. In this pattern, access_token, id_token and refresh_token are not stored in the browser for security reasons. Instead, the tokens are stored in the backend server. And the frontend application and the backend server share session id in the cookie. And the backend server uses the session id to retrieve the tokens from the session store.
+
+It is crucial to understand that we need to use the same domain for the frontend application and the backend server. Otherwise, the browser will not send the cookie to the backend server. For example, if the frontend application is running on `http://localhost:3000` and the backend server is running on `http://localhost:8080`, the browser will not send the cookie to the backend server. In this article, we are going to use `nsa2-gateway` domain for both the frontend application and the backend server to use the previous working example of this series.
+
+* http://nsa2-gateway:3000 - Frontend Application (React)
+* http://nsa2-gateway:8080 - Backend Server (Spring Cloud Gateway, Oauth2 Client)
+* http://nsa2-auth-server:9000 - Spring Authorization Server
+* http://nsa2-resource-server:8082 - OAuth2 Resource Server example
+
+Setting up the same domain for the frontend application and the backend server can be nicely done when using reverse proxy like Nginx or Ingress Controller in Kubernetes. We are going to cover this in the next article.
+
+[quote, https://docs.spring.io/spring-authorization-server/reference/guides/how-to-pkce.html]
+____
+Spring Authorization Server will not issue refresh tokens for a public client. We recommend the backend for frontend (BFF) pattern as an alternative to exposing a public client. See gh-297 for more information.
+____
+
+For more information, see the following links:
+
+* https://docs.spring.io/spring-authorization-server/reference/overview.html
+* https://docs.spring.io/spring-authorization-server/reference/guides/how-to-pkce.html
+* https://datatracker.ietf.org/doc/html/draft-bertocci-oauth2-tmi-bff-01
+
+
+
+
+== Create a new React app
+
+We are going to use `vite` to create a new React app. To create a new React app, run the following command:
+
+[source,shell]
+----
+$ npm create vite@latest nsa2-login-app -- --template react-ts
+
+# or
+$ npm init vite@latest nsa2-login-app -- --template react-ts
+
+
+$ cd nsa2-login-app
+$ npm install
+
+$ npm install react-router-dom
+
+$ npm install react-cookie
+
+#$ npm install @material-tailwind/react # typescript is not supported
+$ npm i @heroicons/react
+
+$ npm install tailwindcss
+$ npm install @tailwindcss/forms
+
+$ npx tailwindcss init
+
+Created Tailwind CSS config file: tailwind.config.js
+
+#$ npm install -D daisyui@latest
+
+
+
+----
+
+.tailwind.config.js
+[source,js]
+----
+/** @type {import('tailwindcss').Config} */
+
+const defaultTheme = require('tailwindcss/defaultTheme')
+
+export default {
+  content: [
+      "./index.html",
+      "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [
+      require('daisyui')
+  ],
+}
+
+
+
+----
+
+To change port number, update the following line in the package.json.
+
+.vite.config.ts
+[source,typescript]
+----
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 3000,
+    host: true,
+  }
+})
+
+
+----
+
+
+=== Run the application
+
+[source,shell]
+----
+$ npm run dev
+----
+
+== Pages
+
+In this application, we are going to have the following pages:
+
+* LoginPage - Redirect to Login Page that is provided by Spring Authorization Server
+* PostLoginPage - Callback Page after login, and redirect to HomePage
+* HomePage (Protected Page)
+* ProfilePage (Protected Page)
+* PostLogoutPage - Callback Page after logout, and redirect to LoginPage
+
+=== App.tsx
+
+App.tsx is the main component that contains the routing configuration.
+
+[source,tsx]
+----
+import './App.css'
+import {AuthProvider} from "./hooks/useAuth.tsx";
+import {BrowserRouter, Route, Routes} from "react-router-dom";
+import HomePage from "./pages/Home.tsx";
+import LoginPage from "./pages/Login.tsx";
+import PostLoginPage from "./pages/PostLogin.tsx";
+import ProfilePage from "./pages/Profile.tsx";
+import ProtectedRoute from "./components/ProtectedRoute.tsx";
+import PostLogoutPage from "./pages/PostLogout.tsx";
+
+
+const App: React.FC = () => {
+    return (
+        <BrowserRouter>
+            <AuthProvider>
+                <Routes>
+                    {/*<Route element={<PrivateRoutes/>}>*/}
+                    {/*    <Route path="/" element={<HomePage/>}/>*/}
+                    {/*</Route>*/}
+                    <Route path="/" element={<ProtectedRoute><HomePage/></ProtectedRoute>}/>
+                    <Route path="/login" element={<LoginPage/>}/>
+                    <Route path="/post-login" element={<PostLoginPage/>}/>
+                    <Route path="/post-logout" element={<PostLogoutPage/>}/>
+                    <Route path="/profile" element={<ProtectedRoute><ProfilePage/></ProtectedRoute>}/>
+                </Routes>
+            </AuthProvider>
+        </BrowserRouter>
+    )
+}
+
+export default App
+
+
+----
+
+'/' and '/profile' are protected routes. If the user is not authenticated, the user will be redirected to the login page.
+
+=== React Hooks
+
+For this application, we are going to use the following React hooks:
+
+* useLocalStorage: Custom hook to store the user information in the local storage
+* useAuth: Custom hook to manage the authentication state
+
+.useLocalStorage.tsx
+[source,typescript]
+----
+import {useState} from 'react';
+import {UserType} from "../types/User";
+
+export const useLocalStorage = (key: string, initialValue: (UserType | string | boolean | null)) => {
+    const [storedValue, setStoredValue] = useState(() => {
+        try {
+            const item = window.localStorage.getItem(key);
+            return item ? JSON.parse(item) : initialValue;
+        } catch (error) {
+            console.log(error);
+            return initialValue;
+        }
+    });
+
+    const setValue = (value: string) => {
+        try {
+            setStoredValue(value);
+            window.localStorage.setItem(key, JSON.stringify(value));
+        } catch (error) {
+            console.log(error);
+        }
+    };
+
+    return [storedValue, setValue];
+}
+
+----
+
+This hook is used to store the user information in the local storage.
+
+.useAuth.tsx
+[source,typescript]
+----
+import {createContext, ReactNode, useContext} from 'react';
+import {useLocalStorage} from "./useLocalStorage.tsx";
+
+type Props = {
+    children: ReactNode;
+}
+
+type AuthContextType = {
+    authenticated: boolean;
+    username: string,
+    setAuthenticated: (value: boolean) => void;
+    setUsername: (value: string) => void;
+}
+
+const initialAuthContext: AuthContextType = {
+    authenticated: false,
+    setAuthenticated: () => {},
+    username: '',
+    setUsername: () => {}
+}
+
+const AuthContext = createContext<AuthContextType>(initialAuthContext);
+
+const AuthProvider = ({ children }: Props) => {
+
+    const [authenticated, setAuthenticated] = useLocalStorage('authenticated', false)
+    const [username, setUsername] = useLocalStorage('username', '')
+
+    const value = {
+        authenticated,
+        setAuthenticated,
+        username,
+        setUsername
+    };
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+const useAuth = () => {
+  return useContext(AuthContext);
+}
+
+export { AuthContext, AuthProvider, useAuth };
+
+----
+
+This hook is used to manage the authentication state. For protected routes, we need to check if the user is authenticated. If the user is not authenticated, the user will be redirected to the login page.
+
+=== Login Page
+
+LoginPage.tsx simply redirects to the login page that is provided by Spring Authorization Server. The login flow looks like this:
+
+. User tries to access the protected page
+. User is redirected to the login page
+. login page redirects to http://nsa2-gateway:8080/user/login which is protected by Spring Authorization Server
+. It redirects to the login page of Spring Authorization Server
+. User logs in
+. http://nsa2-gateway:8080/user/login is called after login
+. It redirects to the PostLoginPage
+. PostLoginPage saves username and authenticated flag in the local storage
+. PostLoginPage redirects to the HomePage
+
+NOTE:: We need to be aware of the Session ID cookie. It is required to set 'credentials' to 'include' when making a request to the backend server.
+
+
+.pages/LoginPage.tsx
+[source,typescript]
+----
+import {useEffect} from "react";
+
+function LoginPage() {
+    const url = `${process.env.NSA2_GATEWAY_URL}/user/login`
+
+    useEffect(() => {
+        console.log('onLoad')
+        window.location.href = url
+    }, [url]);
+
+    return (
+        <div>
+            <h1>Redirecting to OAuth2 Server</h1>
+        </div>
+    );
+
+}
+
+export default LoginPage;
+----
+
+This page does not need to have any UI. It simply redirects to the login page that is running on the Spring Cloud Gateway application. Since it is a protected page, the user will be redirected to the login page of the Spring Authorization Server.
+
+After login is successful, /user/login is called, and it redirects to the PostLoginPage.
+
+Here is the code snippet of the UserController.java that handles the login request.
+
+.UserController.java - login
+[source,java]
+----
+
+@RestController
+@RequestMapping("/user")
+@Slf4j
+public class UserController {
+
+    @Value("${app.auth.post-login-redirect}")
+    private String postLoginRedirect;
+
+    @GetMapping("/login")
+    public void login(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        var cookies = request.getCookies();
+
+        if(cookies != null) {
+            log.debug("=====> cookies: {}", Arrays.asList(cookies));
+        }
+
+        log.debug("Redirecting to: {}", postLoginRedirect);
+        response.sendRedirect(postLoginRedirect);
+    }
+
+    @GetMapping("/username")
+    public Map<String, String> username(Authentication authentication) {
+        String username = authentication.getName();
+        log.info("username: {}",username);
+        return Map.of("username", username);
+    }
+}
+----
+
+It redirects to the postLoginRedirect that is PostLoginPage in this case.
+
+=== PostLoginPage
+
+PostLoginPage.tsx is the callback page after login. It saves the username and authenticated flag in the local storage and redirects to the HomePage.
+
+.pages/PostLoginPage.tsx
+[source,typescript]
+----
+import {useEffect, useState} from "react";
+import {useNavigate} from "react-router-dom";
+import {useLocalStorage} from "../hooks/useLocalStorage.tsx";
+
+
+interface UsernameResponseModel {
+    username: string,
+}
+
+
+
+function PostLoginPage() {
+
+    const [authenticated, setAuthenticated] = useLocalStorage('authenticated', false);
+    const [username, setUsername] = useLocalStorage('username', '')
+
+
+    const [loaded, setLoaded] = useState(false)
+    // const {setAuthenticated, setUsername} = useContext(AuthContext)
+    const navigate = useNavigate()
+
+    useEffect(() => {
+        const loadUsername = async () => {
+            const response = await fetch(`${process.env.NSA2_GATEWAY_URL}/user/username`, {
+                method: 'GET',
+                credentials: "include",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Origin": `${process.env.ORIGIN}`,
+                }
+            })
+            const json = await response.json() as UsernameResponseModel
+            if(response.ok) {
+                const _username = json.username
+                const _authenticated = _username !== null && _username.length > 0
+
+                setUsername(_username)
+                setAuthenticated(_authenticated)
+
+                setLoaded(true)
+                navigate('/')
+            } else {
+                setLoaded(false)
+                navigate('/login')
+            }
+        }
+
+        loadUsername()
+
+
+
+    // }, [loaded, authenticated, username])
+    }, [])
+
+
+    return (
+        <div>
+            {/*<h1>Post Login Page</h1>*/}
+        </div>
+    );
+}
+
+export default PostLoginPage;
+
+----
+
+Once login is successful, the user can access the protected server resources using Session ID cookie. We do not have to know the name of the cookie, but we need to set 'credentials' to 'include' when making a request to the backend server. With this configuration, the browser will send the cookie to the backend server.
+
+PostLoginPage calls the /user/username endpoint to get the username of the authenticated user. It saves the username and authenticated flag in the local storage and then redirects to the HomePage.
+
+=== HomePage
+
+HomePage.tsx is a protected page. If the user is not authenticated, the user will be redirected to the login page. It shows the username of the authenticated user. And it has a logout button that redirects to the logout page and a profile button that redirects to the profile page.
+
+.pages/HomePage.tsx
+[source,typescript]
+----
+import {useLocalStorage} from "../hooks/useLocalStorage.tsx";
+import {useNavigate} from "react-router-dom";
+import {useEffect, useState} from "react";
+
+
+interface Csrf {
+    headerName: string,
+    parameterName: string,
+    token: string,
+}
+
+function HomePage() {
+    const [username] = useLocalStorage('username', '')
+
+    const navigate = useNavigate()
+
+    const viewProfile = (event: React.MouseEvent<HTMLAnchorElement>) => {
+        event.preventDefault()
+
+        navigate('/profile')
+    }
+
+    const initialCsrf = {parameterName:'', headerName: '', token: ''}
+    const [csrf, setCsrf] = useState(initialCsrf)
+
+    useEffect(() => {
+
+        const loadCsrf = async () => {
+            const response = await fetch('http://nsa2-gateway:8080/csrf', {
+                method: 'GET',
+                credentials: 'include',
+                headers: {
+                    "Content-Type": "application/json",
+                    "Origin": "http://nsa2-gateway:3000",
+                }
+            })
+
+            const json = await response.json() as Csrf
+
+            console.log("json: ", json)
+
+            if (response.ok) {
+                setCsrf(json)
+            }
+        }
+
+        loadCsrf()
+
+
+    }, [])
+
+
+
+    return (
+        <div>
+            <div><h1>NSA2 Sample Application</h1></div>
+            <div>
+                <h3>Signed as <a href="#" onClick={viewProfile}>{username}</a> </h3>
+            </div>
+            <div>
+                <form action={`${process.env.NSA2_GATEWAY_URL}/logout?_csrf=${csrf.token}`} method={'POST'}>
+                    <input type={'SUBMIT'} value={'Logout'}/>
+                </form>
+            </div>
+            {/*<CsrfProvider csrf={_csrf}><LogoutForm/></CsrfProvider>*/}
+        </div>
+    )
+
+}
+
+export default HomePage;
+
+----
+
+It has some codes for CSRF protection and logout. I will cover this later in the article.
+
+=== ProfilePage
+
+ProfilePage.tsx is a protected page. It displays the user information from ID token which is what we implemented in the previous article.
+
+.pages/Profile.tsx
+[source,typescript]
+----
+import {useEffect, useState} from "react";
+import {useNavigate} from "react-router-dom";
+import {useLocalStorage} from "../hooks/useLocalStorage.tsx";
+
+
+interface ProfileModel {
+    sub: string,
+    birthdate: string,
+    gender: string,
+    email: string,
+    roles: string[],
+    name: string
+}
+
+
+function ProfilePage() {
+
+
+    const navigate = useNavigate();
+
+    const goHome = (event: React.MouseEvent<HTMLAnchorElement>)=> {
+        event.preventDefault()
+        navigate('/')
+    }
+
+    const [username] = useLocalStorage('username', '')
+
+    const initialProfileModel: ProfileModel = {
+        sub: username,
+        birthdate: '',
+        gender: '',
+        email: '',
+        roles: [],
+        name: ''
+    }
+
+    const [profile, setProfile] = useState(initialProfileModel)
+
+    useEffect(() => {
+        const loadProfile = async() => {
+            const response = await fetch(`${process.env.NSA2_GATEWAY_URL}/user/profile`, {
+                method: 'GET',
+                credentials: 'include',
+                headers: {
+                    "Content-Type": "application/json",
+                    "Origin": `${process.env.ORIGIN}`,
+                }
+            })
+
+            const json = await response.json() as ProfileModel
+
+            console.log("json: ", json)
+
+            if(response.ok) {
+                setProfile(json)
+            }
+        }
+
+        loadProfile()
+
+    }, [])
+
+  return (
+    <div>
+      <h1>Profile</h1>
+        <table width={400} >
+            <tr>
+                <th>Username</th>
+                <td align={'left'}>{profile.sub}</td>
+            </tr>
+            <tr>
+                <th>Email</th>
+                <td align={'left'}>{profile.email}</td>
+            </tr>
+            <tr>
+                <th>Display name</th>
+                <td align={'left'}>{profile.name}</td>
+            </tr>
+            <tr>
+                <th>Date of Birth</th>
+                <td align={'left'}>{profile.birthdate}</td>
+            </tr>
+            <tr>
+                <th>Gender</th>
+                <td align={'left'}>{profile.gender}</td>
+            </tr>
+            <tr>
+                <th>Roles</th>
+                <td align={'left'}>{profile.roles.join(", ")}</td>
+            </tr>
+        </table>
+        {/*<form>*/}
+        {/*    <label>*/}
+        {/*        Username: <input size={50} name="username" readOnly={true} value={profile.sub}/>*/}
+        {/*    </label>*/}
+        {/*    <br/>*/}
+        {/*    <label>*/}
+        {/*        Display name: <input size={50} name="displayName" readOnly={true} value={profile.name}/>*/}
+        {/*    </label>*/}
+        {/*    <br/>*/}
+        {/*    <label>*/}
+        {/*        Email: <input size={50} name="email" readOnly={true} value={profile.email}/>*/}
+        {/*    </label>*/}
+        {/*    <br/>*/}
+        {/*    <label>*/}
+        {/*        Gender: <input size={50} name="gender" readOnly={true} value={profile.gender}/>*/}
+        {/*    </label>*/}
+        {/*    <br/>*/}
+        {/*    <label>*/}
+        {/*        Date of Birth: <input size={50} name="dob" readOnly={true} value={profile.birthdate}/>*/}
+        {/*    </label>*/}
+        {/*    <br/>*/}
+        {/*</form>*/}
+
+        <div style={{height: 40}}>
+        </div>
+        <div>
+            <a href='#' onClick={goHome}>Go Homepage</a>
+        </div>
+    </div>
+  );
+}
+
+export default ProfilePage;
+
+----
+
+It calls the /user/username endpoint to get the details of the authenticated user.
+
+=== PostLogoutPage
+
+PostLogoutPage.tsx is the callback page after logout. It removes the user information from the local storage and redirects to the LoginPage.
+
+.pages/PostLogout.tsx
+[source,typescript]
+----
+import {useEffect} from "react";
+// import {AuthContext, useAuth} from "../hooks/useAuth.tsx";
+import { useNavigate} from "react-router-dom";
+import {useLocalStorage} from "../hooks/useLocalStorage.tsx";
+
+function PostLogoutPage() {
+    const [authenticated, setAuthenticated] = useLocalStorage('authenticated', false);
+    const [username, setUsername] = useLocalStorage('username', '')
+
+    const navigate = useNavigate()
+
+    useEffect(() => {
+        setAuthenticated(false)
+        setUsername('')
+
+        navigate('/login')
+
+    }, [])
+
+    return (<>
+            <div>
+                <h1>Logged out</h1>
+            </div>
+        </>
+    );
+}
+
+export default PostLogoutPage;
+
+----
+
+=== Screenshots
+
+Here are some screenshots of the application.
+
+.Login Page
+[.img-wide]
+image::react-login.png[React Login Page]
+
+We can see that the login page is provided by the Spring Authorization Server.
+
+.Home Page
+[.img-wide]
+image::react-home.png[React Home Page]
+
+Now the React application can access the protected resources. The username is displayed on the screen.
+
+When the user clicks the Profile button, it redirects to the Profile page.
+
+[.Profile Page]
+[.img-wide]
+image::react-profile.png[React Profile Page]
+
+The user information is displayed on the Profile page.
+
+Because the user profile has roles, we can use the roles to control the access to the resources.
+
+So far, we have implemented the login, logout, and profile pages. We are going to cover the logout and CSRF protection in the next section.
+
+=== Logout
+
+. call /logout endpoint of the Spring Cloud Gateway
+. It clears ID token and Access token from the Session Store in server side
+. It redirects to /logged-out of the Spring Cloud Gateway by configuration
+. /logged-out redirects to the PostLogoutPage so that React application can remove the user information from the local storage
+. PostLogoutPage remove the user information from the local storage and redirects to the LoginPage
+
+For more information, see the following links:
+
+* https://docs.spring.io/spring-security/reference/servlet/authentication/logout.html
+
+
+== CSRF Protection
+
+To call /logout endpoint, we need to add CSRF token in the request header or parameter. We could disable CSRF protection, but it is not recommended. Instead, we can get the CSRF token from the server and add it to the request header or parameter.
+
+If we call /logout without CSRF token, we will return 403 Forbidden.
+
+Here is the sample response of the /logout endpoint without CSRF token.
+[source,shell]
+----
+{
+    "timestamp": "2024-10-14T08:36:03.448+00:00",
+    "status": 403,
+    "error": "Forbidden",
+    "path": "/logout"
+}
+----
+
+The official documentation of Spring Authorization Server suggests a few ways to handle CSRF protection from Sigle Page Application(SPA).
+
+Please refer to the following link for more information:
+
+* https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html
+
+I tried to implement the CSRF protection in the React application. I will cover this in the next section.
+
+* using Cookie - it does not work as it expected
+* calling /csrf endpoint - it works as expected
+
+So, in this article, we are going to call /csrf endpoint to get the CSRF token.
+
+Let's look at the code snippet of the Logout related code in the Home.tsx.
+
+.pages/Home.tsx - Logout related code
+[source,typescript]
+----
+interface Csrf {
+    headerName: string,
+    parameterName: string,
+    token: string,
+}
+
+function HomePage() {
+
+    const initialCsrf = {parameterName:'', headerName: '', token: ''}
+    const [csrf, setCsrf] = useState(initialCsrf)
+
+    useEffect(() => {
+
+        const loadCsrf = async () => {
+            const response = await fetch('http://nsa2-gateway:8080/csrf', {
+                method: 'GET',
+                credentials: 'include',
+                headers: {
+                    "Content-Type": "application/json",
+                    "Origin": "http://nsa2-gateway:3000",
+                }
+            })
+
+            const json = await response.json() as Csrf
+
+            console.log("json: ", json)
+
+            if (response.ok) {
+                setCsrf(json)
+            }
+        }
+
+        loadCsrf()
+
+    }, [])
+
+    return (
+        // omitted for brevity
+        <div>
+            <div>
+                <form action={`http://nsa2-gateway:8080/logout?_csrf=${csrf.token}`} method={'POST'}>
+                    <input type={'SUBMIT'} value={'Logout'}/>
+                </form>
+            </div>
+        </div>
+    )
+
+}
+----
+
+It calls /csrf endpoint to get the CSRF token. And it adds the CSRF token to the request parameter when calling /logout endpoint with the POST method. The parameter name is '_csrf'.
+
+Here is a sample response of the /csrf endpoint.
+[source,json]
+----
+{
+  "parameterName": "_csrf",
+  "headerName": "X-XSRF-TOKEN",
+  "token": "QOcJRqNRTAm7C1Hlo34YQoW8V3zHYiC2bnifFani8hEK5mOTcoZrf8U1LTuWMmTcklMsdLOMeh2iVRibCEGvJJjVwiNuglSj"
+}
+----
+
+=== CsrfController
+
+CsrfController.java is a simple controller that returns the CSRF token for the client.
+
+.CsrfController.java
+[source,java]
+----
+@RestController
+public class CsrfController {
+    @GetMapping("/csrf")
+    public CsrfToken csrf(CsrfToken csrfToken) {
+        return csrfToken;
+    }
+}
+
+----
+
+
+=== Security Configuration on Spring Cloud Gateway
+
+.GatewaySecurityConfig.java
+[source,java]
+----
+
+@Configuration(proxyBeanMethods = false)
+@EnableWebSecurity
+@Slf4j
+public class GatewaySecurityConfig {
+    // @formatter:off
+    @Bean
+    @Order(2)
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, ClientRegistrationRepository clientRegistrationRepository) throws Exception {
+        http
+            .addFilterBefore(new CorsFilter(), ChannelProcessingFilter.class)
+            .authorizeHttpRequests(authorize ->
+                authorize
+                    .requestMatchers("/jwks", "/logged-out", "/login/oauth2/code/nsa2").permitAll()
+                    .requestMatchers("/actuator/health", "/actuator/health/liveness", "/actuator/health/readiness").permitAll()
+                    .anyRequest().authenticated()
+            )
+
+
+            .oauth2Login(oauth2Login ->
+                oauth2Login.loginPage("/oauth2/authorization/nsa2"))
+            .oauth2Client(Customizer.withDefaults())
+            // logout configuration
+            .logout(logout-> {
+                logout.logoutUrl("/logout")
+                        .logoutSuccessHandler(oidcLogoutSuccessHandler(clientRegistrationRepository));
+            });
+
+            // This is not working as expected
+//        http.csrf(csrf -> csrf
+//                .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+//                .csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler())
+//        );
+
+        return http.build();
+    }
+    // @formatter:on
+
+    private LogoutSuccessHandler oidcLogoutSuccessHandler(ClientRegistrationRepository clientRegistrationRepository) {
+        OidcClientInitiatedLogoutSuccessHandler oidcLogoutSuccessHandler =
+                new OidcClientInitiatedLogoutSuccessHandler(clientRegistrationRepository);
+
+        // Set the location that the End-User's User Agent will be redirected to
+        // after the logout has been performed at the Provider
+        oidcLogoutSuccessHandler.setPostLogoutRedirectUri("{baseUrl}/logged-out");
+
+        return oidcLogoutSuccessHandler;
+    }
+}
+----
+
+In the GatewaySecurityConfig.java, we have the following configuration:
+
+* /logged-out is permitted for all
+* /logout is configured to use the oidcLogoutSuccessHandler
+* {baseUrl}/logged-out is the post logout redirect URI
+
+.LogoutController.java
+[source,java]
+----
+@Controller
+@Slf4j
+@RequestMapping("")
+public class LogoutController {
+
+    @Value("${app.auth.post-logout-redirect}")
+    private String postLogoutRedirect;
+
+    @GetMapping("/logged-out")
+    public void loggedOut(HttpServletResponse response) throws IOException {
+        log.info("logged-out");
+        log.info("postLogoutRedirect: {}", postLogoutRedirect);
+
+        response.sendRedirect(postLogoutRedirect);
+    }
+}
+----
+
+/logged-out is the callback page after logout. It redirects to the postLogoutRedirect that is the PostLogoutPage in this case.
+
+
+== Conclusion
+
+In this article, we have implemented the login, logout, and profile pages. We have also implemented the CSRF protection in the React application. We have used the CSRF token from the server to call the /logout endpoint.
+
+
+
+== References
+
+* https://medium.com/@meetwithIT/how-to-you-use-tailwind-css-free-654bb2a448a1
+* https://tailwindui.com/documentation
+
+=== Youtube
+
+* https://www.youtube.com/watch?v=wazIwLjh-h8

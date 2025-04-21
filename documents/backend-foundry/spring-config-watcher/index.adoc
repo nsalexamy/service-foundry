@@ -1,0 +1,537 @@
+---
+layout: documents
+title: Spring Cloud Gateway with ConfigWatcher
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Backend Foundry
+    url: /documents/backend-foundry/
+---
+// docs/spring-cloud-gateway/5-apply-configwatcher/index.adoc
+= Spring Cloud Gateway with ConfigWatcher
+
+:imagesdir: images
+
+== Introduction
+
+This article is part of a series on Spring Cloud Gateway. The other articles in the series are:
+
+. Part 1: link:https://www.linkedin.com/pulse/spring-cloud-gateway-using-virtual-threads-young-gyu-kim-zpoxc/[Spring Cloud Gateway with Virtual Threads]
+. Part 2: link:https://www.linkedin.com/pulse/spring-cloud-gateway-oauth-20-authorization-server-young-gyu-kim-sa4kc/[Spring Cloud Gateway with Spring Authorization Server]
+. Part 3: link:https://www.linkedin.com/pulse/spring-cloud-gateway-authorization-server-using-database-kim-brbbc/[Spring Cloud Gateway with Spring Authorization Server using Database]
+. Part 4: link:https://www.linkedin.com/pulse/spring-cloud-gateway-authorization-server-roles-young-gyu-kim-1m0ac/[Spring Cloud Gateway & Spring Authorization Server with Roles]
+. Part 5: link:https://www.linkedin.com/pulse/spring-cloud-gateway-configwatcher-young-gyu-kim-x4qqc/[Spring Cloud Gateway with ConfigWatcher]
+
+This is the fifth article in the series, which focuses on applying ConfigWatcher to Spring Cloud Gateway.
+
+In this article, we are going to learn how to add routes to Spring Cloud Gateway dynamically using ConfigWatcher.
+
+=== Scenario
+
+. The gateway routes are defined in the `application.yaml` file.
+. The `nsa2-gateway-kubernetes.yaml` file is stored in a ConfigMap in Kubernetes.
+. Mount the ConfigMap to the `/etc/configs` directory in the pod.
+. bootstrap.yaml file contains the ConfigWatcher configuration to reload configuration files saved in the ConfigMap.
+. ConfigWatcher watches the ConfigMap and updates the routes in the Spring Cloud Gateway when the file is changed.
+  * Add a new route to the `nsa2-gateway-kubernetes.yaml` file in the ConfigMap.
+  * Update the existing route in the `nsa2-gateway-kubernetes.yaml` file in the ConfigMap.
+
+
+== Sprig Cloud Kubernetes ConfigWatcher
+
+ConfigWatcher is a tool that watches the configuration files and updates the application when the configuration files are changed. For example, if you have a configuration file that contains routes for Spring Cloud Gateway, you can use ConfigWatcher to watch the file and update the routes when the file is changed to add or remove routes when needed.
+
+For more information about ConfigWatcher, please refer to the link:
+
+* link:https://docs.spring.io/spring-cloud-kubernetes/reference/spring-cloud-kubernetes-configuration-watcher.html[Spring Cloud Kubernetes ConfigWatcher]
+
+== New Backend Service named nsa2-security-admin
+
+To demonstrate how ConfigWatcher works, we are going to create a new backend service named `nsa2-security-admin`. The service will be used to demonstrate how to add a new route to the Spring Cloud Gateway dynamically using ConfigWatcher.
+
+The `nsa2-security-admin` service is a Spring Boot applications that provides REST APIs for managing users, roles, and OAuth2 clients. The service is secured with Spring Security and OAuth2.
+
+Here is the `UserController` class in the `nsa2-security-admin` service. In this article, we are going to add a new route to the Spring Cloud Gateway to access the `nsa2-security-admin` service.
+
+UserController.java
+[source,java]
+----
+@RestController
+@RequestMapping("/users")
+@RequiredArgsConstructor
+@Slf4j
+public class UserController implements UserApi {
+
+    private final UserService userService;
+
+    @PreAuthorize("hasRole('NSA2_ADMIN')")
+    @GetMapping
+    @Override
+    public List<User> getAllUsers() {
+        return userService.getAllUsers();
+    }
+}
+----
+
+Please note that the `UserController` class is secured with the `NSA2_ADMIN` role which means only users with the `NSA2_ADMIN` role can access the `/users` endpoint.
+
+== Configure ConfigWatcher to Spring Cloud Gateway
+
+For more information about ConfigWatcher, please refer to my article on https://www.linkedin.com/pulse/auto-reload-config-properties-spring-cloud-k8s-watcher-kim-i4nmc/[Auto Reload Config Properties in Spring Cloud with K8s Config Watcher].
+
+Simply put, Spring ConfigWatcher is a tool that watches the ConfigMaps or Secrets in Kubernetes and updates the application when the configuration files are changed. For example, if you have a configuration file that contains routes for Spring Cloud Gateway, you can use ConfigWatcher to watch the file and update the routes when the file is changed to add or remove routes when needed.
+
+To implement ConfigWatcher in Spring Cloud Gateway, we need to add the following tasks:
+
+. Add dependencies to the `build.gradle` file
+. Create a ConfigMap in Kubernetes that contains the configuration file named `nsa2-gateway-kubernetes.yaml`. nsa2-gateway is the application name and kubernetes is the profile name.
+. Add ConfigWatcher configuration to the `bootstrap.yaml` file.
+. Mount the ConfigMap to the `/etc/configs` directory in the pod.
+. Create a ServiceAccount and RoleBinding for the Spring Cloud Gateway pod to access the ConfigMap.
+
+
+=== Add dependencies
+
+To add ConfigWatcher to Spring Cloud Gateway, we need to add the following dependencies to the `build.gradle` file.
+
+.build.gradle.kts
+[source,kotlin]
+----
+    implementation("org.springframework.cloud:spring-cloud-starter")
+    implementation("org.springframework.cloud:spring-cloud-starter-kubernetes-client")
+    implementation("org.springframework.cloud:spring-cloud-starter-kubernetes-client-config")
+----
+
+=== ConfigMap for application.yaml file
+
+Here is the ConfigMap for the application.yaml file.
+
+.nsa2-gateway-config.yaml
+[source,yaml]
+----
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: nsa2-gateway
+  labels:
+    spring.cloud.kubernetes.config: "true"
+  annotations:
+    spring.cloud.kubernetes.configmap.apps: "nsa2-gateway"
+data:
+  #NSA2_OAUTH_ISSUER_URI: http://nsa2-auth-server:9000
+  #NSA2_RESOURCE_SERVER_URI: http://nsa2-resource-server-example:8080
+
+
+  nsa2-gateway-kubernetes.yml: |-
+    spring.application.name: nsa2-gateway
+
+    server:
+      tomcat.threads.max: ${TOMCAT_THREADS_MAX:10}
+      servlet.session.cookie:
+        name: ${SESSION_COOKIE_NAME:NSA2SESSION}
+
+    spring:
+      cloud:
+        gateway:
+          mvc:
+            routes:
+              - id: resource-server
+                uri: ${NSA2_RESOURCE_SERVER_URI:http://nsa2-resource-server-example:8080}
+                predicates:
+                  - Path=/resource-server/**
+                filters:
+                  - StripPrefix=1
+    #              - AddRequestHeader=Origin, http://nsa2-gateway.canadacentral.cloudapp.azure.com:8080
+                  - AddRequestHeader=Origin, http://nsa2-gateway:8080
+                  - TokenRelay=
+
+              - id: security-admin
+                uri: ${NSA2_SECURITY_ADMIN:http://nsa2-security-admin:8080}
+                predicates:
+    #              - Path=/security-admin/**
+                  - Path=/admin/**
+                filters:
+                  - StripPrefix=1
+    #              - AddRequestHeader=Origin, http://nsa2-gateway.canadacentral.cloudapp.azure.com:8080
+                  - AddRequestHeader=Origin, http://nsa2-gateway:8080
+                  - TokenRelay=
+
+    spring.threads.virtual.enabled: true
+    logging:
+      level:
+        org.springframework: INFO
+
+    spring.security.oauth2.client:
+      registration:
+        nsa2:
+          provider: ${NSA2_OAUTH_PROVIDER:spring}
+          client-id: ${NSA2_OAUTH_CLIENT_ID:nsa2}
+          client-secret: ${NSA2_OAUTH_CLIENT_SECRET:secret}
+          authorization-grant-type: ${NSA2_OAUTH_GRANT_TYPE:authorization_code}
+          scope: ${NSA2_OAUTH_SCOPE:openid,profile}
+          #      scope: openid,profile,nsa2.user.all,nsa2.user.read,nsa2.user.write,nsa2.admin
+          #      redirect-uri: "http://127.0.0.1:8080/authorized"
+          redirect-uri: ${NSA2_OAUTH_REDIRECT_URI:http://nsa2-gateway:8080/login/oauth2/code/{registrationId}}
+          #client-name: nsa2-oidc
+          #client-authentication-method: ${NSA2_OAUTH_CLIENT_AUTH_METHOD:client_secret_basic}
+          client-name: ${NSA2_OAUTH_CLIENT_NAME:"NSA2 OAuth 2.0 Client"}
+
+
+      provider:
+        spring:
+          issuer-uri: ${NSA2_OAUTH_ISSUER_URI:http://nsa2-auth-server:9000}
+
+
+    management:
+      endpoint.health.probes.enabled: true
+      health:
+        livenessstate.enabled: true
+        readinessstate.enabled: true
+
+      endpoints.web.exposure.include: #info,health,metrics,prometheus
+        - info
+        - health
+----
+
+Please note that the ConfigMap must contain the label and annotation below in metadata section for ConfigWatcher to work.
+
+[source,yaml]
+----
+  labels:
+    spring.cloud.kubernetes.config: "true"
+  annotations:
+    spring.cloud.kubernetes.configmap.apps: "nsa2-gateway"
+----
+
+`nsa2-gateway` is the application name here.
+
+If you want to add routes dynamically, you can add the routes to the `application.yaml` file in the ConfigMap and Apply the ConfigMap to the Kubernetes cluster. ConfigWatcher will watch the ConfigMap and update the routes in the Spring Cloud Gateway when the file is changed.
+
+To apply the ConfigMap to the Kubernetes cluster, run the following command:
+
+[source,shell]
+----
+$ kubectl -n nsa2 apply -f nsa2-gateway-config.yaml
+----
+
+Please note that lines for `security-admin` route are commented out in the `application.yaml` file in the ConfigMap. We are going to use this route to demonstrate how ConfigWatcher works later in this article.
+
+=== bootstrap.yaml
+
+To configure ConfigWatcher, we need to add the following configuration to the `bootstrap.yaml` file.
+
+.bootstrap.yaml
+[source,yaml]
+----
+# <1>
+spring.application.name: nsa2-gateway
+
+---
+# <2>
+spring.config.activate.on-profile: kubernetes
+
+# <3>
+spring:
+  config:
+    import:
+      - /etc/configs/nsa2-gateway-kubernetes.yml
+
+# <4>
+spring.cloud.kubernetes:
+  reload:
+    enabled: true
+    monitoring-config-maps: true
+    monitoring-secrets: true
+    mode: event
+
+  # <5>
+  config:
+    enabled: true
+    name: default-config
+    namespace: nsa2
+    sources:
+      - name: nsa2-gateway
+----
+
+<1> Set the application name to `nsa2-gateway` in the `bootstrap.yaml` file.
+<2> The configuration will be activated when the profile is `kubernetes`.
+<3> Import the configuration file `nsa2-gateway-kubernetes.yml` from the `/etc/configs` directory. We need to mount the ConfigMap to the `/etc/configs` directory in the pod.
+<4> Enable the ConfigWatcher with the monitoring of ConfigMaps and Secrets. The mode is set to `event`.
+<5> Set the ConfigWatcher configuration in the sources section. The name is the ConfigMap name `nsa2-gateway` and the namespace is `nsa2`.
+
+== Mount ConfigMap to the pod
+
+=== For Helm chart
+
+Here is an example of how to mount the ConfigMap to the pod in the `values.yaml` file for the Spring Cloud Gateway Helm chart.
+
+.values.yaml
+[source,yaml]
+----
+volumes:
+  - name: config-volume
+    configMap:
+      name: nsa2-gateway
+
+volumeMounts:
+  - name: config-volume
+    mountPath: "/etc/configs"
+    readOnly: true
+----
+
+
+=== For Kubernetes deployment
+
+Here is an example of how to mount the ConfigMap to the pod in the Kubernetes deployment file.
+
+[source,yaml]
+----
+spec:
+  template:
+    spec:
+      volumes:
+        - name: config-volume
+          configMap:
+            name: nsa2-gateway
+
+      containers:
+        - name: nsa2-gateway
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/configs
+              readOnly: true
+----
+
+== Create ServiceAccount, Role, and RoleBinding
+
+To access the ConfigMap, we need to create a ServiceAccount and RoleBinding for the Spring Cloud Gateway pod.
+
+I have been using Yeoman to generate the Helm chart for Spring Cloud Gateway. The generator creates the ServiceAccount, Role, and RoleBinding in the `src/main/k8s/helm-chart/nsa2-gateway' directory using the templates below.
+
+* templates/service-account.yaml
+* templates/role.yaml
+* templates/role-binding.yaml
+
+Here are the templates for the ServiceAccount, Role, and RoleBinding.
+
+.templates/service-account.yaml
+[source,yaml]
+----
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nsa2-gateway.fullname" . }}
+  labels:
+    {{- include "nsa2-gateway.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "nsa2-gateway.selectorLabels" . | nindent 4 }}
+----
+
+.templates/role.yaml
+[source,yaml]
+----
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name:  {{ include "nsa2-gateway.fullname" . }}-config-reader
+rules:
+  - apiGroups: ["", "extensions", "apps"]
+    resources: ["configmaps", "secrets", "pods", "services", "namespaces", "endpoints"]
+    verbs: ["get", "list", "watch"]
+----
+
+.templates/role-binding.yaml
+[source,yaml]
+----
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    {{- include "nsa2-gateway.labels" . | nindent 4 }}
+  name:  {{ include "nsa2-gateway.fullname" . }}:view
+roleRef:
+  kind: Role
+  apiGroup: rbac.authorization.k8s.io
+  name:  {{ include "nsa2-gateway.fullname" . }}-config-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "nsa2-gateway.serviceAccountName" . }}
+----
+
+The template files will create the ServiceAccount, Role, and RoleBinding for the Spring Cloud Gateway pod.
+
+* nsa2-gateway (ServiceAccount)
+* nsa2-gateway-config-reader (Role)
+* nsa2-gateway:view (RoleBinding)
+
+== How to test ConfigWatcher
+
+=== Port forward to the pods
+
+In order to test Cloud Gateway with Auth Server, we need to port-forward to the pods. The urls have to be accessible from the browser.
+
+.port-forward to nsa2-gateway service
+[source,shell]
+----
+$ kubectl -n nsa2 port-forward svc/nsa2-gateway 8080:8080
+----
+
+[source,shell]
+----
+$ kubectl -n nsa2 port-forward svc/nsa2-auth-server 9000:9000
+----
+
+We do not need to port-forward to Oauth2 resource server as it is accessed by the Spring Cloud Gateway internally.
+
+=== /etc/hosts
+
+./etc/hosts
+[source]
+----
+127.0.0.1    nsa2-gateway
+127.0.0.1    nsa2-auth-server
+----
+
+
+== How to add routes dynamically
+
+. Before adding a route dynamically, let's test the existing routes.
+    * expected: 404 error
+. Add routes dynamically and test the new route.
+    * expected: 200 OK and returns the response.
+. Update routes dynamically.
+    * expected: 200 OK and returns the response for the new route and 404 error for the old route.
+
+=== Test existing routes before adding new routes
+
+Before adding a route dynamically, let's test the existing routes.
+
+Go to the browser and access the following routes:
+
+. http://nsa2-gateway:8080/security-admin/users
+
+.Login
+[.img-wide]
+image::login-nsa2admin.png[]
+
+The page will ask you to login. Enter the username and password and click on the `Sign in` button.
+
+You should see the following response:
+
+.Security Admin - Not Found
+[.img-wide]
+image::security-admin-notfound.png[]
+
+Since the route for the `security-admin` is not defined in the `nsa2-gateway-kubernetes.yaml` file in the ConfigMap, you will see the 404 error.
+
+=== Add routes dynamically
+
+To add routes dynamically, you can add the routes to the `nsa2-gateway-kubernetes.yaml` file in the ConfigMap. In this example, just uncomment the lines for the `security-admin` route in the `application.yaml` file in the ConfigMap and Apply the ConfigMap to the Kubernetes cluster.
+
+.nsa2-gateway-config.yaml
+[source,yaml]
+----
+              - id: security-admin
+                uri: ${NSA2_SECURITY_ADMIN:http://nsa2-security-admin:8080}
+                predicates:
+                  - Path=/security-admin/**
+                filters:
+                  - StripPrefix=1
+                  - AddRequestHeader=Origin, http://nsa2-gateway:8080
+                  - TokenRelay=
+----
+
+To apply the ConfigMap to the Kubernetes cluster, run the following command:
+
+[source,shell]
+----
+$ kubectl -n nsa2 apply -f nsa2-gateway-config.yaml
+----
+
+Then Spring Cloud Gateway will reload the routes dynamically, and you can access the new route in the browser.
+
+.Security Admin - OK
+[.img-wide]
+image::security-admin-ok-1.png[]
+
+Now we can access the new route `security-admin` and get the response.
+
+We can get some insights from the traces in the Jaeger UI on how the request is processed. Both nsa2-gateway and nsa2-security-admin services call nsa2-auth-server service to authenticate the user and validate the token.
+
+.Jaeger UI
+[.img-wide]
+image::jaeger-ui-1.png[]
+
+=== How to update routes dynamically
+
+Let's update the existing route `/security-admin/users` to `/admin/users`.
+
+Set the predicates of `security-admin` route to `/admin/**` in the `application.yaml` file in the ConfigMap and Apply the ConfigMap to the Kubernetes cluster.
+[source,yaml]
+----
+                predicates:
+                  - Path=/admin/**
+----
+
+To apply the ConfigMap to the Kubernetes cluster, run the following command:
+
+[source,shell]
+----
+$ kubectl -n nsa2 apply -f nsa2-gateway-config.yaml
+----
+
+Now you can access the new route in the browser.
+
+http://nsa2-gateway:8080/admin/users
+
+And you should see the following response:
+
+.Security Admin - OK
+[.img-wide]
+image::security-admin-ok-2.png[]
+
+
+and the old route will return 404.
+
+.Security Admin - Not Found
+[.img-wide]
+image::security-admin-notfound-2.png[]
+
+=== 403 Forbidden
+
+When user does not have the required role, the response will be 403 Forbidden.
+
+.Login
+[.img-wide]
+image::login-nsa2user.png[]
+
+When user logs in with the user role, the response will be 403 Forbidden.
+
+.Security Admin - Forbidden
+[.img-wide]
+image::security-admin-forbidden-1.png[]
+
+
+== Conclusion
+
+In this article, we have learned how to add routes to Spring Cloud Gateway dynamically using ConfigWatcher. We have created a ConfigMap in Kubernetes that contains the configuration file for Spring Cloud Gateway. We have added the ConfigWatcher configuration to the `bootstrap.yaml` file to reload the routes dynamically. We have mounted the ConfigMap to the `/etc/configs` directory in the pod. We have created a ServiceAccount and RoleBinding for the Spring Cloud Gateway pod to access the ConfigMap. We have tested the existing routes before adding new routes. We have added routes dynamically and tested the new route. We have updated the existing route and tested the new route.
+
+
+== References
+
+* https://anjireddy-kata.medium.com/spring-cloud-gateway-dynamic-route-configuration-and-loading-from-the-datastore-a0637e6bd9b4#:~:text=To%20reload%20the%20route%20configurations,Below%20is%20the%20sample%20implementation.&text=After%20defining%20the%20class%2C%20you,to%20reload%20the%20routes%20dynamically.[Spring Cloud Gateway Dynamic Route Configuration and Loading from the Datastore]

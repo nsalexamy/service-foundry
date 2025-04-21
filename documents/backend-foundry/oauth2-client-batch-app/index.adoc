@@ -1,0 +1,840 @@
+---
+layout: documents
+title: Oauth2 Client for Batch Applications
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Backend Foundry
+    url: /documents/backend-foundry/
+---
+// /Users/young/Dev/alexamy/nsa2-cronjob-example/docs/oauth2-client/index.adoc
+= Oauth2 Client for Batch Applications
+
+:imagesdir: images
+:projectdir: ../..
+:sourcedir: {projectdir}/src/main/java
+:resourcesdir: {projectdir}/src/main/resources
+
+[.img-wide]
+image::oauth2-batch-app.png[]
+
+== Introduction
+
+In this article, we are going to apply OAuth2 client support to a batch application. We are going to use the Client Credentials grant type to authenticate the client application itself. The client application sends the client ID and client secret to the authorization server to get the access token.
+
+This document is written based on the following document. For more information, please refer to the following document.
+
+* https://docs.spring.io/spring-security/reference/6.4-SNAPSHOT/servlet/oauth2/client/authorization-grants.html#oauth2-client-client-credentials
+
+== Pre-requisites
+
+As of writing this article, Spring Boot 3.4.0 is not released yet. We are using the latest milestone version 3.4.0-RC1. And Java 21 is used to leverage the latest features like Java virtual threads and RestClient.
+
+. Spring Boot 3.4.0-RC1
+. Java 21
+. Knowledge of Spring Security and OAuth2
+
+
+== Oauth2 grant types - Client Credentials
+
+Unlike Web applications, Batch applications do not have a user interface to interact with the user. Therefore, the Client Credentials grant type is used to authenticate the client application itself. The client application sends the client ID and client secret to the authorization server to get the access token.
+
+For more information on the Client Credentials grant type, please refer to the following document.
+
+* https://datatracker.ietf.org/doc/html/rfc6749#section-1.3.4
+
+== Spring RestClient
+
+[quote, Spring Framework Reference, https://docs.spring.io/spring-framework/reference/integration/rest-clients.html]
+____
+The RestClient is a synchronous HTTP client that offers a modern, fluent API. It offers an abstraction over HTTP libraries that allows for convenient conversion from a Java object to an HTTP request, and the creation of objects from an HTTP response.
+____
+
+RestClient was introduced in Spring 6.1.
+
+In this document, we are going to use RestClient to call the REST API with the access token that we get from the authorization server.
+
+There are two RestClient beans used in this document.
+
+* OAuth2ServerRestClient: This bean is used to get the access token from the authorization server.
+* SecurityAdminRestClient: This bean is used to call the REST API with the access token.
+
+.Rest Client UML
+[.img-wide]
+image::rest-clients.png[]
+
+
+For more information on RestClient, please refer to the following document.
+
+* https://docs.spring.io/spring-framework/reference/integration/rest-clients.html
+
+== Spring Boot Application for Batch Processing
+
+We are using the same Spring Boot application that we used in the previous article. We are going to add OAuth2 client support to the existing application.
+
+Please refer to the following article to understand the existing application.
+
+* https://www.linkedin.com/pulse/dkron-easy-reliable-cron-jobs-young-gyu-kim-9yp9c
+
+
+== Add Dependencies
+
+=== build.gradle.kts
+
+Add libraries to build.gradle.kts
+
+.build.gradle.kts
+[source,kotlin]
+----
+import org.springframework.boot.gradle.tasks.run.BootRun
+
+plugins {
+    java
+    id("org.springframework.boot") version "3.4.0-RC1"
+    id("io.spring.dependency-management") version "1.1.6"
+}
+
+
+group = "com.alexamy.nsa2"
+version = "0.0.1-SNAPSHOT"
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+configurations {
+    compileOnly {
+        extendsFrom(configurations.annotationProcessor.get())
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url = uri("https://repo.spring.io/milestone") }
+}
+
+dependencyManagement {
+    imports {
+        mavenBom("io.opentelemetry.instrumentation:opentelemetry-instrumentation-bom:2.9.0")
+    }
+}
+
+
+dependencies {
+    implementation("io.opentelemetry.instrumentation:opentelemetry-spring-boot-starter")
+    implementation("io.opentelemetry:opentelemetry-extension-trace-propagators")
+    implementation("org.springframework.boot:spring-boot-starter")
+    implementation("org.springframework.boot:spring-boot-starter-oauth2-client")
+
+
+    implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.springframework:spring-web")
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
+    compileOnly("org.projectlombok:lombok")
+    annotationProcessor("org.projectlombok:lombok")
+
+
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+tasks.withType<Test> {
+    useJUnitPlatform()
+}
+
+tasks.named<BootRun>("bootRun") {
+    mainClass.set("com.alexamy.nsa2.example.cronjob.Nsa2CronjobExampleApplication")
+    jvmArgs = listOf("-Dotel.java.global-autoconfigure.enabled=true")
+}
+
+----
+
+When working on Milestone versions, you need to add the Spring Milestone repository to the build.gradle.kts file.
+
+'spring-boot-starter-oauth2-client' is the main dependency that we need to add to the build.gradle.kts file.
+
+[source,kotlin]
+----
+implementation("org.springframework.boot:spring-boot-starter-oauth2-client")
+----
+
+=== settings.gradle.kts
+
+We also need to add pluginManagement to the settings.gradle.kts file.
+
+.settings.gradle.kts
+[source,kotlin]
+----
+pluginManagement {
+    repositories {
+        maven { url = uri("https://repo.spring.io/milestone") }
+        gradlePluginPortal()
+    }
+}
+rootProject.name = "nsa2-cronjob-example"
+
+
+----
+
+== Create a new Client
+
+=== Insert new client
+
+To add a new client, we need to insert a new record into the 'oauth2_registered_client' table. We are going to add a new client called 'nsa2-batch' with the 'client_credentials' grant type. The client ID is 'nsa2-batch' and the client secret is 'secret'.
+
+.Insert nsa2-batch
+[source,sql]
+----
+select uuid_generate_v4();
+-- b5046189-ba3c-4473-9cc5-a0d328368163
+
+INSERT INTO public.oauth2_registered_client
+(id, client_id, client_id_issued_at, client_secret, client_secret_expires_at,
+ client_name, client_authentication_methods, authorization_grant_types, redirect_uris,
+ post_logout_redirect_uris, scopes, client_settings, token_settings)
+VALUES ('b5046189-ba3c-4473-9cc5-a0d328368163', 'nsa2-batch', now(), '{bcrypt}$2a$10$ZJkIZl2ew5fRjpX4VPkRcOwioG8n6vuD7//QZJ/QWlyzi59l5HW5u', null,
+        'NSA2 Batch Application', 'client_secret_basic', 'client_credentials', null, null, 'nsa2.admin', '{"@class":"java.util.Collections$UnmodifiableMap","settings.client.require-proof-key":false,"settings.client.require-authorization-consent":false}', '{"@class":"java.util.Collections$UnmodifiableMap","settings.token.reuse-refresh-tokens":true,"settings.token.x509-certificate-bound-access-tokens":false,"settings.token.id-token-signature-algorithm":["org.springframework.security.oauth2.jose.jws.SignatureAlgorithm","RS256"],"settings.token.access-token-time-to-live":["java.time.Duration",3600.000000000],"settings.token.access-token-format":{"@class":"org.springframework.security.oauth2.server.authorization.settings.OAuth2TokenFormat","value":"self-contained"},"settings.token.refresh-token-time-to-live":["java.time.Duration",3600.000000000],"settings.token.authorization-code-time-to-live":["java.time.Duration",300.000000000],"settings.token.device-code-time-to-live":["java.time.Duration",300.000000000]}');
+
+
+----
+
+.Insert nsa2-cronjob-example client - deprecated
+[source,sql]
+----
+select uuid_generate_v4();
+-- 762475e5-a75b-4288-a653-a4bf3574c5bb
+
+INSERT INTO public.oauth2_registered_client
+(id, client_id, client_id_issued_at, client_secret, client_secret_expires_at,
+ client_name, client_authentication_methods, authorization_grant_types, redirect_uris,
+ post_logout_redirect_uris, scopes, client_settings, token_settings)
+VALUES ('762475e5-a75b-4288-a653-a4bf3574c5bb', 'nsa2-cronjob-example', now(), '{bcrypt}$2a$10$ZJkIZl2ew5fRjpX4VPkRcOwioG8n6vuD7//QZJ/QWlyzi59l5HW5u', null,
+        'NSA2 Cronjob Example', 'client_secret_basic', 'refresh_token,client_credentials,authorization_code', 'http://nsa2-cronjob-example:8080/login/oauth2/code/nsa2-cronjob-example', 'http://nsa2-cronjob-example:8080/logged-out', 'openid,profile,nsa2.user.all,nsa2.user.read,nsa2.user.write,nsa2.admin', '{"@class":"java.util.Collections$UnmodifiableMap","settings.client.require-proof-key":false,"settings.client.require-authorization-consent":false}', '{"@class":"java.util.Collections$UnmodifiableMap","settings.token.reuse-refresh-tokens":true,"settings.token.x509-certificate-bound-access-tokens":false,"settings.token.id-token-signature-algorithm":["org.springframework.security.oauth2.jose.jws.SignatureAlgorithm","RS256"],"settings.token.access-token-time-to-live":["java.time.Duration",300.000000000],"settings.token.access-token-format":{"@class":"org.springframework.security.oauth2.server.authorization.settings.OAuth2TokenFormat","value":"self-contained"},"settings.token.refresh-token-time-to-live":["java.time.Duration",3600.000000000],"settings.token.authorization-code-time-to-live":["java.time.Duration",300.000000000],"settings.token.device-code-time-to-live":["java.time.Duration",300.000000000]}');
+----
+
+
+== Configure the Client
+
+Add the following properties to application.yml
+
+[source,yaml]
+----
+spring.security.oauth2.client:
+  registration:
+    nsa2-cronjob-example:
+      provider: ${NSA2_OAUTH_PROVIDER:spring}
+      client-id: ${NSA2_OAUTH_CLIENT_ID:nsa2-cronjob-example}
+      client-secret: ${NSA2_OAUTH_CLIENT_SECRET:secret}
+      authorization-grant-type: ${NSA2_OAUTH_GRANT_TYPE:authorization_code}
+      scope: ${NSA2_OAUTH_SCOPE:openid,profile}
+      redirect-uri: ${NSA2_OAUTH_REDIRECT_URI:http://nsa2-cronjob-example:8080/login/oauth2/code/{registrationId}}
+      client-name: ${NSA2_OAUTH_CLIENT_NAME:"NSA2 Cronjob Example"}
+
+
+  provider:
+    spring:
+      issuer-uri: ${NSA2_OAUTH_ISSUER_URI:http://nsa2-auth-server:9000}
+----
+
+== Source Files of OAuth2 Client application
+
+We are going through the source files that are used in this document.
+
+* application.yaml
+* Oauth2ClientConfig.java
+* OauthServerRestClient.java
+* OauthServerRequestInterceptor.java
+* SecurityAdminRestClient.java
+* GetUsersJob.java
+
+
+=== application.yaml
+
+The configuration for the OAuth2 client is defined in the application.yaml file.
+
+It contains registration and provider information.
+
+.application.yaml
+[source,yaml]
+----
+spring.application.name: nsa2-cronjob-example
+
+otel:
+  enabled: ${OTEL_ENABLED:true}
+  service:
+    name: nsa2-cronjob-example
+  exporter:
+    otlp:
+      endpoint: http://otel-collector:4318
+  logs:
+    exporter: otlp
+  traces:
+    exporter: otlp
+    sampler:
+      arg: 1
+  metrics:
+    exporter: none
+  propagators:
+    - b3
+    - tracecontext
+
+spring:
+  # enable virtual thread
+  threads.virtual.enabled: true
+
+  main:
+    # disable embedded web server(tomcat)
+    web-application-type: none
+    # disable banner
+    banner-mode: off
+
+spring.security.oauth2.client:
+  registration:
+    nsa2-cronjob-example:
+      provider: ${NSA2_OAUTH_PROVIDER:spring}
+      client-id: ${NSA2_OAUTH_CLIENT_ID:nsa2-batch}
+      client-secret: ${NSA2_OAUTH_CLIENT_SECRET:secret}
+      authorization-grant-type: ${NSA2_OAUTH_GRANT_TYPE:client_credentials}
+      scope: ${NSA2_OAUTH_SCOPE:nsa2.admin}
+
+  provider:
+    spring:
+      issuer-uri: ${NSA2_OAUTH_ISSUER_URI:http://nsa2-auth-server:9000}
+
+logging:
+
+  level:
+    org.springframework: INFO
+    com.alexamy: DEBUG
+    io.opentelemetry: TRACE
+
+
+app:
+  services:
+    security-admin:
+      url: ${SECURITY_ADMIN_SERVICE_URL:http://nsa2-securityadmin:8084}
+
+----
+
+Please note that the authorization-grant-type is set to 'client_credentials' in the application.yaml file.
+
+And its scope is set to 'nsa2.admin'.
+
+=== OAuth2ClientConfig.java
+
+This Configuration bean is used to create beans that are used to get the access token from the authorization server.
+
+
+[source,java]
+----
+package com.alexamy.nsa2.example.cronjob.config;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.security.oauth2.client.OAuth2ClientProperties;
+import org.springframework.boot.autoconfigure.security.oauth2.client.OAuth2ClientPropertiesMapper;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.oauth2.client.registration.ClientRegistration;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.client.registration.InMemoryClientRegistrationRepository;
+
+import java.util.ArrayList;
+import java.util.List;
+
+@Configuration(proxyBeanMethods = false)
+@EnableConfigurationProperties(OAuth2ClientProperties.class)
+@Slf4j
+public class Oauth2ClientConfig {
+
+
+    @Bean
+    InMemoryClientRegistrationRepository clientRegistrationRepository(OAuth2ClientProperties properties) {
+        List<ClientRegistration> registrations = new ArrayList<>(
+                new OAuth2ClientPropertiesMapper(properties).asClientRegistrations().values());
+        return new InMemoryClientRegistrationRepository(registrations);
+    }
+
+
+}
+
+
+----
+
+When using spring-boot-starter-web with the @EnableWebSecurity annotation in your configuration class, you don't need to manually create the ClientRegistrationRepository method, as the autoconfiguration handles it. However, for batch applications, you must create it manually.
+
+This creates a ClientRegistrationRepository bean that contains the client registration information defined in the application.yaml file.
+
+ClientRegistration can be retrieved from the ClientRegistrationRepository bean by calling the findByRegistrationId method.
+
+[source,java]
+----
+        ClientRegistration clientRegistration =
+                this.clientRegistrationRepository.findByRegistrationId("nsa2-cronjob-example");
+----
+
+=== OauthServerRestClient.java
+
+This class is used to get the access token from the authorization server.
+
+.OauthServerRestClient.java
+[source,java]
+----
+package com.alexamy.nsa2.example.cronjob.config;
+
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.converter.FormHttpMessageConverter;
+import org.springframework.security.oauth2.client.endpoint.OAuth2AccessTokenResponseClient;
+import org.springframework.security.oauth2.client.endpoint.OAuth2ClientCredentialsGrantRequest;
+import org.springframework.security.oauth2.client.endpoint.RestClientClientCredentialsTokenResponseClient;
+import org.springframework.security.oauth2.client.http.OAuth2ErrorResponseErrorHandler;
+import org.springframework.security.oauth2.core.http.converter.OAuth2AccessTokenResponseHttpMessageConverter;
+import org.springframework.web.client.RestClient;
+
+@Configuration(proxyBeanMethods = false)
+public class OauthServerRestClientConfig {
+    public static final String OAUTH_SERVER_REST_CLIENT = "oauthServerRestClient";
+
+    @Value("${spring.security.oauth2.client.provider.spring.issuer-uri}")
+    private String issuerUri;
+
+
+    @Bean(OAUTH_SERVER_REST_CLIENT)
+    public RestClient oauthServerRestClient() {
+        return RestClient.builder()
+                .baseUrl(issuerUri)
+                .messageConverters((messageConverters) -> {
+                    messageConverters.clear();
+                    messageConverters.add(new FormHttpMessageConverter());
+                    messageConverters.add(new OAuth2AccessTokenResponseHttpMessageConverter());
+                })
+                .defaultStatusHandler(new OAuth2ErrorResponseErrorHandler())
+                .build();
+    }
+
+    @Bean
+    public OAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest> accessTokenResponseClient(
+            @Qualifier(OAUTH_SERVER_REST_CLIENT) RestClient oauthServerRestClient) {
+
+       var tokenResponseClient = new RestClientClientCredentialsTokenResponseClient();
+
+       tokenResponseClient.setRestClient(oauthServerRestClient);
+
+       return tokenResponseClient;
+    }
+}
+
+
+----
+
+This class is responsible for creating a RestClient bean that is used to get the access token from the authorization server.
+
+It requires two message converters to convert the request and response payloads in Client Credentials grant type.
+
+* FormHttpMessageConverter
+* OAuth2AccessTokenResponseHttpMessageConverter
+
+This class also creates a OAuth2AccessTokenResponseClient bean that is used to get the access token from the authorization server. RestClientClientCredentialsTokenResponseClient uses the RestClient bean for Client Credentials grant type. This class helps to reduce boilerplate code.
+
+=== OauthServerRequestInterceptor.java
+
+This class intercepts requests to add an access token to the request headers. For a more abstract approach, you can use the RestClientClientCredentialsTokenResponseClient class, introduced in Spring 6.4.
+
+.OauthServerRequestInterceptor.java
+[source,java]
+----
+package com.alexamy.nsa2.example.cronjob.config;
+
+import jakarta.annotation.Nullable;
+import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpRequest;
+import org.springframework.http.client.ClientHttpRequestExecution;
+import org.springframework.http.client.ClientHttpRequestInterceptor;
+import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.security.oauth2.client.endpoint.OAuth2AccessTokenResponseClient;
+import org.springframework.security.oauth2.client.endpoint.OAuth2ClientCredentialsGrantRequest;
+import org.springframework.security.oauth2.client.registration.ClientRegistration;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.core.OAuth2AccessToken;
+import org.springframework.security.oauth2.core.endpoint.OAuth2AccessTokenResponse;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.time.Instant;
+
+@Component
+//@AllArgsConstructor
+@Slf4j
+public class OauthServerRequestInterceptor implements ClientHttpRequestInterceptor {
+
+    private final OAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest> accessTokenResponseClient;
+    private final ClientRegistrationRepository clientRegistrationRepository;
+    private OAuth2AccessToken accessToken;
+
+    @Value("${NSA2_OAUTH_CLIENT_REGISTRATION_ID:${NSA2_OAUTH_CLIENT_ID:nsa2-cronjob-example}}")
+    private String clientRegistrationId;
+
+    public OauthServerRequestInterceptor(
+            OAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest> accessTokenResponseClient,
+            ClientRegistrationRepository clientRegistrationRepository) {
+        this.accessTokenResponseClient = accessTokenResponseClient;
+        this.clientRegistrationRepository = clientRegistrationRepository;
+    }
+
+    @PostConstruct
+    void validateBean() {
+        log.info("===> clientRegistrationRepository class: {}", clientRegistrationRepository.getClass());
+    }
+
+
+    @Override
+    public ClientHttpResponse intercept(HttpRequest request, byte[] body,
+                                        ClientHttpRequestExecution execution) throws IOException {
+        log.debug("========> httpRequest class: {}", request.getClass());
+
+        final OAuth2AccessToken accessToken = getAccessToken();
+
+        if(accessToken == null) {
+            log.error("=====> accessToken is null");
+            return execution.execute(request, body);
+        }
+
+        log.debug("token value: {}", accessToken.getTokenValue());
+        request.getHeaders().setBearerAuth(accessToken.getTokenValue());
+
+        return execution.execute(request, body);
+    }
+
+    private @Nullable OAuth2AccessToken getAccessToken() {
+        if(! isValid(accessToken)) {
+            resetAccessToken();
+        }
+        return accessToken;
+    }
+
+    private boolean isValid(@Nullable OAuth2AccessToken token) {
+        return token != null && token.getExpiresAt() != null
+                && token.getExpiresAt().isBefore(Instant.now());
+    }
+
+    private void resetAccessToken() {
+        this.accessToken = null;
+
+        ClientRegistration clientRegistration =
+                this.clientRegistrationRepository.findByRegistrationId(clientRegistrationId);
+
+        log.debug("===> clientRegistration: {}", clientRegistration);
+
+        OAuth2ClientCredentialsGrantRequest grantRequest =
+                new OAuth2ClientCredentialsGrantRequest(clientRegistration);
+
+        OAuth2AccessTokenResponse tokenResponse = accessTokenResponseClient.getTokenResponse(grantRequest);
+
+        OAuth2AccessToken accessToken = tokenResponse.getAccessToken();
+        log.debug("===> accessToken: {}", accessToken);
+
+        this.accessToken = accessToken;
+    }
+}
+
+
+----
+
+This component has a member variable of type OAuth2AccessToken and manage the access token. when the access token is null or expired, it gets a new access token from the authorization server. This interceptor component's main goal is to add the access token to the request headers.
+
+Now let's have a look at resetAccessToken method. If we pass grantRequest parameter, it returns OAuth2AccessTokenResponse.  We don't need to set any  request headers or parameters nor do we need to manage the response. RestClientClientCredentialsTokenResponseClient takes care of everything, making it very convenient
+
+For more information on RestClientClientCredentialsTokenResponseClient, please refer to the following document.
+
+* https://docs.spring.io/spring-security/reference/6.4-SNAPSHOT/servlet/oauth2/client/authorization-grants.html#oauth2-client-client-credentials-access-token
+
+=== SecurityAdminRestClientConfig.java
+
+This Config bean is used to create a RestClient bean that is used to call the REST APIs of the Security Admin application.
+
+.SecurityAdminRestClientConfig.java
+[source,java]
+----
+package com.alexamy.nsa2.example.cronjob.config;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.http.HttpMessageConverters;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.ClientHttpRequestInterceptor;
+import org.springframework.web.client.RestClient;
+
+@Configuration(proxyBeanMethods = false)
+@Slf4j
+public class SecurityAdminRestClientConfig {
+
+    public static final String SECURITY_ADMIN_REST_CLIENT_BEAN = "securityAdminRestClient";
+    public static final String SECURITY_ADMIN_REST_CLIENT_BUILDER = "securityAdminRestClientBuilder";
+
+    private final ClientHttpRequestInterceptor requestInterceptor;
+
+    @Value("${app.services.security-admin.url}")
+    private String securityAdminUrl;
+
+    public SecurityAdminRestClientConfig(ClientHttpRequestInterceptor requestInterceptor) {
+        this.requestInterceptor = requestInterceptor;
+    }
+
+    @Bean(SECURITY_ADMIN_REST_CLIENT_BUILDER)
+    public RestClient.Builder securityAdminRestClientBuilder() {
+        return RestClient.builder().requestInterceptor(requestInterceptor);
+    }
+
+    @Bean(SECURITY_ADMIN_REST_CLIENT_BEAN)
+    RestClient securityAdminRestClient(@Qualifier(SECURITY_ADMIN_REST_CLIENT_BUILDER)
+                                       RestClient.Builder builder) {
+
+        RestClient restClient = builder.baseUrl(securityAdminUrl)
+                .build();
+
+        return restClient;
+    }
+
+
+
+}
+
+
+----
+
+The interceptor is added to the RestClient bean to add the access token to the request headers.
+
+=== GetUsersJob.java
+
+This class is a batch job that gets the users from the Security Admin application.
+
+.GetUsersJob.java
+[source,java]
+----
+package com.alexamy.nsa2.example.cronjob.component;
+
+import io.micrometer.observation.Observation;
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanBuilder;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
+import lombok.extern.log4j.Log4j2;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+
+import java.util.List;
+
+import static com.alexamy.nsa2.example.cronjob.config.SecurityAdminRestClientConfig.SECURITY_ADMIN_REST_CLIENT_BEAN;
+
+
+@Component
+@Slf4j
+//@Log4j2
+public class GetUsersJob {
+    private final RestClient restClient;
+    private final SpanBuilder getUsersJobSpanBuilder;
+    private final OpenTelemetry openTelemetry;
+    private final Tracer tracer;
+
+    public GetUsersJob(@Qualifier(SECURITY_ADMIN_REST_CLIENT_BEAN) RestClient restClient,
+                       OpenTelemetry openTelemetry,
+                       @Qualifier("getUsersJobSpanBuilder") SpanBuilder getUsersJobSpanBuilder) {
+        this.restClient = restClient;
+        this.openTelemetry = openTelemetry;
+//        log.info("===> openTelemetry: {}", openTelemetry);
+        this.tracer = openTelemetry.getTracer("nsa2-cronjob-example-tracer2");
+        log.info("===> tracer: {}", tracer);
+
+        this.getUsersJobSpanBuilder = getUsersJobSpanBuilder;
+//        this.observationRegistry = observationRegistry;
+    }
+
+
+    void callService() {
+        List<User> users = restClient.get()
+                .uri("/users")
+                .accept(MediaType.APPLICATION_JSON)
+                .retrieve()
+                .body(new ParameterizedTypeReference<List<User>>() {
+                });
+
+        users.forEach(user -> {
+            log.info("=====> user: {}", user);
+        });
+
+    }
+
+    public void execute() {
+        Span span = tracer
+                .spanBuilder("get-users-job2")
+                .startSpan();
+
+        log.info("span: {}", span);
+
+        try(Scope scope = span.makeCurrent()) {
+            log.info("===> scope: {}", scope);
+            log.info("===> executing...");
+
+
+            callService();
+
+        } catch(Exception ex) {
+            span.recordException(ex);
+            log.error(ex.getMessage(), ex);
+        } finally {
+            span.end();
+        }
+    }
+
+
+
+    public void execute_2() {
+        Span span = getUsersJobSpanBuilder
+                .setParent(Context.root())
+                .startSpan();
+
+        log.info("span: {}", span);
+
+        try(Scope scope = span.makeCurrent()) {
+            log.info("===> scope: {}", scope);
+            log.info("===> executing...");
+            try {
+                log.info("sleeping for 1 second...");
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                log.error(e.getMessage(), e);
+            }
+
+            callService();
+
+        } catch(Exception ex) {
+            log.error(ex.getMessage(), ex);
+        } finally {
+            try {
+                log.info("in final sleeping for 1 second...");
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                log.error(e.getMessage(), e);
+            }
+            span.end();
+        }
+
+    }
+}
+
+
+----
+
+When you run the GetUsersJob, it gets the access token from the authorization server and calls the REST API of the Security Admin application to get the users. All users are printed to the console.
+
+== Access Token
+
+The access token in Client Credentials grant type is a bit different from the access token in Authorization Code grant type. The access token in Client Credentials grant type does not contain user information. It contains only the client information.
+
+=== JWT
+
+Here is an example of the JWT payload that we get from the authorization server.
+
+.JWT Payload example
+[source,json]
+----
+{
+  "sub": "nsa2-batch",
+  "aud": "nsa2-batch",
+  "nbf": 1730135601,
+  "scope": [
+    "nsa2.admin"
+  ],
+  "roles": [],
+  "iss": "http://nsa2-auth-server:9000",
+  "exp": 1730139201,
+  "iat": 1730135601,
+  "jti": "700e4de4-954f-4312-98e6-982a332e9bcb",
+  "email": null
+}
+----
+
+It does not contain roles information because the client credentials grant type does not have a user. It has only the scope information. The scope is set to 'nsa2.admin' and this can be used as authorities in the application. The authority of 'nsa2.admin' will be 'SCOPE_nsa2.admin'.
+
+
+== Source files of OAuth2 Resource Server application
+
+=== UserController.java
+
+.UserController.java
+[source,java]
+----
+
+@RestController
+@RequestMapping("/users")
+@RequiredArgsConstructor
+@Slf4j
+public class UserController implements UserApi {
+
+    private final UserService userService;
+
+    @PreAuthorize("hasRole('NSA2_ADMIN') or hasAuthority('SCOPE_nsa2.admin')")
+    @GetMapping
+    @Override
+    public List<User> getAllUsers() {
+        return userService.getAllUsers();
+    }
+
+    @GetMapping("/authentication")
+    public Map<String, Object> authentication(Authentication authentication) {
+        return Map.of("name", authentication.getName(), "authorities", authentication.getAuthorities());
+    }
+
+}
+----
+
+In the code above, the @PreAuthorize annotation is used to authorize the user. The user must have the 'NSA2_ADMIN' role or the 'SCOPE_nsa2.admin' authority to access the getAllUsers method. On the other hand, the authentication method is open to all authenticated users. This method is a helper method to check the authentication information.
+
+== HTTP Request and Response for Client Credentials grant type
+
+To understand the actual HTTP request and response for the Client Credentials grant type, I will show you how to call OAuth2 authorization server to get the access token using the curl command.
+
+The curl command below can be used to get the access token from the authorization server.
+
+----
+$ curl -X POST http://nsa2-auth-server:9000/oauth2/token -u nsa2-batch:secret -d grant_type=client_credentials -d scope=nsa2.admin
+
+{
+  "access_token": "eyJraWQiOiJhMTI1NjY1Yi1mYjFkLTQzNDEtOGQxYS03YThlY2JiZTQ0N2YiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJuc2EyLWJhdGNoIiwiYXVkIjoibnNhMi1iYXRjaCIsIm5iZiI6MTczMDE1MzQwMCwic2NvcGUiOlsibnNhMi5hZG1pbiJdLCJyb2xlcyI6W10sImlzcyI6Imh0dHA6Ly9uc2EyLWF1dGgtc2VydmVyOjkwMDAiLCJleHAiOjE3MzAxNTcwMDAsImlhdCI6MTczMDE1MzQwMCwianRpIjoiMTBlZDkwOGQtNDNlYS00MmFkLWI5OWQtZTFiYjgwY2Q0ZjU1IiwiZW1haWwiOm51bGx9.aFY33Y-GfK8NyaCEdEbSg_VH_hPMxctgMbjsEGryFr5F09cLjtYru1z6EVIc_AJpqOHVYWUT8xy9S10xBmx_ojDdsAII6sRnVvTQeai4fn4UQybyiHs4d-s2mKluB5RyKWbNo4Se44Jz_6yCRNgts_RguXOEk5HtGal91oDN3OLky9PqPU-yG6MW8z8_jjqL3Rs6dUL-Wl9_Dwsa1QgqS_oOe-6G8hytT_gZh-ujD_uD_7Obkj-RGHOkzIxOdIAvUkFRLcNLsmGqHCUp8cW5zjdteeYxugb5ab6CrKMOkKhmjycxE16tTzgP90FakeeEsyFDSYIXrOu9JJMVH6mxnQ",
+  "scope": "nsa2.admin",
+  "token_type": "Bearer",
+  "expires_in": 3599
+}
+
+----
+
+== Conclusion
+
+In this article, we have learned how to apply OAuth2 client support to a batch application. We have used the Client Credentials grant type to authenticate the client application itself. The client application sends the client ID and client secret to the authorization server to get the access token.
+
+== Source Code
+
+The source code is available at the following repository.
+
+* https://github.com/nsalexamy/nsa2-cronjob-example
