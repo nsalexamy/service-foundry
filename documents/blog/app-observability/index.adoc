@@ -1,0 +1,477 @@
+---
+layout: documents
+title: Application Observability with OpenTelemetry
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Blog
+    url: /documents/blog/
+---
+// docs/service-foundry/02.application-observability/index.adoc
+= Application Observability with OpenTelemetry
+
+
+:imagesdir: images
+
+[.img-wide]
+image::application-observability-intro.png[]
+
+== Introduction
+
+In link:https://www.linkedin.com/pulse/service-foundry-observability-young-gyu-kim-fqryc/[the previous article], we explored how the ‘Service Foundry for Observability’ can help you build your own observability platform. As a follow-up, this article will focus on the key components of application observability and how OpenTelemetry can help you achieve comprehensive insights into your systems.
+
+=== What is Application Observability?
+
+Application observability refers to the ability to understand a system’s internal state by analyzing its outputs. It plays a critical role in modern software development and operations, enabling teams to monitor, troubleshoot, and optimize applications efficiently. Essentially, it measures how well a system’s internal workings can be inferred from its external outputs.
+
+=== What is OpenTelemetry?
+
+
+OpenTelemetry is an open-source observability framework designed for cloud-native applications. It offers a unified set of APIs, libraries, agents, and instrumentation to capture distributed traces, metrics, and logs from applications, making it easier to monitor and understand complex systems.
+
+=== Key Components of Application Observability
+
+
+Achieving robust application observability involves collecting and analyzing data from various sources. Below are the essential components:
+
+* OpenTelemetry(OTEL)
+  - OpenTelemetry Collector
+  - OpenTelemetry Target Allocator
+  - OpenTelemetry Instrumentation
+* OpenSearch
+* OpenSearch Dashboards
+* Data Prepper
+* Jaeger
+* Prometheus
+* Grafana
+* Cassandra
+
+
+The Service Foundry for Observability provides a comprehensive set of tools and services to help you set up, configure, and manage these components, empowering your team to gain deeper insights and maintain high system reliability.
+
+
+== Sample Spring Boot Application with OpenTelemetry
+
+To help you understand how OpenTelemetry can be used to monitor a Spring Boot application, 'Service Foundry for Observability' provides a sample application that demonstrates how to instrument a Spring Boot application with OpenTelemetry Java SDK. The sample application exposes a simple REST API service with two endpoints:
+
+
+
+
+/otel: This endpoint makes 3 to 5 calls to the /sleep/{seconds} endpoint, with a random sleep duration between 1 to 5 seconds for each call.
+
+/sleep/{seconds}: This endpoint pauses for the specified number of seconds before returning a response and generates logs during its execution.
+
+After making several requests to the /otel endpoint, we will observe how OpenTelemetry captures traces and logs from the application. For metrics, we will use the OpenTelemetry Target Allocator to collect application metrics and forward them to Prometheus.
+
+
+=== Setting Environment Variables for OpenTelemetry
+
+To enable OpenTelemetry instrumentation for the sample application, you need to configure specific environment variables. These variables instruct the application on how to capture and send logs, traces, and metrics to the observability system.
+
+.Required Environment Variables
+[source,bash]
+----
+JAVA_TOOL_OPTIONS="-javaagent:/usr/app/javaagent/opentelemetry-javaagent.jar"
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+OTEL_LOGS_EXPORTER=otlp
+OTEL_METRICS_EXPORTER=prometheus
+OTEL_TRACES_EXPORTER=otlp
+----
+
+=== Explanation of Each Variable
+
+. **JAVA_TOOL_OPTIONS**: Specifies the path to the OpenTelemetry Java agent, which automatically instruments the application to capture logs, traces, and metrics.
+. **OTEL_EXPORTER_OTLP_ENDPOINT**: Defines the endpoint for sending telemetry data to the OpenTelemetry Collector. The default port is 4318.
+. **OTEL_LOGS_EXPORTER**: Indicates that logs should be exported using the OpenTelemetry Protocol (OTLP).
+. **OTEL_METRICS_EXPORTER**: Specifies that metrics should be exported and made available for scraping by **Prometheus**.
+. **OTEL_TRACES_EXPORTER**: Configures trace data to be exported using the OTLP protocol.
+
+=== Data flow for Observability Components
+
+Once these environment variables are set, the OpenTelemetry Instrumentation captures and routes telemetry data as follows:
+
+==== Traces
+* Traces are sent to the OpenTelemetry Collector, which forwards them to Jaeger for visualization.
+* The traces are also stored in Cassandra for long-term storage.
+
+==== Logs
+* Logs are sent to the OpenTelemetry Collector, which forwards them to:
+  - **OpenSearch Data Prepper**: For processing and storage in OpenSearch, enabling search and analysis of logs.
+  - **NSA2-OTEL-Exporter**: A Log-Trace correlation server. It correlates logs with traces and stores both in Cassandra, allowing developers to view logs and traces together in Jaeger for better debugging and analysis.
+
+==== Metrics
+* OpenTelemetry Instrumentation provides an endpoint for Prometheus to scrape metrics data. The metrics endpoint is available at: http://your-application-pods:9464/metrics.
+* The OpenTelemetry Target Allocator helps forward the metrics to Prometheus, where they can be visualized and monitored.
+
+In summary, By setting these environment variables, you enable a comprehensive observability setup for your application, including:
+
+* **Traces**: Visualized in Jaeger and stored in Cassandra
+* **Logs**: Searchable in OpenSearch and correlated with traces in Jaeger
+* **Metrics**: Scraped by Prometheus and visualized on dashboards
+
+This setup provides developers with a complete picture of their application’s behavior, helping them monitor, troubleshoot, and optimize their code efficiently.
+
+== Testing the Sample Application
+
+During the deployment step of 'Service Foundry for Observability', the sample application is also deployed with Other Observability components. You can access the sample application by running the following command:
+
+[source,shell]
+----
+$ kubectl -n <namespace> port-forward svc/otel-spring-example 8080:8080 9464:9464
+
+#Output
+Forwarding from 127.0.0.1:8080 -> 8080
+Forwarding from [::1]:8080 -> 8080
+Forwarding from 127.0.0.1:9464 -> 9464
+Forwarding from [::1]:9464 -> 9464
+----
+
+Notice that port 8080 is used to access the sample application, and port 9464 is used to access the Prometheus metrics endpoint. You can access the sample application by visiting
+
+=== Call the sample application
+
+To make requests to the sample application, you can use the following curl commands:
+
+[source,shell]
+----
+$ curl http://localhost:8080/otel | jq
+----
+
+Here is an example of the output you will see:
+
+[source,json]
+----
+{
+  "status": "success",
+  "results": [
+    {
+      "status": "success",
+      "message": "Slept for 1 seconds"
+    },
+    {
+      "status": "success",
+      "message": "Slept for 4 seconds"
+    },
+    {
+      "status": "success",
+      "message": "Slept for 4 seconds"
+    },
+    {
+      "status": "success",
+      "message": "Slept for 2 seconds"
+    },
+    {
+      "status": "success",
+      "message": "Slept for 4 seconds"
+    }
+  ]
+}
+
+----
+
+In /otel endpoint, there were 5 calls to /sleep/{seconds} endpoint and each took 1, 4, 4, 3, and 4 seconds respectively. So we can expect the traces to show the duration of each call.
+
+=== Call metrics endpoint
+
+To simply view what metrics data is being provided by the OpenTelemetry Instrumentation, you can access the Prometheus metrics endpoint by visiting http://localhost:9464/metrics.
+
+.Metrics endpoint
+[.img-wide]
+image::metrics-endpoint.png[]
+
+Later in this article, we will see how Prometheus can be used to visualize the metrics data collected by the OpenTelemetry Target Allocator.
+
+== Traces in Jaeger
+
+To view the traces captured by OpenTelemetry, you can access the Jaeger UI by visiting http://localhost:16686. You should see traces similar to the following:
+
+.Search by service name and operation name
+[.img-wide]
+image::jaeger-ui-1.png[]
+
+Whenever any endpoints are called, OpenTelemetry Instrumentation captures the traces and sends them to the OpenTelemetry Collector. The OpenTelemetry Collector then forwards the traces to Jaeger.
+
+.Spans for a trace
+[.img-wide]
+image::jaeger-ui-2.png[]
+
+We can see the spans for each call to the /sleep/{seconds} endpoint. The duration of each span corresponds to the time taken by the endpoint to respond.
+
+
+.Correlated logs and traces
+[.img-wide]
+image::jaeger-ui-3.png[]
+
+In the Jaeger UI, you can see the logs and traces together in the same view. This is possible because logs are correlated with traces and stored in Cassandra with the trace data.
+
+== Logs in OpenSearch
+
+Logs captured by OpenTelemetry are sent to OpenSearch Data Prepper for processing and storage in OpenSearch. You can access the logs by visiting http://localhost:5601.
+
+.logs in OpenSearch Dashboards
+[.img-wide]
+image::opensearch-dashboards-login.png[]
+
+With admin credentials, you can log in to OpenSearch Dashboards
+
+You need to create an index pattern to view the logs in OpenSearch Dashboards.
+
+Click on the **Management** > Index Management on the left sidebar, then click on **Create index pattern**.
+
+.Create Index - step 1
+[.img-wide]
+image::opensearch-dashboards-ui-1.png[]
+
+In the **Index pattern** field, enter the index pattern name (e.g., `o11y-*`) and click **Next step**.
+
+.Create Index - step 2
+[.img-wide]
+image::opensearch-dashboards-ui-2.png[]
+
+Select the **@timestamp** field as the Time Filter field and click **Create index pattern**.
+
+.Create Index - step 3
+[.img-wide]
+image::opensearch-dashboards-ui-3.png[]
+
+You can now view the logs in OpenSearch Dashboards.
+
+.Search logs by trace id
+[.img-wide]
+image::opensearch-dashboards-ui-4.png[]
+
+The screenshot above shows the logs for a specific trace ID. You can search for logs by trace ID to correlate logs with traces and gain insights into the application behavior.
+
+== Metrics in Prometheus
+
+Metrics collected by the OpenTelemetry Target Allocator are forwarded to Prometheus for visualization.
+
+To access the Prometheus UI, we need to port-forward the Prometheus service to our local machine. You can do this by running the following command:
+
+[source,shell]
+----
+$ kubectl -n <namespace> port-forward svc/prometheus 9090:9090
+----
+
+To view the metrics collected by the OpenTelemetry Target Allocator, you can access the Prometheus UI by visiting http://localhost:9090. You should see the Prometheus UI with the metrics collected from the sample application.
+
+.jvm cpu usage
+[.img-wide]
+image::prometheus-ui.png[]
+
+The screenshot above shows the CPU usage of the Java process running the sample application. You can use Prometheus to create custom dashboards and alerts based on the metrics collected by the OpenTelemetry Target Allocator.
+
+== Metrics in Grafana
+
+Metrics collected by Prometheus can be visualized using Grafana.
+
+To access the Grafana UI, we need to port-forward the Grafana service to our local machine. You can do this by running the following command:
+
+[source,shell]
+----
+$ kubectl -n <namespace> port-forward svc/grafana 3000:80
+----
+
+Navigate to http://localhost:3000 and log in with the default credentials (admin/admin). You should see the Grafana UI with the pre-configured dashboard for the sample application.
+
+.Grafana login
+[.img-wide]
+image::grafana-login.png[]
+
+We can use the credentials admin/admin to log in to Grafana.
+
+.Grafana - Add new Connection
+[.img-wide]
+image::grafana-connection-1.png[]
+
+To add a new Prometheus data source, click on the **Connections** menu on the left sidebar, then click on **Prometheus** on the list of Data sources.
+
+.Grafana - Prometheus Connection
+[.img-wide]
+image::grafana-connection-2.png[]
+
+Put the connection name and the Prometheus URL (http://prometheus:9090) in the respective fields and click **Save & Test**.
+
+.Grafana - Explore
+[.img-wide]
+image::grafana-explore.png[]
+
+You can now explore the metrics collected by Prometheus using Grafana. You can create custom dashboards and alerts based on the metrics data.
+
+== Required Resources to Run an Observability Platform on Kubernetes
+
+To set up an observability platform on a Kubernetes cluster, it’s important to understand the resource requirements for the various components. Here’s a detailed breakdown and explanation to make it easier to understand.
+
+=== Resource Utilization Example (Idle State)
+
+The following example shows resource consumption for the observability components running in the o11y namespace during an idle state.
+
+
+.kubectl top pods for o11y namespace (idle)
+[source,shell]
+----
+$ kubectl top pods
+NAME                                        CPU(cores)   MEMORY(bytes)
+cassandra-0                                 551m         1536Mi
+cassandra-1                                 405m         1542Mi
+cassandra-2                                 531m         1523Mi
+data-prepper-788b97d58d-z9wgc               47m          337Mi
+grafana-85bc877866-8z776                    2m           92Mi
+jaeger-collector-5d8c58f9f7-4m5dn           1m           16Mi
+jaeger-query-554b877665-qr4sh               1m           22Mi
+nsa2-otel-exporter-d54757c45-9snv2          2m           271Mi
+o11y-otel-spring-example-6c64bb76c8-x4lp2   2m           277Mi
+opensearch-cluster-master-0                 7m           995Mi
+opensearch-cluster-master-1                 8m           1006Mi
+opensearch-cluster-master-2                 7m           990Mi
+opensearch-dashboards-7bfd998cf8-xjxrj      1m           192Mi
+otel-collector-0                            1m           35Mi
+otel-targetallocator-77f6b86946-wpg6b       1m           27Mi
+prometheus-prometheus-0                     1m           49Mi
+----
+
+=== Explanation of Components
+1.	Cassandra:
+•	Used for long-term storage of trace and log data.
+
+2.	Data Prepper:
+•	Processes and formats log data for OpenSearch.
+
+3.	Grafana:
+•	Used for dashboard visualization of metrics.
+
+4.	Jaeger:
+•	Comprises collector and query components for trace visualization.
+
+5.	NSA2-OTEL-Exporter:
+•	Handles log and trace correlation.
+
+6.	OpenSearch and OpenSearch Dashboards:
+•	Stores and visualizes log data.
+
+7.	OpenTelemetry Components (Collector & Target Allocator):
+•	Responsible for data collection and distribution for traces, logs, and metrics.
+
+8.	Prometheus:
+•	Collects and stores metrics data.
+
+
+
+=== Minimum Node Requirements
+
+If you already have a Kubernetes cluster, you need at least one node with 4 CPUs and 16 GB of memory to run the observability components efficiently.
+
+=== Important Considerations
+
+* The above resource usage is based on an idle state. Actual resource consumption may increase during heavy traffic or large data processing.
+* Ensure sufficient capacity in your Kubernetes cluster to handle additional application workloads along with the observability platform.
+
+By understanding these resource requirements, you can plan and scale your Kubernetes environment effectively to maintain a robust and efficient observability platform.
+
+
+== Application Observability with OpenTelemetry for Developers
+
+During the development process, it’s crucial for developers to monitor and gain insights into how their applications behave. This helps identify and fix issues early, long before the application is deployed to production. OpenTelemetry provides a powerful set of tools to make this possible.
+
+=== Why Monitoring Matters During Development
+
+When building and testing applications locally, developers need visibility into:
+
+* **Application Behavior**: How the application handles different inputs and workloads.
+* **Performance Bottlenecks**: Areas where the application might be slowing down.
+* **Errors and Failures**: Issues that need immediate attention to prevent larger problems in production.
+
+=== How OpenTelemetry Helps
+
+OpenTelemetry makes it easy for developers to capture and analyze logs and traces directly from their local machines. Here’s how it benefits developers:
+
+* **Log Capture**: Developers can capture logs that provide detailed information about events within the application. This helps track the sequence of operations and detect any anomalies.
+* **Trace Collection**: Traces allow developers to visualize the flow of requests and interactions across various parts of the application. This is especially helpful for identifying delays or failures in complex systems.
+* **Performance Insights**: By analyzing logs and traces, developers can gain insights into the performance of their applications and identify areas for optimization.
+
+=== Example Use Case
+
+Imagine a developer is building an API service that handles multiple requests. During testing, they notice a delay when processing certain requests. With OpenTelemetry traces, they can pinpoint the exact part of the code causing the delay and make optimizations to improve performance.
+
+By capturing logs and traces locally, developers gain valuable insights that speed up debugging, enhance application quality, and ensure smoother production deployments.
+
+=== How to set up OpenTelemetry for local development
+
+.Application Observability for Developers
+[.img-wide]
+image::application-observability-for-developers.png[]
+
+After setting up OpenTelemetry and other observability components in a Kubernetes environment, developers can leverage these tools to monitor and gain insights into their applications during the development process.
+
+=== Logs and Traces
+
+Developers can utilize the **OpenTelemetry Collector** to capture logs and traces directly from their local development machines. This allows them to track application behavior, identify performance bottlenecks, and troubleshoot issues without relying solely on the production observability setup. The logs and traces collected can be seamlessly integrated with the observability infrastructure running on Kubernetes.
+
+=== Metrics Collection Limitation
+
+Unlike logs and traces, **OpenTelemetry Target Allocator**, which runs on Kubernetes, is unable to collect metrics directly from developers’ local machines. This limitation exists because the Target Allocator is designed to discover and scrape metrics from services deployed within the Kubernetes environment, not external devices.
+
+=== Benefits for Developers
+
+Despite the metric collection limitation, OpenTelemetry remains a valuable tool for developers when building, testing, and debugging applications locally. Here’s why:
+
+* **Enhanced Debugging**: The ability to capture logs and traces locally helps developers quickly identify and resolve issues.
+* **Application Insights**: Developers gain visibility into how their code behaves during different test scenarios.
+* **Seamless Integration**: Local observability testing can be aligned with the production observability setup, leading to smoother deployments.
+* **Performance Optimization**: By analyzing logs and traces, developers can optimize application performance and enhance user experience.
+* **Collaboration**: Developers can share logs and traces with team members to facilitate collaboration and knowledge sharing.
+
+In summary, while local metric collection isn’t fully supported by OpenTelemetry Target Allocator, the ability to capture logs and traces provides developers with essential insights, making their development and debugging process more efficient.
+
+=== Setting Environment Variables for OpenTelemetry Instrumentation on Local Machines
+To enable OpenTelemetry instrumentation when running a Spring Boot or any Java-based application locally, developers must configure specific environment variables. These variables inform the application on how to connect to the OpenTelemetry Collector and which telemetry data to capture.
+
+.Required Environment Variables
+[source,bash]
+----
+JAVA_TOOL_OPTIONS=-javaagent:/path-to/opentelemetry-javaagent.jar
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+OTEL_LOGS_EXPORTER=otlp
+OTEL_METRICS_EXPORTER=none
+OTEL_TRACES_EXPORTER=otlp
+----
+
+==== Breakdown of Each Variable
+
+. **JAVA_TOOL_OPTIONS**:
+  * -javaagent:/path-to/opentelemetry-javaagent.jar
+  * This tells the JVM to load the OpenTelemetry Java agent for automatic instrumentation of the application. Replace /path-to/opentelemetry-javaagent.jar with the actual path to the agent on your machine.
+. **OTEL_EXPORTER_OTLP_ENDPOINT**:
+  * http://otel-collector:4318
+  * Specifies the endpoint for sending traces and logs to the OpenTelemetry Collector.
+  * **Note:**
+    - If the OpenTelemetry Collector is running on Kubernetes, use otel-collector as the hostname.
+    - If running locally, replace it with the Collector’s IP address or use localhost if you’ve port-forwarded the OpenTelemetry Collector to your local machine.
+. **OTEL_LOGS_EXPORTER**:
+  * otlp
+  * Specifies that logs should be exported using the OpenTelemetry Protocol (OTLP).
+. **OTEL_METRICS_EXPORTER**:
+  * none
+  * Disables metrics export
+  * This is necessary because the OpenTelemetry Target Allocator, which handles metrics collection in Kubernetes, does not support collecting metrics from developers’ local machines.
+. **OTEL_TRACES_EXPORTER**:
+  * otlp
+  * Enables the export of traces using OTLP.
+
+
+
+otel-collector is the hostname of the OpenTelemetry Collector running on Kubernetes. You can replace it with the IP address of the OpenTelemetry Collector if you are running it locally or localhost if you port-forwarded the OpenTelemetry Collector to your local machine.
+Notice that OTEL_METRICS_EXPORTER is set to none. This is because the OpenTelemetry Target Allocator is not able to collect metrics from developers' devices. However, you can still use the OpenTelemetry Instrumentation to capture traces and logs from your application.
+
+
+
+
+== Conclusion
+
+In this article, we explored the key components of application observability and how OpenTelemetry can help you achieve comprehensive insights into your systems. We also demonstrated how to instrument a Spring Boot application with OpenTelemetry and set up a local development environment for monitoring and debugging applications.
+
+Internal Link: /docs/service-foundry/02.application-observability/index.adoc
