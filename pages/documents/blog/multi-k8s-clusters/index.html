@@ -1,0 +1,1656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Deploying Applications Across Multiple Kubernetes Clusters</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+</nav>
+</header>
+
+<!-- Sub-navigation for Foundries -->
+<div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="active">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/blog/">Blog</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Deploying Applications Across Multiple Kubernetes Clusters
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#deployment-process-for-service-foundry">Deployment Process for Service Foundry</a>
+<ul class="sectlevel2">
+<li><a href="#1-init-generate-pre-defined-configuration-files">1. INIT: Generate Pre-Defined Configuration Files</a></li>
+<li><a href="#2-generate-create-kubernetes-manifests">2. GENERATE: Create Kubernetes Manifests</a></li>
+<li><a href="#3-build-local-generate-required-applications">3. BUILD (Local): Generate Required Applications</a></li>
+<li><a href="#4-deploy-push-docker-images-deploy-kubernetes-resources">4. DEPLOY: Push Docker Images &amp; Deploy Kubernetes Resources</a></li>
+<li><a href="#customization-cloud-provider-dependency">Customization &amp; Cloud Provider Dependency</a></li>
+</ul>
+</li>
+<li><a href="#building-and-pushing-docker-images-to-a-container-registry">Building and Pushing Docker Images to a Container Registry</a>
+<ul class="sectlevel2">
+<li><a href="#using-azure-container-registry-acr-without-docker">Using Azure Container Registry (ACR) Without Docker</a></li>
+<li><a href="#using-aws-elastic-container-registry-ecr">Using AWS Elastic Container Registry (ECR)</a></li>
+</ul>
+</li>
+<li><a href="#creating-persistent-volumes-pv-and-persistent-volume-claims-pvc-in-kubernetes">Creating Persistent Volumes (PV) and Persistent Volume Claims (PVC) in Kubernetes</a>
+<ul class="sectlevel2">
+<li><a href="#persistent-volumes-in-azure-kubernetes-service-aks">Persistent Volumes in Azure Kubernetes Service (AKS)</a></li>
+<li><a href="#persistent-volumes-in-amazon-elastic-kubernetes-service-eks">Persistent Volumes in Amazon Elastic Kubernetes Service (EKS)</a></li>
+</ul>
+</li>
+<li><a href="#using-node-selector-in-kubernetes-for-multi-cluster-deployments">Using Node Selector in Kubernetes for Multi-Cluster Deployments</a>
+<ul class="sectlevel2">
+<li><a href="#how-node-selectors-work">How Node Selectors Work</a></li>
+<li><a href="#node-selector-in-azure-kubernetes-service-aks">Node Selector in Azure Kubernetes Service (AKS)</a></li>
+<li><a href="#node-selector-in-amazon-elastic-kubernetes-service-eks">Node Selector in Amazon Elastic Kubernetes Service (EKS)</a></li>
+<li><a href="#using-a-common-label-for-multi-cluster-deployments">Using a Common Label for Multi-Cluster Deployments</a></li>
+<li><a href="#conclusion-of-node-selector-in-multi-cluster-deployments">Conclusion of Node Selector in Multi-Cluster Deployments</a></li>
+</ul>
+</li>
+<li><a href="#deployment-results-and-update-process-for-service-foundry-in-multi-cluster-kubernetes-environments">Deployment Results and Update Process for Service Foundry in Multi-Cluster Kubernetes Environments</a>
+<ul class="sectlevel2">
+<li><a href="#deployment-results">Deployment Results</a></li>
+<li><a href="#updating-service-foundry-for-multi-cluster-deployments">Updating Service Foundry for Multi-Cluster Deployments</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a>
+<ul class="sectlevel2">
+<li><a href="#key-takeaways">Key Takeaways:</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/deploy-to-multiple-k8s.png" alt="deploy to multiple k8s">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Deploying an application across multiple Kubernetes clusters requires careful planning and the right set of tools. This guide will walk you through the essential steps and considerations for successfully deploying applications in a multi-cluster Kubernetes environment.</p>
+</div>
+<div class="paragraph">
+<p>We will be using the following tools:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Docker CLI</strong> – For building and managing container images</p>
+</li>
+<li>
+<p><strong>Kubectl CLI &amp; Kustomize</strong> – For interacting with Kubernetes clusters and managing configuration variations</p>
+</li>
+<li>
+<p><strong>Helm</strong> – For packaging, deploying, and managing Kubernetes applications</p>
+</li>
+<li>
+<p><strong>Container Registry</strong> – For storing and distributing container images</p>
+</li>
+<li>
+<p><strong>Kubernetes Cluster</strong> – The environment where applications will be deployed</p>
+</li>
+<li>
+<p><strong>Azure CLI &amp; AWS CLI</strong> – For managing cloud-based Kubernetes resources</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Additionally, we will explore <strong>Service Foundry</strong>, a Kubernetes-native solution for <strong>Application Observability</strong>, which provides a unified interface to manage and monitor multiple Kubernetes clusters efficiently.</p>
+</div>
+<div class="paragraph">
+<p><strong>What You Will Learn</strong></p>
+</div>
+<div class="paragraph">
+<p>This guide will cover key topics to help you deploy and manage applications across multiple Kubernetes clusters, including:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Setting up and using a <strong>Container Registry</strong> for storing Docker images</p>
+</li>
+<li>
+<p>Building and pushing <strong>Docker Images</strong> for deployment</p>
+</li>
+<li>
+<p>Creating <strong>Persistent Volumes (PV) and Persistent Volume Claims (PVC)</strong> for stateful applications</p>
+</li>
+<li>
+<p>Using <strong>Node Selectors</strong> to control pod scheduling across cluster nodes</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>By the end of this guide, you will have a clear understanding of the best practices for deploying applications in a multi-cluster Kubernetes environment and how to leverage observability tools for monitoring and management.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deployment-process-for-service-foundry">Deployment Process for Service Foundry</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p><strong>Service Foundry</strong> is a <strong>Kubernetes-native solution</strong> for <strong>Application Observability</strong>, designed as a pre-configured, turnkey solution. It leverages <strong>Helm charts, Docker CLI, Kubectl CLI, and Kustomize</strong> to simplify the deployment process across multiple environments.</p>
+</div>
+<div class="paragraph">
+<p>To ensure a seamless deployment, we will follow a structured four-step approach:</p>
+</div>
+<div class="sect2">
+<h3 id="1-init-generate-pre-defined-configuration-files">1. INIT: Generate Pre-Defined Configuration Files</h3>
+<div class="paragraph">
+<p>In this initial step, <strong>Custom Generators</strong> are used to create predefined configuration files. These files serve as a starting point for the deployment process and can be customized based on specific requirements.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="2-generate-create-kubernetes-manifests">2. GENERATE: Create Kubernetes Manifests</h3>
+<div class="paragraph">
+<p>Using <strong>Custom Generators</strong>, Kubernetes manifests are generated based on the predefined configuration files. These manifests define the desired state of Kubernetes resources, ensuring consistency across deployments.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="3-build-local-generate-required-applications">3. BUILD (Local): Generate Required Applications</h3>
+<div class="paragraph">
+<p>At this stage, the required application components are generated using <strong>Custom Generators</strong>. This step ensures that all application artifacts, including containerized services, are ready for deployment.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="4-deploy-push-docker-images-deploy-kubernetes-resources">4. DEPLOY: Push Docker Images &amp; Deploy Kubernetes Resources</h3>
+<div class="paragraph">
+<p>In the final step:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Docker images</strong> are built and pushed to a <strong>Container Registry</strong>.</p>
+</li>
+<li>
+<p><strong>Helm, Kubectl, and Kustomize</strong> are used to deploy Kubernetes resources.</p>
+</li>
+<li>
+<p><strong>Cloud Provider CLI (AWS CLI / Azure CLI)</strong> is leveraged to authenticate and interact with cloud infrastructure.</p>
+</li>
+<li>
+<p><strong>Persistent Volumes (PV) and Persistent Volume Claims (PVC)</strong> are created as necessary.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="customization-cloud-provider-dependency">Customization &amp; Cloud Provider Dependency</h3>
+<div class="ulist">
+<ul>
+<li>
+<p>Throughout the process, users can <strong>modify the generated configuration files and application components</strong> to meet specific deployment needs.</p>
+</li>
+<li>
+<p>The first three steps <strong>(INIT, GENERATE, and BUILD)</strong> are cloud-agnostic, meaning they do not rely on any specific cloud provider.</p>
+</li>
+<li>
+<p>The <strong>DEPLOY step</strong>, however, requires <strong>Cloud Provider authentication</strong> to push container images to the registry and create Kubernetes resources, particularly for <strong>Persistent Volumes (PV) and Persistent Volume Claims (PVC)</strong>.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>By following these structured deployment steps, Service Foundry ensures a <strong>reliable, repeatable, and scalable</strong> approach to application observability across Kubernetes clusters.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="building-and-pushing-docker-images-to-a-container-registry">Building and Pushing Docker Images to a Container Registry</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>When working with <strong>Kubernetes-native solutions</strong>, building and pushing Docker images is a fundamental step for deploying applications. You may need to containerize your own applications or create custom Docker images and store them in a <strong>Container Registry</strong> for deployment.</p>
+</div>
+<div class="paragraph">
+<p>Typically, this process involves using the <strong>Docker CLI</strong> with the docker build command, followed by the --push option to upload the image to a <strong>Container Registry</strong>. However, this approach requires <strong>Docker to be installed</strong> on your local machine. Some cloud providers, such as <strong>Azure</strong>, offer alternative methods to build and push Docker images <strong>without</strong> requiring a local Docker installation.</p>
+</div>
+<div class="sect2">
+<h3 id="using-azure-container-registry-acr-without-docker">Using Azure Container Registry (ACR) Without Docker</h3>
+<div class="paragraph">
+<p>Azure Container Registry (ACR) provides a built-in mechanism to build and push Docker images directly, eliminating the need for Docker on your local machine. This is particularly useful when working in environments where installing Docker is not feasible.</p>
+</div>
+<div class="sect3">
+<h4 id="steps-to-build-and-push-a-docker-image-to-acr-without-docker">Steps to Build and Push a Docker Image to ACR Without Docker</h4>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Log in to Azure Container Registry (ACR):</strong></p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sh"><span class="nv">$ </span>az acr login <span class="nt">--name</span> <span class="nv">$ACR_NAME</span></code></pre>
+</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic" start="2">
+<li>
+<p><strong>Delete an existing Docker image from ACR (if it exists):</strong></p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sh">az acr repository show <span class="nt">-n</span> <span class="nv">$ACR_NAME</span> <span class="nt">-t</span> <span class="k">${</span><span class="nv">APP_NAME</span><span class="k">}</span>:<span class="k">${</span><span class="nv">DOCKER_TAG</span><span class="k">}</span> <span class="o">&amp;&amp;</span> <span class="se">\</span>
+      az acr repository delete <span class="nt">-n</span> <span class="nv">$ACR_NAME</span> <span class="nt">-t</span> <span class="k">${</span><span class="nv">APP_NAME</span><span class="k">}</span>:<span class="k">${</span><span class="nv">DOCKER_TAG</span><span class="k">}</span> <span class="nt">--yes</span></code></pre>
+</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic" start="3">
+<li>
+<p><strong>Build and push the Docker image using Azure ACR Build:</strong></p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sh">az acr build <span class="nt">--registry</span> <span class="nv">$ACR_NAME</span> <span class="nt">--image</span> <span class="k">${</span><span class="nv">APP_NAME</span><span class="k">}</span>:<span class="k">${</span><span class="nv">DOCKER_TAG</span><span class="k">}</span> <span class="k">${</span><span class="nv">PROJECT_DIR</span><span class="k">}</span>/build/libs</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Explanation:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>$ACR_NAME refers to the Azure Container Registry name, which can be either 'your-acr-name.azurecr.io' or simply 'your-acr-name'.</p>
+</li>
+<li>
+<p>The Azure CLI automatically removes the azurecr.io suffix from the ACR name when using az acr build.</p>
+</li>
+<li>
+<p>The Dockerfile should be located in ${PROJECT_DIR}/build/libs, and all files in this directory will be used to build the Docker image.</p>
+</li>
+<li>
+<p>The image is built and pushed directly to ACR without requiring a local Docker installation.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="using-aws-elastic-container-registry-ecr">Using AWS Elastic Container Registry (ECR)</h3>
+<div class="paragraph">
+<p>Unlike <strong>Azure ACR, AWS Elastic Container Registry (ECR)</strong> does not provide a direct way to build and push Docker images without a local Docker installation. However, there are alternative solutions:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>AWS CodeBuild</strong> – A managed CI/CD service that can build Docker images and push them to ECR.</p>
+</li>
+<li>
+<p><strong>Third-Party Tools</strong> – Solutions like BuildKit, Kaniko, Buildah, and Podman can be used to build images without requiring a local Docker daemon.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>In this guide, however, we will use <strong>Docker</strong> to build and push images to AWS ECR.</p>
+</div>
+<div class="sect3">
+<h4 id="steps-to-build-and-push-a-docker-image-to-aws-ecr">Steps to Build and Push a Docker Image to AWS ECR</h4>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Log in to AWS Elastic Container Registry (ECR):</strong></p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sh"><span class="nv">$ </span>aws ecr get-login-password <span class="nt">--region</span> <span class="nv">$AWS_REGION</span> | docker login <span class="nt">--username</span> AWS <span class="nt">--password-stdin</span> <span class="nv">$ECR_NAME</span></code></pre>
+</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic" start="2">
+<li>
+<p><strong>Delete an existing Docker image from ECR (if it exists):</strong></p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sh"><span class="nv">$ </span>aws ecr describe-images <span class="nt">--repository-name</span> <span class="nv">$APP_NAME</span> <span class="nt">--image-ids</span> <span class="nv">imageTag</span><span class="o">=</span><span class="nv">$DOCKER_TAG</span> <span class="nt">--region</span> <span class="nv">$AWS_REGION</span> &amp;&gt; null <span class="o">&amp;&amp;</span> <span class="se">\</span>
+    aws ecr batch-delete-image <span class="nt">--repository-name</span> <span class="nv">$APP_NAME</span> <span class="nt">--image-ids</span> <span class="nv">imageTag</span><span class="o">=</span><span class="nv">$DOCKER_TAG</span> <span class="nt">--region</span> <span class="nv">$AWS_REGION</span></code></pre>
+</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic" start="3">
+<li>
+<p><strong>Create an ECR repository (if it does not exist):</strong></p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sh"><span class="nv">$ </span>aws ecr describe-repositories <span class="nt">--repository-names</span> <span class="k">${</span><span class="nv">APP_NAME</span><span class="k">}</span> <span class="nt">--region</span> <span class="nv">$AWS_REGION</span> &amp;&gt; /dev/null <span class="o">||</span> <span class="se">\</span>
+    aws ecr create-repository <span class="nt">--repository-name</span> <span class="k">${</span><span class="nv">APP_NAME</span><span class="k">}</span> <span class="nt">--region</span> <span class="nv">$AWS_REGION</span></code></pre>
+</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic" start="4">
+<li>
+<p><strong>Build and push the Docker image to AWS ECR:</strong></p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sh"><span class="nv">$ </span>docker buildx build <span class="nt">--platform</span> linux/amd64 <span class="nt">-t</span> <span class="nv">$ECR_NAME</span>/<span class="nv">$APP_NAME</span>:<span class="nv">$DOCKER_TAG</span> <span class="k">${</span><span class="nv">PROJECT_DIR</span><span class="k">}</span>/build/libs <span class="nt">--push</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Explanation:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>$ECR_NAME refers to the AWS ECR repository name, which follows the format:</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com</pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Since <strong>MacBooks with Apple Silicon (ARM-based)</strong> require cross-compilation for <strong>AMD64-based platforms</strong>, we use <strong>Docker Buildx</strong> with the --platform linux/amd64 option.</p>
+</li>
+<li>
+<p>The --push option ensures the built image is immediately pushed to AWS ECR after the build process.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="key-differences-between-azure-acr-and-aws-ecr-for-docker-image-builds">Key Differences Between Azure ACR and AWS ECR for Docker Image Builds</h4>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Can build Docker images without Docker installed?</strong></p>
+<div class="ulist">
+<ul>
+<li>
+<p>Azure ACR: es (using az acr build)</p>
+</li>
+<li>
+<p>AWS ECR: no (requires Docker or third-party tools)</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Native CLI command for building images?</strong></p>
+<div class="ulist">
+<ul>
+<li>
+<p>Azure ACR: az acr build</p>
+</li>
+<li>
+<p>AWS ECR: Requires <strong>AWS CodeBuild</strong> or third-party tools</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Easy of use</strong></p>
+<div class="ulist">
+<ul>
+<li>
+<p>Azure ACR: Simple, built-in support</p>
+</li>
+<li>
+<p>AWS ECR: More complex, requires additional setup</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Alternative solutions</strong></p>
+<div class="ulist">
+<ul>
+<li>
+<p>Azure ACR: Not required(fully supported in ACR)</p>
+</li>
+<li>
+<p>AWS ECR: CodeBuild, BuildKit, Kaniko, Podman</p>
+</li>
+</ul>
+</div>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="creating-persistent-volumes-pv-and-persistent-volume-claims-pvc-in-kubernetes">Creating Persistent Volumes (PV) and Persistent Volume Claims (PVC) in Kubernetes</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>When deploying an application across multiple <strong>Kubernetes clusters</strong>, managing <strong>Persistent Volumes (PVs) and Persistent Volume Claims (PVCs)</strong> is critical for <strong>stateful applications</strong> that require <strong>data persistence</strong>.</p>
+</div>
+<div class="paragraph">
+<p>Each cloud provider offers different <strong>storage solutions</strong> for managing persistent storage:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Azure Kubernetes Service (AKS)</strong>: Azure Disks, Azure Fileshares, Azure Blob Storage</p>
+</li>
+<li>
+<p><strong>Amazon Elastic Kubernetes Service (EKS)</strong>: Amazon Elastic Block Store (EBS), Amazon Elastic File System (EFS)</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Understanding these storage options and their <strong>limitations</strong> is essential for designing a <strong>multi-cloud Kubernetes architecture</strong>.</p>
+</div>
+<div class="sect2">
+<h3 id="persistent-volumes-in-azure-kubernetes-service-aks">Persistent Volumes in Azure Kubernetes Service (AKS)</h3>
+<div class="sect3">
+<h4 id="available-storage-classes-in-aks">Available Storage Classes in AKS</h4>
+<div class="paragraph">
+<p>Azure Kubernetes Service (<strong>AKS</strong>) provides various <strong>Storage Classes</strong> to create Persistent Volumes using Azure storage services. To list the available <strong>Storage Classes</strong>, run:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sh"><span class="nv">$ </span>kubectl get storageclass | <span class="nb">awk</span> <span class="s1">'{print $1}'</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Example Output:</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sh">NAME
+azureblob-fuse-premium
+azureblob-fuse-standard
+azureblob-nfs-premium
+azureblob-nfs-standard
+azurefile
+azurefile-csi
+azurefile-csi-premium
+azurefile-premium
+default
+managed
+managed-csi
+managed-csi-premium
+managed-premium</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Each <strong>Storage Class</strong> corresponds to different <strong>storage backends</strong> with varying performance and capabilities.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="default-storage-class-in-aks">Default Storage Class in AKS</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>The <strong>default Storage Class</strong> in AKS is managed, which provisions Azure Disks for persistent storage.</p>
+</li>
+<li>
+<p>Small instance types can attach <strong>up to 4 Azure Disks</strong>, while larger instance types support more disks, but still have limits.</p>
+</li>
+<li>
+<p>When deploying applications using <strong>Helm</strong>, the <strong>default Storage Class</strong> is automatically used unless explicitly specified.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>To list <strong>Persistent Volumes</strong> using the <strong>default Storage Class</strong>, run:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl get pv | <span class="nb">awk</span> <span class="s1">'/default/ &amp;&amp; /o11y/'</span> | <span class="nb">awk</span> <span class="s1">'{print $1 "\t" $2 "\t" $7 "\t" $6}'</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Sample Output:</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>pvc-12b2c366-084e-476a-a6a7-6bcd78546e6c	8Gi	default	o11y/opensearch-cluster-master-opensearch-cluster-master-0
+pvc-3797a6f9-8d54-4e81-ada7-509ec43fa191	8Gi	default	o11y/data-cassandra-2
+pvc-44ee032f-3bf6-4bc0-b46a-b1d7613e2eff	10Gi	default	o11y/grafana
+pvc-5b0a59e0-36a5-409d-bccb-007e26e17fa7	8Gi	default	o11y/data-cassandra-0
+pvc-6672c422-ebb2-47c3-885a-8169ea37ee1a	8Gi	default	o11y/data-cassandra-1
+pvc-82d15850-3db2-4886-b4ac-324afe5b1eb0	8Gi	default	o11y/opensearch-cluster-master-opensearch-cluster-master-2
+pvc-9d989c72-1803-49e9-856c-ee3aca72ed4f	8Gi	default	o11y/opensearch-cluster-master-opensearch-cluster-master-1</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Here is an example of how to create a Persistent Volume and Persistent Volume Claim using the default Storage Class in AKS. They can be found in the Azure Portal under the Resource Group of the AKS cluster as Azure Disks.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/aks-default-pvc.png" alt="aks default pvc">
+</div>
+<div class="title">Figure 1. PVC using default StorageClass in AKS</div>
+</div>
+<div class="paragraph">
+<p>These Persistent Volumes are created by Helm charts during the installation of the Service Foundry for Observability.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="using-azure-disks-in-aks">Using Azure Disks in AKS</h4>
+<div class="paragraph">
+<p>Azure Disks are the most common way to create Persistent Volumes in AKS, but they come with limitations:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>ReadWriteOnce (RWO)</strong> mode allows only one pod per node to access the volume.</p>
+</li>
+<li>
+<p><strong>Disk attachment limits</strong> depend on the AKS node instance type.</p>
+</li>
+</ul>
+</div>
+<div class="sect4">
+<h5 id="creating-a-persistent-volume-using-azure-disks">Creating a Persistent Volume Using Azure Disks</h5>
+<div class="paragraph">
+<p><strong>Persistent Volume (PV) Definition (pv.yaml)</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">      <span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolume</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pv-data-postgresql-0</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="na">pv.kubernetes.io/provisioned-by</span><span class="pi">:</span> <span class="s">disk.csi.azure.com</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">capacity</span><span class="pi">:</span>
+    <span class="na">storage</span><span class="pi">:</span> <span class="s">100Gi</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteOnce</span>
+  <span class="na">persistentVolumeReclaimPolicy</span><span class="pi">:</span> <span class="s">Retain</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">managed-csi</span>
+  <span class="na">csi</span><span class="pi">:</span>
+    <span class="na">driver</span><span class="pi">:</span> <span class="s">disk.csi.azure.com</span>
+    <span class="na">volumeHandle</span><span class="pi">:</span> <span class="s">your-disk-id</span>
+    <span class="na">volumeAttributes</span><span class="pi">:</span>
+      <span class="na">fsType</span><span class="pi">:</span> <span class="s">ext4</span></code></pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>ReadWriteOnce (RWO)</strong> restricts the volume to a single pod.</p>
+</li>
+<li>
+<p>Use <strong>managed-csi-premium</strong> Storage Class for higher IOPS.</p>
+</li>
+<li>
+<p><strong>Volume Handle (your-disk-id)</strong> is required and can be retrieved using Azure CLI:</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">get azure disk id</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ DISK_ID</span><span class="o">=</span><span class="si">$(</span>az disk show <span class="nt">--resource-group</span> <span class="nv">$RG</span> <span class="nt">--name</span> <span class="nv">$DISK_NAME</span> <span class="nt">--query</span> <span class="nb">id</span> <span class="nt">-o</span> tsv<span class="si">)</span>
+
+<span class="nv">$ </span><span class="nb">echo</span> <span class="nv">$DISK_ID</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Here is an example of how to create a Persistent Volume Claim using Azure Disks.</p>
+</div>
+<div class="paragraph">
+<p><strong>Persistent Volume Claim (PVC) Definition (pvc.yaml)</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolumeClaim</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">data-postgresql-0</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteOnce</span>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">storage</span><span class="pi">:</span> <span class="s">100Gi</span>
+  <span class="na">volumeName</span><span class="pi">:</span> <span class="s">pv-data-postgresql-0</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">managed-csi</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Apply the configurations:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sh">kubectl apply <span class="nt">-f</span> pv.yaml <span class="nt">-f</span> pvc.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="using-azure-fileshares-in-aks">Using Azure Fileshares in AKS</h4>
+<div class="paragraph">
+<p>Azure Fileshares allow <strong>ReadWriteMany (RWX)</strong> Persistent Volumes, enabling multiple pods to access the same storage.</p>
+</div>
+<div class="sect4">
+<h5 id="creating-a-persistent-volume-using-azure-fileshares">Creating a Persistent Volume Using Azure Fileshares</h5>
+<div class="paragraph">
+<p><strong>Secret for Azure Storage Account (storage-secret.yaml)</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Secret</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">my-storage-account-secret</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">my-namespace</span>
+<span class="na">type</span><span class="pi">:</span> <span class="s">Opaque</span>
+<span class="na">data</span><span class="pi">:</span>
+  <span class="na">azurestorageaccountname</span><span class="pi">:</span> <span class="s">base64encoded-storage-account-name</span> <i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="na">azurestorageaccountkey</span><span class="pi">:</span> <span class="s">base64encoded-storage-account-key</span> <i class="conum" data-value="2"></i><b>(2)</b></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Apply the secret:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sh"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> storage-secret.yaml</code></pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Persistent Volume (PV) Definition (pv-fileshare.yaml)**</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolume</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pv-my-fileshare</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">capacity</span><span class="pi">:</span>
+    <span class="na">storage</span><span class="pi">:</span> <span class="s">5Gi</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">azurefile</span>
+  <span class="na">azureFile</span><span class="pi">:</span>
+    <span class="na">secretNamespace</span><span class="pi">:</span> <span class="s1">'</span><span class="s">my-namespace'</span>
+    <span class="na">secretName</span><span class="pi">:</span> <span class="s">my-storage-account-secret</span>
+    <span class="na">shareName</span><span class="pi">:</span> <span class="s">my-fileshare</span>
+    <span class="na">readOnly</span><span class="pi">:</span> <span class="kc">false</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Persistent Volume Claim (PVC) Definition (pvc-fileshare.yaml)</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolumeClaim</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pvc-my-fileshare</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">my-namespace</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">azurefile</span>
+  <span class="na">volumeName</span><span class="pi">:</span> <span class="s">pv-my-fileshare</span>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">storage</span><span class="pi">:</span> <span class="s">5Gi</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Apply the configuration:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sh"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> pv-fileshare.yaml <span class="nt">-f</span> pvc-fileshare.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="using-azure-blob-storage-in-aks">Using Azure Blob Storage in AKS</h4>
+<div class="paragraph">
+<p>Using Azure Blob Storage in AKS is quite similar to Azure Fileshares, but with some differences:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Azure Blob Storage</strong> is used for <strong>ReadWriteMany (RWX)</strong> Persistent Volumes.</p>
+</li>
+<li>
+<p><strong>Azure Blob Storage</strong> is ideal for <strong>large-scale data storage</strong> and <strong>data lakes</strong>.</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">pv-my-blob.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolume</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="na">pv.kubernetes.io/provisioned-by</span><span class="pi">:</span> <span class="s">blob.csi.azure.com</span>
+    <span class="na">volume.kubernetes.io/provisioner-deletion-secret-name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span>
+    <span class="na">volume.kubernetes.io/provisioner-deletion-secret-namespace</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span>
+  <span class="na">finalizers</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">external-provisioner.volume.kubernetes.io/finalizer</span>
+    <span class="pi">-</span> <span class="s">kubernetes.io/pv-protection</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pv-my-blob</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span> <i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="na">capacity</span><span class="pi">:</span>
+    <span class="na">storage</span><span class="pi">:</span> <span class="s">5Gi</span>
+  <span class="na">claimRef</span><span class="pi">:</span>
+    <span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+    <span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolumeClaim</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">pvc-my-blob</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="s">my-namespace</span>
+  <span class="na">csi</span><span class="pi">:</span>
+    <span class="na">driver</span><span class="pi">:</span> <span class="s">blob.csi.azure.com</span>
+    <span class="na">volumeAttributes</span><span class="pi">:</span>
+      <span class="na">containername</span><span class="pi">:</span> <span class="s">my-blob</span>  <i class="conum" data-value="2"></i><b>(2)</b>
+      <span class="na">csi.storage.k8s.io/pv/name</span><span class="pi">:</span> <span class="s">pv-my-blob</span>
+      <span class="na">csi.storage.k8s.io/pvc/name</span><span class="pi">:</span> <span class="s">pvc-my-blob</span>
+      <span class="na">csi.storage.k8s.io/pvc/namespace</span><span class="pi">:</span> <span class="s">my-namespace</span>
+      <span class="na">protocol</span><span class="pi">:</span> <span class="s">nfs</span>
+      <span class="na">secretnamespace</span><span class="pi">:</span> <span class="s">my-namespace</span> <i class="conum" data-value="3"></i><b>(3)</b>
+      <span class="na">secretname</span><span class="pi">:</span> <span class="s">my-storage-account-secret</span>  <i class="conum" data-value="4"></i><b>(4)</b>
+
+      <span class="na">skuName</span><span class="pi">:</span> <span class="s">Standard_LRS</span>
+    <i class="conum" data-value="5"></i><b>(5)</b>
+    <span class="c1"># volumeHandler is the unique identifier for the volume</span>
+    <span class="na">volumeHandle</span><span class="pi">:</span> <span class="s">MC_your-resource-group_azure-region#my-storage-account#my-blob##my-namespace#</span>
+  <span class="na">persistentVolumeReclaimPolicy</span><span class="pi">:</span> <span class="s">Delete</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">azureblob-nfs-standard</span>
+  <span class="na">volumeMode</span><span class="pi">:</span> <span class="s">Filesystem</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>ReadWriteMany is used to be used by multiple pods.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The name of the Azure Blob Storage.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>The namespace of the Secret.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>The name of the Secret.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td>The volumeHandle is the unique identifier for the volume.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Here is an example of how to create a Persistent Volume Claim using Azure Blob Storage.</p>
+</div>
+<div class="listingblock">
+<div class="title">pvc-my-blob.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolumeClaim</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pvc-my-blob</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">my-namespace</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+<span class="c1">#  storageClassName: azureblob-nfs-premium</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">azureblob-nfs-standard</span> <i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">storage</span><span class="pi">:</span> <span class="s">5Gi</span>
+  <span class="na">volumeName</span><span class="pi">:</span> <span class="s">pv-my-blob</span> <i class="conum" data-value="2"></i><b>(2)</b></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>azureblob-nfs-standard Storage Class is used to create Persistent Volumes using Azure Blob Storage.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The name of the Persistent Volume.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>To create the Persistent Volume and Persistent Volume Claim, you can use the following command.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl create <span class="nt">-f</span> pv-my-blob.yaml <span class="nt">-f</span> pvc-my-blob.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="persistent-volumes-in-amazon-elastic-kubernetes-service-eks">Persistent Volumes in Amazon Elastic Kubernetes Service (EKS)</h3>
+<div class="paragraph">
+<p>Amazon EKS supports Persistent Volumes using:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Amazon Elastic Block Store (EBS) for ReadWriteOnce (RWO)</p>
+</li>
+<li>
+<p>Amazon Elastic File System (EFS) for ReadWriteMany (RWX)</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Listing Available Storage Classes in EKS **</p>
+</li>
+</ul>
+</div>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ kubectl get storageclass | awk '{print $1}'</pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Example Output</strong>:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>NAME
+ebs-sc (default)
+efs-sc
+gp2</pre>
+</div>
+</div>
+<div class="sect3">
+<h4 id="default-storage-class-in-eks">Default Storage Class in EKS</h4>
+<div class="paragraph">
+<p>To use a StorageClass as the default StorageClass in EKS, you need to set the default StorageClass in the StorageClass definition.</p>
+</div>
+<div class="paragraph">
+<p>Run the following command to set the default StorageClass in EKS.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="s">$ kubectl patch storageclass ebs-sc -p '{"metadata"</span><span class="err">:</span> <span class="pi">{</span><span class="s2">"</span><span class="s">annotations"</span><span class="pi">:</span> <span class="pi">{</span><span class="s2">"</span><span class="s">storageclass.kubernetes.io/is-default-class"</span><span class="pi">:</span> <span class="s2">"</span><span class="s">true"</span><span class="pi">}}</span><span class="err">}</span><span class="s1">'</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>I chose 'ebs-sc' as the default StorageClass in EKS. The 'ebs-sc' StorageClass is used to create Persistent Volumes using Amazon EBS.</p>
+</div>
+<div class="paragraph">
+<p>When installing applications using Helm, the default StorageClass is used to create Persistent Volumes.</p>
+</div>
+<div class="paragraph">
+<p>Here is an example of how to create a Persistent Volume and Persistent Volume Claim using Amazon EBS. The 'ebs-sc' StorageClass is used to create Persistent Volumes using Amazon EBS and we can find the Persistent Volumes from EC2 / Elastic Block Store in the AWS Console.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/eks-default-pvc.png" alt="eks default pvc">
+</div>
+<div class="title">Figure 2. PVC using default StorageClass in EKS</div>
+</div>
+<div class="paragraph">
+<p>These Persistent Volumes are created by Helm charts during the installation of the Service Foundry for Observability.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="using-amazon-ebs-in-eks">Using Amazon EBS in EKS</h4>
+<div class="paragraph">
+<p>Amazon EBS volumes are automatically provisioned <strong>without requiring a PV definition</strong>.</p>
+</div>
+<div class="paragraph">
+<p><strong>Persistent Volume Claim (PVC) Definition (pvc-ebs.yaml)</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolumeClaim</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pvc-ebs</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">my-namespace</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteOnce</span>    <i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">ebs-sc</span>    <i class="conum" data-value="2"></i><b>(2)</b>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">storage</span><span class="pi">:</span> <span class="s">1Gi</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>ReadWriteOnce is used to be used by a single container in a single pod.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>ebs-sc Storage Class is used to create Persistent Volumes using Amazon EBS.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Apply the PVC:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl create <span class="nt">-f</span> pvc-ebs.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="using-amazon-efs-in-eks">Using Amazon EFS in EKS</h4>
+<div class="paragraph">
+<p>Amazon EFS provides shared ReadWriteMany (RWX) Persistent Volumes.</p>
+</div>
+<div class="paragraph">
+<p><strong>Persistent Volume (PV) Definition (pv-efs.yaml)</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolume</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pv-efs</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">capacity</span><span class="pi">:</span>
+    <span class="na">storage</span><span class="pi">:</span> <span class="s">10Gi</span>
+  <span class="na">volumeMode</span><span class="pi">:</span> <span class="s">Filesystem</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span> <i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="na">persistentVolumeReclaimPolicy</span><span class="pi">:</span> <span class="s">Retain</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">efs-sc</span> <i class="conum" data-value="2"></i><b>(2)</b>
+  <span class="na">csi</span><span class="pi">:</span>
+    <span class="na">driver</span><span class="pi">:</span> <span class="s">efs.csi.aws.com</span>
+    <span class="c1"># Replace with your EFS FileSystem ID</span>
+    <span class="na">volumeHandle</span><span class="pi">:</span> <span class="s">fs-xxxxxxxx</span>  <i class="conum" data-value="3"></i><b>(3)</b></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>ReadWriteMany is used to be used by multiple pods.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>efs-sc Storage Class is used to create Persistent Volumes using Amazon EFS.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>The EFS FileSystem ID is required to create the Persistent Volume.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p><strong>Persistent Volume Claim (PVC) Definition (pvc-efs.yaml)</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolumeClaim</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pvc-efs</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">my-namespace</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">efs-sc</span> <i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">storage</span><span class="pi">:</span> <span class="s">5Gi</span> <i class="conum" data-value="2"></i><b>(2)</b></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>efs-sc Storage Class is used to create Persistent Volumes using Amazon EFS.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The size of the Persistent Volume.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Apply the configurations:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl create <span class="nt">-f</span> pv-efs.yaml <span class="nt">-f</span> pvc-efs.yaml</code></pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>AKS</strong> uses Azure Disks (RWO), Azure Fileshares (RWX), and Azure Blob Storage (RWX).</p>
+</li>
+<li>
+<p><strong>EKS</strong> uses Amazon EBS (RWO) and Amazon EFS (RWX).</p>
+</li>
+<li>
+<p><strong>Cloud provider storage solutions differ</strong>, so understanding default Storage Classes and limitations is essential for multi-cloud deployments.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="using-node-selector-in-kubernetes-for-multi-cluster-deployments">Using Node Selector in Kubernetes for Multi-Cluster Deployments</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>When deploying an application across multiple <strong>Kubernetes clusters</strong>, controlling where pods are scheduled is essential for <strong>resource optimization, performance</strong>, and <strong>workload segregation</strong>.</p>
+</div>
+<div class="paragraph">
+<p>The <strong>Node Selector</strong> is a <strong>Kubernetes scheduling mechanism</strong> that allows you to specify which nodes should run your application pods. It works by using node labels, ensuring that workloads are deployed to the appropriate <strong>Node Pools (AKS)</strong> or <strong>Node Groups (EKS)</strong>.</p>
+</div>
+<div class="paragraph">
+<p>By leveraging <strong>Node Selectors</strong>, you can:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Assign workloads to specific <strong>node types</strong> (e.g., GPU nodes, high-memory nodes).</p>
+</li>
+<li>
+<p>Isolate workloads for <strong>security</strong> and <strong>compliance</strong> reasons.</p>
+</li>
+<li>
+<p>Optimize <strong>performance</strong> by scheduling pods on <strong>specialized nodes</strong>.</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="how-node-selectors-work">How Node Selectors Work</h3>
+<div class="paragraph">
+<p>The Node Selector works by matching pod scheduling constraints with node labels. Any label attached to a node can be used as a Node Selector.</p>
+</div>
+<div class="paragraph">
+<p><strong>Basic Node Selector Example</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">spec</span><span class="pi">:</span>
+  <span class="na">nodeSelector</span><span class="pi">:</span>
+    <span class="na">key</span><span class="pi">:</span> <span class="s">value</span></code></pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>The <strong>key</strong> is the node label (e.g., environment).</p>
+</li>
+<li>
+<p>The <strong>value</strong> is the expected label value (e.g., production).</p>
+</li>
+<li>
+<p>The pod will be scheduled <strong>only on nodes</strong> that have the specified label.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="node-selector-in-azure-kubernetes-service-aks">Node Selector in Azure Kubernetes Service (AKS)</h3>
+<div class="paragraph">
+<p>In AKS, each Node Pool is automatically assigned a label:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">kubernetes.azure.com/agentpool</span><span class="pi">:</span> <span class="s">&lt;node-pool-name&gt;</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This label can be used as a <strong>Node Selector</strong> to schedule workloads on a specific <strong>Node Pool</strong>.</p>
+</div>
+<div class="paragraph">
+<p><strong>Example: Using Node Selector in AKS</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">spec</span><span class="pi">:</span>
+  <span class="na">nodeSelector</span><span class="pi">:</span>
+    <span class="na">agentpool</span><span class="pi">:</span> <span class="s">my-node-pool</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Alternatively, the <strong>fully qualified label</strong> can be used:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">spec</span><span class="pi">:</span>
+  <span class="na">nodeSelector</span><span class="pi">:</span>
+    <span class="na">kubernetes.azure.com/agentpool</span><span class="pi">:</span> <span class="s">my-node-pool</span></code></pre>
+</div>
+</div>
+<div class="sect3">
+<h4 id="when-to-use-node-selector-in-aks">When to Use Node Selector in AKS?</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>Assigning workloads to specific Node Pools (e.g., GPU, Spot, or high-memory nodes).</p>
+</li>
+<li>
+<p>Running applications in different environments (e.g., production vs. development).</p>
+</li>
+<li>
+<p>Ensuring cost efficiency by deploying workloads to nodes with the right pricing tier.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="node-selector-in-amazon-elastic-kubernetes-service-eks">Node Selector in Amazon Elastic Kubernetes Service (EKS)</h3>
+<div class="paragraph">
+<p>In <strong>EKS</strong>, each <strong>Node Group</strong> is assigned the label:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">eks.amazonaws.com/nodegroup</span><span class="pi">:</span> <span class="s">&lt;node-group-name&gt;</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Example: Using Node Selector in EKS</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">spec</span><span class="pi">:</span>
+  <span class="na">nodeSelector</span><span class="pi">:</span>
+    <span class="na">eks.amazonaws.com/nodegroup</span><span class="pi">:</span> <span class="s">my-node-group</span></code></pre>
+</div>
+</div>
+<div class="sect3">
+<h4 id="when-to-use-node-selector-in-eks">When to Use Node Selector in EKS?</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>Deploying workloads on <strong>specific Node Groups</strong> (e.g., GPU-optimized, compute-intensive).</p>
+</li>
+<li>
+<p>Segregating workloads based on <strong>instance types</strong> (e.g., ARM vs. x86 nodes).</p>
+</li>
+<li>
+<p>Implementing <strong>cost-saving strategies</strong> (e.g., Spot instances for non-critical workloads).</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="using-a-common-label-for-multi-cluster-deployments">Using a Common Label for Multi-Cluster Deployments</h3>
+<div class="paragraph">
+<p>When deploying applications to both AKS and EKS, it is beneficial to use a common node label across clusters. This ensures portability and reduces the need for cluster-specific configurations.</p>
+</div>
+<div class="paragraph">
+<p><strong>Adding a Custom Label to Nodes in AKS</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sh"><span class="nv">$ </span>kubectl label nodes &lt;node-name&gt; my-label<span class="o">=</span>custom-node</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Adding a Custom Label to Nodes in EKS</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sh"><span class="nv">$ </span>kubectl label nodes &lt;node-name&gt; my-label<span class="o">=</span>custom-node</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Once the label is applied to nodes in both AKS and EKS, you can use the same Node Selector in your deployment manifests:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">spec</span><span class="pi">:</span>
+  <span class="na">nodeSelector</span><span class="pi">:</span>
+    <span class="na">my-label</span><span class="pi">:</span> <span class="s">custom-node</span></code></pre>
+</div>
+</div>
+<div class="sect3">
+<h4 id="advantages-of-using-a-common-label">Advantages of Using a Common Label</h4>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Consistent deployment strategy</strong> across different cloud providers.</p>
+</li>
+<li>
+<p><strong>Easier configuration management</strong> without modifying manifests per cluster.</p>
+</li>
+<li>
+<p><strong>Scalability</strong> for future multi-cloud expansions.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="conclusion-of-node-selector-in-multi-cluster-deployments">Conclusion of Node Selector in Multi-Cluster Deployments</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Node Selectors</strong> enable <strong>workload scheduling</strong> based on node labels, ensuring optimal resource utilization.</p>
+</li>
+<li>
+<p><strong>AKS uses agentpool labels</strong>, while <strong>EKS uses eks.amazonaws.com/nodegroup labels</strong> to identify node pools.</p>
+</li>
+<li>
+<p>Using <strong>custom node labels</strong> provides <strong>a unified approach for multi-cluster Kubernetes deployments.</strong></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>By implementing Node Selectors correctly, you can enhance performance, reduce costs, and improve workload management in Kubernetes clusters.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deployment-results-and-update-process-for-service-foundry-in-multi-cluster-kubernetes-environments">Deployment Results and Update Process for Service Foundry in Multi-Cluster Kubernetes Environments</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="deployment-results">Deployment Results</h3>
+<div class="paragraph">
+<p>After applying the configuration changes, <strong>Service Foundry for Observability</strong> is successfully deployed to both <strong>Azure Kubernetes Service (AKS)</strong> and <strong>Amazon Elastic Kubernetes Service (EKS)</strong> clusters.</p>
+</div>
+<div class="sect3">
+<h4 id="persistent-storage-allocation">Persistent Storage Allocation</h4>
+<div class="sect4">
+<h5 id="aks-azure-kubernetes-service">AKS (Azure Kubernetes Service)</h5>
+<div class="ulist">
+<ul>
+<li>
+<p>Azure Disks are used for ReadWriteOnce (RWO) workloads.</p>
+</li>
+<li>
+<p>Azure Fileshares are used for ReadWriteMany (RWX) workloads.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect4">
+<h5 id="eks-amazon-elastic-kubernetes-service">EKS (Amazon Elastic Kubernetes Service)</h5>
+<div class="ulist">
+<ul>
+<li>
+<p>Amazon EBS is used for ReadWriteOnce (RWO) workloads.</p>
+</li>
+<li>
+<p>Amazon EFS is used for ReadWriteMany (RWX) workloads.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="container-image-management">Container Image Management</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>Custom Docker Images are built and pushed to the appropriate container registry based on the selected cloud provider:</p>
+</li>
+<li>
+<p>Azure Container Registry (ACR) for AKS deployments.</p>
+</li>
+<li>
+<p>AWS Elastic Container Registry (ECR) for EKS deployments.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="updating-service-foundry-for-multi-cluster-deployments">Updating Service Foundry for Multi-Cluster Deployments</h3>
+<div class="paragraph">
+<p>To streamline the deployment process across multiple Kubernetes clusters, a <strong>custom Generator</strong> is used to <strong>automatically generate configuration files</strong> tailored to the selected Cloud Provider and Container Registry.</p>
+</div>
+<div class="sect3">
+<h4 id="using-the-generator-to-initialize-the-deployment">Using the Generator to Initialize the Deployment</h4>
+<div class="paragraph">
+<p>Execute the following command to initialize the configuration files for Service Foundry for Observability:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>yo nsa2:o11y-foundry init</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Example Generator Output</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>Initializing Observability Foundry Generator
+? Kubernetes namespace o11y
+? Cloud Provider (Azure, AWS, GCP) (Use arrow keys) <i class="conum" data-value="1"></i><b>(1)</b>
+  azure
+❯ aws
+  gcp
+
+? Container Registry (ACR or ECR. e.g. my-cr.azurecr.io) (112211221122.dkr.ecr.ca-central-1.amazonaws.com) <i class="conum" data-value="2"></i><b>(2)</b></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="user-inputs-during-generation">User Inputs During Generation</h4>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Select the Cloud Provider (Azure, AWS, or GCP)</strong>.</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Determines which Persistent Volume storage solutions and Kubernetes configurations will be used.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Enter the Container Registry URL</strong>.</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Specifies where Docker images should be pushed before deployment.</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect3">
+<h4 id="configuration-file-generation">Configuration File Generation</h4>
+<div class="paragraph">
+<p>Once the user selects the <strong>Cloud Provider</strong> and <strong>Container Registry</strong>, the Generator:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Automatically generates the configuration files and deployment scripts for the selected Kubernetes environment.</p>
+</li>
+<li>
+<p>Ensures consistency across multi-cluster deployments by providing pre-configured manifests tailored for AKS, EKS, or GCP.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="deployment-process">Deployment Process</h4>
+<div class="paragraph">
+<p>Deployment to <strong>Amazon Elastic Kubernetes Service (EKS)</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sh"><span class="nv">$ </span>./deploy-o11y-foundry-eks.sh</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>After applying these changes, Service Foundry for Observability is deployed to the EKS cluster. The Persistent Volumes are created using Amazon EBS and Amazon EFS.</p>
+</div>
+<div class="paragraph">
+<div class="title">Applications deployed in EKS</div>
+<p><span class="image"><img src="./images/eks-deploy.png" alt="eks deploy"></span></p>
+</div>
+<div class="paragraph">
+<p>Deployment to <strong>Azure Kubernetes Service (AKS)</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sh"><span class="nv">$ </span>./deploy-o11y-foundry-aks.sh</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>After applying these changes, Service Foundry for Observability is deployed to the AKS cluster. The Persistent Volumes are created using Azure Disks and Azure Fileshares.</p>
+</div>
+<div class="paragraph">
+<div class="title">Applications deployed in AKS</div>
+<p><span class="image"><img src="./images/aks-deploy.png" alt="aks deploy"></span></p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide provided a comprehensive walkthrough on deploying an application across multiple <strong>Kubernetes clusters</strong>. Throughout this guide, you gained insights into key concepts and best practices for managing multi-cluster deployments efficiently.</p>
+</div>
+<div class="sect2">
+<h3 id="key-takeaways">Key Takeaways:</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Multi-Cluster Deployment:</strong> You learned how to deploy an application to both Azure Kubernetes Service (AKS) and Amazon Elastic Kubernetes Service (EKS) while ensuring optimal resource utilization.</p>
+</li>
+<li>
+<p><strong>Container Registry &amp; Image Management:</strong> You explored how to build and push Docker images to Azure Container Registry (ACR) and AWS Elastic Container Registry (ECR)—even in environments where Docker is not installed locally.</p>
+</li>
+<li>
+<p><strong>Persistent Storage Solutions:</strong> You learned how to configure Persistent Volumes (PVs) and Persistent Volume Claims (PVCs) using:</p>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Azure Storage: Azure Disks, Azure Fileshares, Azure Blob Storage</p>
+</li>
+<li>
+<p>AWS Storage: Amazon EBS, Amazon EFS</p>
+</li>
+</ol>
+</div>
+</li>
+<li>
+<p><strong>Node Scheduling with Node Selectors:</strong> You discovered how to control pod scheduling by using Node Selectors, including how to:</p>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Utilize cloud-specific node labels (agentpool for AKS, nodegroup for EKS).</p>
+</li>
+<li>
+<p>Implement a common labeling strategy for consistency across multiple Kubernetes clusters.</p>
+</li>
+</ol>
+</div>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Explore More</strong></p>
+</div>
+<div class="paragraph">
+<p>All my LinkedIn articles can be found here:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://www.linkedin.com/pulse/my-linkedin-article-library-young-gyu-kim-2jihc/">My LinkedIn Article Library</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>By implementing these techniques, you can streamline deployments, enhance observability, and optimize workload management across cloud environments.</p>
+</div>
+<div class="paragraph">
+<p>Internal Link: docs/service-foundry/04-deploy-app-to-multiple-k8s-cluster</p>
+</div>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>

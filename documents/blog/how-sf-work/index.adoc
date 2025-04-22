@@ -1,0 +1,541 @@
+---
+layout: documents
+title: How Service Foundry Works
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Blog
+    url: /documents/blog/
+---
+// docs/service-foundry/01.how-it-works/index.adoc
+
+= How Service Foundry Works
+
+:imagesdir: images
+
+[.img-wide]
+image::service-foundry-intro.png[]
+
+== Introduction
+
+**Service Foundry** is a Kubernetes-native, self-managed turnkey solution. Built on top of Kubernetes and Helm, it provides robust support for OAuth2-based security and comprehensive observability features.
+
+Each component described in this document is explained in greater detail in separate guides, which you can access through the links below:
+
+* https://www.linkedin.com/pulse/my-linkedin-article-library-young-gyu-kim-2jihc/[My LinkedIn Article Library]
+
+=== Key Characteristics of Service Foundry
+
+Here are some key characteristics of Service Foundry:
+
+. Pre-configured with best practices for microservices architecture
+. Ready to use with minimal configuration
+. Simplified deployment and management
+. Built on top of Kubernetes and Helm
+. Supports OAuth2-based Spring Backend Runtime features
+. Supports observability features
+. Supports data pipeline features
+. Open-source and self-managed
+
+=== Benefits of Self-Managed Turnkey Solution
+
+Here are some benefits of using Service Foundry:
+
+. No need to build from scratch
+. On demand deployment
+. No subscription fees
+. No vendor lock-in
+. Utilize all logs and metrics on your own cloud
+. Keep sensitive data in your own cloud
+
+== Common steps to deploy using Service Foundry
+
+For each sub-framework, the common steps to deploy are:
+
+. initialize each sub-framework using the generator
+    * edit the configuration files if needed
+. generate the sub-framework using the generator
+    * edit source code if needed in case of backend foundry
+. build the sub-framework locally using the generated script files
+. deploy the sub-framework using the generated script files
+
+== Sub-Frameworks
+
+There are three sub-frameworks in the Service Foundry:
+
+* Observability Foundry
+* Backend Foundry
+* Data Pipeline Foundry
+
+== Observability Foundry
+
+The Observability Foundry comprises multiple observability tools designed to support a robust microservices architecture on Kubernetes.
+
+=== Initialize Observability Foundry
+
+To initialize the Observability Foundry, follow these steps:
+
+. Create a new directory for the Observability Foundry
+    * directory name matters because it will be used as the namespace
+. Run 'yo nsa2:o11y-foundry init' in the new directory
+    * This generates nsa2-o11y-foundry-build-config.yaml file
+    * Edit the nsa2-o11y-foundry-build-config.yaml file if needed
+. Run 'yo nsa2:o11y-foundry gen (or generate)' in the new directory
+    * This generates all the necessary files for the Observability Foundry based on the nsa2-o11y-foundry-build-config.yaml file
+
+. Run './build-o11y-foundry.sh' in the new directory
+    * This builds some components locally
+
+. Run './deploy-o11y-foundry.sh' in the new directory
+    * This deploys the Observability Foundry on Kubernetes
+
+=== How to use Observability Foundry
+
+To use the Observability Foundry, follow these steps:
+
+[source,shell]
+----
+# create working directory
+$ mkdir o11y
+$ cd o11y
+
+# initialize Observability Foundry
+$ yo nsa2:o11y-foundry init
+
+# <1>
+? Kubernetes namespace: o11y
+? Azure Container Registry Name: your-acr-name
+
+
+# generate Observability Foundry
+# edit nsa2-o11y-foundry-build-config.yaml if needed
+$ yo nsa2:o11y-foundry generate
+
+# build Observability Foundry
+# Nothing to build locally for Observability Foundry. You can skip this step.
+$ ./build-o11y-foundry.sh
+
+# deploy Observability Foundry
+$ ./deploy-o11y-foundry.sh
+----
+
+<1> Enter the Kubernetes namespace and Azure Container Registry Name. This will be used in the generated files.
+
+=== Initial Configuration
+
+When you run 'yo nsa2:o11y-foundry init', the generator creates the following files:
+
+.nsa2-o11y-foundry-build-config.yaml
+[source,yaml]
+----
+common:
+  namespace: o11y
+  azure:
+    enabled: true
+    acr-name: your-acr-name
+  node-selector:
+    agent-pool: your-agent-pool-for-observability
+cassandra:
+  enabled: true
+  username: cassandra
+  password: changeme
+  replica-count: 1
+  jaeger-keyspace: jaeger_tracing
+  jaeger-replication-factor: 1
+
+# depends on cassandra
+jaeger:
+  enabled: true
+
+# prometheus-operator is required for the following to work
+prometheus:
+  enabled: true
+
+grafana:
+  enabled: true
+  admin-user: "admin"
+  admin-password: "admin"
+
+opensearch:
+  enabled: true
+  replicas: 1
+  initial-admin-password: "Ehdrkddkwl100$"
+  node-selector:
+    agent-pool: "your-agent-pool-for-opensearch"
+
+nsa2-otel-exporter:
+  enabled: true
+
+otel-spring-example:
+  enabled: true
+  group-id: com.alexamy.nsa2.examples
+  java-package: com.alexamy.nsa2.examples.otel
+
+otel-collector:
+  enabled: true
+
+
+----
+
+You can change usernames, passwords, replica count, and other configurations in the nsa2-o11y-foundry-build-config.yaml file. This build configuration file is used to generate the necessary files for the Observability Foundry.
+
+=== Created Files by the Generator
+
+When you run 'yo nsa2:o11y-foundry generate', the generator creates the following files:
+
+.files created by the generator
+[source,shell]
+----
+$ yo nsa2:o11y-foundry gen
+
+   create helm-charts/cassandra/cassandra-values.yaml
+   create helm-charts/cassandra/cassandra-initdb-configmap.yaml
+   create helm-charts/cassandra/cassandra-credentials.yaml
+   create helm-charts/jaeger/jaeger-values.yaml
+   create helm-charts/opensearch/esnode-certs.yaml
+   create helm-charts/opensearch/opensearch-values.yaml
+   create helm-charts/opensearch/opensearch-dashboards-values.yaml
+   create helm-charts/opensearch/opensearch-data-prepper-values.yaml
+   create helm-charts/grafana/grafana-values.yaml
+   create helm-charts/grafana/grafana-admin-credentials.yaml
+   create k8s/common/kustomization.yaml
+   create k8s/common/observability-configmap.yaml
+   create k8s/prometheus/kustomization.yaml
+   create k8s/prometheus/prometheus.yaml
+   create k8s/prometheus/prometheus-rbac.yaml
+   create k8s/prometheus/prometheus-service.yaml
+   create k8s/otel-collector/kustomization.yaml
+   create k8s/otel-collector/otel-collector.yaml
+   create k8s/otel-collector/otel-collector-rbac.yaml
+   create k8s/otel-collector/otel-targetallocator-role.yaml
+   create k8s/otel-collector/otel-targetallocator-cr-role.yaml
+   create nsa2-otel-exporter/bin/helm-deploy.sh
+   create nsa2-otel-exporter/bin/helm-undeploy.sh
+   create nsa2-otel-exporter/bin/push-docker-image.sh
+   create nsa2-otel-exporter/build/libs/nsa2-otel-exporter-0.0.1-SNAPSHOT.jar
+   create nsa2-otel-exporter/src/main/k8s/Dockerfile
+   create nsa2-otel-exporter/src/main/k8s/helm-chart/nsa2-otel-exporter/.helmignore
+   create nsa2-otel-exporter/src/main/k8s/helm-chart/nsa2-otel-exporter/Chart.yaml
+   create nsa2-otel-exporter/src/main/k8s/helm-chart/nsa2-otel-exporter/values.yaml
+   create nsa2-otel-exporter/src/main/k8s/helm-chart/nsa2-otel-exporter/templates/tests/test-connection.yaml
+   create nsa2-otel-exporter/src/main/k8s/helm-chart/nsa2-otel-exporter/templates/_helpers.tpl
+   create nsa2-otel-exporter/src/main/k8s/helm-chart/nsa2-otel-exporter/templates/deployment.yaml
+   create nsa2-otel-exporter/src/main/k8s/helm-chart/nsa2-otel-exporter/templates/hpa.yaml
+   create nsa2-otel-exporter/src/main/k8s/helm-chart/nsa2-otel-exporter/templates/ingress.yaml
+   create nsa2-otel-exporter/src/main/k8s/helm-chart/nsa2-otel-exporter/templates/NOTES.txt
+   create nsa2-otel-exporter/src/main/k8s/helm-chart/nsa2-otel-exporter/templates/role.yaml
+   create nsa2-otel-exporter/src/main/k8s/helm-chart/nsa2-otel-exporter/templates/rolebinding.yaml
+   create nsa2-otel-exporter/src/main/k8s/helm-chart/nsa2-otel-exporter/templates/service.yaml
+   create nsa2-otel-exporter/src/main/k8s/helm-chart/nsa2-otel-exporter/templates/serviceaccount.yaml
+   create build-o11y-foundry.sh
+   create deploy-o11y-foundry.sh
+   create undeploy-o11y-foundry.sh
+   create uninstall-databases.sh
+    force o11y-otel-spring-example/.yo-rc.json
+----
+
+==== Shell Scripts
+
+The generator creates the following shell scripts:
+
+* **build-o11y-foundry.sh**: This script builds some components locally.
+* **deploy-o11y-foundry.sh**: This script deploys the Observability Foundry on Kubernetes.
+* **undeploy-o11y-foundry.sh**: This script undeploys the Observability Foundry on Kubernetes.
+* **uninstall-databases.sh**: This script uninstalls the databases with PVCs.
+
+In the later sections, we will see how to use these shell scripts.
+
+=== Build Components
+
+When you run './build-o11y-foundry.sh', the following components are built locally:
+
+[source,shell]
+----
+$ ./build-o11y-foundry.sh
+----
+
+This generates a Spring Boot Application named **o11y-otel-spring-example** that can be used to test the observability features.
+
+In the testing phase, you can use the **otel-spring-example** to generate traces and metrics.
+
+=== Deploy Components
+
+Run the following command to deploy the Observability Foundry on Kubernetes:
+
+[source,shell]
+----
+$ ./deploy-o11y-foundry.sh
+----
+
+It takes a couple of minutes to deploy all the components.
+
+After you run './deploy-o11y-foundry.sh', the following components are deployed in the namespace of o11y in this example:
+
+[source,shell]
+----
+$ kubectl -n o11y get all -o name
+
+
+pod/cassandra-0
+pod/grafana-85bc877866-wzqfr
+pod/jaeger-collector-68cd858fcb-q4j9v
+pod/jaeger-query-7fbdd8bc86-5f6r7
+pod/nsa2-otel-exporter-d54757c45-nvdnq
+pod/o11y-otel-spring-example-794867977d-4lvbk
+pod/opensearch-cluster-master-0
+pod/opensearch-dashboards-7bfd998cf8-kv49r
+pod/opensearch-data-prepper-6b4895d8b6-nsgg6
+pod/otel-collector-0
+pod/otel-targetallocator-77f6b86946-45bb6
+pod/prometheus-prometheus-0
+service/cassandra
+service/cassandra-headless
+service/grafana
+service/jaeger-collector
+service/jaeger-query
+service/nsa2-otel-exporter
+service/o11y-otel-spring-example
+service/opensearch-cluster-master
+service/opensearch-cluster-master-headless
+service/opensearch-dashboards
+service/opensearch-data-prepper
+service/otel-collector
+service/otel-collector-headless
+service/otel-collector-monitoring
+service/otel-targetallocator
+service/prometheus
+service/prometheus-operated
+deployment.apps/grafana
+deployment.apps/jaeger-collector
+deployment.apps/jaeger-query
+deployment.apps/nsa2-otel-exporter
+deployment.apps/o11y-otel-spring-example
+deployment.apps/opensearch-dashboards
+deployment.apps/opensearch-data-prepper
+deployment.apps/otel-targetallocator
+replicaset.apps/grafana-85bc877866
+replicaset.apps/jaeger-collector-68cd858fcb
+replicaset.apps/jaeger-query-7fbdd8bc86
+replicaset.apps/nsa2-otel-exporter-d54757c45
+replicaset.apps/o11y-otel-spring-example-794867977d
+replicaset.apps/opensearch-dashboards-7bfd998cf8
+replicaset.apps/opensearch-data-prepper-6b4895d8b6
+replicaset.apps/otel-targetallocator-77f6b86946
+statefulset.apps/cassandra
+statefulset.apps/opensearch-cluster-master
+statefulset.apps/otel-collector
+statefulset.apps/prometheus-prometheus
+job.batch/jaeger-cassandra-schema
+
+----
+
+In addition to the above components, the following components are also deployed:
+
+* ConfigMaps
+* Secrets
+* Service Accounts
+* Cluster Roles and Role Bindings
+* Persistent Volumes
+* Persistent Volume Claims
+
+During the deployment, the Observability Foundry will create the following components:
+
+.Observability Components created by the Observability Foundry
+[.img-wide]
+image::observability-components.png[]
+
+== Testing Observability Foundry
+
+To test the Observability Foundry, follow these steps:
+
+. Run o11y-otel-spring-example to generate traces, logs and metrics
+. Access Jaeger UI to view traces and logs
+
+=== Run o11y-otel-spring-example
+
+In the Spring Boot application, there are controllers that generate traces and logs. The following is an example of a controller that generates traces:
+
+
+.OtelController.java
+[source,java]
+----
+@RestController
+@RequestMapping("/otel")
+@Slf4j
+@RequiredArgsConstructor
+public class OtelController {
+
+    private final RestTemplate restTemplate;
+
+    @Value("${app.sleep-service-uri}")
+    String sleepServiceUri;
+
+    @GetMapping
+    @PostMapping
+    public Map<String, Object> index() {
+
+        // random count : 3 to 5
+        int count = (int) (Math.random() * 3) + 3;
+        List<Map<String, Object>> results = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            // random sleep time : 1 to 5 seconds
+            int sleepInSeconds = (int) (Math.random() * 5) + 1;
+            log.info("Calling sleep controller with {} seconds", sleepInSeconds);
+            results.add(callSleepController(sleepInSeconds));
+        }
+
+        return Map.of("status", "success", "results", results);
+    }
+
+    // call sleep controller using rest template
+    Map<String, Object> callSleepController(int sleepInSeconds) {
+        final String url = sleepServiceUri.endsWith("/") ? sleepServiceUri + sleepInSeconds :
+                sleepServiceUri + "/" + sleepInSeconds;
+        return restTemplate.getForObject(url, Map.class);
+    }
+}
+----
+
+OtelController will call the SleepController to generate traces and logs. The following is an example of a controller that generates traces:
+
+.SleepController.java
+[source,java]
+----
+@RestController
+@RequestMapping("/sleep")
+@Slf4j
+public class SleepController {
+
+    @GetMapping("/{sleepInSeconds}")
+    @PostMapping("/{sleepInSeconds}")
+    public Map<String, Object> sleep(@PathVariable long sleepInSeconds) {
+        log.info("Sleeping for {} seconds", sleepInSeconds);
+        try {
+            Thread.sleep(sleepInSeconds * 1000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        return Map.of("status", "success", "message", "Slept for " + sleepInSeconds + " seconds");
+    }
+}
+----
+
+SleepController will sleep for a specified number of seconds, and we can see the traces in Jaeger UI.
+
+=== Make test calls to o11y-otel-spring-example
+
+Let's port forward the o11y-otel-spring-example service to access it locally:
+
+.port-forward otel-spring-example
+[source,shell]
+----
+$ kubectl -n o11y port-forward svc/o11y-otel-spring-example 8080:8080
+----
+
+In a new terminal, run the following curl command to generate traces:
+
+.curl command to generate traces
+[source,shell]
+----
+$ curl -X GET http://localhost:8080/otel | jq
+
+{
+  "results": [
+    {
+      "message": "Slept for 1 seconds",
+      "status": "success"
+    },
+    {
+      "message": "Slept for 2 seconds",
+      "status": "success"
+    },
+    {
+      "message": "Slept for 5 seconds",
+      "status": "success"
+    },
+    {
+      "message": "Slept for 2 seconds",
+      "status": "success"
+    },
+    {
+      "message": "Slept for 1 seconds",
+      "status": "success"
+    }
+  ],
+  "status": "success"
+}
+
+----
+
+=== Access Jaeger UI
+
+To access the Jaeger UI, run the following command:
+
+.port-forward Jaeger UI
+[source,shell]
+----
+$ kubectl -n o11y port-forward svc/jaeger-query 16686:80
+----
+
+Open a browser and go to http://localhost:16686 to access the Jaeger UI.
+
+.Jaeger UI - Find Traces
+[.img-wide]
+image::jaeger-ui-1.png[]
+
+Select the **nsa2-otel-spring-example** service and click on the **Find Traces** button to see the traces.
+
+And then click on the trace to see the details of the trace.
+
+.Jaeger UI - Traces
+[.img-wide]
+image::jaeger-ui-2.png[]
+
+We can see all spans in the trace. We can see the duration of each span and the tags associated with each span.
+
+.Jaeger UI - Trace with Logs
+[.img-wide]
+image::jaeger-ui-3.png[]
+
+We can see the details of each span by clicking on the span. We can also see the applications logs in the Jaeger UI.
+
+== Undeploy Observability Foundry
+
+If you don't need the Observability tools, you can undeploy the Observability Foundry.
+
+To undeploy the Observability Foundry, run the following command:
+
+[source,shell]
+----
+$ ./undeploy-o11y-foundry.sh
+----
+
+This will delete all the components deployed in the namespace of o11y. However, the PVCs will not be deleted.
+
+== Unistall Databases and PVCs
+
+To uninstall the databases and PVCs, run the following command:
+
+[source,shell]
+----
+$ ./uninstall-databases.sh
+----
+
+== Delete the namespace
+
+To delete the namespace, run the following command:
+
+[source,shell]
+----
+$ kubectl delete namespace o11y
+----
+
+== Conclusion
+
+In this article, we have seen how to deploy the Observability Tools on Kubernetes using Observability Foundry within a few minutes. We have also seen traces and logs generated by the Spring Boot application in the Jaeger UI. All metrics are collected by Prometheus and visualized in Grafana.
+
+Internal Reference: nsa2/docs/service-foundry/index.adoc
