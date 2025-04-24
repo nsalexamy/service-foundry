@@ -1,0 +1,680 @@
+---
+layout: documents
+title: How Service Foundry Works
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Blog
+    url: /documents/blog/
+---
+// docs/service-foundry/01.how-it-works/index.adoc
+
+
+= Github Pages with Asciidoctor
+
+:imagesdir: images
+
+[.img-wide]
+image::introduction.png[]
+== Introduction
+
+This document covers how to set up a GitHub Pages site using Jekyll and Asciidoctor. It provides step-by-step instructions on how to create a Jekyll site, configure it to use Asciidoctor, and deploy it to GitHub Pages.
+
+The site below is a sample site that uses Jekyll and Asciidoctor to generate static HTML files.
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/
+
+All my LinkedIn articles written in Asciidoctor have been rendered to HTML files and published on GitHub Pages for better readability.
+
+=== What is GitHub Pages?
+
+GitHub Pages is a static site hosting service that allows you to publish content directly from a GitHub repository. It supports Markdown by default and does not natively support Asciidoctor. So you need to create static HTML files from Asciidoctor files on your local machine and push them to the `local build` branch of your repository. When merging the `local build` branch to the `main` branch, the Github Action will automatically deploy the static HTML files to the `main` branch.
+Technically, Jekyll is doing nothing on Github side since rendering is done locally. So you need to turn off Jekyll on GitHub Pages.
+
+To enable Github Pages, go to your repository settings and scroll down to the "Pages" section. Select the `main` branch as the source for your GitHub Pages site.
+
+.Enable GitHub Pages
+[.img-wide]
+image::enable-github-pages.png[]
+
+=== GitHub Pages URL
+
+Given that your GitHub username is `nsalexamy` and your repository name is `service-foundry`, your GitHub Pages URL will be:
+
+* https://nsalexamy.github.io/service-foundry/
+
+== Prerequisites
+
+Make sure you have the following installed:
+
+* Ruby (>= 2.5)
+* Bundler & Jekyll
+
+=== Install Ruby
+
+NOTE: If you are using macOS, Ruby is already installed. You can check the version by running `ruby -v` in your terminal. However, the system version of Ruby is located /Library/Ruby and permission issues may arise when installing gems. It is recommended to install Ruby using homebrew.
+
+Install ruby using homebrew:
+[,terminal]
+----
+$ brew install ruby
+----
+
+Add the following line to your shell profile like .zprofile
+
+..zproflie
+----
+export PATH="/opt/homebrew/opt/ruby/bin:/opt/homebrew/lib/ruby/gems/3.4.0/bin:$PATH"
+----
+
+/opt/homebrew/lib/ruby/gems/3.4.0/bin comes from the output of the command `gem env` and it may be different for you. You can check the output of `gem env` to find the correct path.
+[,terminal]
+----
+$ gem env
+----
+
+*Example Output*
+
+[%collapsible]
+====
+.Expand to see the output
+[listing]
+----
+RubyGems Environment:
+  - RUBYGEMS VERSION: 3.6.3
+  - RUBY VERSION: 3.4.2 (2025-02-15 patchlevel 28) [arm64-darwin24]
+  - INSTALLATION DIRECTORY: /opt/homebrew/lib/ruby/gems/3.4.0
+  - USER INSTALLATION DIRECTORY: /Users/young/.gem/ruby/3.4.0
+  - CREDENTIALS FILE: /Users/young/.local/share/gem/credentials
+  - RUBY EXECUTABLE: /opt/homebrew/opt/ruby/bin/ruby
+  - GIT EXECUTABLE: /usr/bin/git
+  - EXECUTABLE DIRECTORY: /opt/homebrew/lib/ruby/gems/3.4.0/bin
+  - SPEC CACHE DIRECTORY: /Users/young/.gem/specs
+  - SYSTEM CONFIGURATION DIRECTORY: /opt/homebrew/Cellar/ruby/3.4.2/etc
+  - RUBYGEMS PLATFORMS:
+     - ruby
+     - arm64-darwin-24
+  - GEM PATHS:
+     - /opt/homebrew/lib/ruby/gems/3.4.0
+     - /Users/young/.gem/ruby/3.4.0
+     - /opt/homebrew/Cellar/ruby/3.4.2/lib/ruby/gems/3.4.0
+  - GEM CONFIGURATION:
+     - :update_sources => true
+     - :verbose => true
+     - :backtrace => true
+     - :bulk_threshold => 1000
+  - REMOTE SOURCES:
+     - https://rubygems.org/
+  - SHELL PATH:
+     - /opt/homebrew/opt/ruby/bin
+     - /opt/homebrew/lib/ruby/gems/3.4.0/bin
+     - /Users/young/.pyenv/shims
+     - /Users/young/.pyenv/bin
+     - /Users/young/.sdkman/candidates/java/21.0.6-tem/bin
+     - /opt/homebrew/opt/ruby/bin
+     - /Users/young/.pyenv/bin
+     - /Users/young/.nvm/versions/node/v22.14.0/bin
+     - /Users/young/.sdkman/candidates/scala/current/bin
+     - /Users/young/.sdkman/candidates/maven/current/bin
+     - /Users/young/.sdkman/candidates/kotlin/current/bin
+     - /Users/young/.sdkman/candidates/java/21.0.6-tem/bin
+     - /Users/young/.sdkman/candidates/gradle/current/bin
+     - /usr/local/bin
+     - /System/Cryptexes/App/usr/bin
+     - /usr/bin
+     - /bin
+     - /usr/sbin
+     - /sbin
+     - /var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin
+     - /var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin
+     - /var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin
+     - /Applications/VMware Fusion.app/Contents/Public
+     - /Users/young/Library/Application Support/JetBrains/Toolbox/scripts
+     - /opt/homebrew/bin
+     - /Users/young/Library/Application Support/JetBrains/Toolbox/scripts
+     - /opt/homebrew/bin
+----
+====
+
+verify the installation:
+
+[,terminal]
+----
+$ ruby -v
+
+# output
+ruby 3.4.2 (2025-02-15 revision d2930f8e7a) +PRISM [arm64-darwin24]
+
+----
+
+=== Install Bundler and Jekyll
+
+[,terminal]
+----
+$ gem install bundler jekyll
+----
+
+== Create Jekyll site
+
+Create a new directory for your project and navigate to it. This will be the root directory of your Jekyll site.
+
+[,terminal]
+----
+$ jekyll new my-jekyll-site
+$ cd my-jekyll-site
+$ bundle install
+----
+
+// [,terminal]
+// ----
+// $ mkdir my-jekyll-site
+// $ cd my-jekyll-site
+// $ bundle init
+// $ bundle add jekyll
+// $ bundle add jekyll-asciidoc
+// $ bundle add jekyll-feed
+// $ bundle add jekyll-seo-tag
+// $ bundle add jekyll-sitemap
+// $ bundle add jekyll-paginate
+// ----
+
+
+
+== Apply Jekyll site inside your project
+
+Create a new Jekyll site inside your project directory. This will create a `_config.yml` file and a `_posts` directory where you can add your Asciidoctor files.
+
+[,terminal]
+----
+$ mkdir _layouts _includes _scss _data
+$ touch _config.yml
+----
+
+=== _config.yml file of local-build branch
+The `_config.yml` file is the configuration file for Jekyll. You can customize it to fit your needs. Here is an example of `_config.yml` file for the `local-build` branch.
+
+._config.yml
+[source, yaml]
+----
+title: Service Foundry
+description: Bookmark this to keep an eye on my project updates!
+markdown: kramdown
+destination: ./pages    # <1>
+highlighter: rouge
+incremental: false
+kramdown:
+  math_engine: mathjax
+  syntax_highlighter: rouge
+asciidoc:
+  attributes:
+    source-highlighter: rouge
+    icons: font
+    toc: left           # <2>
+    toc-title: On this page # <3>
+    rouge-style: github
+
+# these 2 lines are needed to make the site work with GitHub Pages
+# use {{ site.baseurl }} in your links
+# for local development run the command below
+# bundle exec jekyll serve --baseurl "/service-foundry"
+baseurl: "/service-foundry"
+url: "https://nsalexamy.github.io"
+
+plugins:
+  - jekyll-asciidoc
+
+# these 2 lines are needed to make the site work with GitHub Pages
+sass:
+  sass_dir: _sass         # Where your partials are
+  style: compressed       # or "expanded" for dev
+
+----
+
+<1> The destination directory where the generated HTML files will be saved.
+<2> The position of the table of contents. It can be `left`, `right`, or `none`.
+<3> The title of the table of contents.
+
+=== Sample Asciidoctor file
+
+Here is a sample Asciidoctor file that you can use to test your Jekyll site. Create a new file named `index.adoc` in the root directory of your project and add the following content:
+
+.index.adoc
+[.adoc]
+----
+---
+layout: default     # <1>
+title: Service Foundry
+---
+
+= Service Foundry Documentation
+
+== Introduction
+
+Service Foundry is a platform for deploying and managing applications in a Kubernetes environment. It provides a set of tools and best practices for building, deploying, and scaling applications in a cloud-native way.
+----
+<1> The layout file to use for this page. The `default` layout will be used to render the page.
+
+=== Sample HTML layout file
+
+Here is a sample HTML layout file that you can use to render your Asciidoctor files. Create a new file named `default.html` in the `_layouts` directory and add the following content:
+
+._layouts/documents.html
+[.html]
+----
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ page.title }}</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+    <link rel="stylesheet" href="{{ '/assets/css/main.css' | relative_url }}">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="{% if page.show_toc == false %}no-toc{% endif %}">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    {% include nav.html %}
+</header>
+
+<!-- Sub-navigation for Foundries -->
+{% include documents-subnav.html %}
+
+<!-- Breadcrumb -->
+{% if page.breadcrumb %}
+    {% include breadcrumb-nav.html %}
+{% endif %}
+
+<!-- Main Layout -->
+<div class="container">
+
+{% if page.show_toc != false %}
+    <nav id="toc-container" class="toc-nav"></nav>
+{% endif %}
+
+    <main id="main-content">
+        {% if page.author or page.email %}
+        <div class="author-box">
+            {% if page.author %}{{ page.author }}{% endif %}
+            {% if page.email %}&lt;<a href="mailto:{{ page.email }}" style="color: #0d9488; text-decoration: none;">{{ page.email }}</a>&gt;{% endif %}
+        </div>
+        {% endif %}
+
+        <!-- Title -->
+        {% if page.title %}
+        <h1 class="page-title">
+            {{ page.title }}
+        </h1>
+        {% endif %}
+
+        <div class="asciidoc">
+            {{ content }}
+        </div>
+    </main>
+</div>
+
+
+{% if page.show_toc != false %}
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+{% endif %}
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>
+
+----
+
+By Jekyll configuration, the generated HTML files will be saved in the `pages` directory.
+
+== Generate HTML files locally
+
+Run the following command to generate HTML files from Asciidoctor files:
+
+// [,terminal]
+// ----
+// $ bundle exec jekyll build
+// ----
+
+----
+$ bundle exec jekyll serve --baseurl "/service-foundry/pages"
+----
+
+== Deploy to GitHub Pages
+
+Push the generated HTML files to the `local-build` branch of your repository. You can use the following command to do this:
+
+[,terminal]
+----
+$ git add .
+$ git commit -m "Deploy to GitHub Pages"
+$ git push -u
+----
+
+// == Turn off Jekyll on GitHub Pages
+//
+// Since I generate HTML files locally, I need to turn off Jekyll on GitHub Pages. To do this, create a file named `.nojekyll` in the root of your repository. This will prevent GitHub Pages from processing your site with Jekyll.
+//
+// [,terminal]
+// ----
+// $ touch docs/.nojekyll
+// ----
+
+=== Git Ignore
+
+The _config.yml file of 'local-build' branch is different from the one in the 'main' branch. So you need to add the _config.yml file to .gitignore file. You can use the following command to do this:
+
+..gitignore
+[.gitignore]
+----
+_site
+.sass-cache
+.jekyll-cache
+.jekyll-metadata
+vendor
+Gemfile
+Gemfile.lock
+_config.yml
+
+----
+
+
+=== _config.yml on GitHub Pages
+
+On GitHub Pages, Jekyll will process only index.html file and the files in the 'pages' directory which are generated from Asciidoctor files. So you need to create a new `_config.yml` file in the root directory of your project and add the following content:
+
+_config.yml
+[source, yaml]
+----
+markdown: kramdown
+highlighter: rouge
+theme: minima
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+include: ["index.html", "pages/"]
+----
+
+== Tips
+
+=== Handling SCSS files
+
+You can use SCSS to style your Jekyll site. Create scss files in the `_scss` and create the main.scss file in the assets/css directory.
+
+.assets/css/main.scss
+[.scss]
+----
+@use "variables";
+@use "theme";
+@use "base";
+@use "header";
+@use "subnav";
+@use "layout";
+@use "toc";
+@use "code";
+@use "breadcrumb";
+@use "table";
+@use "admonitions";
+@use "image";
+@use "author";
+@use "nav";
+@use "quote";
+@use "asciidoc";
+@use "footer";
+----
+
+This file will be rendered to main.css in the pages/assets/css directory.
+
+Add the line below to use the main.css file in the default.html file.
+
+.._layouts/default.html
+[.html]
+----
+<link rel="stylesheet" href="{{ '/assets/css/main.css' | relative_url }}">
+----
+
+=== Using Data Files
+
+You can use data files to store data in your Jekyll site. Create a new file named `navigation.yml` in the `_data` directory and add the following content:
+
+._data/navigation.yml
+[source, yaml]
+----
+- name: getting-started
+  label: Getting Started
+  url: /service-foundry/pages/getting-started/
+- name: documents
+  label: Docs
+  url: /service-foundry/pages/documents/
+- name: github
+  label: GitHub
+  url: /service-foundry/pages/github/
+- name: developers
+  label: Developers
+  url: /service-foundry/pages/developers/
+----
+
+Here is an example of how to use data files in your Jekyll site. Create a new file named `nav.html` in the `_includes` directory and add the following content:
+
+._includes/nav.html
+[.html]
+----
+<nav>
+    {% for item in site.data.navigation %}
+        {% assign full_page_path = site.baseurl | append: page.url %}
+        <a href="{{ item.url }}" class="{% if full_page_path contains item.url %}active{% endif %}">{{ item.label }}</a>
+    {% endfor %}
+</nav>
+----
+
+Jekyll layout files use Liquid templating language. You can use Liquid tags to include data files in your Jekyll site. For example, you can use the `include` tag to include the `nav.html` file in your layout file:
+
+.._layouts/documents.html
+[.html]
+----
+<!-- Header -->
+<header>
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+
+    {% include nav.html %}
+</header>
+----
+
+=== Source Highlighting
+
+You can use the `rouge` highlighter to highlight code in your Jekyll site. Add the following line to your `_config.yml` file:
+
+._config.yml - source highlighter
+[source, yaml]
+----
+asciidoc:
+  attributes:
+    source-highlighter: rouge
+----
+
+Add the lines below to your layout file to include the `rouge` CSS file:
+
+.._layouts/documents.html
+[source, html]
+----
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+----
+
+If you do not want to use source highlighting from your Asciidoc files, you can add the following line to at the top of your code block:
+
+----
+[listing]
+----
+
+The screenshot below shows the source highlighting in the Asciidoctor file. The code block is highlighted using the `rouge` highlighter.
+
+.Source highlighting
+[.adoc]
+[.img-wide]
+image::code-highlighting.png[]
+
+=== Hiding the Table of Contents
+
+Asciidoc files are rendered to HTML with a table of contents by default on the left side. You can hide the table of contents by adding the following line to the top of your Asciidoctor file:
+
+.getting-started.adoc
+[.adoc]
+----
+---
+layout: getting-started-index
+title: Getting Started
+show_toc: false     # <1>
+---
+
+= Getting Started
+
+// <2>
+:toc!:
+
+----
+
+<1> The `show_toc` variable is set to false to hide the table of contents.
+<2> The `:toc!:` attribute is used to hide the table of contents in Asciidoctor.
+
+In a layout file, you can use the `show_toc` variable to hide the table of contents. For example, you can use the following code in your layout file:
+
+._layout/documents.html
+[source, html]
+----
+
+<body class="{% if page.show_toc == false %}no-toc{% endif %}">
+
+
+<!-- Main Layout -->
+<div class="container">
+
+{% if page.show_toc != false %}
+    <nav id="toc-container" class="toc-nav"></nav>
+{% endif %}
+
+    <main id="main-content">
+        {% if page.author or page.email %}
+        <div class="author-box">
+            {% if page.author %}{{ page.author }}{% endif %}
+            {% if page.email %}&lt;<a href="mailto:{{ page.email }}" style="color: #0d9488; text-decoration: none;">{{ page.email }}</a>&gt;{% endif %}
+        </div>
+        {% endif %}
+
+        <!-- Title -->
+        {% if page.title %}
+        <h1 class="page-title">
+            {{ page.title }}
+        </h1>
+        {% endif %}
+
+        <div class="asciidoc">
+            {{ content }}
+        </div>
+    </main>
+</div>
+
+{% if page.show_toc != false %}
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+{% endif %}
+----
+
+And add lines below to your SCSS file to hide the table of contents when `show_toc` is set to false.
+
+.toc.scss
+[.scss]
+----
+body.no-toc #toc {
+  display: none !important;
+}
+----
+
+
+=== Passing arguments to include files
+
+Here is an example of included file with arguments.
+
+._includes/document-topic.html
+[source, html]
+----
+<div class="flex items-start">
+    <div>
+        <h3 class="text-lg font-semibold text-gray-900 mb-1 mt-4">{{ topic.label }}</h3>
+        <ul class="no-bullets list-disc list-inside text-gray-700 space-y-2">
+            {% for document in topic.documents  %}
+            <li><a href="{{ include.category_url | default: '' }}{{ document.url }}" class="text-gray-700 space-y-2 ml-6 underline">📘 {{ document.title }}</a></li>
+            {% endfor %}
+        </ul>
+
+    </div>
+</div>
+----
+In this example, topic and category_url are variables that are passed to the `document-topic.html` file.
+
+To pass variables to the `document-topic.html` file, you can use the following syntax in your layout file:
+
+._layout/documents-index.html
+[source, html]
+----
+{% for category in site.data.tech_documents.categories     %}
+
+    <h1 class="mt-24 text-2xl">{{ category.label }}</h1>
+    <div class="grid gap-8 md:grid-cols-1">
+        {% for topic in category.topics %}
+        {% include documents-topic.html topic=topic category_url=category.url %}
+        {% endfor %}
+
+    </div>
+
+{% endfor %}
+
+</div>
+
+{% include footer.html %}
+----
+
+'{% include documents-topic.html topic=topic category_url=category.url %}' shows that the `topic` variable is passed to the `document-topic.html` file and the `category.url` variable is passed to the `category_url` variable in the `document-topic.html` file.
+
+
+== Conclusion
+
+In this document, we have covered how to set up a GitHub Pages site using Jekyll and Asciidoctor. We have created a Jekyll site, configured it to use Asciidoctor, and deployed it to GitHub Pages. We have also covered some tips on how to use SCSS, data files, and source highlighting in your Jekyll site. You can use this document as a reference for setting up your own GitHub Pages site using Jekyll and Asciidoctor.
+
+
+== References
+
+* https://jekyllrb.com/docs/step-by-step
+* https://shopify.github.io/liquid/basics/introduction/
