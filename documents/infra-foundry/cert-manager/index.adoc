@@ -1,0 +1,310 @@
+---
+layout: documents
+title: Configure TLS for OpenSearch with Cert-Manager
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Infra Foundry
+    url: /documents/infra-foundry/
+---
+// docs/centralized-logging/part-9-opensearch-oidc/opensearch-cert-manager/index.adoc
+
+= Configure TLS for OpenSearch with Cert-Manager
+
+:imagesdir: images
+
+[.img-wide]
+image::cert-manager-overview.png[]
+== Introduction
+
+This guide explains how to configure TLS for OpenSearch, OpenSearch Dashboards, and Data Prepper using cert-manager. It provides step-by-step instructions to:
+
+* Install cert-manager on your Kubernetes cluster
+* Create a self-signed certificate issuer
+* Generate a TLS certificate
+* Configure OpenSearch, OpenSearch Dashboards, and Data Prepper to use the certificate for secure communication
+
+
+== Overview of Cert-Manager
+
+cert-manager is the de facto standard for managing TLS certificates in Kubernetes environments. It automates the issuance, renewal, and management of certificates from various sources such as Let’s Encrypt, HashiCorp Vault, or self-signed authorities.
+
+
+
+
+=== Benefits
+
+There are several benefits to using cert-manager for managing TLS certificates in Kubernetes:
+
+* *Automation*: Simplifies certificate management by handling issuance, renewal, and revocation automatically.
+* *Flexible Issuer Support*: Integrates with multiple certificate providers.
+* *Kubernetes Native*: Manages certificates as Kubernetes resources, streamlining deployment and maintenance.
+
+
+== Setting Up Cert-Manager
+
+=== Add the Cert-Manager Helm Repository
+
+Add the cert-manager Helm repository to your local Helm client. This repository contains the cert-manager chart, which you will use to install cert-manager on your Kubernetes cluster.
+
+[,terminal]
+----
+$ helm repo add jetstack https://charts.jetstack.io
+$ helm repo update jetstack
+----
+
+=== Install cert-manager
+
+Run the script to deploy cert-manager on your Kubernetes cluster.
+[,terminal]
+----
+$ helm install \
+  cert-manager jetstack/cert-manager \
+  --namespace cert-manager \
+  --create-namespace \
+  --version v1.17.2 \
+  --set crds.enabled=true
+----
+
+Verify that cert-manager is running by checking the status of the cert-manager pods in the cert-manager namespace.
+[,terminal]
+----
+$ kubectl get pods --namespace cert-manager
+----
+
+=== Creating a Self-Signed Issuer
+
+A SelfSigned Issuer allows you to generate certificates without relying on an external Certificate Authority (CA), ideal for testing and internal environments.
+
+.selfsigned-issuer.yaml
+[source,yaml]
+----
+# selfsigned-issuer.yaml
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned-issuer
+  namespace: o11y
+spec:
+  selfSigned: {}
+----
+
+Apply the manifest:
+
+[,terminal]
+----
+$ kubectl apply -f selfsigned-issuer.yaml
+----
+
+=== Issuing a Certificate for OpenSearch
+
+A certificate is a digital document that binds a public key to an identity. In this case, you will create a certificate for OpenSearch using the self-signed issuer you created earlier.
+
+.opensearch-certificate.yaml
+[source,yaml]
+----
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: opensearch-tls
+  namespace: o11y
+spec:
+  # <1>
+  secretName: opensearch-tls
+  issuerRef:
+    name: selfsigned-issuer
+    kind: Issuer
+  commonName: opensearch-cluster-master.o11y.svc.cluster.local
+  # <2>
+  dnsNames:
+    - opensearch-cluster-master
+    - opensearch-cluster-master.o11y
+    - opensearch-cluster-master.o11y.svc
+    - opensearch-cluster-master.o11y.svc.cluster.local
+  duration: 8760h   # 1 year
+  renewBefore: 360h # 15 days
+  privateKey:
+    algorithm: RSA
+    size: 2048
+----
+<1> The key and certificate will be stored in a Kubernetes secret named opensearch-tls. The secret will be created in the o11y namespace, and the certificate will be valid for 365 days (8760 hours). The certificate will be renewed 15 days (360 hours) before it expires.
+<2> The common name and DNS names for the certificate. The common name is the fully qualified domain name (FQDN) of the OpenSearch cluster master node, and the DNS names are the hostnames that will be used to access OpenSearch.
+
+
+Apply the manifest:
+
+[,terminal]
+----
+$ kubectl apply -f opensearch-certificate.yaml
+----
+
+To verify that the certificate was created successfully, check the status of the certificate.
+[,terminal]
+----
+$ kubectl describe secret opensearch-tls -n o11y
+
+# Example output
+
+Data
+====
+ca.crt:   1363 bytes
+tls.crt:  1363 bytes
+tls.key:  1679 bytes
+
+----
+
+You can see the certificate and key in the secret. The ca.crt is the CA certificate, and the tls.crt and tls.key are the certificate and private key for OpenSearch.
+
+== Configuring OpenSearch, OpenSearch Dashboards, and Data Prepper
+
+The certificated created in the previous step will be used to configure OpenSearch, OpenSearch Dashboards, and Data Prepper.
+
+
+=== OpenSearch
+
+Update your custom-values.yaml for OpenSearch:
+
+.custom-values.yaml of OpenSearch
+[source,yaml]
+----
+# <1>
+extraVolumes:
+  - name: opensearch-tls
+    secret:
+      secretName: opensearch-tls
+
+# <2>
+extraVolumeMounts:
+  - name: opensearch-tls
+    mountPath: /usr/share/opensearch/config/certs
+    readOnly: true
+
+config:
+  # <3>
+  opensearch.yml: |
+    plugins.security.ssl.transport.enabled: true
+    plugins.security.ssl.transport.pemcert_filepath: certs/tls.crt
+    plugins.security.ssl.transport.pemkey_filepath: certs/tls.key
+    plugins.security.ssl.transport.pemtrustedcas_filepath: certs/ca.crt
+    plugins.security.ssl.transport.enforce_hostname_verification: false
+
+    plugins.security.ssl.http.enabled: true
+    plugins.security.ssl.http.pemcert_filepath: certs/tls.crt
+    plugins.security.ssl.http.pemkey_filepath: certs/tls.key
+    plugins.security.ssl.http.pemtrustedcas_filepath: certs/ca.crt
+
+    plugins.security.nodes_dn:
+      - "CN=opensearch-cluster-master.o11y.svc.cluster.local"
+      - "CN=opensearch-cluster-master"
+      - "CN=opensearch-cluster-master.o11y"
+      - "CN=opensearch-cluster-master.o11y.svc"
+----
+
+<1> Mount the opensearch-tls secret as a volume in the OpenSearch pod. The secret contains the TLS certificate and key for OpenSearch.
+<2> Mount the opensearch-tls secret as a volume mount in the OpenSearch container. The certificate and key will be available at /usr/share/opensearch/config/certs.
+<3> Configure OpenSearch to use TLS for transport and HTTP communication. The certificate and key files are mounted at /usr/share/opensearch/config/certs, so the paths in the configuration should match the mount path.
+
+=== OpenSearch Dashboards
+
+Update your custom-values.yaml for OpenSearch Dashboards:
+
+
+.custom-values.yaml of OpenSearch Dashboards
+[source,yaml]
+----
+# <1>
+extraVolumes:
+  - name: opensearch-ca-cert
+    secret:
+      secretName: opensearch-tls   # Same secret!
+
+# <2>
+extraVolumeMounts:
+  - name: opensearch-ca-cert
+    mountPath: /usr/share/opensearch-dashboards/config/certs
+    readOnly: true
+
+# <3>
+opensearchDashboardsConfig:
+  opensearch_dashboards.yml: |
+    server.host: "0.0.0.0"
+
+    opensearch.hosts: [ "https://opensearch-cluster-master.o11y.svc.cluster.local:9200" ]
+
+    opensearch.ssl.verificationMode: full
+    opensearch.ssl.certificateAuthorities: [ "/usr/share/opensearch-dashboards/config/certs/ca.crt" ]
+
+    opensearch.username: "admin"
+    opensearch.password: "your-admin-password"
+----
+<1> Mount the opensearch-tls secret as a volume in the OpenSearch Dashboards pod. The secret contains the CA certificate for OpenSearch.
+<2> Mount the opensearch-tls secret as a volume mount in the OpenSearch Dashboards container. The CA certificate will be available at /usr/share/opensearch-dashboards/config/certs.
+<3> Configure OpenSearch Dashboards to use TLS for communication with OpenSearch. The CA certificate is mounted at /usr/share/opensearch-dashboards/config/certs, so the path in the configuration should match the mount path.
+
+=== Data Prepper
+
+Update your custom-values.yaml for Data Prepper:
+
+.custom-values.yaml of Data Prepper
+[source,yaml]
+----
+# <1>
+volumes:
+  - name: opensearch-tls
+    secret:
+      secretName: opensearch-tls
+
+# <2>
+volumeMounts:
+  - name: opensearch-tls
+    mountPath: /usr/share/data-prepper/config/certs
+    readOnly: true
+
+
+# <3>
+pipelineConfig:
+  enabled: true
+  config:
+    otel-logs-pipeline:
+      workers: 2
+      delay: 5000
+      source:
+        otel_logs_source:
+          ssl: false
+      buffer:
+        bounded_blocking:
+          buffer_size: 1024
+          batch_size: 256
+      sink:
+        - opensearch:
+            hosts: ["https://opensearch-cluster-master:9200"]
+            username: "admin"
+            password: "your-password"
+            insecure: false
+            verify_hostname: false
+            index_type: custom
+            index: o11y-%{yyyy.MM.dd}
+            bulk_size: 4
+            ssl:
+              certificate_authorities:
+                - /usr/share/data-prepper/config/certs/ca.crt
+              verify_hostnames: true
+----
+<1> Mount the opensearch-tls secret as a volume in the Data Prepper pod. The secret contains the CA certificate for OpenSearch.
+<2> Mount the opensearch-tls secret as a volume mount in the Data Prepper container. The CA certificate will be available at /usr/share/data-prepper/config/certs.
+<3> Configure Data Prepper to use TLS for communication with OpenSearch. The CA certificate is mounted at /usr/share/data-prepper/config/certs, so the path in the configuration should match the mount path.
+
+
+== Conclusion
+
+By following this guide, you have:
+•	Installed cert-manager on Kubernetes
+•	Created a self-signed issuer and generated a TLS certificate
+•	Configured OpenSearch, OpenSearch Dashboards, and Data Prepper to use TLS for secure communication
+
+Using cert-manager significantly simplifies TLS management and improves the security posture of your OpenSearch ecosystem.
+
