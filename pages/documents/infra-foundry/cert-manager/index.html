@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Configure TLS for OpenSearch with Cert-Manager</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="active">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/infra-foundry/">Infra Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Configure TLS for OpenSearch with Cert-Manager
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#overview-of-cert-manager">Overview of Cert-Manager</a>
+<ul class="sectlevel2">
+<li><a href="#benefits">Benefits</a></li>
+</ul>
+</li>
+<li><a href="#setting-up-cert-manager">Setting Up Cert-Manager</a>
+<ul class="sectlevel2">
+<li><a href="#add-the-cert-manager-helm-repository">Add the Cert-Manager Helm Repository</a></li>
+<li><a href="#install-cert-manager">Install cert-manager</a></li>
+<li><a href="#creating-a-self-signed-issuer">Creating a Self-Signed Issuer</a></li>
+<li><a href="#issuing-a-certificate-for-opensearch">Issuing a Certificate for OpenSearch</a></li>
+</ul>
+</li>
+<li><a href="#configuring-opensearch-opensearch-dashboards-and-data-prepper">Configuring OpenSearch, OpenSearch Dashboards, and Data Prepper</a>
+<ul class="sectlevel2">
+<li><a href="#opensearch">OpenSearch</a></li>
+<li><a href="#opensearch-dashboards">OpenSearch Dashboards</a></li>
+<li><a href="#data-prepper">Data Prepper</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/cert-manager-overview.png" alt="cert manager overview">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide explains how to configure TLS for OpenSearch, OpenSearch Dashboards, and Data Prepper using cert-manager. It provides step-by-step instructions to:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Install cert-manager on your Kubernetes cluster</p>
+</li>
+<li>
+<p>Create a self-signed certificate issuer</p>
+</li>
+<li>
+<p>Generate a TLS certificate</p>
+</li>
+<li>
+<p>Configure OpenSearch, OpenSearch Dashboards, and Data Prepper to use the certificate for secure communication</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview-of-cert-manager">Overview of Cert-Manager</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>cert-manager is the de facto standard for managing TLS certificates in Kubernetes environments. It automates the issuance, renewal, and management of certificates from various sources such as Let’s Encrypt, HashiCorp Vault, or self-signed authorities.</p>
+</div>
+<div class="sect2">
+<h3 id="benefits">Benefits</h3>
+<div class="paragraph">
+<p>There are several benefits to using cert-manager for managing TLS certificates in Kubernetes:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Automation</strong>: Simplifies certificate management by handling issuance, renewal, and revocation automatically.</p>
+</li>
+<li>
+<p><strong>Flexible Issuer Support</strong>: Integrates with multiple certificate providers.</p>
+</li>
+<li>
+<p><strong>Kubernetes Native</strong>: Manages certificates as Kubernetes resources, streamlining deployment and maintenance.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="setting-up-cert-manager">Setting Up Cert-Manager</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="add-the-cert-manager-helm-repository">Add the Cert-Manager Helm Repository</h3>
+<div class="paragraph">
+<p>Add the cert-manager Helm repository to your local Helm client. This repository contains the cert-manager chart, which you will use to install cert-manager on your Kubernetes cluster.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm repo add jetstack https://charts.jetstack.io
+<span class="gp">$</span><span class="w"> </span>helm repo update jetstack</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-cert-manager">Install cert-manager</h3>
+<div class="paragraph">
+<p>Run the script to deploy cert-manager on your Kubernetes cluster.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm <span class="nb">install</span> <span class="se">\</span>
+<span class="go">  cert-manager jetstack/cert-manager \
+  --namespace cert-manager \
+  --create-namespace \
+  --version v1.17.2 \
+  --set crds.enabled=true</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Verify that cert-manager is running by checking the status of the cert-manager pods in the cert-manager namespace.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl get pods <span class="nt">--namespace</span> cert-manager</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="creating-a-self-signed-issuer">Creating a Self-Signed Issuer</h3>
+<div class="paragraph">
+<p>A SelfSigned Issuer allows you to generate certificates without relying on an external Certificate Authority (CA), ideal for testing and internal environments.</p>
+</div>
+<div class="listingblock">
+<div class="title">selfsigned-issuer.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># selfsigned-issuer.yaml</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">cert-manager.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Issuer</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">selfsigned-issuer</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">selfSigned</span><span class="pi">:</span> <span class="pi">{}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Apply the manifest:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl apply <span class="nt">-f</span> selfsigned-issuer.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="issuing-a-certificate-for-opensearch">Issuing a Certificate for OpenSearch</h3>
+<div class="paragraph">
+<p>A certificate is a digital document that binds a public key to an identity. In this case, you will create a certificate for OpenSearch using the self-signed issuer you created earlier.</p>
+</div>
+<div class="listingblock">
+<div class="title">opensearch-certificate.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">cert-manager.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Certificate</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">opensearch-tls</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="na">secretName</span><span class="pi">:</span> <span class="s">opensearch-tls</span>
+  <span class="na">issuerRef</span><span class="pi">:</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">selfsigned-issuer</span>
+    <span class="na">kind</span><span class="pi">:</span> <span class="s">Issuer</span>
+  <span class="na">commonName</span><span class="pi">:</span> <span class="s">opensearch-cluster-master.o11y.svc.cluster.local</span>
+  <i class="conum" data-value="2"></i><b>(2)</b>
+  <span class="na">dnsNames</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">opensearch-cluster-master</span>
+    <span class="pi">-</span> <span class="s">opensearch-cluster-master.o11y</span>
+    <span class="pi">-</span> <span class="s">opensearch-cluster-master.o11y.svc</span>
+    <span class="pi">-</span> <span class="s">opensearch-cluster-master.o11y.svc.cluster.local</span>
+  <span class="na">duration</span><span class="pi">:</span> <span class="s">8760h</span>   <span class="c1"># 1 year</span>
+  <span class="na">renewBefore</span><span class="pi">:</span> <span class="s">360h</span> <span class="c1"># 15 days</span>
+  <span class="na">privateKey</span><span class="pi">:</span>
+    <span class="na">algorithm</span><span class="pi">:</span> <span class="s">RSA</span>
+    <span class="na">size</span><span class="pi">:</span> <span class="s">2048</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The key and certificate will be stored in a Kubernetes secret named opensearch-tls. The secret will be created in the o11y namespace, and the certificate will be valid for 365 days (8760 hours). The certificate will be renewed 15 days (360 hours) before it expires.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The common name and DNS names for the certificate. The common name is the fully qualified domain name (FQDN) of the OpenSearch cluster master node, and the DNS names are the hostnames that will be used to access OpenSearch.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Apply the manifest:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl apply <span class="nt">-f</span> opensearch-certificate.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To verify that the certificate was created successfully, check the status of the certificate.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl describe secret opensearch-tls <span class="nt">-n</span> o11y
+<span class="go">
+</span><span class="gp">#</span><span class="w"> </span>Example output
+<span class="go">
+Data
+====
+ca.crt:   1363 bytes
+tls.crt:  1363 bytes
+tls.key:  1679 bytes
+</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>You can see the certificate and key in the secret. The ca.crt is the CA certificate, and the tls.crt and tls.key are the certificate and private key for OpenSearch.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="configuring-opensearch-opensearch-dashboards-and-data-prepper">Configuring OpenSearch, OpenSearch Dashboards, and Data Prepper</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The certificated created in the previous step will be used to configure OpenSearch, OpenSearch Dashboards, and Data Prepper.</p>
+</div>
+<div class="sect2">
+<h3 id="opensearch">OpenSearch</h3>
+<div class="paragraph">
+<p>Update your custom-values.yaml for OpenSearch:</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml of OpenSearch</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><i class="conum" data-value="1"></i><b>(1)</b>
+<span class="na">extraVolumes</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">opensearch-tls</span>
+    <span class="na">secret</span><span class="pi">:</span>
+      <span class="na">secretName</span><span class="pi">:</span> <span class="s">opensearch-tls</span>
+
+<i class="conum" data-value="2"></i><b>(2)</b>
+<span class="na">extraVolumeMounts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">opensearch-tls</span>
+    <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/usr/share/opensearch/config/certs</span>
+    <span class="na">readOnly</span><span class="pi">:</span> <span class="kc">true</span>
+
+<span class="na">config</span><span class="pi">:</span>
+  <i class="conum" data-value="3"></i><b>(3)</b>
+  <span class="na">opensearch.yml</span><span class="pi">:</span> <span class="pi">|</span>
+    <span class="s">plugins.security.ssl.transport.enabled: true</span>
+    <span class="s">plugins.security.ssl.transport.pemcert_filepath: certs/tls.crt</span>
+    <span class="s">plugins.security.ssl.transport.pemkey_filepath: certs/tls.key</span>
+    <span class="s">plugins.security.ssl.transport.pemtrustedcas_filepath: certs/ca.crt</span>
+    <span class="s">plugins.security.ssl.transport.enforce_hostname_verification: false</span>
+
+    <span class="s">plugins.security.ssl.http.enabled: true</span>
+    <span class="s">plugins.security.ssl.http.pemcert_filepath: certs/tls.crt</span>
+    <span class="s">plugins.security.ssl.http.pemkey_filepath: certs/tls.key</span>
+    <span class="s">plugins.security.ssl.http.pemtrustedcas_filepath: certs/ca.crt</span>
+
+    <span class="s">plugins.security.nodes_dn:</span>
+      <span class="s">- "CN=opensearch-cluster-master.o11y.svc.cluster.local"</span>
+      <span class="s">- "CN=opensearch-cluster-master"</span>
+      <span class="s">- "CN=opensearch-cluster-master.o11y"</span>
+      <span class="s">- "CN=opensearch-cluster-master.o11y.svc"</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Mount the opensearch-tls secret as a volume in the OpenSearch pod. The secret contains the TLS certificate and key for OpenSearch.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Mount the opensearch-tls secret as a volume mount in the OpenSearch container. The certificate and key will be available at /usr/share/opensearch/config/certs.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Configure OpenSearch to use TLS for transport and HTTP communication. The certificate and key files are mounted at /usr/share/opensearch/config/certs, so the paths in the configuration should match the mount path.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="opensearch-dashboards">OpenSearch Dashboards</h3>
+<div class="paragraph">
+<p>Update your custom-values.yaml for OpenSearch Dashboards:</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml of OpenSearch Dashboards</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><i class="conum" data-value="1"></i><b>(1)</b>
+<span class="na">extraVolumes</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">opensearch-ca-cert</span>
+    <span class="na">secret</span><span class="pi">:</span>
+      <span class="na">secretName</span><span class="pi">:</span> <span class="s">opensearch-tls</span>   <span class="c1"># Same secret!</span>
+
+<i class="conum" data-value="2"></i><b>(2)</b>
+<span class="na">extraVolumeMounts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">opensearch-ca-cert</span>
+    <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/usr/share/opensearch-dashboards/config/certs</span>
+    <span class="na">readOnly</span><span class="pi">:</span> <span class="kc">true</span>
+
+<i class="conum" data-value="3"></i><b>(3)</b>
+<span class="na">opensearchDashboardsConfig</span><span class="pi">:</span>
+  <span class="na">opensearch_dashboards.yml</span><span class="pi">:</span> <span class="pi">|</span>
+    <span class="s">server.host: "0.0.0.0"</span>
+
+    <span class="s">opensearch.hosts: [ "https://opensearch-cluster-master.o11y.svc.cluster.local:9200" ]</span>
+
+    <span class="s">opensearch.ssl.verificationMode: full</span>
+    <span class="s">opensearch.ssl.certificateAuthorities: [ "/usr/share/opensearch-dashboards/config/certs/ca.crt" ]</span>
+
+    <span class="s">opensearch.username: "admin"</span>
+    <span class="s">opensearch.password: "your-admin-password"</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Mount the opensearch-tls secret as a volume in the OpenSearch Dashboards pod. The secret contains the CA certificate for OpenSearch.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Mount the opensearch-tls secret as a volume mount in the OpenSearch Dashboards container. The CA certificate will be available at /usr/share/opensearch-dashboards/config/certs.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Configure OpenSearch Dashboards to use TLS for communication with OpenSearch. The CA certificate is mounted at /usr/share/opensearch-dashboards/config/certs, so the path in the configuration should match the mount path.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="data-prepper">Data Prepper</h3>
+<div class="paragraph">
+<p>Update your custom-values.yaml for Data Prepper:</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml of Data Prepper</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><i class="conum" data-value="1"></i><b>(1)</b>
+<span class="na">volumes</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">opensearch-tls</span>
+    <span class="na">secret</span><span class="pi">:</span>
+      <span class="na">secretName</span><span class="pi">:</span> <span class="s">opensearch-tls</span>
+
+<i class="conum" data-value="2"></i><b>(2)</b>
+<span class="na">volumeMounts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">opensearch-tls</span>
+    <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/usr/share/data-prepper/config/certs</span>
+    <span class="na">readOnly</span><span class="pi">:</span> <span class="kc">true</span>
+
+
+<i class="conum" data-value="3"></i><b>(3)</b>
+<span class="na">pipelineConfig</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="na">config</span><span class="pi">:</span>
+    <span class="na">otel-logs-pipeline</span><span class="pi">:</span>
+      <span class="na">workers</span><span class="pi">:</span> <span class="m">2</span>
+      <span class="na">delay</span><span class="pi">:</span> <span class="m">5000</span>
+      <span class="na">source</span><span class="pi">:</span>
+        <span class="na">otel_logs_source</span><span class="pi">:</span>
+          <span class="na">ssl</span><span class="pi">:</span> <span class="kc">false</span>
+      <span class="na">buffer</span><span class="pi">:</span>
+        <span class="na">bounded_blocking</span><span class="pi">:</span>
+          <span class="na">buffer_size</span><span class="pi">:</span> <span class="m">1024</span>
+          <span class="na">batch_size</span><span class="pi">:</span> <span class="m">256</span>
+      <span class="na">sink</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">opensearch</span><span class="pi">:</span>
+            <span class="na">hosts</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">https://opensearch-cluster-master:9200"</span><span class="pi">]</span>
+            <span class="na">username</span><span class="pi">:</span> <span class="s2">"</span><span class="s">admin"</span>
+            <span class="na">password</span><span class="pi">:</span> <span class="s2">"</span><span class="s">your-password"</span>
+            <span class="na">insecure</span><span class="pi">:</span> <span class="kc">false</span>
+            <span class="na">verify_hostname</span><span class="pi">:</span> <span class="kc">false</span>
+            <span class="na">index_type</span><span class="pi">:</span> <span class="s">custom</span>
+            <span class="na">index</span><span class="pi">:</span> <span class="s">o11y-%{yyyy.MM.dd}</span>
+            <span class="na">bulk_size</span><span class="pi">:</span> <span class="m">4</span>
+            <span class="na">ssl</span><span class="pi">:</span>
+              <span class="na">certificate_authorities</span><span class="pi">:</span>
+                <span class="pi">-</span> <span class="s">/usr/share/data-prepper/config/certs/ca.crt</span>
+              <span class="na">verify_hostnames</span><span class="pi">:</span> <span class="kc">true</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Mount the opensearch-tls secret as a volume in the Data Prepper pod. The secret contains the CA certificate for OpenSearch.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Mount the opensearch-tls secret as a volume mount in the Data Prepper container. The CA certificate will be available at /usr/share/data-prepper/config/certs.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Configure Data Prepper to use TLS for communication with OpenSearch. The CA certificate is mounted at /usr/share/data-prepper/config/certs, so the path in the configuration should match the mount path.</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>By following this guide, you have:
+•	Installed cert-manager on Kubernetes
+•	Created a self-signed issuer and generated a TLS certificate
+•	Configured OpenSearch, OpenSearch Dashboards, and Data Prepper to use TLS for secure communication</p>
+</div>
+<div class="paragraph">
+<p>Using cert-manager significantly simplifies TLS management and improves the security posture of your OpenSearch ecosystem.</p>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>
