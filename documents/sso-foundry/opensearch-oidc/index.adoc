@@ -1,0 +1,509 @@
+---
+layout: documents
+title: Enabling OpenSearch OIDC Authentication for Single Sign-On
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: SSO Foundry
+    url: /documents/sso-foundry/
+
+# docs/centralized-logging/part-9-opensearch-oidc/index.adoc
+---
+= Enabling OpenSearch OIDC Authentication for Single Sign-On
+
+:imagesdir: images
+
+[.img-wide]
+image::opensearch-sso.png[]
+== Introduction
+
+After successfully integrating Single Sign-On (SSO) with Jaeger, Prometheus, and Grafana using Keycloak, the next step is OpenSearch and OpenSearch Dashboards.
+This guide walks you through setting up OpenID Connect authentication for OpenSearch, configuring role mappings, and securing access using Keycloak as your Identity Provider (IdP).
+
+=== Overview of the Integration
+
+* *OpenSearch Authentication*: OpenID Connect (OIDC) with Keycloak
+* *Security Hardening*: TLS certificates via cert-manager
+* *Role-Based Access Control*: Keycloak client roles mapped to OpenSearch backend roles
+* *Ingress Management*: Traefik Ingress Controller
+
+
+== Downloading OpenSearch Security Configuration Files
+
+This setup requires downloading configuration files from the OpenSearch container deployed via the OpenSearch Helm chart.
+
+* *Container Path*: `/usr/share/opensearch/config/opensearch-security/`
+
+*Security files to download:*
+
+* action_groups.yml
+* config.yml
+* internal_users.yml
+* roles.yml
+* roles_mapping.yml
+* tenants.yml
+
+Create directories to store the original and modified files:
+
+[listing]
+----
+# Directory for downloading config files
+$ mkdir -p config_download/opensearch-security
+
+# Directory for modified config files
+$ mkdir -p config/opensearch-security
+----
+
+Download the configuration files from the OpenSearch container:
+
+.download all files in the config/opensearch-security directory
+[,terminal]
+----
+$ echo "action_groups.yml  allowlist.yml  audit.yml  config.yml  internal_users.yml  nodes_dn.yml  opensearch.yml.example  roles.yml  roles_mapping.yml  tenants.yml  whitelist.yml" \
+    | xargs -n1 \
+    | xargs -I {} kubectl -n o11y cp opensearch-cluster-master-0:config/opensearch-security/{} config_download/opensearch-security/{}
+----
+
+== OpenSearch Configuration
+
+=== SSL Configuration
+
+Ensure TLS is properly configured for OpenSearch.
+Refer to the following guides:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/infra-foundry/cert-manager/
+* https://www.linkedin.com/pulse/configure-tls-opensearch-cert-manager-young-gyu-kim-mygyc
+
+=== Modifying OpenSearch Security Configurations
+
+Among the downloaded files, we need to modify:
+
+* config.yml
+* roles_mapping.yml
+
+==== config.yml (Authentication Configuration)
+
+.config/opensearch-security/config.yml
+[%collapsible]
+[source,yaml]
+----
+_meta:
+  type: "config"
+  config_version: 2
+
+config:
+  dynamic:
+    authc:
+      ## <1>
+      openid_auth_domain:
+        http_enabled: true
+        transport_enabled: true
+        order: 0
+        http_authenticator:
+          type: openid
+          challenge: false
+          config:
+            subject_key: preferred_username
+            roles_key: os_roles
+            openid_connect_url: http://af5851e89c6c2454f9b9a0adb8fb17ca-2098848636.ca-west-1.elb.amazonaws.com/realms/nsa2-realm/.well-known/openid-configuration
+            client_id: nsa2-o11y
+            client_secret: gZ343TCd0kBehqTOkGZFkbL4WvXoa3Ss
+            scope: "openid profile email"
+        authentication_backend:
+          type: noop
+
+      ## <2>
+      basic_internal_auth_domain:
+        description: "Authenticate via HTTP Basic against internal users database"
+        http_enabled: true
+        transport_enabled: true
+        order: 4
+        http_authenticator:
+          type: basic
+          challenge: true
+        authentication_backend:
+          type: intern
+
+----
+<1> *OpenID Connect Authentication:* Configures OpenID Connect authentication using Keycloak.
+<2> *Basic Authentication*: Configures fallback authentication using internal users.
+
+[cols="1,3"]
+|===
+| Name | Description
+
+|openid_connect_url	|The URL of your IdP where the Security plugin can find the OpenID Connect metadata/configuration settings. This URL differs between IdPs. Required when using OpenID Connect as your backend.
+|jwt_header	|The HTTP header that stores the token. Typically the Authorization header with the Bearer schema: Authorization: Bearer <token>. Optional. Default is Authorization.
+|jwt_url_parameter	|If the token is not transmitted in the HTTP header, but as an URL parameter, define the name of the parameter here. Optional.
+|subject_key	|The key in the JSON payload that stores the user’s name. If not defined, the subject registered claim is used. Most IdP providers use the preferred_username claim. Optional.
+|roles_key	|The key in the JSON payload that stores the user’s roles. The value of this key must be a comma-separated list of roles. Required only if you want to use roles in the JWT.
+|===
+
+
+For full details on the OpenID authentication configuration, see
+
+
+* https://docs.opensearch.org/docs/latest/security/authentication-backends/openid-connect/
+
+==== roles_mapping.yml (Role Mapping Configuration)
+
+.config/opensearch-security/roles_mapping.yml
+[source,yaml]
+----
+---
+# In this file users, backendroles and hosts can be mapped to Security roles.
+# Permissions for OpenSearch roles are configured in roles.yml
+
+_meta:
+  type: "rolesmapping"
+  config_version: 2
+
+# Define your roles mapping here
+
+## <1>
+all_access:
+  reserved: false
+  backend_roles:
+  - "admin"
+  - "os_admin"  # From Keycloak
+  description: "Maps admin to all_access"
+
+## <2>
+own_index:
+  reserved: false
+  users:
+  - "*"
+  description: "Allow full access to an index named like the username"
+
+logstash:
+  reserved: false
+  backend_roles:
+  - "logstash"
+
+## <3>
+kibana_user:
+  reserved: false
+  backend_roles:
+  - "kibanauser"
+  - "os_kibanauser"  # from Keycloak
+  description: "Maps kibanauser to kibana_user"
+
+## <4>
+readall:
+  reserved: false
+  backend_roles:
+  - "readall"
+  - "os_readall"  # from Keycloak
+
+manage_snapshots:
+  reserved: false
+  backend_roles:
+  - "snapshotrestore"
+
+kibana_server:
+  reserved: true
+  users:
+  - "kibanaserver"
+
+----
+<1> *all_access*: Grants full access to all indices and cluster operations.
+<2> *own_index*: Grants users full access to their own index.
+<3> *kibana_user*: Grants access to Kibana Dashboards.
+<4> *readall*: Grants read-only access to all indices.
+
+In Keycloak, the roles (os_admin, os_readall, os_kibanauser) are created as client roles.
+
+
+==== internal_users.yml (Password Management)
+
+
+No changes are required for internal_users.yml.
+
+
+.config/opensearch-security/internal_users.yml
+[source,yaml]
+----
+_meta:
+  type: "internalusers"
+  config_version: 2
+admin:
+  hash: "$2y$12$jltE4Y74EV.LfvEu3OaYu.p5qdqn27e9Dmma4diRFq4YCS.UHjzwu"
+  reserved: true
+  backend_roles:
+    - "admin"
+  description: "Demo admin user"
+anomalyadmin:
+  hash: "$2y$12$TRwAAJgnNo67w3rVUz4FIeLx9Dy/llB79zf9I15CKJ9vkM4ZzAd3."
+  reserved: false
+  opendistro_security_roles:
+    - "anomaly_full_access"
+  description: "Demo anomaly admin user, using internal role"
+----
+
+However, if you want to create a new admin password, you can generate a password hash:
+
+[,terminal]
+----
+$ kubectl -n o11y exec -it opensearch-cluster-master-0 \
+    -- bash -c "/usr/share/opensearch/plugins/opensearch-security/tools/hash.sh -p 'mypassword'"
+----
+
+== Creating an OpenSearch Security Config Secret
+
+After modifying the security config files, create a Kubernetes secret:
+
+
+[,terminal]
+----
+$ kubectl -n o11y create secret generic opensearch-security-config \
+  --from-file=config/opensearch-security/config.yml \
+  --from-file=config/opensearch-security/internal_users.yml \
+  --from-file=config/opensearch-security/roles.yml \
+  --from-file=config/opensearch-security/roles_mapping.yml \
+  --from-file=config/opensearch-security/action_groups.yml \
+  --from-file=config/opensearch-security/tenants.yml \
+  --dry-run=client -o yaml | \
+  yq eval 'del(.metadata.creationTimestamp)' \
+  > opensearch-security-config-secret.yaml
+----
+
+Apply the secret:
+[,terminal]
+----
+$ kubectl apply -f opensearch-security-config-secret.yaml
+----
+
+=== Updating OpenSearch Helm Values
+
+In your custom values.yaml,update the configuration to mount the new secret:
+
+.opensearch/custom-opensearch-values.yaml
+[source,yaml]
+----
+extraEnvs:
+  - name: OPENSEARCH_INITIAL_ADMIN_PASSWORD
+    value: "your-password"
+  ## <1>
+  - name: DISABLE_INSTALL_DEMO_CONFIG
+    value: "true"
+
+## <2>
+securityConfig:
+  config:
+    securityConfigSecret: opensearch-security-config
+
+----
+<1> *DISABLE_INSTALL_DEMO_CONFIG=true*: Ensures that your custom security config is applied instead of demo settings.
+<2> The name of the secret that contains the OpenSearch security config files. All the files saved in the opensearch-security-config security will be mounted at the directory of '/usr/share/opensearch/config/opensearch-security/'
+
+
+== Keycloak Configuration for OpenSearch
+
+=== Role Key Issues
+
+Keycloak returns roles as a *list*, while OpenSearch expects a *comma-separated string*.
+
+
+==== Example:
+
+
+.Keycloak ID Token:
+[source,yaml]
+----
+  "realm_access": {
+    "roles": [
+      "grafana-admin"
+      "os_admin"
+    ]
+  },
+----
+
+.OpenSearch expects:
+[source,yaml]
+----
+  "os_roles": "grafana-admin,os_admin"
+----
+
+Since Keycloak cannot directly transform a list into a string, we configure a client role mapper.
+
+
+=== Backend Roles for OpenSearch
+
+The roles below will be used in Keycloak for OpenSearch Roles
+
+* os_admin
+* os_readall
+* os_kibanauser
+
+
+.Client Roles of nsa2-o11y
+[.img-wide]
+image::kc-client-roles.png[]
+
+=== Creating a Client Role Mapper
+
+Navigate Client scopes and select your client scope that is used for your Oauth2 client. And then select Mappers tab and click on 'Add mapper' > 'From predefined mappers'
+
+.Add mapper
+[.img-wide]
+image::kc_add-mapper.png[]
+
+Type 'roles' in the search box and select 'Client Roles' mapper.
+
+.Add predefined mappers - Client Roles
+[.img-medium]
+image::kc_add-mapper-dialog.png[]
+
+Fill in the fields below:
+
+.User Client Role Form
+[.img-wide]
+image::kc_user-client-role.png[]
+
+Configure the fields below:
+
+* *Multivalued* : Off
+* *Token Claim Name*: os_roles
+* *Claim JSON Type*: String
+* *Add to ID token*: On
+
+And then click on 'Save' button
+
+Now the os_roles field will be added to both ID tokens and access tokens.
+
+
+=== Assigning Client Roles to Users
+
+. Navigate to Users → select a user.
+. Go to the Role Mappings tab.
+. Assign the appropriate client roles (os_admin, os_readall, os_kibanauser).
+
+
+Navigate to Users and select the user that you want to assign the client role. And then select 'Role Mappings' tab.
+
+To assign the client role, click on 'Assign Role' button and select the client role that you want to assign.
+
+.Assign a client role to user
+[.img-medium]
+[.img-wide]
+image::kc_assign-roles-to-user.png[]
+
+== Traefik Ingress Configuration
+
+Example o11y-sso-ingress.yaml:
+
+.o11y-sso-ingress.yaml
+[source,yaml]
+----
+# using EJS templating. using ingress variable
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: o11y-sso-ingress
+  namespace: o11y
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    traefik.ingress.kubernetes.io/router.middlewares: "o11y-forward-auth@kubernetescrd"
+spec:
+  ingressClassName: traefik
+  rules:
+
+    - host: jaeger.nsa2.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: jaeger-collector
+                port:
+                  name: jaeger
+
+    - host: prometheus.nsa2.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: prometheus
+                port:
+                  name: web
+
+    - host: grafana.nsa2.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  name: service
+
+    ## <1>
+    - host: os-dashboards.nsa2.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: opensearch-dashboards
+                port:
+                  name: http
+
+----
+
+<1> The host name for OpenSearch Dashboards. You can use the same host name as OpenSearch or a different one.
+
+
+== Sign In OpenSearch with devops user
+
+[NOTE]
+====
+Ensure your DNS is properly configured for http://os-dashboards.nsa2.com.
+====
+
+Navigate to http://os-dashboards.nsa2.com
+
+.Sign In OpenSearch Dashboards with devops account
+[.img-wide]
+[.img-medium]
+image::kc-login.png[]
+
+Sign in with:
+
+* username: devops
+* password: password
+
+Now you can see the OpenSearch Dashboards.
+To check the roles, click on the user icon on the top right corner and select 'View roles and identities'
+
+.View roles and identities
+[.img-wide]
+image::os_view-roles.png[]
+
+Then you can see the roles that are assigned to the user mapped by roles_mapping.yml file.
+
+.Roles assigned to the user
+[.img-medium]
+image::os_roles-mapped.png[]
+
+== Conclusion
+
+In this guide, we configured OpenSearch and OpenSearch Dashboards to authenticate via Keycloak using OpenID Connect.
+We also set up client roles in Keycloak, created role mappings in OpenSearch, and secured the environment with TLS.
+
+This document is also available with better formatting at:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/sso-foundry/opensearch-oidc/
+
+
+== References
+
+* https://docs.opensearch.org/docs/latest/security/authentication-backends/openid-connect/

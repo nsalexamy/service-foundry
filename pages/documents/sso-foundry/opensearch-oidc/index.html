@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Enabling OpenSearch OIDC Authentication for Single Sign-On</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="active">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/sso-foundry/">SSO Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Enabling OpenSearch OIDC Authentication for Single Sign-On
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#overview-of-the-integration">Overview of the Integration</a></li>
+</ul>
+</li>
+<li><a href="#downloading-opensearch-security-configuration-files">Downloading OpenSearch Security Configuration Files</a></li>
+<li><a href="#opensearch-configuration">OpenSearch Configuration</a>
+<ul class="sectlevel2">
+<li><a href="#ssl-configuration">SSL Configuration</a></li>
+<li><a href="#modifying-opensearch-security-configurations">Modifying OpenSearch Security Configurations</a></li>
+</ul>
+</li>
+<li><a href="#creating-an-opensearch-security-config-secret">Creating an OpenSearch Security Config Secret</a>
+<ul class="sectlevel2">
+<li><a href="#updating-opensearch-helm-values">Updating OpenSearch Helm Values</a></li>
+</ul>
+</li>
+<li><a href="#keycloak-configuration-for-opensearch">Keycloak Configuration for OpenSearch</a>
+<ul class="sectlevel2">
+<li><a href="#role-key-issues">Role Key Issues</a></li>
+<li><a href="#backend-roles-for-opensearch">Backend Roles for OpenSearch</a></li>
+<li><a href="#creating-a-client-role-mapper">Creating a Client Role Mapper</a></li>
+<li><a href="#assigning-client-roles-to-users">Assigning Client Roles to Users</a></li>
+</ul>
+</li>
+<li><a href="#traefik-ingress-configuration">Traefik Ingress Configuration</a></li>
+<li><a href="#sign-in-opensearch-with-devops-user">Sign In OpenSearch with devops user</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#references">References</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/opensearch-sso.png" alt="opensearch sso">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>After successfully integrating Single Sign-On (SSO) with Jaeger, Prometheus, and Grafana using Keycloak, the next step is OpenSearch and OpenSearch Dashboards.
+This guide walks you through setting up OpenID Connect authentication for OpenSearch, configuring role mappings, and securing access using Keycloak as your Identity Provider (IdP).</p>
+</div>
+<div class="sect2">
+<h3 id="overview-of-the-integration">Overview of the Integration</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>OpenSearch Authentication</strong>: OpenID Connect (OIDC) with Keycloak</p>
+</li>
+<li>
+<p><strong>Security Hardening</strong>: TLS certificates via cert-manager</p>
+</li>
+<li>
+<p><strong>Role-Based Access Control</strong>: Keycloak client roles mapped to OpenSearch backend roles</p>
+</li>
+<li>
+<p><strong>Ingress Management</strong>: Traefik Ingress Controller</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="downloading-opensearch-security-configuration-files">Downloading OpenSearch Security Configuration Files</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This setup requires downloading configuration files from the OpenSearch container deployed via the OpenSearch Helm chart.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Container Path</strong>: <code>/usr/share/opensearch/config/opensearch-security/</code></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Security files to download:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>action_groups.yml</p>
+</li>
+<li>
+<p>config.yml</p>
+</li>
+<li>
+<p>internal_users.yml</p>
+</li>
+<li>
+<p>roles.yml</p>
+</li>
+<li>
+<p>roles_mapping.yml</p>
+</li>
+<li>
+<p>tenants.yml</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Create directories to store the original and modified files:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre># Directory for downloading config files
+$ mkdir -p config_download/opensearch-security
+
+# Directory for modified config files
+$ mkdir -p config/opensearch-security</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Download the configuration files from the OpenSearch container:</p>
+</div>
+<div class="listingblock">
+<div class="title">download all files in the config/opensearch-security directory</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="nb">echo</span> <span class="s2">"action_groups.yml  allowlist.yml  audit.yml  config.yml  internal_users.yml  nodes_dn.yml  opensearch.yml.example  roles.yml  roles_mapping.yml  tenants.yml  whitelist.yml"</span> <span class="se">\</span>
+<span class="go">    | xargs -n1 \
+    | xargs -I {} kubectl -n o11y cp opensearch-cluster-master-0:config/opensearch-security/{} config_download/opensearch-security/{}</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="opensearch-configuration">OpenSearch Configuration</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="ssl-configuration">SSL Configuration</h3>
+<div class="paragraph">
+<p>Ensure TLS is properly configured for OpenSearch.
+Refer to the following guides:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/infra-foundry/cert-manager/" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/infra-foundry/cert-manager/</a></p>
+</li>
+<li>
+<p><a href="https://www.linkedin.com/pulse/configure-tls-opensearch-cert-manager-young-gyu-kim-mygyc" class="bare">https://www.linkedin.com/pulse/configure-tls-opensearch-cert-manager-young-gyu-kim-mygyc</a></p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="modifying-opensearch-security-configurations">Modifying OpenSearch Security Configurations</h3>
+<div class="paragraph">
+<p>Among the downloaded files, we need to modify:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>config.yml</p>
+</li>
+<li>
+<p>roles_mapping.yml</p>
+</li>
+</ul>
+</div>
+<div class="sect3">
+<h4 id="config-yml-authentication-configuration">config.yml (Authentication Configuration)</h4>
+<div class="listingblock">
+<div class="title">config/opensearch-security/config.yml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">_meta</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s2">"</span><span class="s">config"</span>
+  <span class="na">config_version</span><span class="pi">:</span> <span class="m">2</span>
+
+<span class="na">config</span><span class="pi">:</span>
+  <span class="na">dynamic</span><span class="pi">:</span>
+    <span class="na">authc</span><span class="pi">:</span>
+      <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+      <span class="na">openid_auth_domain</span><span class="pi">:</span>
+        <span class="na">http_enabled</span><span class="pi">:</span> <span class="kc">true</span>
+        <span class="na">transport_enabled</span><span class="pi">:</span> <span class="kc">true</span>
+        <span class="na">order</span><span class="pi">:</span> <span class="m">0</span>
+        <span class="na">http_authenticator</span><span class="pi">:</span>
+          <span class="na">type</span><span class="pi">:</span> <span class="s">openid</span>
+          <span class="na">challenge</span><span class="pi">:</span> <span class="kc">false</span>
+          <span class="na">config</span><span class="pi">:</span>
+            <span class="na">subject_key</span><span class="pi">:</span> <span class="s">preferred_username</span>
+            <span class="na">roles_key</span><span class="pi">:</span> <span class="s">os_roles</span>
+            <span class="na">openid_connect_url</span><span class="pi">:</span> <span class="s">http://af5851e89c6c2454f9b9a0adb8fb17ca-2098848636.ca-west-1.elb.amazonaws.com/realms/nsa2-realm/.well-known/openid-configuration</span>
+            <span class="na">client_id</span><span class="pi">:</span> <span class="s">nsa2-o11y</span>
+            <span class="na">client_secret</span><span class="pi">:</span> <span class="s">gZ343TCd0kBehqTOkGZFkbL4WvXoa3Ss</span>
+            <span class="na">scope</span><span class="pi">:</span> <span class="s2">"</span><span class="s">openid</span><span class="nv"> </span><span class="s">profile</span><span class="nv"> </span><span class="s">email"</span>
+        <span class="na">authentication_backend</span><span class="pi">:</span>
+          <span class="na">type</span><span class="pi">:</span> <span class="s">noop</span>
+
+      <span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+      <span class="na">basic_internal_auth_domain</span><span class="pi">:</span>
+        <span class="na">description</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Authenticate</span><span class="nv"> </span><span class="s">via</span><span class="nv"> </span><span class="s">HTTP</span><span class="nv"> </span><span class="s">Basic</span><span class="nv"> </span><span class="s">against</span><span class="nv"> </span><span class="s">internal</span><span class="nv"> </span><span class="s">users</span><span class="nv"> </span><span class="s">database"</span>
+        <span class="na">http_enabled</span><span class="pi">:</span> <span class="kc">true</span>
+        <span class="na">transport_enabled</span><span class="pi">:</span> <span class="kc">true</span>
+        <span class="na">order</span><span class="pi">:</span> <span class="m">4</span>
+        <span class="na">http_authenticator</span><span class="pi">:</span>
+          <span class="na">type</span><span class="pi">:</span> <span class="s">basic</span>
+          <span class="na">challenge</span><span class="pi">:</span> <span class="kc">true</span>
+        <span class="na">authentication_backend</span><span class="pi">:</span>
+          <span class="na">type</span><span class="pi">:</span> <span class="s">intern</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td><strong>OpenID Connect Authentication:</strong> Configures OpenID Connect authentication using Keycloak.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td><strong>Basic Authentication</strong>: Configures fallback authentication using internal users.</td>
+</tr>
+</table>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 25%;">
+<col style="width: 75%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Name</th>
+<th class="tableblock halign-left valign-top">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">openid_connect_url</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">The URL of your IdP where the Security plugin can find the OpenID Connect metadata/configuration settings. This URL differs between IdPs. Required when using OpenID Connect as your backend.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">jwt_header</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">The HTTP header that stores the token. Typically the Authorization header with the Bearer schema: Authorization: Bearer &lt;token&gt;. Optional. Default is Authorization.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">jwt_url_parameter</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">If the token is not transmitted in the HTTP header, but as an URL parameter, define the name of the parameter here. Optional.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">subject_key</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">The key in the JSON payload that stores the user’s name. If not defined, the subject registered claim is used. Most IdP providers use the preferred_username claim. Optional.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">roles_key</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">The key in the JSON payload that stores the user’s roles. The value of this key must be a comma-separated list of roles. Required only if you want to use roles in the JWT.</p></td>
+</tr>
+</tbody>
+</table>
+<div class="paragraph">
+<p>For full details on the OpenID authentication configuration, see</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://docs.opensearch.org/docs/latest/security/authentication-backends/openid-connect/" class="bare">https://docs.opensearch.org/docs/latest/security/authentication-backends/openid-connect/</a></p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="roles_mapping-yml-role-mapping-configuration">roles_mapping.yml (Role Mapping Configuration)</h4>
+<div class="listingblock">
+<div class="title">config/opensearch-security/roles_mapping.yml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="nn">---</span>
+<span class="c1"># In this file users, backendroles and hosts can be mapped to Security roles.</span>
+<span class="c1"># Permissions for OpenSearch roles are configured in roles.yml</span>
+
+<span class="na">_meta</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s2">"</span><span class="s">rolesmapping"</span>
+  <span class="na">config_version</span><span class="pi">:</span> <span class="m">2</span>
+
+<span class="c1"># Define your roles mapping here</span>
+
+<span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+<span class="na">all_access</span><span class="pi">:</span>
+  <span class="na">reserved</span><span class="pi">:</span> <span class="kc">false</span>
+  <span class="na">backend_roles</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s2">"</span><span class="s">admin"</span>
+  <span class="pi">-</span> <span class="s2">"</span><span class="s">os_admin"</span>  <span class="c1"># From Keycloak</span>
+  <span class="na">description</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Maps</span><span class="nv"> </span><span class="s">admin</span><span class="nv"> </span><span class="s">to</span><span class="nv"> </span><span class="s">all_access"</span>
+
+<span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+<span class="na">own_index</span><span class="pi">:</span>
+  <span class="na">reserved</span><span class="pi">:</span> <span class="kc">false</span>
+  <span class="na">users</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s2">"</span><span class="s">*"</span>
+  <span class="na">description</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Allow</span><span class="nv"> </span><span class="s">full</span><span class="nv"> </span><span class="s">access</span><span class="nv"> </span><span class="s">to</span><span class="nv"> </span><span class="s">an</span><span class="nv"> </span><span class="s">index</span><span class="nv"> </span><span class="s">named</span><span class="nv"> </span><span class="s">like</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">username"</span>
+
+<span class="na">logstash</span><span class="pi">:</span>
+  <span class="na">reserved</span><span class="pi">:</span> <span class="kc">false</span>
+  <span class="na">backend_roles</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s2">"</span><span class="s">logstash"</span>
+
+<span class="c1">#</span><i class="conum" data-value="3"></i><b>(3)</b>
+<span class="na">kibana_user</span><span class="pi">:</span>
+  <span class="na">reserved</span><span class="pi">:</span> <span class="kc">false</span>
+  <span class="na">backend_roles</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s2">"</span><span class="s">kibanauser"</span>
+  <span class="pi">-</span> <span class="s2">"</span><span class="s">os_kibanauser"</span>  <span class="c1"># from Keycloak</span>
+  <span class="na">description</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Maps</span><span class="nv"> </span><span class="s">kibanauser</span><span class="nv"> </span><span class="s">to</span><span class="nv"> </span><span class="s">kibana_user"</span>
+
+<span class="c1">#</span><i class="conum" data-value="4"></i><b>(4)</b>
+<span class="na">readall</span><span class="pi">:</span>
+  <span class="na">reserved</span><span class="pi">:</span> <span class="kc">false</span>
+  <span class="na">backend_roles</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s2">"</span><span class="s">readall"</span>
+  <span class="pi">-</span> <span class="s2">"</span><span class="s">os_readall"</span>  <span class="c1"># from Keycloak</span>
+
+<span class="na">manage_snapshots</span><span class="pi">:</span>
+  <span class="na">reserved</span><span class="pi">:</span> <span class="kc">false</span>
+  <span class="na">backend_roles</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s2">"</span><span class="s">snapshotrestore"</span>
+
+<span class="na">kibana_server</span><span class="pi">:</span>
+  <span class="na">reserved</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="na">users</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s2">"</span><span class="s">kibanaserver"</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td><strong>all_access</strong>: Grants full access to all indices and cluster operations.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td><strong>own_index</strong>: Grants users full access to their own index.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td><strong>kibana_user</strong>: Grants access to Kibana Dashboards.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td><strong>readall</strong>: Grants read-only access to all indices.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>In Keycloak, the roles (os_admin, os_readall, os_kibanauser) are created as client roles.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="internal_users-yml-password-management">internal_users.yml (Password Management)</h4>
+<div class="paragraph">
+<p>No changes are required for internal_users.yml.</p>
+</div>
+<div class="listingblock">
+<div class="title">config/opensearch-security/internal_users.yml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">_meta</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s2">"</span><span class="s">internalusers"</span>
+  <span class="na">config_version</span><span class="pi">:</span> <span class="m">2</span>
+<span class="na">admin</span><span class="pi">:</span>
+  <span class="na">hash</span><span class="pi">:</span> <span class="s2">"</span><span class="s">$2y$12$jltE4Y74EV.LfvEu3OaYu.p5qdqn27e9Dmma4diRFq4YCS.UHjzwu"</span>
+  <span class="na">reserved</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="na">backend_roles</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s2">"</span><span class="s">admin"</span>
+  <span class="na">description</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Demo</span><span class="nv"> </span><span class="s">admin</span><span class="nv"> </span><span class="s">user"</span>
+<span class="na">anomalyadmin</span><span class="pi">:</span>
+  <span class="na">hash</span><span class="pi">:</span> <span class="s2">"</span><span class="s">$2y$12$TRwAAJgnNo67w3rVUz4FIeLx9Dy/llB79zf9I15CKJ9vkM4ZzAd3."</span>
+  <span class="na">reserved</span><span class="pi">:</span> <span class="kc">false</span>
+  <span class="na">opendistro_security_roles</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s2">"</span><span class="s">anomaly_full_access"</span>
+  <span class="na">description</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Demo</span><span class="nv"> </span><span class="s">anomaly</span><span class="nv"> </span><span class="s">admin</span><span class="nv"> </span><span class="s">user,</span><span class="nv"> </span><span class="s">using</span><span class="nv"> </span><span class="s">internal</span><span class="nv"> </span><span class="s">role"</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>However, if you want to create a new admin password, you can generate a password hash:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> o11y <span class="nb">exec</span> <span class="nt">-it</span> opensearch-cluster-master-0 <span class="se">\</span>
+<span class="go">    -- bash -c "/usr/share/opensearch/plugins/opensearch-security/tools/hash.sh -p 'mypassword'"</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="creating-an-opensearch-security-config-secret">Creating an OpenSearch Security Config Secret</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>After modifying the security config files, create a Kubernetes secret:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> o11y create secret generic opensearch-security-config <span class="se">\</span>
+<span class="go">  --from-file=config/opensearch-security/config.yml \
+  --from-file=config/opensearch-security/internal_users.yml \
+  --from-file=config/opensearch-security/roles.yml \
+  --from-file=config/opensearch-security/roles_mapping.yml \
+  --from-file=config/opensearch-security/action_groups.yml \
+  --from-file=config/opensearch-security/tenants.yml \
+  --dry-run=client -o yaml | \
+  yq eval 'del(.metadata.creationTimestamp)' \
+</span><span class="gp">  &gt;</span><span class="w"> </span>opensearch-security-config-secret.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Apply the secret:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl apply <span class="nt">-f</span> opensearch-security-config-secret.yaml</code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="updating-opensearch-helm-values">Updating OpenSearch Helm Values</h3>
+<div class="paragraph">
+<p>In your custom values.yaml,update the configuration to mount the new secret:</p>
+</div>
+<div class="listingblock">
+<div class="title">opensearch/custom-opensearch-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">extraEnvs</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OPENSEARCH_INITIAL_ADMIN_PASSWORD</span>
+    <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">your-password"</span>
+  <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">DISABLE_INSTALL_DEMO_CONFIG</span>
+    <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">true"</span>
+
+<span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+<span class="na">securityConfig</span><span class="pi">:</span>
+  <span class="na">config</span><span class="pi">:</span>
+    <span class="na">securityConfigSecret</span><span class="pi">:</span> <span class="s">opensearch-security-config</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td><strong>DISABLE_INSTALL_DEMO_CONFIG=true</strong>: Ensures that your custom security config is applied instead of demo settings.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The name of the secret that contains the OpenSearch security config files. All the files saved in the opensearch-security-config security will be mounted at the directory of '/usr/share/opensearch/config/opensearch-security/'</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="keycloak-configuration-for-opensearch">Keycloak Configuration for OpenSearch</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="role-key-issues">Role Key Issues</h3>
+<div class="paragraph">
+<p>Keycloak returns roles as a <strong>list</strong>, while OpenSearch expects a <strong>comma-separated string</strong>.</p>
+</div>
+<div class="sect3">
+<h4 id="example">Example:</h4>
+<div class="listingblock">
+<div class="title">Keycloak ID Token:</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">  <span class="s2">"</span><span class="s">realm_access"</span><span class="err">:</span> <span class="pi">{</span>
+    <span class="s2">"</span><span class="s">roles"</span><span class="pi">:</span> <span class="pi">[</span>
+      <span class="s2">"</span><span class="s">grafana-admin"</span>
+      <span class="s2">"</span><span class="s">os_admin"</span>
+    <span class="pi">]</span>
+  <span class="pi">}</span><span class="err">,</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">OpenSearch expects:</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">  <span class="s2">"</span><span class="s">os_roles"</span><span class="err">:</span> <span class="s2">"</span><span class="s">grafana-admin,os_admin"</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Since Keycloak cannot directly transform a list into a string, we configure a client role mapper.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="backend-roles-for-opensearch">Backend Roles for OpenSearch</h3>
+<div class="paragraph">
+<p>The roles below will be used in Keycloak for OpenSearch Roles</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>os_admin</p>
+</li>
+<li>
+<p>os_readall</p>
+</li>
+<li>
+<p>os_kibanauser</p>
+</li>
+</ul>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/kc-client-roles.png" alt="kc client roles">
+</div>
+<div class="title">Figure 1. Client Roles of nsa2-o11y</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="creating-a-client-role-mapper">Creating a Client Role Mapper</h3>
+<div class="paragraph">
+<p>Navigate Client scopes and select your client scope that is used for your Oauth2 client. And then select Mappers tab and click on 'Add mapper' &gt; 'From predefined mappers'</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/kc_add-mapper.png" alt="kc add mapper">
+</div>
+<div class="title">Figure 2. Add mapper</div>
+</div>
+<div class="paragraph">
+<p>Type 'roles' in the search box and select 'Client Roles' mapper.</p>
+</div>
+<div class="imageblock img-medium">
+<div class="content">
+<img src="images/kc_add-mapper-dialog.png" alt="kc add mapper dialog">
+</div>
+<div class="title">Figure 3. Add predefined mappers - Client Roles</div>
+</div>
+<div class="paragraph">
+<p>Fill in the fields below:</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/kc_user-client-role.png" alt="kc user client role">
+</div>
+<div class="title">Figure 4. User Client Role Form</div>
+</div>
+<div class="paragraph">
+<p>Configure the fields below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Multivalued</strong> : Off</p>
+</li>
+<li>
+<p><strong>Token Claim Name</strong>: os_roles</p>
+</li>
+<li>
+<p><strong>Claim JSON Type</strong>: String</p>
+</li>
+<li>
+<p><strong>Add to ID token</strong>: On</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>And then click on 'Save' button</p>
+</div>
+<div class="paragraph">
+<p>Now the os_roles field will be added to both ID tokens and access tokens.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="assigning-client-roles-to-users">Assigning Client Roles to Users</h3>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Navigate to Users → select a user.</p>
+</li>
+<li>
+<p>Go to the Role Mappings tab.</p>
+</li>
+<li>
+<p>Assign the appropriate client roles (os_admin, os_readall, os_kibanauser).</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>Navigate to Users and select the user that you want to assign the client role. And then select 'Role Mappings' tab.</p>
+</div>
+<div class="paragraph">
+<p>To assign the client role, click on 'Assign Role' button and select the client role that you want to assign.</p>
+</div>
+<div class="imageblock img-medium img-wide">
+<div class="content">
+<img src="images/kc_assign-roles-to-user.png" alt="kc assign roles to user">
+</div>
+<div class="title">Figure 5. Assign a client role to user</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="traefik-ingress-configuration">Traefik Ingress Configuration</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Example o11y-sso-ingress.yaml:</p>
+</div>
+<div class="listingblock">
+<div class="title">o11y-sso-ingress.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># using EJS templating. using ingress variable</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">networking.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Ingress</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">o11y-sso-ingress</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="na">kubernetes.io/ingress.class</span><span class="pi">:</span> <span class="s">traefik</span>
+    <span class="na">traefik.ingress.kubernetes.io/router.middlewares</span><span class="pi">:</span> <span class="s2">"</span><span class="s">o11y-forward-auth@kubernetescrd"</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">ingressClassName</span><span class="pi">:</span> <span class="s">traefik</span>
+  <span class="na">rules</span><span class="pi">:</span>
+
+    <span class="pi">-</span> <span class="na">host</span><span class="pi">:</span> <span class="s">jaeger.nsa2.com</span>
+      <span class="na">http</span><span class="pi">:</span>
+        <span class="na">paths</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">path</span><span class="pi">:</span> <span class="s">/</span>
+            <span class="na">pathType</span><span class="pi">:</span> <span class="s">Prefix</span>
+            <span class="na">backend</span><span class="pi">:</span>
+              <span class="na">service</span><span class="pi">:</span>
+                <span class="na">name</span><span class="pi">:</span> <span class="s">jaeger-collector</span>
+                <span class="na">port</span><span class="pi">:</span>
+                  <span class="na">name</span><span class="pi">:</span> <span class="s">jaeger</span>
+
+    <span class="pi">-</span> <span class="na">host</span><span class="pi">:</span> <span class="s">prometheus.nsa2.com</span>
+      <span class="na">http</span><span class="pi">:</span>
+        <span class="na">paths</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">path</span><span class="pi">:</span> <span class="s">/</span>
+            <span class="na">pathType</span><span class="pi">:</span> <span class="s">Prefix</span>
+            <span class="na">backend</span><span class="pi">:</span>
+              <span class="na">service</span><span class="pi">:</span>
+                <span class="na">name</span><span class="pi">:</span> <span class="s">prometheus</span>
+                <span class="na">port</span><span class="pi">:</span>
+                  <span class="na">name</span><span class="pi">:</span> <span class="s">web</span>
+
+    <span class="pi">-</span> <span class="na">host</span><span class="pi">:</span> <span class="s">grafana.nsa2.com</span>
+      <span class="na">http</span><span class="pi">:</span>
+        <span class="na">paths</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">path</span><span class="pi">:</span> <span class="s">/</span>
+            <span class="na">pathType</span><span class="pi">:</span> <span class="s">Prefix</span>
+            <span class="na">backend</span><span class="pi">:</span>
+              <span class="na">service</span><span class="pi">:</span>
+                <span class="na">name</span><span class="pi">:</span> <span class="s">grafana</span>
+                <span class="na">port</span><span class="pi">:</span>
+                  <span class="na">name</span><span class="pi">:</span> <span class="s">service</span>
+
+    <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="pi">-</span> <span class="na">host</span><span class="pi">:</span> <span class="s">os-dashboards.nsa2.com</span>
+      <span class="na">http</span><span class="pi">:</span>
+        <span class="na">paths</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">path</span><span class="pi">:</span> <span class="s">/</span>
+            <span class="na">pathType</span><span class="pi">:</span> <span class="s">Prefix</span>
+            <span class="na">backend</span><span class="pi">:</span>
+              <span class="na">service</span><span class="pi">:</span>
+                <span class="na">name</span><span class="pi">:</span> <span class="s">opensearch-dashboards</span>
+                <span class="na">port</span><span class="pi">:</span>
+                  <span class="na">name</span><span class="pi">:</span> <span class="s">http</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The host name for OpenSearch Dashboards. You can use the same host name as OpenSearch or a different one.</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="sign-in-opensearch-with-devops-user">Sign In OpenSearch with devops user</h2>
+<div class="sectionbody">
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+<div class="paragraph">
+<p>Ensure your DNS is properly configured for <a href="http://os-dashboards.nsa2.com" class="bare">http://os-dashboards.nsa2.com</a>.</p>
+</div>
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Navigate to <a href="http://os-dashboards.nsa2.com" class="bare">http://os-dashboards.nsa2.com</a></p>
+</div>
+<div class="imageblock img-wide img-medium">
+<div class="content">
+<img src="images/kc-login.png" alt="kc login">
+</div>
+<div class="title">Figure 6. Sign In OpenSearch Dashboards with devops account</div>
+</div>
+<div class="paragraph">
+<p>Sign in with:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>username: devops</p>
+</li>
+<li>
+<p>password: password</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Now you can see the OpenSearch Dashboards.
+To check the roles, click on the user icon on the top right corner and select 'View roles and identities'</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/os_view-roles.png" alt="os view roles">
+</div>
+<div class="title">Figure 7. View roles and identities</div>
+</div>
+<div class="paragraph">
+<p>Then you can see the roles that are assigned to the user mapped by roles_mapping.yml file.</p>
+</div>
+<div class="imageblock img-medium">
+<div class="content">
+<img src="images/os_roles-mapped.png" alt="os roles mapped">
+</div>
+<div class="title">Figure 8. Roles assigned to the user</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this guide, we configured OpenSearch and OpenSearch Dashboards to authenticate via Keycloak using OpenID Connect.
+We also set up client roles in Keycloak, created role mappings in OpenSearch, and secured the environment with TLS.</p>
+</div>
+<div class="paragraph">
+<p>This document is also available with better formatting at:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/sso-foundry/opensearch-oidc/" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/sso-foundry/opensearch-oidc/</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="references">References</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://docs.opensearch.org/docs/latest/security/authentication-backends/openid-connect/" class="bare">https://docs.opensearch.org/docs/latest/security/authentication-backends/openid-connect/</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>
