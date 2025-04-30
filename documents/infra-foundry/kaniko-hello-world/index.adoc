@@ -22,33 +22,36 @@ image::kaniko-introduction.png[]
 
 == Introduction
 
-Kaniko is a tool to build container images from a Dockerfile, inside a container or Kubernetes cluster. It doesn't depend on a Docker daemon and executes each command in a Dockerfile completely in userspace.
+Kaniko is a tool for building container images from a Dockerfile within a container or Kubernetes cluster. Unlike traditional Docker builds, Kaniko operates entirely in user space and does not require a Docker daemon.
 
-As the first series of Kaniko, this guide gets started with a simple Dockerfile and push the Docker image Docker Hub.
+This tutorial is the first part of a Kaniko series and walks you through building a basic Docker image and pushing it to Docker Hub using Kubernetes.
 
-This document is based on the web page below:
+*Reference:*
+Based on the official Kaniko documentation:
 
-https://github.com/GoogleContainerTools/kaniko/blob/main/docs/tutorial.md
+* https://github.com/GoogleContainerTools/kaniko/blob/main/docs/tutorial.md
 
-=== Requirement Specs
+== Overview: Service Foundry Builder Requirements
 
-* Service Foundry Builder is designed to deploy Service Foundry modules.
-* Service Foundry Builder is able to be running on Containers (Kubernetes-native)
-* Service Foundry Builder is able to build and push Docker images to various Container Registries include ACR and ECR.
+Service Foundry Builder supports the following:
+
+* Runs in containers (Kubernetes-native)
+* Deploys Service Foundry modules
+* Builds and pushes Docker images to container registries such as Docker Hub, ACR, and ECR
 
 
 === Prerequisites
 
-* A Kubernetes cluster
-* kubectl installed and configured to communicate with your cluster
-* A container registry (e.g., Docker Hub, Google Container Registry, etc.) to push the built image
+* A running Kubernetes cluster
+* kubectl installed and configured
+* Docker Hub (or any container registry) account for pushing images
 
 
-== Push a Docker image to Docker Hub
+== Step-by-Step Guide to Push a Docker Image to Docker Hub
 
-=== Dockerfile
+=== 1. Define a Dockerfile
 
-This Dockerfile is just Hello World application that does not need any application files.
+We’ll use a simple “Hello World” Dockerfile:
 
 .dockerfile
 [,dockerfile]
@@ -58,18 +61,16 @@ ENTRYPOINT ["/bin/bash", "-c", "echo Hello Kaniko at $(date)"]
 ----
 
 
-=== Create namespace
+=== 2. Create a Kubernetes Namespace
 
-This example will be deployed in 'kaniko' namespace.
-
-Create kaniko namespace
+Create the kaniko namespace for the build process:
 
 [,terminal]
 ----
 $ kubectl get namesapce kaniko &> /dev/null && kubectl create namespace kaniko
 ----
 
-=== Create a ConfigMap that holds your Dockerfile
+=== 3. Create a ConfigMap for the Dockerfile
 
 Create a ConfigMap to save the dockerfile.
 
@@ -80,20 +81,14 @@ $ kubectl -n kaniko create configmap kaniko-helloworld-dockerfile \
   --dry-run=client -o yaml \
   | yq eval 'del(.metadata.creationTimestamp)' \
   > kaniko-helloworld-dockerfile-configmap.yaml
-----
 
-Apply the ConfigMap to your Kubernetes cluster:
-
-[,terminal]
-----
 $ kubectl apply -f kaniko-helloworld-dockerfile-configmap.yaml
 ----
 
 
-== Create a Secret that holds your registry credentials
+== 4. Create a Docker Registry Secret
 
-The Docker image will be pushed to your own Docker Hub which requires your DockerHub username, password, and email.
-
+Prepare environment variables for your Docker Hub credentials:
 
 [,terminal]
 ----
@@ -103,7 +98,7 @@ $ DOCKER_PASSWORD=your_password
 $ DOCKER_EMAIL=your_email
 ----
 
-Create a Secret to save your DockerHub credentials.
+Create the Docker registry secret:
 
 [,terminal]
 ----
@@ -114,11 +109,10 @@ $ kubectl -n kaniko create secret docker-registry docker-registry-credential \
   --docker-email=$DOCKER_EMAIL
 ----
 
-=== kaniko-example-pod.yaml
+=== 5. Create the Kaniko Pod Manifest
 
-To run Kaniko, A Pod manifest file is required.
+Save the following as kaniko-example-pod.yaml:
 
-Here is an example of Kaniko Pod manifest.
 
 .kaniko-example-pod.yaml
 [,yaml]
@@ -167,25 +161,34 @@ spec:
 <6> The volume for the Dockerfile. This is where the Kaniko executor will look for the Dockerfile.
 
 
-Apply the Pod to your Kubernetes cluster:
-
+Apply the manifest:
 [,terminal]
 ----
 $ kubectl apply -f kaniko-example-pod.yaml
 ----
 
-=== Docker Image in Docker Hub
 
-After the Pod is created, Kaniko will start building the Docker image. You can check the logs of the Pod to see the progress of the build.
+=== 6. Monitor the Build Process
+
+Check the logs to monitor the image build and push process:
+
+[,terminal]
+----
+$ kubectl -n kaniko logs -f <kaniko-pod-name>
+----
+
+=== 7. Check Docker Image in Docker Hub
+
+Your Docker image should now be available in Docker Hub. You can verify this by logging into your Docker Hub account and checking the repository.
+
 
 .Pushed Docker image to Docker Hub
-[,terminal]
 [.img-wide]
 image::dockerhub.png[]
 
-=== Run the Docker image pushed to the registry
+=== 8 Run the Image from Docker Hub
 
-Now that the Docker image is built and pushed to the registry, you can run it using the following command:
+Once the image is pushed to Docker Hub, you can run it with:
 
 [,terminal]
 ----
@@ -202,8 +205,11 @@ pod "echo-hello-world" deleted
 
 == Conclusion
 
-In this tutorial, you learned how to use Kaniko to build a Docker image from a Dockerfile and push it to a Docker registry. You also learned how to create a Kubernetes Pod that runs the Kaniko executor and builds the Docker image.
+In this tutorial, you’ve learned how to:
 
+* Use Kaniko to build Docker images without a Docker daemon
+* Push images to Docker Hub from within a Kubernetes cluster
+* Deploy and run Kaniko as a Kubernetes Pod
 
 == References
 

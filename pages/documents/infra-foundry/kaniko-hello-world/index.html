@@ -134,24 +134,25 @@
             <div id="toc" class="toc">
 <div id="toctitle">On this page</div>
 <ul class="sectlevel1">
-<li><a href="#introduction">Introduction</a>
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#overview-service-foundry-builder-requirements">Overview: Service Foundry Builder Requirements</a>
 <ul class="sectlevel2">
-<li><a href="#requirement-specs">Requirement Specs</a></li>
 <li><a href="#prerequisites">Prerequisites</a></li>
 </ul>
 </li>
-<li><a href="#push-a-docker-image-to-docker-hub">Push a Docker image to Docker Hub</a>
+<li><a href="#step-by-step-guide-to-push-a-docker-image-to-docker-hub">Step-by-Step Guide to Push a Docker Image to Docker Hub</a>
 <ul class="sectlevel2">
-<li><a href="#dockerfile">Dockerfile</a></li>
-<li><a href="#create-namespace">Create namespace</a></li>
-<li><a href="#create-a-configmap-that-holds-your-dockerfile">Create a ConfigMap that holds your Dockerfile</a></li>
+<li><a href="#1-define-a-dockerfile">1. Define a Dockerfile</a></li>
+<li><a href="#2-create-a-kubernetes-namespace">2. Create a Kubernetes Namespace</a></li>
+<li><a href="#3-create-a-configmap-for-the-dockerfile">3. Create a ConfigMap for the Dockerfile</a></li>
 </ul>
 </li>
-<li><a href="#create-a-secret-that-holds-your-registry-credentials">Create a Secret that holds your registry credentials</a>
+<li><a href="#4-create-a-docker-registry-secret">4. Create a Docker Registry Secret</a>
 <ul class="sectlevel2">
-<li><a href="#kaniko-example-pod-yaml">kaniko-example-pod.yaml</a></li>
-<li><a href="#docker-image-in-docker-hub">Docker Image in Docker Hub</a></li>
-<li><a href="#run-the-docker-image-pushed-to-the-registry">Run the Docker image pushed to the registry</a></li>
+<li><a href="#5-create-the-kaniko-pod-manifest">5. Create the Kaniko Pod Manifest</a></li>
+<li><a href="#6-monitor-the-build-process">6. Monitor the Build Process</a></li>
+<li><a href="#7-check-docker-image-in-docker-hub">7. Check Docker Image in Docker Hub</a></li>
+<li><a href="#8-run-the-image-from-docker-hub">8 Run the Image from Docker Hub</a></li>
 </ul>
 </li>
 <li><a href="#conclusion">Conclusion</a></li>
@@ -171,45 +172,55 @@
 <h2 id="introduction">Introduction</h2>
 <div class="sectionbody">
 <div class="paragraph">
-<p>Kaniko is a tool to build container images from a Dockerfile, inside a container or Kubernetes cluster. It doesn&#8217;t depend on a Docker daemon and executes each command in a Dockerfile completely in userspace.</p>
+<p>Kaniko is a tool for building container images from a Dockerfile within a container or Kubernetes cluster. Unlike traditional Docker builds, Kaniko operates entirely in user space and does not require a Docker daemon.</p>
 </div>
 <div class="paragraph">
-<p>As the first series of Kaniko, this guide gets started with a simple Dockerfile and push the Docker image Docker Hub.</p>
+<p>This tutorial is the first part of a Kaniko series and walks you through building a basic Docker image and pushing it to Docker Hub using Kubernetes.</p>
 </div>
 <div class="paragraph">
-<p>This document is based on the web page below:</p>
+<p><strong>Reference:</strong>
+Based on the official Kaniko documentation:</p>
 </div>
-<div class="paragraph">
-<p><a href="https://github.com/GoogleContainerTools/kaniko/blob/main/docs/tutorial.md" class="bare">https://github.com/GoogleContainerTools/kaniko/blob/main/docs/tutorial.md</a></p>
-</div>
-<div class="sect2">
-<h3 id="requirement-specs">Requirement Specs</h3>
 <div class="ulist">
 <ul>
 <li>
-<p>Service Foundry Builder is designed to deploy Service Foundry modules.</p>
-</li>
-<li>
-<p>Service Foundry Builder is able to be running on Containers (Kubernetes-native)</p>
-</li>
-<li>
-<p>Service Foundry Builder is able to build and push Docker images to various Container Registries include ACR and ECR.</p>
+<p><a href="https://github.com/GoogleContainerTools/kaniko/blob/main/docs/tutorial.md" class="bare">https://github.com/GoogleContainerTools/kaniko/blob/main/docs/tutorial.md</a></p>
 </li>
 </ul>
 </div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview-service-foundry-builder-requirements">Overview: Service Foundry Builder Requirements</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Service Foundry Builder supports the following:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Runs in containers (Kubernetes-native)</p>
+</li>
+<li>
+<p>Deploys Service Foundry modules</p>
+</li>
+<li>
+<p>Builds and pushes Docker images to container registries such as Docker Hub, ACR, and ECR</p>
+</li>
+</ul>
 </div>
 <div class="sect2">
 <h3 id="prerequisites">Prerequisites</h3>
 <div class="ulist">
 <ul>
 <li>
-<p>A Kubernetes cluster</p>
+<p>A running Kubernetes cluster</p>
 </li>
 <li>
-<p>kubectl installed and configured to communicate with your cluster</p>
+<p>kubectl installed and configured</p>
 </li>
 <li>
-<p>A container registry (e.g., Docker Hub, Google Container Registry, etc.) to push the built image</p>
+<p>Docker Hub (or any container registry) account for pushing images</p>
 </li>
 </ul>
 </div>
@@ -217,12 +228,12 @@
 </div>
 </div>
 <div class="sect1">
-<h2 id="push-a-docker-image-to-docker-hub">Push a Docker image to Docker Hub</h2>
+<h2 id="step-by-step-guide-to-push-a-docker-image-to-docker-hub">Step-by-Step Guide to Push a Docker Image to Docker Hub</h2>
 <div class="sectionbody">
 <div class="sect2">
-<h3 id="dockerfile">Dockerfile</h3>
+<h3 id="1-define-a-dockerfile">1. Define a Dockerfile</h3>
 <div class="paragraph">
-<p>This Dockerfile is just Hello World application that does not need any application files.</p>
+<p>We’ll use a simple “Hello World” Dockerfile:</p>
 </div>
 <div class="listingblock">
 <div class="title">dockerfile</div>
@@ -233,12 +244,9 @@
 </div>
 </div>
 <div class="sect2">
-<h3 id="create-namespace">Create namespace</h3>
+<h3 id="2-create-a-kubernetes-namespace">2. Create a Kubernetes Namespace</h3>
 <div class="paragraph">
-<p>This example will be deployed in 'kaniko' namespace.</p>
-</div>
-<div class="paragraph">
-<p>Create kaniko namespace</p>
+<p>Create the kaniko namespace for the build process:</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -247,7 +255,7 @@
 </div>
 </div>
 <div class="sect2">
-<h3 id="create-a-configmap-that-holds-your-dockerfile">Create a ConfigMap that holds your Dockerfile</h3>
+<h3 id="3-create-a-configmap-for-the-dockerfile">3. Create a ConfigMap for the Dockerfile</h3>
 <div class="paragraph">
 <p>Create a ConfigMap to save the dockerfile.</p>
 </div>
@@ -257,25 +265,19 @@
 <span class="go">  --from-file=dockerfile \
   --dry-run=client -o yaml \
   | yq eval 'del(.metadata.creationTimestamp)' \
-</span><span class="gp">  &gt;</span><span class="w"> </span>kaniko-helloworld-dockerfile-configmap.yaml</code></pre>
-</div>
-</div>
-<div class="paragraph">
-<p>Apply the ConfigMap to your Kubernetes cluster:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl apply <span class="nt">-f</span> kaniko-helloworld-dockerfile-configmap.yaml</code></pre>
+</span><span class="gp">  &gt;</span><span class="w"> </span>kaniko-helloworld-dockerfile-configmap.yaml
+<span class="go">
+</span><span class="gp">$</span><span class="w"> </span>kubectl apply <span class="nt">-f</span> kaniko-helloworld-dockerfile-configmap.yaml</code></pre>
 </div>
 </div>
 </div>
 </div>
 </div>
 <div class="sect1">
-<h2 id="create-a-secret-that-holds-your-registry-credentials">Create a Secret that holds your registry credentials</h2>
+<h2 id="4-create-a-docker-registry-secret">4. Create a Docker Registry Secret</h2>
 <div class="sectionbody">
 <div class="paragraph">
-<p>The Docker image will be pushed to your own Docker Hub which requires your DockerHub username, password, and email.</p>
+<p>Prepare environment variables for your Docker Hub credentials:</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -286,7 +288,7 @@
 </div>
 </div>
 <div class="paragraph">
-<p>Create a Secret to save your DockerHub credentials.</p>
+<p>Create the Docker registry secret:</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -298,12 +300,9 @@
 </div>
 </div>
 <div class="sect2">
-<h3 id="kaniko-example-pod-yaml">kaniko-example-pod.yaml</h3>
+<h3 id="5-create-the-kaniko-pod-manifest">5. Create the Kaniko Pod Manifest</h3>
 <div class="paragraph">
-<p>To run Kaniko, A Pod manifest file is required.</p>
-</div>
-<div class="paragraph">
-<p>Here is an example of Kaniko Pod manifest.</p>
+<p>Save the following as kaniko-example-pod.yaml:</p>
 </div>
 <div class="listingblock">
 <div class="title">kaniko-example-pod.yaml</div>
@@ -373,7 +372,7 @@
 </table>
 </div>
 <div class="paragraph">
-<p>Apply the Pod to your Kubernetes cluster:</p>
+<p>Apply the manifest:</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -382,9 +381,20 @@
 </div>
 </div>
 <div class="sect2">
-<h3 id="docker-image-in-docker-hub">Docker Image in Docker Hub</h3>
+<h3 id="6-monitor-the-build-process">6. Monitor the Build Process</h3>
 <div class="paragraph">
-<p>After the Pod is created, Kaniko will start building the Docker image. You can check the logs of the Pod to see the progress of the build.</p>
+<p>Check the logs to monitor the image build and push process:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> kaniko logs <span class="nt">-f</span> &lt;kaniko-pod-name&gt;</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="7-check-docker-image-in-docker-hub">7. Check Docker Image in Docker Hub</h3>
+<div class="paragraph">
+<p>Your Docker image should now be available in Docker Hub. You can verify this by logging into your Docker Hub account and checking the repository.</p>
 </div>
 <div class="imageblock img-wide">
 <div class="content">
@@ -394,9 +404,9 @@
 </div>
 </div>
 <div class="sect2">
-<h3 id="run-the-docker-image-pushed-to-the-registry">Run the Docker image pushed to the registry</h3>
+<h3 id="8-run-the-image-from-docker-hub">8 Run the Image from Docker Hub</h3>
 <div class="paragraph">
-<p>Now that the Docker image is built and pushed to the registry, you can run it using the following command:</p>
+<p>Once the image is pushed to Docker Hub, you can run it with:</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -421,7 +431,20 @@ pod "echo-hello-world" deleted</pre>
 <h2 id="conclusion">Conclusion</h2>
 <div class="sectionbody">
 <div class="paragraph">
-<p>In this tutorial, you learned how to use Kaniko to build a Docker image from a Dockerfile and push it to a Docker registry. You also learned how to create a Kubernetes Pod that runs the Kaniko executor and builds the Docker image.</p>
+<p>In this tutorial, you’ve learned how to:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Use Kaniko to build Docker images without a Docker daemon</p>
+</li>
+<li>
+<p>Push images to Docker Hub from within a Kubernetes cluster</p>
+</li>
+<li>
+<p>Deploy and run Kaniko as a Kubernetes Pod</p>
+</li>
+</ul>
 </div>
 </div>
 </div>
