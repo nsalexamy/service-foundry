@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Deploying Apache Airflow on Amazon EKS with Amazon EFS</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="active">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/infra-foundry/">Infra Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Deploying Apache Airflow on Amazon EKS with Amazon EFS
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#requirement-specs">Requirement Specs</a></li>
+<li><a href="#prerequisites">Prerequisites</a></li>
+</ul>
+</li>
+<li><a href="#push-a-docker-image-to-docker-hub">Push a Docker image to Docker Hub</a>
+<ul class="sectlevel2">
+<li><a href="#dockerfile">Dockerfile</a></li>
+<li><a href="#create-namespace">Create namespace</a></li>
+<li><a href="#create-a-configmap-that-holds-your-dockerfile">Create a ConfigMap that holds your Dockerfile</a></li>
+</ul>
+</li>
+<li><a href="#create-a-secret-that-holds-your-registry-credentials">Create a Secret that holds your registry credentials</a>
+<ul class="sectlevel2">
+<li><a href="#kaniko-example-pod-yaml">kaniko-example-pod.yaml</a></li>
+<li><a href="#docker-image-in-docker-hub">Docker Image in Docker Hub</a></li>
+<li><a href="#run-the-docker-image-pushed-to-the-registry">Run the Docker image pushed to the registry</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#references">References</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/kaniko-introduction.png" alt="kaniko introduction">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Kaniko is a tool to build container images from a Dockerfile, inside a container or Kubernetes cluster. It doesn&#8217;t depend on a Docker daemon and executes each command in a Dockerfile completely in userspace.</p>
+</div>
+<div class="paragraph">
+<p>As the first series of Kaniko, this guide gets started with a simple Dockerfile and push the Docker image Docker Hub.</p>
+</div>
+<div class="paragraph">
+<p>This document is based on the web page below:</p>
+</div>
+<div class="paragraph">
+<p><a href="https://github.com/GoogleContainerTools/kaniko/blob/main/docs/tutorial.md" class="bare">https://github.com/GoogleContainerTools/kaniko/blob/main/docs/tutorial.md</a></p>
+</div>
+<div class="sect2">
+<h3 id="requirement-specs">Requirement Specs</h3>
+<div class="ulist">
+<ul>
+<li>
+<p>Service Foundry Builder is designed to deploy Service Foundry modules.</p>
+</li>
+<li>
+<p>Service Foundry Builder is able to be running on Containers (Kubernetes-native)</p>
+</li>
+<li>
+<p>Service Foundry Builder is able to build and push Docker images to various Container Registries include ACR and ECR.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="prerequisites">Prerequisites</h3>
+<div class="ulist">
+<ul>
+<li>
+<p>A Kubernetes cluster</p>
+</li>
+<li>
+<p>kubectl installed and configured to communicate with your cluster</p>
+</li>
+<li>
+<p>A container registry (e.g., Docker Hub, Google Container Registry, etc.) to push the built image</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="push-a-docker-image-to-docker-hub">Push a Docker image to Docker Hub</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="dockerfile">Dockerfile</h3>
+<div class="paragraph">
+<p>This Dockerfile is just Hello World application that does not need any application files.</p>
+</div>
+<div class="listingblock">
+<div class="title">dockerfile</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="dockerfile"><span class="k">FROM</span><span class="s"> ubuntu</span>
+<span class="k">ENTRYPOINT</span><span class="s"> ["/bin/bash", "-c", "echo Hello Kaniko at $(date)"]</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-namespace">Create namespace</h3>
+<div class="paragraph">
+<p>This example will be deployed in 'kaniko' namespace.</p>
+</div>
+<div class="paragraph">
+<p>Create kaniko namespace</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl get namesapce kaniko &amp;&gt; /dev/null <span class="o">&amp;&amp;</span> kubectl create namespace kaniko</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-a-configmap-that-holds-your-dockerfile">Create a ConfigMap that holds your Dockerfile</h3>
+<div class="paragraph">
+<p>Create a ConfigMap to save the dockerfile.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> kaniko create configmap kaniko-helloworld-dockerfile <span class="se">\</span>
+<span class="go">  --from-file=dockerfile \
+  --dry-run=client -o yaml \
+  | yq eval 'del(.metadata.creationTimestamp)' \
+</span><span class="gp">  &gt;</span><span class="w"> </span>kaniko-helloworld-dockerfile-configmap.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Apply the ConfigMap to your Kubernetes cluster:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl apply <span class="nt">-f</span> kaniko-helloworld-dockerfile-configmap.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-a-secret-that-holds-your-registry-credentials">Create a Secret that holds your registry credentials</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The Docker image will be pushed to your own Docker Hub which requires your DockerHub username, password, and email.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="nv">DOCKER_SERVER</span><span class="o">=</span>https://index.docker.io/v1/
+<span class="gp">$</span><span class="w"> </span><span class="nv">DOCKER_USERNAME</span><span class="o">=</span>your_username
+<span class="gp">$</span><span class="w"> </span><span class="nv">DOCKER_PASSWORD</span><span class="o">=</span>your_password
+<span class="gp">$</span><span class="w"> </span><span class="nv">DOCKER_EMAIL</span><span class="o">=</span>your_email</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Create a Secret to save your DockerHub credentials.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> kaniko create secret docker-registry docker-registry-credential <span class="se">\</span>
+<span class="gp">  --docker-server=$</span>DOCKER_SERVER <span class="se">\</span>
+<span class="gp">  --docker-username=$</span>DOCKER_USERNAME <span class="se">\</span>
+<span class="gp">  --docker-password=$</span>DOCKER_PASSWORD <span class="se">\</span>
+<span class="gp">  --docker-email=$</span>DOCKER_EMAIL</code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="kaniko-example-pod-yaml">kaniko-example-pod.yaml</h3>
+<div class="paragraph">
+<p>To run Kaniko, A Pod manifest file is required.</p>
+</div>
+<div class="paragraph">
+<p>Here is an example of Kaniko Pod manifest.</p>
+</div>
+<div class="listingblock">
+<div class="title">kaniko-example-pod.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Pod</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">generateName</span><span class="pi">:</span> <span class="s">kaniko-example-</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">kaniko</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">containers</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">kaniko</span>
+      <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+      <span class="na">image</span><span class="pi">:</span> <span class="s">gcr.io/kaniko-project/executor:latest</span>
+      <span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+      <span class="na">args</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">--dockerfile=/workspace/dockerfile"</span><span class="pi">,</span>
+             <span class="s2">"</span><span class="s">--context=dir://workspace"</span><span class="pi">,</span>
+             <span class="s2">"</span><span class="s">--destination=credemol/kaniko-hello-world"</span><span class="pi">]</span> <span class="c1"># replace with your dockerhub account</span>
+      <span class="na">volumeMounts</span><span class="pi">:</span>
+        <span class="c1">#</span><i class="conum" data-value="3"></i><b>(3)</b>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">kaniko-secret</span>
+          <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/kaniko/.docker</span>
+        <span class="c1">#</span><i class="conum" data-value="4"></i><b>(4)</b>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">dockerfile-storage</span>
+          <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/workspace</span>
+  <span class="na">restartPolicy</span><span class="pi">:</span> <span class="s">Never</span>
+  <span class="na">volumes</span><span class="pi">:</span>
+    <span class="c1">#</span><i class="conum" data-value="5"></i><b>(5)</b>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">kaniko-secret</span>
+      <span class="na">secret</span><span class="pi">:</span>
+        <span class="na">secretName</span><span class="pi">:</span> <span class="s">docker-registry-credential</span>
+        <span class="na">items</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">key</span><span class="pi">:</span> <span class="s">.dockerconfigjson</span>
+            <span class="na">path</span><span class="pi">:</span> <span class="s">config.json</span>
+    <span class="c1">#</span><i class="conum" data-value="6"></i><b>(6)</b>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">dockerfile-storage</span>
+      <span class="na">configMap</span><span class="pi">:</span>
+        <span class="na">name</span><span class="pi">:</span> <span class="s">kaniko-helloworld-dockerfile</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The Kaniko executor image. This image is used to build the Docker image.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The arguments passed to the Kaniko executor. The --dockerfile argument specifies the path to the Dockerfile, the --context argument specifies the build context, and the --destination argument specifies the destination for the built image.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>The volume mount for the Docker registry credentials. This is where the Kaniko executor will look for the Docker registry credentials.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>The volume mount for the Dockerfile. This is where the Kaniko executor will look for the Dockerfile.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td>The volume for the Docker registry credentials. This is where the Kaniko executor will look for the Docker registry credentials.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="6"></i><b>6</b></td>
+<td>The volume for the Dockerfile. This is where the Kaniko executor will look for the Dockerfile.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Apply the Pod to your Kubernetes cluster:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl apply <span class="nt">-f</span> kaniko-example-pod.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="docker-image-in-docker-hub">Docker Image in Docker Hub</h3>
+<div class="paragraph">
+<p>After the Pod is created, Kaniko will start building the Docker image. You can check the logs of the Pod to see the progress of the build.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/dockerhub.png" alt="dockerhub">
+</div>
+<div class="title">Figure 1. Pushed Docker image to Docker Hub</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="run-the-docker-image-pushed-to-the-registry">Run the Docker image pushed to the registry</h3>
+<div class="paragraph">
+<p>Now that the Docker image is built and pushed to the registry, you can run it using the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">#</span><span class="nv">$ </span>docker run <span class="nt">--rm</span> <span class="nt">-it</span> credemol/kaniko-hello-world
+<span class="go">
+kubectl -n kaniko run -it --rm echo-hello-world --image=credemol/kaniko-hello-world --restart=Never</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Example Output:</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>Hello Kaniko at Wed Apr 30 22:19:04 UTC 2025
+pod "echo-hello-world" deleted</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this tutorial, you learned how to use Kaniko to build a Docker image from a Dockerfile and push it to a Docker registry. You also learned how to create a Kubernetes Pod that runs the Kaniko executor and builds the Docker image.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="references">References</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/GoogleContainerTools/kaniko/blob/main/docs/tutorial.md" class="bare">https://github.com/GoogleContainerTools/kaniko/blob/main/docs/tutorial.md</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>

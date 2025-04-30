@@ -1,0 +1,210 @@
+---
+layout: documents
+title:  Deploying Apache Airflow on Amazon EKS with Amazon EFS
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Infra Foundry
+    url: /documents/infra-foundry/
+---
+// docs/kaniko/part01-echo-hello-dockerhub/index.adoc
+
+= Kaniko Tutorial - Push Docker Image to Docker Hub
+
+:imagesdir: images
+
+[.img-wide]
+image::kaniko-introduction.png[]
+
+== Introduction
+
+Kaniko is a tool to build container images from a Dockerfile, inside a container or Kubernetes cluster. It doesn't depend on a Docker daemon and executes each command in a Dockerfile completely in userspace.
+
+As the first series of Kaniko, this guide gets started with a simple Dockerfile and push the Docker image Docker Hub.
+
+This document is based on the web page below:
+
+https://github.com/GoogleContainerTools/kaniko/blob/main/docs/tutorial.md
+
+=== Requirement Specs
+
+* Service Foundry Builder is designed to deploy Service Foundry modules.
+* Service Foundry Builder is able to be running on Containers (Kubernetes-native)
+* Service Foundry Builder is able to build and push Docker images to various Container Registries include ACR and ECR.
+
+
+=== Prerequisites
+
+* A Kubernetes cluster
+* kubectl installed and configured to communicate with your cluster
+* A container registry (e.g., Docker Hub, Google Container Registry, etc.) to push the built image
+
+
+== Push a Docker image to Docker Hub
+
+=== Dockerfile
+
+This Dockerfile is just Hello World application that does not need any application files.
+
+.dockerfile
+[,dockerfile]
+----
+FROM ubuntu
+ENTRYPOINT ["/bin/bash", "-c", "echo Hello Kaniko at $(date)"]
+----
+
+
+=== Create namespace
+
+This example will be deployed in 'kaniko' namespace.
+
+Create kaniko namespace
+
+[,terminal]
+----
+$ kubectl get namesapce kaniko &> /dev/null && kubectl create namespace kaniko
+----
+
+=== Create a ConfigMap that holds your Dockerfile
+
+Create a ConfigMap to save the dockerfile.
+
+[,terminal]
+----
+$ kubectl -n kaniko create configmap kaniko-helloworld-dockerfile \
+  --from-file=dockerfile \
+  --dry-run=client -o yaml \
+  | yq eval 'del(.metadata.creationTimestamp)' \
+  > kaniko-helloworld-dockerfile-configmap.yaml
+----
+
+Apply the ConfigMap to your Kubernetes cluster:
+
+[,terminal]
+----
+$ kubectl apply -f kaniko-helloworld-dockerfile-configmap.yaml
+----
+
+
+== Create a Secret that holds your registry credentials
+
+The Docker image will be pushed to your own Docker Hub which requires your DockerHub username, password, and email.
+
+
+[,terminal]
+----
+$ DOCKER_SERVER=https://index.docker.io/v1/
+$ DOCKER_USERNAME=your_username
+$ DOCKER_PASSWORD=your_password
+$ DOCKER_EMAIL=your_email
+----
+
+Create a Secret to save your DockerHub credentials.
+
+[,terminal]
+----
+$ kubectl -n kaniko create secret docker-registry docker-registry-credential \
+  --docker-server=$DOCKER_SERVER \
+  --docker-username=$DOCKER_USERNAME \
+  --docker-password=$DOCKER_PASSWORD \
+  --docker-email=$DOCKER_EMAIL
+----
+
+=== kaniko-example-pod.yaml
+
+To run Kaniko, A Pod manifest file is required.
+
+Here is an example of Kaniko Pod manifest.
+
+.kaniko-example-pod.yaml
+[,yaml]
+----
+apiVersion: v1
+kind: Pod
+metadata:
+  generateName: kaniko-example-
+  namespace: kaniko
+spec:
+  containers:
+    - name: kaniko
+      ## <1>
+      image: gcr.io/kaniko-project/executor:latest
+      ## <2>
+      args: ["--dockerfile=/workspace/dockerfile",
+             "--context=dir://workspace",
+             "--destination=credemol/kaniko-hello-world"] # replace with your dockerhub account
+      volumeMounts:
+        ## <3>
+        - name: kaniko-secret
+          mountPath: /kaniko/.docker
+        ## <4>
+        - name: dockerfile-storage
+          mountPath: /workspace
+  restartPolicy: Never
+  volumes:
+    ## <5>
+    - name: kaniko-secret
+      secret:
+        secretName: docker-registry-credential
+        items:
+          - key: .dockerconfigjson
+            path: config.json
+    ## <6>
+    - name: dockerfile-storage
+      configMap:
+        name: kaniko-helloworld-dockerfile
+----
+
+<1> The Kaniko executor image. This image is used to build the Docker image.
+<2> The arguments passed to the Kaniko executor. The --dockerfile argument specifies the path to the Dockerfile, the --context argument specifies the build context, and the --destination argument specifies the destination for the built image.
+<3> The volume mount for the Docker registry credentials. This is where the Kaniko executor will look for the Docker registry credentials.
+<4> The volume mount for the Dockerfile. This is where the Kaniko executor will look for the Dockerfile.
+<5> The volume for the Docker registry credentials. This is where the Kaniko executor will look for the Docker registry credentials.
+<6> The volume for the Dockerfile. This is where the Kaniko executor will look for the Dockerfile.
+
+
+Apply the Pod to your Kubernetes cluster:
+
+[,terminal]
+----
+$ kubectl apply -f kaniko-example-pod.yaml
+----
+
+=== Docker Image in Docker Hub
+
+After the Pod is created, Kaniko will start building the Docker image. You can check the logs of the Pod to see the progress of the build.
+
+.Pushed Docker image to Docker Hub
+[,terminal]
+[.img-wide]
+image::dockerhub.png[]
+
+=== Run the Docker image pushed to the registry
+
+Now that the Docker image is built and pushed to the registry, you can run it using the following command:
+
+[,terminal]
+----
+#$ docker run --rm -it credemol/kaniko-hello-world
+
+kubectl -n kaniko run -it --rm echo-hello-world --image=credemol/kaniko-hello-world --restart=Never
+----
+
+*Example Output:*
+----
+Hello Kaniko at Wed Apr 30 22:19:04 UTC 2025
+pod "echo-hello-world" deleted
+----
+
+== Conclusion
+
+In this tutorial, you learned how to use Kaniko to build a Docker image from a Dockerfile and push it to a Docker registry. You also learned how to create a Kubernetes Pod that runs the Kaniko executor and builds the Docker image.
+
+
+== References
+
+* https://github.com/GoogleContainerTools/kaniko/blob/main/docs/tutorial.md
