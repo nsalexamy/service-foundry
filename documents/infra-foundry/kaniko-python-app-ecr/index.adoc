@@ -1,0 +1,600 @@
+---
+layout: documents
+title:  Kaniko Tutorial - Build and Push a Python App to Amazon ECR
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Infra Foundry
+    url: /documents/infra-foundry/
+---
+
+// docs/kaniko/part02-python-app-ecr/index.adoc
+
+= Kaniko Tutorial - Build and Push a Python App to Amazon ECR
+
+:imagesdir: images
+
+[.img-wide]
+image::kaniko-github-ecr.png[]
+
+== Introduction
+
+This tutorial is the second installment in the Kaniko series. It demonstrates how to build a Python application and push the resulting Docker image to Amazon ECR (Elastic Container Registry) using Kubernetes.
+
+
+=== In this guide, you will learn how to:
+	•	Create a Dockerfile for a simple Python application
+	•	Host application code in a GitHub repository
+	•	Define Kubernetes ConfigMaps and Secrets for the build context and AWS credentials
+	•	Set up IAM roles and policies for image pushing using Terraform
+	•	Run a Kaniko pod to build and push the image
+
+
+== Prerequisites
+
+Make sure the following tools and configurations are in place:
+
+•	A running Kubernetes cluster
+•	kubectl installed and configured
+•	Docker Hub or Amazon ECR account
+•	AWS CLI installed and configured with access to ECR
+•	Terraform installed
+
+
+
+== Step 1: Prepare the Python Application
+
+=== GitHub Repository
+
+We’ll use a simple Python app hosted on GitHub:
+
+https://github.com/nsalexamy/kaniko-python-app
+
+
+Files used:
+
+* *app.py*: A Python script printing a greeting
+* *requirements.txt*: Dependency file (empty or with basic packages like Flask)
+
+.app.py
+[source,python]
+----
+# main function
+def main():
+    print("starting the application...")
+    print("Hello from inside the container!")
+
+
+if __name__ == "__main__":
+    main()
+----
+
+.requirements.txt
+[source,text]
+----
+# docker-context/requirements.txt
+# Leave it empty or add:
+# flask==2.3.2
+----
+
+== Step 2: Kubernetes Setup
+
+=== Create a Namespace
+
+Run the following to create the namespace:
+
+[,terminal]
+----
+$ kubectl get namesapce kaniko &> /dev/null && kubectl create namespace kaniko
+----
+
+=== Define Dockerfile
+
+Create a Dockerfile that installs dependencies and runs the app:
+
+.docker-context/Dockerfile
+[source,dockerfile]
+----
+# docker-context/Dockerfile
+
+# Use official Python image
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements and install them
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY app.py .
+
+# Default command
+CMD ["python", "app.py"]
+----
+
+
+=== Create a ConfigMap for the Dockerfile
+
+[,terminal]
+----
+$ kubectl -n kaniko create configmap kaniko-python-app-dockerfile \
+  --from-file=docker-context/Dockerfile \
+  --dry-run=client -o yaml \
+  | yq eval 'del(.metadata.creationTimestamp)' \
+  > kaniko-python-app-dockerfile-configmap.yaml
+
+
+# Apply the manifest
+
+$ kubectl apply -f kaniko-python-app-dockerfile-configmap.yaml
+----
+
+=== Create a Secret for AWS Credentials
+
+Set environment variables:
+
+[,terminal]
+----
+$ export AWS_ACCESS_KEY_ID=your-aws-access-key-id
+$ export AWS_ACCOUNT_ID=your-aws-account-id
+$ export AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key
+$ export AWS_REGION=your-aws-region
+----
+
+Create the Kubernetes secret:
+
+[,terminal]
+----
+$ kubectl -n kaniko create secret generic aws-secret \
+  --from-literal=AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+  --from-literal=AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID \
+  --from-literal=AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
+  --from-literal=AWS_REGION=$AWS_REGION
+----
+
+// === Create a ConfigMap for the Docker Context
+//
+// [,terminal]
+// ----
+// $ kubectl -n kaniko create configmap kaniko-python-app-dockercontext \
+//   --from-file=docker-context/app.py \
+//   --from-file=docker-context/requirements.txt \
+//   --dry-run=client -o yaml \
+//   | yq eval 'del(.metadata.creationTimestamp)' \
+//   > kaniko-python-app-dockercontext-configmap.yaml
+// ----
+//
+// Apply this
+//
+// [,terminal]
+// ----
+// $ kubectl apply -f kaniko-python-app-dockercontext-configmap.yaml
+// ----
+
+// === Create a Secret for Docker Config
+//
+// ==== How to generate a valid config.json for Kaniko (from your Mac):
+//
+// Get ECR Registry Token.
+//
+// [,terminal]
+// ----
+// $ ECR_TOKEN=$(echo -n "AWS:$(aws ecr get-login-password --region ca-west-1)" | base64)
+//
+// # Example output:
+// QVdTOmVjcmVnaXN0cnl0b2tlbg==
+// ----
+//
+// Use the output from the previous command to create a config.json file.
+//
+// .kaniko-config/config.json
+// [source,json]
+// ----
+// {
+//   "auths": {
+//     "{your-aws-account-id}.dkr.ecr.ca-west-1.amazonaws.com": {
+//       "auth": "QVdTOmVjcmVnaXN0cnl0b2tlbg=="
+//     }
+//   }
+// }
+// ----
+//
+// Create a Secret for the Docker config.json file.
+//
+// [,terminal]
+// ----
+// $ kubectl -n kaniko create secret generic kaniko-python-app-dockerconfig \
+//   --from-file=kaniko-config/config.json \
+//   --dry-run=client -o yaml \
+//   | yq eval 'del(.metadata.creationTimestamp)' \
+//   > kaniko-python-app-dockerconfig-secret.yaml
+//
+// # Apply the manifest
+//
+// $ kubectl apply -f kaniko-python-app-dockerconfig-secret.yaml
+// ----
+//
+// Create a ConfigMap for the Docker config.json file.
+//
+// [,terminal]
+// ----
+// $ kubectl -n kaniko create configmap kaniko-python-app-dockerconfig \
+//   --from-file=kaniko-config/config.json \
+//   --dry-run=client -o yaml \
+//   | yq eval 'del(.metadata.creationTimestamp)' \
+//   > kaniko-python-app-dockerconfig-configmap.yaml
+// ----
+//
+// Apply the manifest:
+//
+// [,terminal]
+// ----
+// $ kubectl apply -f kaniko-python-app-dockerconfig-configmap.yaml
+// ----
+
+== Step 3: IAM Role Setup with Terraform
+
+Amazon provides the managed policy EC2InstanceProfileForImageBuilderECRContainerBuilds which grants Kaniko the necessary permissions to push images to ECR.
+
+Refer to the official Kaniko ECR guide:
+https://github.com/GoogleContainerTools/kaniko?tab=readme-ov-file#pushing-to-amazon-ecr
+
+
+
+// ==== Create new policy
+//
+// name: KanikoECRPushPolicy
+// description: Allow Kaniko to push Docker images to ECR
+//
+// [source,json]
+// ----
+// {
+// 	"Version": "2012-10-17",
+// 	"Statement": [
+// 		{
+// 			"Sid": "Statement1",
+// 			"Effect": "Allow",
+// 			"Action": [
+//                 "ecr:GetAuthorizationToken",
+//                 "ecr:BatchCheckLayerAvailability",
+//                 "ecr:PutImage",
+//                 "ecr:InitiateLayerUpload",
+//                 "ecr:UploadLayerPart",
+//                 "ecr:CompleteLayerUpload"
+//              ],
+// 			"Resource": "*"
+// 		}
+// 	]
+// }
+// ----
+
+=== Terraform Configuration
+
+The following Terraform code creates an IAM role for Kaniko with the necessary permissions to push images to ECR.
+
+The variables are defined in the *variables.tf* file, and the values are set in the *terraform.tfvars* file.
+
+.terraform/variables.tf
+[source,hcl-terraform]
+----
+variable "aws_region" {
+  description = "AWS region where EKS is deployed"
+  type        = string
+}
+
+variable "eks_cluster_name" {
+  description = "EKS cluster name"
+  type        = string
+}
+
+variable "namespace" {
+  description = "Kubernetes namespace where Kaniko runs"
+  type        = string
+  default     = "kaniko"
+}
+
+----
+
+.terraform/terraform.tfvars
+[source,hcl-terraform]
+----
+aws_region       = "your-aws-region"
+eks_cluster_name = "your-eks-cluster-name"
+namespace        = "kaniko"
+----
+
+==== kaniko-irsa.tf
+
+.kaniko-irsa.tf
+[source,hcl-terraform]
+----
+provider "aws" {
+  region = var.aws_region
+}
+
+provider "kubernetes" {
+  config_path = "~/.kube/config"
+}
+
+# Get AWS and EKS context
+data "aws_caller_identity" "current" {}
+
+data "aws_eks_cluster" "cluster" {
+  name = var.eks_cluster_name
+}
+
+data "aws_eks_cluster_auth" "cluster" {
+  name = data.aws_eks_cluster.cluster.name
+}
+
+# Use existing Policy - EC2InstanceProfileForImageBuilderECRContainerBuilds
+data "aws_iam_policy" "ecr_container_builds" {
+  name = "EC2InstanceProfileForImageBuilderECRContainerBuilds"
+}
+
+# Create IAM Role for IRSA
+resource "aws_iam_role" "kaniko_irsa_role" {
+  name = "kaniko-irsa-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Principal = {
+          Federated = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${replace(data.aws_eks_cluster.cluster.identity[0].oidc[0].issuer, "https://", "")}"
+        },
+        Action = "sts:AssumeRoleWithWebIdentity",
+        Condition = {
+          StringEquals = {
+            "${replace(data.aws_eks_cluster.cluster.identity[0].oidc[0].issuer, "https://", "")}:sub" = "system:serviceaccount:${var.namespace}:kaniko-builder-sa"
+          }
+        }
+      }
+    ]
+  })
+}
+
+# Attach the policy to the role
+resource "aws_iam_role_policy_attachment" "kaniko_policy_attach" {
+  role       = aws_iam_role.kaniko_irsa_role.name
+  policy_arn = data.aws_iam_policy.ecr_container_builds.arn
+}
+
+# Create Kubernetes service account annotated with IRSA role
+resource "kubernetes_service_account" "kaniko_sa" {
+  metadata {
+    name      = "kaniko-builder-sa"
+    namespace = var.namespace
+    annotations = {
+      "eks.amazonaws.com/role-arn" = aws_iam_role.kaniko_irsa_role.arn
+    }
+  }
+}
+----
+
+=== Apply Terraform
+
+
+[,terminal]
+----
+$ cd terraform
+
+$ terraform init
+$ terraform plan
+$ terraform apply -var-file="terraform.tfvars"
+----
+
+*Example output:*
+[,terminal]
+----
+
+aws_iam_role.kaniko_irsa_role: Creating...
+aws_iam_role.kaniko_irsa_role: Creation complete after 1s [id=kaniko-irsa-role]
+aws_iam_role_policy_attachment.kaniko_policy_attach: Creating...
+kubernetes_service_account.kaniko_sa: Creating...
+aws_iam_role_policy_attachment.kaniko_policy_attach: Creation complete after 0s [id=kaniko-irsa-role-20250501032807987700000001]
+kubernetes_service_account.kaniko_sa: Creation complete after 0s [id=kaniko/kaniko-builder-sa]
+
+----
+
+Following resource will be created:
+
+* kaniko-irsa-role : IAM role for Kaniko
+* kaniko_policy_attach : IAM policy attachment
+* kaniko-builder-sa : Kubernetes service account for Kaniko
+
+=== Kubernetes Service Account (kakinoko-builder-sa)
+
+Now the service account 'kaniko-builder-sa' is created in the 'kaniko' namespace. This service account is associated with the IAM role created above.
+
+.show the service account
+[,terminal]
+----
+$ kubectl -n kaniko get sa kaniko-builder-sa -o yaml
+----
+
+*Example output:*
+[,terminal]
+----
+apiVersion: v1
+automountServiceAccountToken: true
+kind: ServiceAccount
+metadata:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::{your-aws-account-id}:role/kaniko-irsa-role
+  creationTimestamp: "2025-05-01T03:28:08Z"
+  name: kaniko-builder-sa
+  namespace: kaniko
+  resourceVersion: "136704"
+  uid: c4db2da1-36bd-4d3b-85a7-4067507c1031
+----
+
+*Note: The IAM role is associated with the service account using the annotation 'eks.amazonaws.com/role-arn'.*
+
+It is important to note that the service account must be used in the Kaniko pod manifest. The pod will use this service account to assume the IAM role and gain permissions to push images to ECR.
+
+
+
+== Step 4: Kaniko Pod to Build and Push Image
+
+In this step, we will create a Kaniko pod that will build the Docker image and push it to ECR.
+
+In the manifest file, we will specify the following:
+
+* GitHub repository for Docker context
+* Dockerfile
+* Docker config.json
+* Service account with permissions to push to ECR
+
+.kaniko-python-app-pod.yaml
+[source,yaml]
+----
+apiVersion: v1
+kind: Pod
+metadata:
+  generateName: kaniko-python-app-
+  namespace: kaniko
+spec:
+  # service account with permissions to push to ECR
+  ## <1>
+  serviceAccountName: kaniko-builder-sa
+
+  initContainers:
+    ## <2>
+    - name: create-ecr-repo
+      image: amazonlinux
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          yum install -y aws-cli && \
+          echo "Checking or creating ECR repository..." && \
+          aws ecr describe-repositories --region ca-west-1 --repository-names kaniko-python-app || \
+          aws ecr create-repository --region ca-west-1 --repository-name kaniko-python-app
+      envFrom:
+        - secretRef:
+            name: aws-secret
+
+    ## <3>
+    - name: setup-ecr-auth
+      image: amazonlinux
+      command: [ "/bin/sh", "-c" ]
+      args:
+        - |
+          yum install -y aws-cli docker && \
+          mkdir -p /kaniko/.docker && \
+          aws ecr get-login-password --region ca-west-1 \
+            | docker login --username AWS \
+                          --password-stdin 445567090745.dkr.ecr.ca-west-1.amazonaws.com && \
+          cp ~/.docker/config.json /kaniko/.docker/config.json
+      volumeMounts:
+        - name: docker-config
+          mountPath: /kaniko/.docker
+      envFrom:
+        - secretRef:
+            name: aws-secret
+
+  containers:
+    - name: kaniko
+      ## <4>
+      image: gcr.io/kaniko-project/executor:latest
+      ## <5>
+      args: ["--dockerfile=/workspace/Dockerfile",
+             "--context=git://github.com/nsalexamy/kaniko-python-app.git#refs/heads/main",
+             "--destination=445567090745.dkr.ecr.ca-west-1.amazonaws.com/kaniko-python-app"] # replace with your dockerhub account
+
+      volumeMounts:
+        - name: dockerfile-storage
+          mountPath: /workspace
+        - name: docker-config
+          mountPath: /kaniko/.docker
+
+
+  restartPolicy: Never
+  volumes:
+    - name: dockerfile-storage
+      configMap:
+        name: kaniko-python-app-dockerfile
+    - name: docker-config
+      emptyDir: {}
+
+
+----
+<1> Service account with permissions to push to ECR
+<2> Init container to create ECR repository if it doesn't exist
+<3> Init container to set up ECR authentication
+<4> Kaniko executor image
+<5> Kaniko arguments to build and push the image
+
+To run the Kaniko pod, use the following command:
+
+[,terminal]
+[source,terminal]
+----
+$ kubectl create -f kaniko-python-app-pod.yaml
+
+# Example output:
+
+pod/kaniko-python-app-z77fr created
+----
+
+== Step 5: Verify the Image in ECR
+
+Once the Kaniko pod completes, you should see the image in your Amazon ECR repository.
+
+.kaniko-python-app image in ECR
+[.img-wide]
+image::ecr-repository.png[]
+
+// Delete the pod
+//
+// [source,terminal]
+// ----
+// $ kubectl delete -f kaniko-python-app-pod.yaml
+// ----
+
+== Step 6: Run the Image
+
+Run the built image directly in Kubernetes:
+
+[,terminal]
+----
+$ kubectl -n kaniko run -it --rm kaniko-python-app \
+  --image=445567090745.dkr.ecr.ca-west-1.amazonaws.com/kaniko-python-app \
+  --restart=Never
+
+*Expected output*:
+
+starting the application...
+Hello from inside the container!
+pod "kaniko-python-app" deleted
+----
+
+== Step 7: Clean Up Resources
+
+To delete the IAM role and associated resources:
+
+
+[,terminal]
+----
+$ cd terraform
+$ terraform plan -destroy
+$ terraform destroy
+----
+
+== Conclusion
+
+In this tutorial, you learned how to:
+
+•	Build a Docker image for a Python app using Kaniko
+•	Push the image to Amazon ECR
+•	Set up Kubernetes and AWS resources using Terraform
+•	Securely manage credentials and permissions using IAM and service accounts
+
+This process allows you to containerize applications and automate delivery pipelines in a secure and Kubernetes-native way.
