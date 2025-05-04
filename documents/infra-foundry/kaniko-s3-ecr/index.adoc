@@ -1,0 +1,407 @@
+---
+layout: documents
+title:  Kaniko Tutorial - Using S3 for Docker Context Storage
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Infra Foundry
+    url: /documents/infra-foundry/
+---
+
+// docs/kaniko/part02-python-app-ecr/index.adoc
+
+= Kaniko Tutorial - Using S3 for Docker Context Storage
+
+:imagesdir: images
+
+== Introduction
+
+This guide is the third part of the Kaniko tutorial series. It demonstrates how to build a Docker image using a Docker context stored in AWS S3 and push the resulting image to Amazon ECR using Kaniko in a Kubernetes environment.
+
+
+=== What you will learn
+
+ * Create and configure an S3 bucket
+ * Package and upload the Docker context as a .tar.gz archive
+ * Create a Kubernetes ConfigMap for the Dockerfile
+ * Set up a Kubernetes Secret for AWS credentials
+ * Use Terraform to create and configure an IAM role for Kaniko
+ * Define and deploy the Kaniko pod manifest
+ * Build and push Docker images securely to ECR
+
+== Prerequisites
+
+Ensure you have the following:
+
+ * An active Kubernetes cluster
+ * kubectl installed and configured
+ * An Amazon ECR (or Docker Hub) account
+ * AWS CLI installed and authenticated
+ * Terraform installed
+
+== Step 1: Kubernetes Setup
+
+
+=== Create a Namespace
+
+Create the kaniko namespace if it does not exist:
+
+[,terminal]
+----
+$ kubectl get namesapce kaniko &> /dev/null || kubectl create namespace kaniko
+----
+
+=== Create a ConfigMap for the Dockerfile
+
+[,terminal]
+----
+$ kubectl -n kaniko create configmap service-foundry-builder-dockerfile \
+  --from-file=docker-context/Dockerfile \
+  --dry-run=client -o yaml \
+  | yq eval 'del(.metadata.creationTimestamp)' \
+  > service-foundry-builder-dockerfile-configmap.yaml
+
+
+# Apply the manifest
+
+$ kubectl apply -f service-foundry-builder-dockerfile-configmap.yaml
+----
+
+=== Create a Secret for AWS Credentials
+
+Set environment variables:
+
+[,terminal]
+----
+$ export AWS_ACCESS_KEY_ID=your-aws-access-key-id
+$ export AWS_ACCOUNT_ID=your-aws-account-id
+$ export AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key
+$ export AWS_REGION=your-aws-region
+----
+
+Create the Kubernetes secret:
+
+[,terminal]
+----
+$ kubectl -n kaniko create secret generic aws-secret \
+  --from-literal=AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+  --from-literal=AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID \
+  --from-literal=AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
+  --from-literal=AWS_REGION=$AWS_REGION
+----
+
+== Step 2: Prepare Docker Context on S3
+
+Set environment variables for your S3 bucket:
+
+Prepare environment variables for S3 bucket name and region:
+[,terminal]
+----
+$ S3_BUCKET=your-s3-bucket-name
+$ S3_REGION=your-s3-region
+----
+
+=== Create an S3 Bucket
+
+[,terminal]
+----
+$ aws s3 mb s3://$S3_BUCKET --region $S3_REGION
+
+# Output:
+
+----
+
+=== Package Docker Context
+
+Create a .tar.gz archive of your Docker context:
+
+[,terminal]
+----
+$ tar -czf service-foundry-builder.tar.gz -C docker-context .
+----
+
+=== Upload the archive to S3
+
+[,terminal]
+----
+$ aws s3 cp service-foundry-builder.tar.gz s3://$S3_BUCKET/docker-context/service-foundry-builder.tar.gz --region $S3_REGION
+----
+
+== Step 3: Configure IAM with Terraform
+
+Use Terraform to configure IAM permissions for the Kaniko pod.
+
+=== Required IAM Policies
+
+* *EC2InstanceProfileForImageBuilderECRContainerBuilds*: for pushing images to ECR.
+* *AmazonS3ReadOnlyAccess*: for reading the Docker context from S3
+
+=== Terraform Configuration
+
+==== kaniko-irsa.tf
+
+This Terraform file will create an IAM role for the Kaniko pod and attach the necessary policies. The role will be assigned to the Kubernetes service account used by the Kaniko pod.
+
+.terraform-irsa.tf - Providers
+[source,hcl]
+----
+provider "aws" {
+  region = var.aws_region
+}
+
+provider "kubernetes" {
+  config_path = "~/.kube/config"
+}
+----
+
+.terraform-irsa.tf - Data Sources
+[source,hcl]
+----
+# Get AWS and EKS context
+data "aws_caller_identity" "current" {}
+
+data "aws_eks_cluster" "cluster" {
+  name = var.eks_cluster_name
+}
+
+data "aws_eks_cluster_auth" "cluster" {
+  name = data.aws_eks_cluster.cluster.name
+}
+----
+
+
+.terraform-irsa.tf - IAM Role for IRSA
+[source,hcl]
+----
+# Create IAM Role for IRSA
+resource "aws_iam_role" "kaniko_irsa_role" {
+  name = "kaniko-irsa-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Principal = {
+          Federated = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${replace(data.aws_eks_cluster.cluster.identity[0].oidc[0].issuer, "https://", "")}"
+        },
+        Action = "sts:AssumeRoleWithWebIdentity",
+        Condition = {
+          StringEquals = {
+            "${replace(data.aws_eks_cluster.cluster.identity[0].oidc[0].issuer, "https://", "")}:sub" = "system:serviceaccount:${var.namespace}:kaniko-builder-sa"
+          }
+        }
+      }
+    ]
+  })
+}
+----
+
+.kaniko-irsa.tf - Attach IAM Policy to Role
+[source,hcl]
+----
+# Attach the policy to the role
+resource "aws_iam_role_policy_attachment" "ecr_push" {
+  role       = aws_iam_role.kaniko_irsa_role.name
+  policy_arn = "arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilderECRContainerBuilds"
+}
+
+resource "aws_iam_role_policy_attachment" "s3_access" {
+  role       = aws_iam_role.kaniko_irsa_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
+}
+----
+
+.kaniko-irsa.tf - Create Kubernetes Service Account and assign IAM role
+[source,hcl]
+----
+# Create Kubernetes service account annotated with IRSA role
+resource "kubernetes_service_account" "kaniko_sa" {
+  metadata {
+    name      = "kaniko-builder-sa"
+    namespace = var.namespace
+    annotations = {
+      "eks.amazonaws.com/role-arn" = aws_iam_role.kaniko_irsa_role.arn
+    }
+  }
+}
+----
+
+==== terraform.tfvars
+
+All the variables are defined in the `variables.tf` file.
+
+.terraform.tfvars
+[source,hcl]
+----
+variable "aws_region" {
+  description = "AWS region where EKS is deployed"
+  type        = string
+}
+
+variable "eks_cluster_name" {
+  description = "EKS cluster name"
+  type        = string
+}
+
+variable "namespace" {
+  description = "Kubernetes namespace where Kaniko runs"
+  type        = string
+  default     = "kaniko"
+}
+----
+
+====  terraform.tfvars
+
+Use your AWS region and EKS cluster name in the `terraform.tfvars` file.
+
+.terraform.tfvars
+[source,hcl]
+----
+aws_region       = "your-aws-region"
+eks_cluster_name = "your-eks-cluster-name"
+namespace        = "kaniko"
+----
+
+=== Apply Terraform Configuration
+
+Create an IAM role for the Kaniko pod using Terraform.
+
+[,terminal]
+----
+$ cd terraform
+$ terraform init
+$ terraform plan
+$ terraform apply -auto-approve
+----
+
+== Step 4: Deploy Kaniko Pod
+
+=== Create a Kaniko Pod Manifest
+
+.service-foundry-builder-pod.yaml
+[source,yaml]
+----
+apiVersion: v1
+kind: Pod
+metadata:
+  generateName: service-foundry-builder-
+  namespace: kaniko
+spec:
+  # service account with permissions to push to ECR
+  ## <1>
+  serviceAccountName: kaniko-builder-sa
+
+  initContainers:
+    ## <2>
+    - name: create-ecr-repo
+      image: amazonlinux
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          yum install -y aws-cli && \
+          echo "Checking or creating ECR repository..." && \
+          aws ecr describe-repositories --region ca-west-1 --repository-names service-foundry-builder || \
+          aws ecr create-repository --region ca-west-1 --repository-name service-foundry-builder
+      envFrom:
+        - secretRef:
+            name: aws-secret
+    ## <3>
+    - name: setup-ecr-auth
+      image: amazonlinux
+      command: [ "/bin/sh", "-c" ]
+
+      args:
+        - |
+          yum install -y aws-cli docker && \
+          mkdir -p /kaniko/.docker && \
+          aws ecr get-login-password --region ca-west-1 \
+            | docker login --username AWS \
+                          --password-stdin 123456789012.dkr.ecr.ca-west-1.amazonaws.com && \
+          cp ~/.docker/config.json /kaniko/.docker/config.json
+      volumeMounts:
+        - name: docker-config
+          mountPath: /kaniko/.docker
+
+      envFrom:
+        - secretRef:
+            name: aws-secret
+
+  containers:
+    - name: kaniko
+      image: gcr.io/kaniko-project/executor:latest
+      ## <4>
+      args: [
+        "--dockerfile=/workspace/Dockerfile",
+        "--context=s3://your-s3-bucket-name/docker-context/service-foundry-builder.tar.gz",
+        "--destination=123456789012.dkr.ecr.ca-west-1.amazonaws.com/service-foundry-builder",
+        "--build-arg=TARGETARCH=amd64"
+      ]
+
+      envFrom:
+        - secretRef:
+            name: aws-secret
+
+      volumeMounts:
+        - name: dockerfile-storage
+          mountPath: /workspace
+        - name: docker-config
+          mountPath: /kaniko/.docker
+
+
+  restartPolicy: Never
+
+  ## <5>
+  volumes:
+    - name: dockerfile-storage
+      configMap:
+        name: service-foundry-builder-dockerfile
+    - name: docker-config
+      emptyDir: {}
+
+----
+<1> The service account with permissions to push to ECR.
+<2> The init container that creates the ECR repository if it doesn't exist.
+<3> The init container that sets up the ECR authentication.
+<4> The Kaniko executor image. This image is used to build the Docker image.
+<5> The volume that stores the Dockerfile.
+
+
+=== Deploy the Kaniko Pod
+
+The Kaniko pod manifest is created. You can check the pod manifest using the following command:
+
+[,terminal]
+----
+$ kubectl create -f service-foundry-builder-pod.yaml
+----
+
+=== Confirm the Image Push
+
+As the result of the Kaniko pod, the Docker image is built and pushed to ECR. Check the logs to verify the image was built and pushed to ECR successfully.
+
+.ecr-repository - service-foundry-builder
+[.img-wide]
+image::ecr-repository.png[]
+
+=== Run the Built Image
+
+Test the newly built Docker image:
+
+
+[,terminal]
+----
+$ kubectl -n kaniko run -it --rm kaniko-python-app \
+  --image=123456789012.dkr.ecr.ca-west-1.amazonaws.com/service-foundry-builder \
+  --restart=Never
+----
+
+== Conclusion
+
+You’ve successfully built a Docker image using Kaniko in a Kubernetes cluster, stored the Docker context in an S3 bucket, and pushed the image to Amazon ECR. This approach provides a scalable, secure, and Docker-daemon-free solution for container image builds in cloud-native environments.
+
+
