@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kaniko Tutorial - Using S3 for Docker Context Storage</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="active">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/infra-foundry/">Infra Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Kaniko Tutorial - Using S3 for Docker Context Storage
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#what-you-will-learn">What you will learn</a></li>
+</ul>
+</li>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#step-1-kubernetes-setup">Step 1: Kubernetes Setup</a>
+<ul class="sectlevel2">
+<li><a href="#create-a-namespace">Create a Namespace</a></li>
+<li><a href="#create-a-configmap-for-the-dockerfile">Create a ConfigMap for the Dockerfile</a></li>
+<li><a href="#create-a-secret-for-aws-credentials">Create a Secret for AWS Credentials</a></li>
+</ul>
+</li>
+<li><a href="#step-2-prepare-docker-context-on-s3">Step 2: Prepare Docker Context on S3</a>
+<ul class="sectlevel2">
+<li><a href="#create-an-s3-bucket">Create an S3 Bucket</a></li>
+<li><a href="#package-docker-context">Package Docker Context</a></li>
+<li><a href="#upload-the-archive-to-s3">Upload the archive to S3</a></li>
+</ul>
+</li>
+<li><a href="#step-3-configure-iam-with-terraform">Step 3: Configure IAM with Terraform</a>
+<ul class="sectlevel2">
+<li><a href="#required-iam-policies">Required IAM Policies</a></li>
+<li><a href="#terraform-configuration">Terraform Configuration</a></li>
+<li><a href="#apply-terraform-configuration">Apply Terraform Configuration</a></li>
+</ul>
+</li>
+<li><a href="#step-4-deploy-kaniko-pod">Step 4: Deploy Kaniko Pod</a>
+<ul class="sectlevel2">
+<li><a href="#create-a-kaniko-pod-manifest">Create a Kaniko Pod Manifest</a></li>
+<li><a href="#deploy-the-kaniko-pod">Deploy the Kaniko Pod</a></li>
+<li><a href="#confirm-the-image-push">Confirm the Image Push</a></li>
+<li><a href="#run-the-built-image">Run the Built Image</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide is the third part of the Kaniko tutorial series. It demonstrates how to build a Docker image using a Docker context stored in AWS S3 and push the resulting image to Amazon ECR using Kaniko in a Kubernetes environment.</p>
+</div>
+<div class="sect2">
+<h3 id="what-you-will-learn">What you will learn</h3>
+<div class="ulist">
+<ul>
+<li>
+<p>Create and configure an S3 bucket</p>
+</li>
+<li>
+<p>Package and upload the Docker context as a .tar.gz archive</p>
+</li>
+<li>
+<p>Create a Kubernetes ConfigMap for the Dockerfile</p>
+</li>
+<li>
+<p>Set up a Kubernetes Secret for AWS credentials</p>
+</li>
+<li>
+<p>Use Terraform to create and configure an IAM role for Kaniko</p>
+</li>
+<li>
+<p>Define and deploy the Kaniko pod manifest</p>
+</li>
+<li>
+<p>Build and push Docker images securely to ECR</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="prerequisites">Prerequisites</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Ensure you have the following:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>An active Kubernetes cluster</p>
+</li>
+<li>
+<p>kubectl installed and configured</p>
+</li>
+<li>
+<p>An Amazon ECR (or Docker Hub) account</p>
+</li>
+<li>
+<p>AWS CLI installed and authenticated</p>
+</li>
+<li>
+<p>Terraform installed</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-1-kubernetes-setup">Step 1: Kubernetes Setup</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="create-a-namespace">Create a Namespace</h3>
+<div class="paragraph">
+<p>Create the kaniko namespace if it does not exist:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl get namesapce kaniko &amp;&gt; /dev/null <span class="o">||</span> kubectl create namespace kaniko</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-a-configmap-for-the-dockerfile">Create a ConfigMap for the Dockerfile</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> kaniko create configmap service-foundry-builder-dockerfile <span class="se">\</span>
+<span class="go">  --from-file=docker-context/Dockerfile \
+  --dry-run=client -o yaml \
+  | yq eval 'del(.metadata.creationTimestamp)' \
+</span><span class="gp">  &gt;</span><span class="w"> </span>service-foundry-builder-dockerfile-configmap.yaml
+<span class="go">
+
+</span><span class="gp">#</span><span class="w"> </span>Apply the manifest
+<span class="go">
+</span><span class="gp">$</span><span class="w"> </span>kubectl apply <span class="nt">-f</span> service-foundry-builder-dockerfile-configmap.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-a-secret-for-aws-credentials">Create a Secret for AWS Credentials</h3>
+<div class="paragraph">
+<p>Set environment variables:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="nb">export </span><span class="nv">AWS_ACCESS_KEY_ID</span><span class="o">=</span>your-aws-access-key-id
+<span class="gp">$</span><span class="w"> </span><span class="nb">export </span><span class="nv">AWS_ACCOUNT_ID</span><span class="o">=</span>your-aws-account-id
+<span class="gp">$</span><span class="w"> </span><span class="nb">export </span><span class="nv">AWS_SECRET_ACCESS_KEY</span><span class="o">=</span>your-aws-secret-access-key
+<span class="gp">$</span><span class="w"> </span><span class="nb">export </span><span class="nv">AWS_REGION</span><span class="o">=</span>your-aws-region</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Create the Kubernetes secret:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> kaniko create secret generic aws-secret <span class="se">\</span>
+<span class="gp">  --from-literal=AWS_ACCESS_KEY_ID=$</span>AWS_ACCESS_KEY_ID <span class="se">\</span>
+<span class="gp">  --from-literal=AWS_ACCOUNT_ID=$</span>AWS_ACCOUNT_ID <span class="se">\</span>
+<span class="gp">  --from-literal=AWS_SECRET_ACCESS_KEY=$</span>AWS_SECRET_ACCESS_KEY <span class="se">\</span>
+<span class="gp">  --from-literal=AWS_REGION=$</span>AWS_REGION</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-2-prepare-docker-context-on-s3">Step 2: Prepare Docker Context on S3</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Set environment variables for your S3 bucket:</p>
+</div>
+<div class="paragraph">
+<p>Prepare environment variables for S3 bucket name and region:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="nv">S3_BUCKET</span><span class="o">=</span>your-s3-bucket-name
+<span class="gp">$</span><span class="w"> </span><span class="nv">S3_REGION</span><span class="o">=</span>your-s3-region</code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-an-s3-bucket">Create an S3 Bucket</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>aws s3 mb s3://<span class="nv">$S3_BUCKET</span> <span class="nt">--region</span> <span class="nv">$S3_REGION</span>
+<span class="go">
+</span><span class="gp">#</span><span class="w"> </span>Output:</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="package-docker-context">Package Docker Context</h3>
+<div class="paragraph">
+<p>Create a .tar.gz archive of your Docker context:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="nb">tar</span> <span class="nt">-czf</span> service-foundry-builder.tar.gz <span class="nt">-C</span> docker-context .</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="upload-the-archive-to-s3">Upload the archive to S3</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>aws s3 <span class="nb">cp </span>service-foundry-builder.tar.gz s3://<span class="nv">$S3_BUCKET</span>/docker-context/service-foundry-builder.tar.gz <span class="nt">--region</span> <span class="nv">$S3_REGION</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-3-configure-iam-with-terraform">Step 3: Configure IAM with Terraform</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Use Terraform to configure IAM permissions for the Kaniko pod.</p>
+</div>
+<div class="sect2">
+<h3 id="required-iam-policies">Required IAM Policies</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>EC2InstanceProfileForImageBuilderECRContainerBuilds</strong>: for pushing images to ECR.</p>
+</li>
+<li>
+<p><strong>AmazonS3ReadOnlyAccess</strong>: for reading the Docker context from S3</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="terraform-configuration">Terraform Configuration</h3>
+<div class="sect3">
+<h4 id="kaniko-irsa-tf">kaniko-irsa.tf</h4>
+<div class="paragraph">
+<p>This Terraform file will create an IAM role for the Kaniko pod and attach the necessary policies. The role will be assigned to the Kubernetes service account used by the Kaniko pod.</p>
+</div>
+<div class="listingblock">
+<div class="title">terraform-irsa.tf - Providers</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="hcl"><span class="nx">provider</span> <span class="s2">"aws"</span> <span class="p">{</span>
+  <span class="nx">region</span> <span class="o">=</span> <span class="nx">var</span><span class="p">.</span><span class="nx">aws_region</span>
+<span class="p">}</span>
+
+<span class="nx">provider</span> <span class="s2">"kubernetes"</span> <span class="p">{</span>
+  <span class="nx">config_path</span> <span class="o">=</span> <span class="s2">"~/.kube/config"</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">terraform-irsa.tf - Data Sources</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="hcl"><span class="c1"># Get AWS and EKS context</span>
+<span class="nx">data</span> <span class="s2">"aws_caller_identity"</span> <span class="s2">"current"</span> <span class="p">{}</span>
+
+<span class="nx">data</span> <span class="s2">"aws_eks_cluster"</span> <span class="s2">"cluster"</span> <span class="p">{</span>
+  <span class="nx">name</span> <span class="o">=</span> <span class="nx">var</span><span class="p">.</span><span class="nx">eks_cluster_name</span>
+<span class="p">}</span>
+
+<span class="nx">data</span> <span class="s2">"aws_eks_cluster_auth"</span> <span class="s2">"cluster"</span> <span class="p">{</span>
+  <span class="nx">name</span> <span class="o">=</span> <span class="nx">data</span><span class="p">.</span><span class="nx">aws_eks_cluster</span><span class="p">.</span><span class="nx">cluster</span><span class="p">.</span><span class="nx">name</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">terraform-irsa.tf - IAM Role for IRSA</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="hcl"><span class="c1"># Create IAM Role for IRSA</span>
+<span class="nx">resource</span> <span class="s2">"aws_iam_role"</span> <span class="s2">"kaniko_irsa_role"</span> <span class="p">{</span>
+  <span class="nx">name</span> <span class="o">=</span> <span class="s2">"kaniko-irsa-role"</span>
+
+  <span class="nx">assume_role_policy</span> <span class="o">=</span> <span class="nx">jsonencode</span><span class="p">({</span>
+    <span class="nx">Version</span> <span class="o">=</span> <span class="s2">"2012-10-17"</span><span class="p">,</span>
+    <span class="nx">Statement</span> <span class="o">=</span> <span class="p">[</span>
+      <span class="p">{</span>
+        <span class="nx">Effect</span> <span class="o">=</span> <span class="s2">"Allow"</span><span class="p">,</span>
+        <span class="nx">Principal</span> <span class="o">=</span> <span class="p">{</span>
+          <span class="nx">Federated</span> <span class="o">=</span> <span class="s2">"arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${replace(data.aws_eks_cluster.cluster.identity[0].oidc[0].issuer, "</span><span class="nx">https</span><span class="o">:</span><span class="c1">//", "")}"</span>
+        <span class="p">},</span>
+        <span class="nx">Action</span> <span class="o">=</span> <span class="s2">"sts:AssumeRoleWithWebIdentity"</span><span class="p">,</span>
+        <span class="nx">Condition</span> <span class="o">=</span> <span class="p">{</span>
+          <span class="nx">StringEquals</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">"${replace(data.aws_eks_cluster.cluster.identity[0].oidc[0].issuer, "</span><span class="nx">https</span><span class="o">:</span><span class="c1">//", "")}:sub" = "system:serviceaccount:${var.namespace}:kaniko-builder-sa"</span>
+          <span class="p">}</span>
+        <span class="p">}</span>
+      <span class="p">}</span>
+    <span class="p">]</span>
+  <span class="p">})</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">kaniko-irsa.tf - Attach IAM Policy to Role</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="hcl"><span class="c1"># Attach the policy to the role</span>
+<span class="nx">resource</span> <span class="s2">"aws_iam_role_policy_attachment"</span> <span class="s2">"ecr_push"</span> <span class="p">{</span>
+  <span class="nx">role</span>       <span class="o">=</span> <span class="nx">aws_iam_role</span><span class="p">.</span><span class="nx">kaniko_irsa_role</span><span class="p">.</span><span class="nx">name</span>
+  <span class="nx">policy_arn</span> <span class="o">=</span> <span class="s2">"arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilderECRContainerBuilds"</span>
+<span class="p">}</span>
+
+<span class="nx">resource</span> <span class="s2">"aws_iam_role_policy_attachment"</span> <span class="s2">"s3_access"</span> <span class="p">{</span>
+  <span class="nx">role</span>       <span class="o">=</span> <span class="nx">aws_iam_role</span><span class="p">.</span><span class="nx">kaniko_irsa_role</span><span class="p">.</span><span class="nx">name</span>
+  <span class="nx">policy_arn</span> <span class="o">=</span> <span class="s2">"arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">kaniko-irsa.tf - Create Kubernetes Service Account and assign IAM role</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="hcl"><span class="c1"># Create Kubernetes service account annotated with IRSA role</span>
+<span class="nx">resource</span> <span class="s2">"kubernetes_service_account"</span> <span class="s2">"kaniko_sa"</span> <span class="p">{</span>
+  <span class="nx">metadata</span> <span class="p">{</span>
+    <span class="nx">name</span>      <span class="o">=</span> <span class="s2">"kaniko-builder-sa"</span>
+    <span class="nx">namespace</span> <span class="o">=</span> <span class="nx">var</span><span class="p">.</span><span class="nx">namespace</span>
+    <span class="nx">annotations</span> <span class="o">=</span> <span class="p">{</span>
+      <span class="s2">"eks.amazonaws.com/role-arn"</span> <span class="p">=</span> <span class="nx">aws_iam_role</span><span class="p">.</span><span class="nx">kaniko_irsa_role</span><span class="p">.</span><span class="nx">arn</span>
+    <span class="p">}</span>
+  <span class="p">}</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="terraform-tfvars">terraform.tfvars</h4>
+<div class="paragraph">
+<p>All the variables are defined in the <code>variables.tf</code> file.</p>
+</div>
+<div class="listingblock">
+<div class="title">terraform.tfvars</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="hcl"><span class="nx">variable</span> <span class="s2">"aws_region"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"AWS region where EKS is deployed"</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+<span class="p">}</span>
+
+<span class="nx">variable</span> <span class="s2">"eks_cluster_name"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"EKS cluster name"</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+<span class="p">}</span>
+
+<span class="nx">variable</span> <span class="s2">"namespace"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Kubernetes namespace where Kaniko runs"</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+  <span class="nx">default</span>     <span class="o">=</span> <span class="s2">"kaniko"</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="terraform-tfvars-2">terraform.tfvars</h4>
+<div class="paragraph">
+<p>Use your AWS region and EKS cluster name in the <code>terraform.tfvars</code> file.</p>
+</div>
+<div class="listingblock">
+<div class="title">terraform.tfvars</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="hcl"><span class="nx">aws_region</span>       <span class="o">=</span> <span class="s2">"your-aws-region"</span>
+<span class="nx">eks_cluster_name</span> <span class="o">=</span> <span class="s2">"your-eks-cluster-name"</span>
+<span class="nx">namespace</span>        <span class="o">=</span> <span class="s2">"kaniko"</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="apply-terraform-configuration">Apply Terraform Configuration</h3>
+<div class="paragraph">
+<p>Create an IAM role for the Kaniko pod using Terraform.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="nb">cd </span>terraform
+<span class="gp">$</span><span class="w"> </span>terraform init
+<span class="gp">$</span><span class="w"> </span>terraform plan
+<span class="gp">$</span><span class="w"> </span>terraform apply <span class="nt">-auto-approve</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-4-deploy-kaniko-pod">Step 4: Deploy Kaniko Pod</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="create-a-kaniko-pod-manifest">Create a Kaniko Pod Manifest</h3>
+<div class="listingblock">
+<div class="title">service-foundry-builder-pod.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Pod</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">generateName</span><span class="pi">:</span> <span class="s">service-foundry-builder-</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">kaniko</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="c1"># service account with permissions to push to ECR</span>
+  <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="na">serviceAccountName</span><span class="pi">:</span> <span class="s">kaniko-builder-sa</span>
+
+  <span class="na">initContainers</span><span class="pi">:</span>
+    <span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">create-ecr-repo</span>
+      <span class="na">image</span><span class="pi">:</span> <span class="s">amazonlinux</span>
+      <span class="na">command</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">/bin/sh"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">-c"</span><span class="pi">]</span>
+      <span class="na">args</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="pi">|</span>
+          <span class="s">yum install -y aws-cli &amp;&amp; \</span>
+          <span class="s">echo "Checking or creating ECR repository..." &amp;&amp; \</span>
+          <span class="s">aws ecr describe-repositories --region ca-west-1 --repository-names service-foundry-builder || \</span>
+          <span class="s">aws ecr create-repository --region ca-west-1 --repository-name service-foundry-builder</span>
+      <span class="na">envFrom</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">secretRef</span><span class="pi">:</span>
+            <span class="na">name</span><span class="pi">:</span> <span class="s">aws-secret</span>
+    <span class="c1">#</span><i class="conum" data-value="3"></i><b>(3)</b>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">setup-ecr-auth</span>
+      <span class="na">image</span><span class="pi">:</span> <span class="s">amazonlinux</span>
+      <span class="na">command</span><span class="pi">:</span> <span class="pi">[</span> <span class="s2">"</span><span class="s">/bin/sh"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">-c"</span> <span class="pi">]</span>
+
+      <span class="na">args</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="pi">|</span>
+          <span class="s">yum install -y aws-cli docker &amp;&amp; \</span>
+          <span class="s">mkdir -p /kaniko/.docker &amp;&amp; \</span>
+          <span class="s">aws ecr get-login-password --region ca-west-1 \</span>
+            <span class="s">| docker login --username AWS \</span>
+                          <span class="s">--password-stdin 123456789012.dkr.ecr.ca-west-1.amazonaws.com &amp;&amp; \</span>
+          <span class="s">cp ~/.docker/config.json /kaniko/.docker/config.json</span>
+      <span class="na">volumeMounts</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">docker-config</span>
+          <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/kaniko/.docker</span>
+
+      <span class="na">envFrom</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">secretRef</span><span class="pi">:</span>
+            <span class="na">name</span><span class="pi">:</span> <span class="s">aws-secret</span>
+
+  <span class="na">containers</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">kaniko</span>
+      <span class="na">image</span><span class="pi">:</span> <span class="s">gcr.io/kaniko-project/executor:latest</span>
+      <span class="c1">#</span><i class="conum" data-value="4"></i><b>(4)</b>
+      <span class="na">args</span><span class="pi">:</span> <span class="pi">[</span>
+        <span class="s2">"</span><span class="s">--dockerfile=/workspace/Dockerfile"</span><span class="pi">,</span>
+        <span class="s2">"</span><span class="s">--context=s3://your-s3-bucket-name/docker-context/service-foundry-builder.tar.gz"</span><span class="pi">,</span>
+        <span class="s2">"</span><span class="s">--destination=123456789012.dkr.ecr.ca-west-1.amazonaws.com/service-foundry-builder"</span><span class="pi">,</span>
+        <span class="s2">"</span><span class="s">--build-arg=TARGETARCH=amd64"</span>
+      <span class="pi">]</span>
+
+      <span class="na">envFrom</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">secretRef</span><span class="pi">:</span>
+            <span class="na">name</span><span class="pi">:</span> <span class="s">aws-secret</span>
+
+      <span class="na">volumeMounts</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">dockerfile-storage</span>
+          <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/workspace</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">docker-config</span>
+          <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/kaniko/.docker</span>
+
+
+  <span class="na">restartPolicy</span><span class="pi">:</span> <span class="s">Never</span>
+
+  <span class="c1">#</span><i class="conum" data-value="5"></i><b>(5)</b>
+  <span class="na">volumes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">dockerfile-storage</span>
+      <span class="na">configMap</span><span class="pi">:</span>
+        <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-builder-dockerfile</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">docker-config</span>
+      <span class="na">emptyDir</span><span class="pi">:</span> <span class="pi">{}</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The service account with permissions to push to ECR.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The init container that creates the ECR repository if it doesn&#8217;t exist.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>The init container that sets up the ECR authentication.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>The Kaniko executor image. This image is used to build the Docker image.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td>The volume that stores the Dockerfile.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="deploy-the-kaniko-pod">Deploy the Kaniko Pod</h3>
+<div class="paragraph">
+<p>The Kaniko pod manifest is created. You can check the pod manifest using the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl create <span class="nt">-f</span> service-foundry-builder-pod.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="confirm-the-image-push">Confirm the Image Push</h3>
+<div class="paragraph">
+<p>As the result of the Kaniko pod, the Docker image is built and pushed to ECR. Check the logs to verify the image was built and pushed to ECR successfully.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/ecr-repository.png" alt="ecr repository">
+</div>
+<div class="title">Figure 1. ecr-repository - service-foundry-builder</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="run-the-built-image">Run the Built Image</h3>
+<div class="paragraph">
+<p>Test the newly built Docker image:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> kaniko run <span class="nt">-it</span> <span class="nt">--rm</span> kaniko-python-app <span class="se">\</span>
+<span class="go">  --image=123456789012.dkr.ecr.ca-west-1.amazonaws.com/service-foundry-builder \
+  --restart=Never</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>You’ve successfully built a Docker image using Kaniko in a Kubernetes cluster, stored the Docker context in an S3 bucket, and pushed the image to Amazon ECR. This approach provides a scalable, secure, and Docker-daemon-free solution for container image builds in cloud-native environments.</p>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>
