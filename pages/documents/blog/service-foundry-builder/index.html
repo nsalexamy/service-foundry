@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Service Foundry Builder as Kubernetes Job</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="active">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/blog/">Blog</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Service Foundry Builder as Kubernetes Job
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#docker-image">Docker Image</a>
+<ul class="sectlevel2">
+<li><a href="#dockerfile-overview">Dockerfile Overview</a></li>
+<li><a href="#building-the-docker-image">Building the Docker Image</a></li>
+<li><a href="#running-the-docker-container">Running the Docker Container</a></li>
+</ul>
+</li>
+<li><a href="#integration-with-aws-ecr">Integration with AWS ECR</a></li>
+<li><a href="#kubernetes-configuration">Kubernetes Configuration</a>
+<ul class="sectlevel2">
+<li><a href="#namespace-setup">Namespace Setup</a></li>
+</ul>
+</li>
+<li><a href="#helm-chart">Helm Chart</a>
+<ul class="sectlevel2">
+<li><a href="#create-helm-chart">Create Helm Chart</a></li>
+<li><a href="#required-kubernetes-secrets">Required Kubernetes Secrets</a></li>
+<li><a href="#rbac">RBAC</a></li>
+<li><a href="#entrypoint-sh">entrypoint.sh</a></li>
+<li><a href="#deploy-service-foundry-builder-job-to-kubernetes">Deploy Service Foundry Builder Job to Kubernetes</a></li>
+</ul>
+</li>
+<li><a href="#recap-manual-steps">Recap - Manual steps</a>
+<ul class="sectlevel2">
+<li><a href="#1-create-service-foundry-namespace">1. Create service-foundry namespace</a></li>
+<li><a href="#2-create-aws-secret">2. Create aws-secret</a></li>
+<li><a href="#3-create-service-foundry-github-ssh">3. Create service-foundry-github-ssh</a></li>
+<li><a href="#4-create-service-foundry-config-files">4. Create service-foundry-config-files</a></li>
+<li><a href="#5-create-service-foundry-builder-job-using-helm-chart">5. Create service-foundry-builder job using Helm chart</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/service-foundry-builder-overview.png" alt="service foundry builder overview">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide provides a comprehensive approach to setting up a runtime environment for building and deploying Kubernetes-native applications as Kubernetes Jobs. This Kubernetes-native build tool simplifies the build and deployment process by packaging essential utilities such as kubectl, Helm, Terraform, and Kaniko into a single runtime environment.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="docker-image">Docker Image</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The Docker image for the Kubernetes-native build tool is designed to streamline the application build and deployment process. It includes essential tools and dependencies required for managing Kubernetes resources and building Docker images.</p>
+</div>
+<div class="paragraph">
+<p>Included Tools:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Python3 and Pip</p>
+</li>
+<li>
+<p>openssh-client</p>
+</li>
+<li>
+<p>node and npm</p>
+</li>
+<li>
+<p>kubectl</p>
+</li>
+<li>
+<p>helm</p>
+</li>
+<li>
+<p>yo (Yeoman)</p>
+</li>
+<li>
+<p>jq</p>
+</li>
+<li>
+<p>yq</p>
+</li>
+<li>
+<p>terraform</p>
+</li>
+<li>
+<p>AWS CLI</p>
+</li>
+<li>
+<p>Azure CLI</p>
+</li>
+<li>
+<p>git</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="dockerfile-overview">Dockerfile Overview</h3>
+<div class="paragraph">
+<p>The Dockerfile is structured to install and configure all necessary tools in a Debian-based environment. It includes Node.js, npm, AWS CLI, Azure CLI, Helm, and Terraform, among others. The Dockerfile also defines a service account for the builder and sets up essential environment variables.</p>
+</div>
+<div class="listingblock">
+<div class="title">docker/Dockerfile</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="dockerfile"><span class="c"># Enable BuildKit support</span>
+<span class="c"># docker buildx build --platform linux/amd64,linux/arm64 -t your-image-name .</span>
+
+<span class="k">FROM</span><span class="s"> debian:bullseye-slim</span>
+
+<span class="k">ARG</span><span class="s"> TARGETARCH</span>
+<span class="k">ENV</span><span class="s"> DEBIAN_FRONTEND=noninteractive</span>
+
+
+<span class="c"># Install core dependencies (excluding nodejs and npm)</span>
+<span class="k">RUN </span>apt-get update <span class="o">&amp;&amp;</span> apt-get <span class="nb">install</span> <span class="nt">-y</span> <span class="nt">--no-install-recommends</span> <span class="se">\
+</span>    curl unzip wget git jq <span class="se">\
+</span>    ca-certificates software-properties-common <span class="se">\
+</span>    python3 python3-pip lsb-release apt-transport-https <span class="se">\
+</span>    openssh-client xz-utils <span class="se">\
+</span>    <span class="o">&amp;&amp;</span> <span class="nb">rm</span> <span class="nt">-rf</span> /var/lib/apt/lists/<span class="k">*</span>
+
+<span class="c"># Define version</span>
+<span class="k">ENV</span><span class="s"> NODE_VERSION=22.9.0</span>
+<span class="k">ENV</span><span class="s"> NPM_VERSION=11.2.0</span>
+
+<span class="c"># Install Node.js and npm</span>
+<span class="k">RUN if</span> <span class="o">[</span> <span class="s2">"</span><span class="k">${</span><span class="nv">TARGETARCH</span><span class="k">}</span><span class="s2">"</span> <span class="o">=</span> <span class="s2">"amd64"</span> <span class="o">]</span><span class="p">;</span> <span class="k">then</span> <span class="se">\
+</span>      curl <span class="nt">-fsSL</span> https://nodejs.org/dist/v<span class="k">${</span><span class="nv">NODE_VERSION</span><span class="k">}</span>/node-v<span class="k">${</span><span class="nv">NODE_VERSION</span><span class="k">}</span><span class="nt">-linux-x64</span>.tar.xz <span class="nt">-o</span> node.tar.xz <span class="p">;</span> <span class="se">\
+</span>    <span class="k">else</span> <span class="se">\
+</span>      curl <span class="nt">-fsSL</span> https://nodejs.org/dist/v<span class="k">${</span><span class="nv">NODE_VERSION</span><span class="k">}</span>/node-v<span class="k">${</span><span class="nv">NODE_VERSION</span><span class="k">}</span><span class="nt">-linux-arm64</span>.tar.xz <span class="nt">-o</span> node.tar.xz <span class="p">;</span> <span class="se">\
+</span>    <span class="k">fi</span> <span class="se">\
+</span>    <span class="o">&amp;&amp;</span> <span class="nb">tar</span> <span class="nt">-xJf</span> node.tar.xz <span class="nt">-C</span> /usr/local <span class="nt">--strip-components</span><span class="o">=</span>1 <span class="se">\
+</span>    <span class="o">&amp;&amp;</span> <span class="nb">rm </span>node.tar.xz <span class="se">\
+</span>    <span class="o">&amp;&amp;</span> <span class="nb">ln</span> <span class="nt">-sf</span> /usr/local/bin/node /usr/bin/node <span class="se">\
+</span>    <span class="o">&amp;&amp;</span> <span class="nb">ln</span> <span class="nt">-sf</span> /usr/local/bin/npm /usr/bin/npm <span class="se">\
+</span>    <span class="o">&amp;&amp;</span> npm <span class="nb">install</span> <span class="nt">-g</span> npm@<span class="k">${</span><span class="nv">NPM_VERSION</span><span class="k">}</span>
+
+
+
+<span class="c"># Install kubectl</span>
+<span class="k">RUN </span>curl <span class="nt">-LO</span> <span class="s2">"https://dl.k8s.io/release/</span><span class="si">$(</span>curl <span class="nt">-L</span> <span class="nt">-s</span> https://dl.k8s.io/release/stable.txt<span class="si">)</span><span class="s2">/bin/linux/</span><span class="k">${</span><span class="nv">TARGETARCH</span><span class="k">}</span><span class="s2">/kubectl"</span> <span class="o">&amp;&amp;</span> <span class="se">\
+</span>    <span class="nb">install</span> <span class="nt">-o</span> root <span class="nt">-g</span> root <span class="nt">-m</span> 0755 kubectl /usr/local/bin/kubectl <span class="o">&amp;&amp;</span> <span class="se">\
+</span>    <span class="nb">rm </span>kubectl
+
+<span class="c"># Install Helm</span>
+<span class="k">RUN </span>curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+<span class="c"># Install Yeoman</span>
+<span class="k">RUN </span>npm <span class="nb">install</span> <span class="nt">-g</span> yo
+
+<span class="c"># Install yq (Mike Farah's Go version)</span>
+<span class="k">RUN </span><span class="nv">YQ_VERSION</span><span class="o">=</span><span class="s2">"v4.44.1"</span> <span class="o">&amp;&amp;</span> <span class="se">\
+</span>    curl <span class="nt">-L</span> https://github.com/mikefarah/yq/releases/download/<span class="k">${</span><span class="nv">YQ_VERSION</span><span class="k">}</span>/yq_linux_<span class="k">${</span><span class="nv">TARGETARCH</span><span class="k">}</span> <span class="nt">-o</span> /usr/local/bin/yq <span class="o">&amp;&amp;</span> <span class="se">\
+</span>    <span class="nb">chmod</span> +x /usr/local/bin/yq
+
+<span class="c"># Install Terraform</span>
+<span class="k">RUN </span><span class="nv">TERRAFORM_VERSION</span><span class="o">=</span><span class="s2">"1.8.4"</span> <span class="o">&amp;&amp;</span> <span class="se">\
+</span>    wget https://releases.hashicorp.com/terraform/<span class="k">${</span><span class="nv">TERRAFORM_VERSION</span><span class="k">}</span>/terraform_<span class="k">${</span><span class="nv">TERRAFORM_VERSION</span><span class="k">}</span>_linux_<span class="k">${</span><span class="nv">TARGETARCH</span><span class="k">}</span>.zip <span class="o">&amp;&amp;</span> <span class="se">\
+</span>    unzip terraform_<span class="k">${</span><span class="nv">TERRAFORM_VERSION</span><span class="k">}</span>_linux_<span class="k">${</span><span class="nv">TARGETARCH</span><span class="k">}</span>.zip <span class="o">&amp;&amp;</span> <span class="se">\
+</span>    <span class="nb">mv </span>terraform /usr/local/bin/ <span class="o">&amp;&amp;</span> <span class="se">\
+</span>    <span class="nb">rm </span>terraform_<span class="k">${</span><span class="nv">TERRAFORM_VERSION</span><span class="k">}</span>_linux_<span class="k">${</span><span class="nv">TARGETARCH</span><span class="k">}</span>.zip
+
+<span class="c"># Install AWS CLI (v2 supports only x86_64 officially, workaround needed for arm64)</span>
+<span class="k">RUN if</span> <span class="o">[</span> <span class="s2">"</span><span class="k">${</span><span class="nv">TARGETARCH</span><span class="k">}</span><span class="s2">"</span> <span class="o">=</span> <span class="s2">"amd64"</span> <span class="o">]</span><span class="p">;</span> <span class="k">then</span> <span class="se">\
+</span>      curl <span class="s2">"https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"</span> <span class="nt">-o</span> <span class="s2">"awscliv2.zip"</span><span class="p">;</span> <span class="se">\
+</span>    <span class="k">else</span> <span class="se">\
+</span>      curl <span class="s2">"https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip"</span> <span class="nt">-o</span> <span class="s2">"awscliv2.zip"</span><span class="p">;</span> <span class="se">\
+</span>    <span class="k">fi</span> <span class="o">&amp;&amp;</span> <span class="se">\
+</span>    unzip awscliv2.zip <span class="o">&amp;&amp;</span> ./aws/install <span class="o">&amp;&amp;</span> <span class="se">\
+</span>    <span class="nb">rm</span> <span class="nt">-rf</span> aws awscliv2.zip
+
+<span class="c"># Install Azure CLI</span>
+<span class="k">RUN </span>curl <span class="nt">-sL</span> https://aka.ms/InstallAzureCLIDeb | bash
+
+
+<span class="c"># Create a script that will run the clone using the SSH key</span>
+
+<span class="k">RUN </span>groupadd <span class="nt">--gid</span> 1000 servicefoundry <span class="o">&amp;&amp;</span> <span class="se">\
+</span>    useradd <span class="nt">--uid</span> 1000 <span class="nt">--gid</span> servicefoundry <span class="nt">--create-home</span> servicefoundry
+
+<span class="c"># Set ownership of directories needed later</span>
+<span class="k">RUN </span><span class="nb">mkdir</span> <span class="nt">-p</span> /opt/nsa2/service-foundry <span class="se">\
+</span>    <span class="o">&amp;&amp;</span> <span class="nb">chown</span> <span class="nt">-R</span> servicefoundry:servicefoundry /opt/nsa2/service-foundry
+
+<span class="k">USER</span><span class="s"> servicefoundry</span>
+
+<span class="k">WORKDIR</span><span class="s"> /opt/nsa2/service-foundry</span>
+
+<span class="k">ENV</span><span class="s"> SF_WORKSPACE_DIR=/opt/nsa2/service-foundry/workspace</span>
+
+<span class="c"># Copy install-generator script file</span>
+<span class="k">COPY</span><span class="s"> --chown=servicefoundry:servicefoundry install-generator.sh .</span>
+<span class="k">RUN </span><span class="nb">chmod</span> +x install-generator.sh
+
+<span class="c"># Copy entrypoint script file</span>
+<span class="k">COPY</span><span class="s"> --chown=servicefoundry:servicefoundry entrypoint.sh .</span>
+<span class="k">RUN </span><span class="nb">chmod</span> +x entrypoint.sh
+
+<span class="k">ENTRYPOINT</span><span class="s"> ["/opt/nsa2/service-foundry/entrypoint.sh"]</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="building-the-docker-image">Building the Docker Image</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>docker buildx create <span class="nt">--use</span>
+<span class="gp">#</span><span class="w"> </span><span class="nv">$ </span>docker buildx build <span class="nt">--platform</span> linux/amd64,linux/arm64 <span class="nt">-t</span> service-foundry-builder <span class="nt">--load</span> docker/
+<span class="gp">$</span><span class="w"> </span>docker buildx build <span class="nt">--platform</span> linux/arm64 <span class="nt">-t</span> service-foundry-builder <span class="nt">--load</span> docker/</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="running-the-docker-container">Running the Docker Container</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>docker run <span class="nt">-it</span> <span class="nt">--rm</span> service-foundry-builder</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="integration-with-aws-ecr">Integration with AWS ECR</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To deploy Docker images to AWS ECR, a script is provided to authenticate, clean up untagged images, and push the new build.</p>
+</div>
+<div class="listingblock">
+<div class="title">push-to-ecr.sh</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c">#!/bin/bash</span>
+
+<span class="nv">REPO_NAME</span><span class="o">=</span><span class="s2">"service-foundry-builder"</span>
+<span class="nv">IMAGE_TAG</span><span class="o">=</span><span class="s2">"0.1.0"</span>
+
+aws ecr get-login-password <span class="nt">--region</span> <span class="nv">$AWS_REGION</span> | docker login <span class="nt">--username</span> AWS <span class="nt">--password-stdin</span> <span class="nv">$ECR_NAME</span>
+
+aws ecr describe-repositories <span class="nt">--repository-names</span> <span class="k">${</span><span class="nv">REPO_NAME</span><span class="k">}</span> <span class="nt">--region</span> <span class="nv">$AWS_REGION</span> &amp;&gt; /dev/null <span class="o">||</span> <span class="se">\</span>
+    aws ecr create-repository <span class="nt">--repository-name</span> <span class="k">${</span><span class="nv">REPO_NAME</span><span class="k">}</span> <span class="nt">--region</span> <span class="nv">$AWS_REGION</span>
+
+
+<span class="c"># Check if the tag exists</span>
+<span class="nv">EXISTS</span><span class="o">=</span><span class="si">$(</span>aws ecr describe-images <span class="se">\</span>
+  <span class="nt">--repository-name</span> <span class="nv">$REPO_NAME</span> <span class="se">\</span>
+  <span class="nt">--region</span> <span class="nv">$AWS_REGION</span> <span class="se">\</span>
+  <span class="nt">--query</span> <span class="s2">"imageDetails[?contains(imageTags, </span><span class="se">\`</span><span class="nv">$IMAGE_TAG</span><span class="se">\`</span><span class="s2">)].imageDigest"</span> <span class="se">\</span>
+  <span class="nt">--output</span> text<span class="si">)</span>
+
+<span class="k">if</span> <span class="o">[</span> <span class="nt">-n</span> <span class="s2">"</span><span class="nv">$EXISTS</span><span class="s2">"</span> <span class="o">]</span><span class="p">;</span> <span class="k">then
+  </span><span class="nb">echo</span> <span class="s2">"Deleting image with tag: </span><span class="nv">$IMAGE_TAG</span><span class="s2">"</span>
+  aws ecr batch-delete-image <span class="se">\</span>
+    <span class="nt">--repository-name</span> <span class="nv">$REPO_NAME</span> <span class="se">\</span>
+    <span class="nt">--region</span> <span class="nv">$AWS_REGION</span> <span class="se">\</span>
+    <span class="nt">--image-ids</span> <span class="nv">imageTag</span><span class="o">=</span><span class="nv">$IMAGE_TAG</span>
+  <span class="nb">echo</span> <span class="s2">"Deleted tag: </span><span class="nv">$IMAGE_TAG</span><span class="s2">"</span>
+<span class="k">else
+  </span><span class="nb">echo</span> <span class="s2">"Tag '</span><span class="nv">$IMAGE_TAG</span><span class="s2">' does not exist. Nothing to delete."</span>
+<span class="k">fi</span>
+
+<span class="c"># === Step 1: Delete untagged images ===</span>
+<span class="nb">echo</span> <span class="s2">"🔍 Finding untagged images in </span><span class="nv">$REPO_NAME</span><span class="s2">..."</span>
+<span class="nv">UNTAGGED_DIGESTS</span><span class="o">=</span><span class="si">$(</span>aws ecr describe-images <span class="se">\</span>
+  <span class="nt">--repository-name</span> <span class="nv">$REPO_NAME</span> <span class="se">\</span>
+  <span class="nt">--region</span> <span class="nv">$AWS_REGION</span> <span class="se">\</span>
+  <span class="nt">--query</span> <span class="s1">'imageDetails[?not_null(imageTags)==`false`].imageDigest'</span> <span class="se">\</span>
+  <span class="nt">--output</span> text<span class="si">)</span>
+
+<span class="k">if</span> <span class="o">[</span> <span class="nt">-z</span> <span class="s2">"</span><span class="nv">$UNTAGGED_DIGESTS</span><span class="s2">"</span> <span class="o">]</span><span class="p">;</span> <span class="k">then
+  </span><span class="nb">echo</span> <span class="s2">"✅ No untagged images found."</span>
+<span class="k">else
+  </span><span class="nb">echo</span> <span class="s2">"🗑️ Deleting untagged images..."</span>
+  <span class="k">for </span>DIGEST <span class="k">in</span> <span class="nv">$UNTAGGED_DIGESTS</span><span class="p">;</span> <span class="k">do
+    </span>aws ecr batch-delete-image <span class="se">\</span>
+      <span class="nt">--repository-name</span> <span class="nv">$REPO_NAME</span> <span class="se">\</span>
+      <span class="nt">--region</span> <span class="nv">$AWS_REGION</span> <span class="se">\</span>
+      <span class="nt">--image-ids</span> <span class="nv">imageDigest</span><span class="o">=</span><span class="nv">$DIGEST</span>
+    <span class="nb">echo</span> <span class="s2">"  - Deleted imageDigest: </span><span class="nv">$DIGEST</span><span class="s2">"</span>
+  <span class="k">done
+fi
+
+</span><span class="nb">echo</span> <span class="s2">"Building and pushing the Docker image..."</span>
+
+docker buildx build <span class="nt">--platform</span> linux/amd64 <span class="nt">-t</span> <span class="nv">$ECR_NAME</span>/<span class="nv">$REPO_NAME</span>:<span class="nv">$IMAGE_TAG</span> <span class="nb">.</span> <span class="nt">--push</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Run the command below to push the Docker image to ECR. Make sure to replace the environment variables with your own values.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="nb">chmod</span> +x push-to-ecr.sh
+<span class="gp">$</span><span class="w"> </span>./push-to-ecr.sh</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="kubernetes-configuration">Kubernetes Configuration</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="namespace-setup">Namespace Setup</h3>
+<div class="paragraph">
+<p>Create a namespace for Service Foundry. This namespace will be used to deploy the Service Foundry modules.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl create namespace service-foundry</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="helm-chart">Helm Chart</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To automate the deployment of Service Foundry Builder, we will create a Helm chart. This chart will include all the necessary Kubernetes resources and configurations needed to run the Service Foundry Builder.</p>
+</div>
+<div class="sect2">
+<h3 id="create-helm-chart">Create Helm Chart</h3>
+<div class="paragraph">
+<p>Create a new Helm chart for Service Foundry Builder. This chart will include all the necessary Kubernetes resources and configurations needed to run the Service Foundry Builder.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="nb">mkdir </span>helm-charts
+<span class="gp">$</span><span class="w"> </span><span class="nb">cd </span>helm-charts
+<span class="gp">$</span><span class="w"> </span>helm create service-foundry-builder</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Structure of the Helm chart:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>tree service-foundry-builder
+<span class="go">
+service-foundry-builder
+├── Chart.yaml
+├── charts
+├── templates
+│   ├── NOTES.txt
+│   ├── _helpers.tpl
+│   ├── hpa.yaml
+│   ├── ingress.yaml
+│   ├── job.yaml
+│   ├── rbac.yaml
+│   ├── service.yaml
+│   ├── serviceaccount.yaml
+│   └── tests
+│       └── test-connection.yaml
+└── values.yaml</span></code></pre>
+</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>The <strong>deployment.yaml</strong> file is replaced with job.yaml file. This is because we want to run the Service Foundry Builder as a Kubernetes Job instead of a Deployment.</p>
+</li>
+<li>
+<p>The <strong>rbac.yaml</strong> file is added to the templates folder. This file contains the RBAC configuration because Service Foundry needs to create Kubernetes resources including namespaces, deployments, services, config maps, secrets, CDRs, and so on.</p>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect2">
+<h3 id="required-kubernetes-secrets">Required Kubernetes Secrets</h3>
+<div class="paragraph">
+<p>The following Kubernetes resources are required for the Service Foundry Builder Helm chart:</p>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 25%;">
+<col style="width: 75%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Resource name</th>
+<th class="tableblock halign-left valign-top">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">aws-secret(secret)</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">AWS credentials for ECR. This secret is used to authenticate with AWS services such as ECR.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">service-foundry-github-ssh(secret)</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">GitHub SSH key for cloning repositories. This secret is used to authenticate with GitHub repositories such as generator-nsa2.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">service-foundry-config-files(secret)</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Service Foundry config files. This secret is used to provide the configuration files to the Service Foundry Builder.</p></td>
+</tr>
+</tbody>
+</table>
+<div class="paragraph">
+<p>These resources are configured in the values.yaml file of the Helm chart.</p>
+</div>
+<div class="listingblock">
+<div class="title">helm-charts/service-foundry-builder/values.yaml - volumes and volumeMounts</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">volumes</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-github-ssh</span>
+    <span class="na">secret</span><span class="pi">:</span>
+      <span class="na">secretName</span><span class="pi">:</span> <span class="s">service-foundry-github-ssh</span>
+      <span class="na">optional</span><span class="pi">:</span> <span class="kc">false</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-config-files</span>
+    <span class="na">secret</span><span class="pi">:</span>
+      <span class="na">secretName</span><span class="pi">:</span> <span class="s">service-foundry-config-files</span>
+      <span class="na">optional</span><span class="pi">:</span> <span class="kc">false</span>
+
+<span class="na">volumeMounts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-github-ssh</span>
+    <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/opt/nsa2/github-ssh</span>
+    <span class="na">readOnly</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-config-files</span>
+    <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/opt/nsa2/service-foundry/config-files</span>
+    <span class="na">readOnly</span><span class="pi">:</span> <span class="kc">true</span>
+
+
+<span class="na">envFrom</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">secretRef</span><span class="pi">:</span>
+      <span class="na">name</span><span class="pi">:</span> <span class="s">aws-secret</span></code></pre>
+</div>
+</div>
+<div class="sect3">
+<h4 id="aws-secret">aws-secret</h4>
+<div class="paragraph">
+<p>To run AWS CLI on the Service Foundry Builder, we need to create a Kubernetes secret with the AWS credentials. This secret will be used to authenticate with AWS services such as ECR.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> service-foundry create secret generic aws-secret <span class="se">\</span>
+<span class="gp">  --from-literal=AWS_ACCESS_KEY_ID=$</span>AWS_ACCESS_KEY_ID <span class="se">\</span>
+<span class="gp">  --from-literal=AWS_ACCOUNT_ID=$</span>AWS_ACCOUNT_ID <span class="se">\</span>
+<span class="gp">  --from-literal=AWS_SECRET_ACCESS_KEY=$</span>AWS_SECRET_ACCESS_KEY <span class="se">\</span>
+<span class="gp">  --from-literal=AWS_REGION=$</span>AWS_REGION</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Replace the environment variables with your own values.</p>
+</div>
+<div class="paragraph">
+<p>To create repositories in ECR, we need environment variables below. The prefix <strong>'TF_VAR_'</strong> is used by Terraform to set the variables in the Terraform configuration files. These variables are used to configure AIM roles and policies for the ECR repositories.</p>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<caption class="title">Table 1. Environment Variables</caption>
+<colgroup>
+<col style="width: 50%;">
+<col style="width: 50%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Name</th>
+<th class="tableblock halign-left valign-top">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">TF_VAR_region</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">AWS region</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">TF_VAR_eks_cluster_name</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">EKS cluster name</p></td>
+</tr>
+</tbody>
+</table>
+<div class="paragraph">
+<p>These values are also configured in the values.yaml file of the Helm chart.</p>
+</div>
+<div class="listingblock">
+<div class="title">helm-charts/service-foundry-builder/values.yaml - extraEnvs</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">extraEnvs</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">TF_VAR_aws_region</span>
+    <span class="na">valueFrom</span><span class="pi">:</span>
+      <span class="na">secretKeyRef</span><span class="pi">:</span>
+        <span class="na">name</span><span class="pi">:</span> <span class="s">aws-secret</span>
+        <span class="na">key</span><span class="pi">:</span> <span class="s">AWS_REGION</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span>  <span class="s">TF_VAR_eks_cluster_name</span>
+    <span class="na">value</span><span class="pi">:</span> <span class="s">young-eks</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="service-foundry-github-ssh">service-foundry-github-ssh</h4>
+<div class="paragraph">
+<p>Service Foundry Builder needs to clone the generator-nsa2 repository from GitHub. To do this, we need to create a Kubernetes secret with the SSH key. This secret will be used to authenticate with GitHub repositories. The id_rsa.pub file is the public key that is added to the GitHub repository as a deploy key. The id_rsa file is the private key that is used to authenticate with GitHub.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="nb">cd </span>ssh
+<span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> service-foundry create secret generic service-foundry-github-ssh <span class="nt">--from-file</span><span class="o">=</span>./id_rsa <span class="nt">--from-file</span><span class="o">=</span>./id_rsa.pub</code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="service-foundry-config-files">service-foundry-config-files</h4>
+<div class="paragraph">
+<p>Configuration files for Service Foundry modules are stored in a Kubernetes secret. This secret will be used to provide the configuration files to the Service Foundry Builder.</p>
+</div>
+<div class="paragraph">
+<p>These files are used to create the Service Foundry modules.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="nb">cd </span>service-foundry-config
+<span class="gp">$</span><span class="w"> </span>kubectl create secret generic service-foundry-config-files <span class="se">\</span>
+<span class="go">  --from-file=infra-foundry-config.yaml \
+  --from-file=o11y-foundry-config.yaml \
+  --from-file=sso-foundry-config.yaml \
+  -n service-foundry</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="rbac">RBAC</h3>
+<div class="paragraph">
+<p>This RBAC configuration is used to give the service account the necessary permissions to create Kubernetes resources. The <code>ClusterRole</code> and <code>ClusterRoleBinding</code> are created to allow the service account to access all resources in the cluster.</p>
+</div>
+<div class="paragraph">
+<p>I added 'rbac.yaml' to the templates folder of the Helm chart. This file contains the RBAC configuration for the Kaniko executor.</p>
+</div>
+<div class="listingblock">
+<div class="title">helm-charts/service-foundry-builder/templates/rbac.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRole</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-builder-role</span>
+<span class="na">rules</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">apiGroups</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">*"</span><span class="pi">]</span>
+    <span class="na">resources</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">*"</span><span class="pi">]</span>
+    <span class="na">verbs</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">*"</span><span class="pi">]</span>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRoleBinding</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-builder-binding</span>
+<span class="na">roleRef</span><span class="pi">:</span>
+  <span class="na">apiGroup</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io</span>
+  <span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRole</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-builder-role</span>
+<span class="na">subjects</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceAccount</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-builder</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="pi">{{</span> <span class="nv">.Release.Namespace</span> <span class="pi">}}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="entrypoint-sh">entrypoint.sh</h3>
+<div class="paragraph">
+<p>entrypoint.sh is the main script that runs when the Docker container starts. It sets up the environment, installs the necessary tools, and runs the Service Foundry Builder commands.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c">#!/bin/bash</span>
+<span class="nb">set</span> <span class="nt">-e</span>
+
+<span class="nb">echo</span> <span class="s2">"======================================"</span>
+<span class="nb">echo</span> <span class="s2">" Service Foundry Builder Started (v1.0)"</span>
+<span class="nb">echo</span> <span class="s2">"======================================"</span>
+
+<span class="nb">echo</span> <span class="s2">"🔧 Versions:"</span>
+<span class="nb">echo</span> <span class="s2">"- kubectl: </span><span class="si">$(</span>kubectl version <span class="nt">--client</span> <span class="o">||</span> <span class="nb">echo</span> <span class="s1">'Not installed'</span><span class="si">)</span><span class="s2">"</span>
+<span class="nb">echo</span> <span class="s2">"- helm: </span><span class="si">$(</span>helm version <span class="nt">--short</span> <span class="o">||</span> <span class="nb">echo</span> <span class="s1">'Not installed'</span><span class="si">)</span><span class="s2">"</span>
+<span class="nb">echo</span> <span class="s2">"- terraform: </span><span class="si">$(</span>terraform version | <span class="nb">head</span> <span class="nt">-n</span> 1 <span class="o">||</span> <span class="nb">echo</span> <span class="s1">'Not installed'</span><span class="si">)</span><span class="s2">"</span>
+<span class="nb">echo</span> <span class="s2">"- Node version: </span><span class="si">$(</span>node <span class="nt">--version</span> <span class="o">||</span> <span class="nb">echo</span> <span class="s1">'Not installed'</span><span class="si">)</span><span class="s2">"</span>
+<span class="nb">echo</span> <span class="s2">"- npm version: </span><span class="si">$(</span>npm <span class="nt">--version</span> <span class="o">||</span> <span class="nb">echo</span> <span class="s1">'Not installed'</span><span class="si">)</span><span class="s2">"</span>
+<span class="nb">echo</span> <span class="s2">"- yo (Yeoman): </span><span class="si">$(</span>yo <span class="nt">--version</span> <span class="o">||</span> <span class="nb">echo</span> <span class="s1">'Not installed'</span><span class="si">)</span><span class="s2">"</span>
+<span class="nb">echo</span> <span class="s2">"- yq: </span><span class="si">$(</span>yq <span class="nt">--version</span> <span class="o">||</span> <span class="nb">echo</span> <span class="s1">'Not installed'</span><span class="si">)</span><span class="s2">"</span>
+<span class="nb">echo</span> <span class="s2">"- jq: </span><span class="si">$(</span>jq <span class="nt">--version</span> <span class="o">||</span> <span class="nb">echo</span> <span class="s1">'Not installed'</span><span class="si">)</span><span class="s2">"</span>
+<span class="nb">echo</span> <span class="s2">"- aws: </span><span class="si">$(</span>aws <span class="nt">--version</span> <span class="o">||</span> <span class="nb">echo</span> <span class="s1">'Not installed'</span><span class="si">)</span><span class="s2">"</span>
+<span class="nb">echo</span> <span class="s2">"- az: </span><span class="si">$(</span>az version | <span class="nb">grep </span>azure-cli <span class="o">||</span> <span class="nb">echo</span> <span class="s1">'Not installed'</span><span class="si">)</span><span class="s2">"</span>
+
+<span class="nb">echo</span> <span class="s2">""</span>
+<span class="nb">echo</span> <span class="s2">"Current directory: </span><span class="si">$(</span><span class="nb">pwd</span><span class="si">)</span><span class="s2">"</span>
+<span class="nb">echo</span> <span class="s2">"Ready to run your commands!"</span>
+
+<span class="nv">CWD</span><span class="o">=</span><span class="si">$(</span><span class="nb">pwd</span><span class="si">)</span>
+
+<span class="k">if</span> <span class="o">[</span> <span class="nt">-n</span> <span class="s2">"</span><span class="nv">$GENERATOR_NSA2_SSH_KEY_PATH</span><span class="s2">"</span> <span class="o">]</span><span class="p">;</span> <span class="k">then</span>
+  ./install-generator.sh
+<span class="k">else
+  </span><span class="nb">echo</span> <span class="s2">"No SSH key provided. Skipping generator-nsa2 clone."</span>
+  <span class="nb">exit </span>1
+<span class="k">fi
+
+</span><span class="nb">echo</span> <span class="s2">"Service Foundry Config Files"</span>
+<span class="nb">echo</span> <span class="s2">"======================================"</span>
+<span class="nb">ls</span> <span class="nt">-l</span> /opt/nsa2/service-foundry/config-files
+<span class="nb">echo</span> <span class="s2">"======================================"</span>
+
+
+<span class="c"># use infra-foundry-config.yaml</span>
+<span class="k">if</span> <span class="o">[</span> <span class="nt">-f</span> /opt/nsa2/service-foundry/config-files/infra-foundry-config.yaml <span class="o">]</span><span class="p">;</span> <span class="k">then
+  </span><span class="nb">echo</span> <span class="s2">"Using /opt/nsa2/service-foundry/config-files/infra-foundry-config.yaml"</span>
+
+  <span class="nb">mkdir</span> <span class="nt">-p</span> <span class="s2">"</span><span class="nv">$CWD</span><span class="s2">/workspace/infra"</span>
+
+
+  <span class="nb">cp</span> /opt/nsa2/service-foundry/config-files/infra-foundry-config.yaml <span class="s2">"</span><span class="nv">$CWD</span><span class="s2">/workspace/infra/infra-foundry-config.yaml"</span>
+
+  <span class="nb">cd</span> <span class="s2">"</span><span class="nv">$CWD</span><span class="s2">/workspace/infra"</span>
+  <span class="c"># run the generator</span>
+  <span class="nb">echo</span> <span class="s2">"Running yo nsa2:infra-foundry generate --force"</span>
+  yo nsa2:infra-foundry generate <span class="nt">--force</span>
+
+  <span class="nb">echo</span> <span class="s2">"Running yo nsa2:infra-foundry build --force"</span>
+  yo nsa2:infra-foundry build <span class="nt">--force</span>
+
+  <span class="nb">echo</span> <span class="s2">"Running yo nsa2:infra-foundry deploy --force"</span>
+  yo nsa2:infra-foundry deploy <span class="nt">--force</span>
+
+  <span class="nb">ls</span> <span class="nt">-l</span> <span class="s2">"</span><span class="nv">$CWD</span><span class="s2">/workspace/infra"</span>
+
+  <span class="nb">cd</span> <span class="nv">$CWD</span>
+<span class="k">else
+  </span><span class="nb">echo</span> <span class="s2">"No /opt/nsa2/service-foundry/config-files/infra-foundry-config.json found. Skipping infra-foundry generation."</span>
+<span class="k">fi</span>
+
+<span class="c"># use o11y-foundry-config.yaml</span>
+<span class="k">if</span> <span class="o">[</span> <span class="nt">-f</span> /opt/nsa2/service-foundry/config-files/o11y-foundry-config.yaml <span class="o">]</span><span class="p">;</span> <span class="k">then
+  </span><span class="nb">echo</span> <span class="s2">"Using /opt/nsa2/service-foundry/config-files/o11y-foundry-config.yaml"</span>
+
+  <span class="nb">mkdir</span> <span class="nt">-p</span> <span class="s2">"</span><span class="nv">$CWD</span><span class="s2">/workspace/o11y"</span>
+  <span class="nb">cp</span> /opt/nsa2/service-foundry/config-files/o11y-foundry-config.yaml <span class="s2">"</span><span class="nv">$CWD</span><span class="s2">/workspace/o11y/o11y-foundry-config.yaml"</span>
+  <span class="nb">cd</span> <span class="s2">"</span><span class="nv">$CWD</span><span class="s2">/workspace/o11y"</span>
+  <span class="c"># run the generator</span>
+  <span class="nb">echo</span> <span class="s2">"Running yo nsa2:o11y-foundry generate --force"</span>
+  yo nsa2:o11y-foundry generate <span class="nt">--force</span>
+
+  <span class="nb">echo</span> <span class="s2">"Running yo nsa2:o11y-foundry build --force"</span>
+  yo nsa2:o11y-foundry build <span class="nt">--force</span>
+
+  <span class="nb">echo</span> <span class="s2">"Running yo nsa2:o11y-foundry deploy --force"</span>
+  yo nsa2:o11y-foundry deploy <span class="nt">--force</span>
+
+  <span class="nb">ls</span> <span class="nt">-l</span> <span class="s2">"</span><span class="nv">$CWD</span><span class="s2">/workspace/o11y"</span>
+
+  <span class="nb">cd</span> <span class="nv">$CWD</span>
+<span class="k">else
+  </span><span class="nb">echo</span> <span class="s2">"No /opt/nsa2/service-foundry/config-files/o11y-foundry-config.yaml found. Skipping o11y-foundry generation."</span>
+<span class="k">fi</span>
+
+<span class="c"># if /opt/nsa2/service-foundry/config-files/sso-foundry-config.yaml exists, use it</span>
+
+<span class="k">if</span> <span class="o">[</span> <span class="nt">-f</span> /opt/nsa2/service-foundry/config-files/sso-foundry-config.yaml <span class="o">]</span><span class="p">;</span> <span class="k">then
+  </span><span class="nb">echo</span> <span class="s2">"Using /opt/nsa2/service-foundry/config-files/sso-foundry-config.yaml"</span>
+
+  <span class="nb">mkdir</span> <span class="nt">-p</span> <span class="s2">"</span><span class="nv">$CWD</span><span class="s2">/workspace/sso"</span>
+  <span class="nb">cp</span> /opt/nsa2/service-foundry/config-files/sso-foundry-config.yaml <span class="s2">"</span><span class="nv">$CWD</span><span class="s2">/workspace/sso/sso-foundry-config.yaml"</span>
+  <span class="nb">cd</span> <span class="s2">"</span><span class="nv">$CWD</span><span class="s2">/workspace/sso"</span>
+  <span class="c"># run the generator</span>
+  <span class="nb">echo</span> <span class="s2">"Running yo nsa2:sso-foundry generate --force"</span>
+  yo nsa2:sso-foundry generate <span class="nt">--force</span>
+
+  <span class="nb">echo</span> <span class="s2">"Running yo nsa2:sso-foundry build --force"</span>
+  yo nsa2:sso-foundry build <span class="nt">--force</span>
+
+  <span class="nb">echo</span> <span class="s2">"Running yo nsa2:sso-foundry deploy --force"</span>
+  yo nsa2:sso-foundry deploy <span class="nt">--force</span>
+
+  <span class="nb">ls</span> <span class="nt">-l</span> <span class="s2">"</span><span class="nv">$CWD</span><span class="s2">/workspace/sso"</span>
+
+  <span class="nb">cd</span> <span class="nv">$CWD</span>
+<span class="k">else
+  </span><span class="nb">echo</span> <span class="s2">"No /opt/nsa2/service-foundry/config-files/sso-foundry-config.yaml found. Skipping sso-foundry generation."</span>
+<span class="k">fi
+
+</span><span class="nb">echo</span> <span class="s2">"Service Foundry Builder completed successfully."</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="deploy-service-foundry-builder-job-to-kubernetes">Deploy Service Foundry Builder Job to Kubernetes</h3>
+<div class="paragraph">
+<p>All Kubernetes applications configured in Service Foundry Config files are deployed in Kubernetes cluster.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="nb">cd </span>helm-charts
+<span class="gp">$</span><span class="w"> </span>helm <span class="nb">install </span>service-foundry-builder ./service-foundry-builder <span class="se">\</span>
+<span class="go">  -n service-foundry --create-namespace</span></code></pre>
+</div>
+</div>
+<div class="sect3">
+<h4 id="kubernetes-namespaces-before-deployment">Kubernetes namespaces before deployment:</h4>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl get namespaces
+<span class="go">NAME              STATUS   AGE
+default           Active   36m
+kube-node-lease   Active   36m
+kube-public       Active   36m
+kube-system       Active   36m</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="kubernetes-namespaces-after-deployment">Kubernetes namespaces after deployment:</h4>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl get namespaces
+<span class="go">NAME                            STATUS   AGE
+cert-manager                    Active   12m
+default                         Active   57m
+keycloak                        Active   12m
+kube-node-lease                 Active   57m
+kube-public                     Active   57m
+kube-system                     Active   57m
+o11y                            Active   10m
+opentelemetry-operator-system   Active   12m
+service-foundry                 Active   15m
+traefik                         Active   12m</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="kubernetes-resources-created-by-service-foundry-builder">Kubernetes resources created by Service Foundry Builder:</h4>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> o11y get all</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Example output:</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="go">NAME                                         READY   STATUS    RESTARTS      AGE
+pod/cassandra-0                              1/1     Running   0             14m
+pod/cassandra-1                              1/1     Running   0             12m
+pod/cassandra-2                              1/1     Running   0             10m
+pod/data-prepper-8685879ccb-szbdz            1/1     Running   0             14m
+pod/grafana-6c5474d5c6-4p7xc                 1/1     Running   0             14m
+pod/jaeger-collector-6666cdf7b9-stk4p        1/1     Running   5 (12m ago)   14m
+pod/nsa2-otel-exporter-6f8b5b6f6f-n92r8      1/1     Running   2 (12m ago)   14m
+pod/oauth2-proxy-6c58576b75-jqkvk            1/1     Running   0             13m
+pod/opensearch-cluster-master-0              1/1     Running   0             14m
+pod/opensearch-cluster-master-1              1/1     Running   0             14m
+pod/opensearch-cluster-master-2              1/1     Running   0             14m
+pod/opensearch-dashboards-6c9cddc4c4-cc7hk   1/1     Running   0             14m
+pod/otel-collector-0                         1/1     Running   1 (13m ago)   14m
+pod/otel-spring-example-57d5cc6b88-64xf4     1/1     Running   0             14m
+pod/otel-targetallocator-549986cb8c-rk9tj    1/1     Running   0             14m
+
+NAME                                         TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)                                  AGE
+</span><span class="gp">service/cassandra                            ClusterIP   10.100.151.223   &lt;none&gt;</span><span class="w">        </span>9042/TCP                                 14m
+<span class="gp">service/cassandra-headless                   ClusterIP   None             &lt;none&gt;</span><span class="w">        </span>7000/TCP,7001/TCP,7199/TCP,9042/TCP      14m
+<span class="gp">service/data-prepper                         ClusterIP   10.100.228.161   &lt;none&gt;</span><span class="w">        </span>2021/TCP,21890/TCP,21891/TCP,21892/TCP   14m
+<span class="gp">service/grafana                              ClusterIP   10.100.241.160   &lt;none&gt;</span><span class="w">        </span>80/TCP                                   14m
+<span class="gp">service/jaeger-collector                     ClusterIP   10.100.14.33     &lt;none&gt;</span><span class="w">        </span>16686/TCP,4317/TCP,4318/TCP              14m
+<span class="gp">service/jaeger-collector-extension           ClusterIP   10.100.196.252   &lt;none&gt;</span><span class="w">        </span>16686/TCP                                14m
+<span class="gp">service/jaeger-collector-headless            ClusterIP   None             &lt;none&gt;</span><span class="w">        </span>16686/TCP,4317/TCP,4318/TCP              14m
+<span class="gp">service/jaeger-collector-monitoring          ClusterIP   10.100.60.218    &lt;none&gt;</span><span class="w">        </span>8888/TCP                                 14m
+<span class="gp">service/nsa2-otel-exporter                   ClusterIP   10.100.51.157    &lt;none&gt;</span><span class="w">        </span>4318/TCP,9464/TCP                        14m
+<span class="gp">service/oauth2-proxy                         ClusterIP   10.100.85.172    &lt;none&gt;</span><span class="w">        </span>80/TCP,44180/TCP                         13m
+<span class="gp">service/opensearch-cluster-master            ClusterIP   10.100.232.232   &lt;none&gt;</span><span class="w">        </span>9200/TCP,9300/TCP,9600/TCP               14m
+<span class="gp">service/opensearch-cluster-master-headless   ClusterIP   None             &lt;none&gt;</span><span class="w">        </span>9200/TCP,9300/TCP,9600/TCP               14m
+<span class="gp">service/opensearch-dashboards                ClusterIP   10.100.248.218   &lt;none&gt;</span><span class="w">        </span>5601/TCP,9601/TCP                        14m
+<span class="gp">service/otel-collector                       ClusterIP   10.100.148.119   &lt;none&gt;</span><span class="w">        </span>4317/TCP,4318/TCP                        14m
+<span class="gp">service/otel-collector-headless              ClusterIP   None             &lt;none&gt;</span><span class="w">        </span>4317/TCP,4318/TCP                        14m
+<span class="gp">service/otel-collector-monitoring            ClusterIP   10.100.76.132    &lt;none&gt;</span><span class="w">        </span>8888/TCP                                 14m
+<span class="gp">service/otel-spring-example                  ClusterIP   10.100.174.1     &lt;none&gt;</span><span class="w">        </span>8080/TCP,9464/TCP                        14m
+<span class="gp">service/otel-targetallocator                 ClusterIP   10.100.205.196   &lt;none&gt;</span><span class="w">        </span>80/TCP                                   14m
+<span class="go">
+NAME                                    READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/data-prepper            1/1     1            1           14m
+deployment.apps/grafana                 1/1     1            1           14m
+deployment.apps/jaeger-collector        1/1     1            1           14m
+deployment.apps/nsa2-otel-exporter      1/1     1            1           14m
+deployment.apps/oauth2-proxy            1/1     1            1           13m
+deployment.apps/opensearch-dashboards   1/1     1            1           14m
+deployment.apps/otel-spring-example     1/1     1            1           14m
+deployment.apps/otel-targetallocator    1/1     1            1           14m
+
+NAME                                               DESIRED   CURRENT   READY   AGE
+replicaset.apps/data-prepper-8685879ccb            1         1         1       14m
+replicaset.apps/grafana-6c5474d5c6                 1         1         1       14m
+replicaset.apps/jaeger-collector-6666cdf7b9        1         1         1       14m
+replicaset.apps/nsa2-otel-exporter-6f8b5b6f6f      1         1         1       14m
+replicaset.apps/oauth2-proxy-6c58576b75            1         1         1       13m
+replicaset.apps/opensearch-dashboards-6c9cddc4c4   1         1         1       14m
+replicaset.apps/otel-spring-example-57d5cc6b88     1         1         1       14m
+replicaset.apps/otel-targetallocator-549986cb8c    1         1         1       14m
+
+NAME                                         READY   AGE
+statefulset.apps/cassandra                   3/3     14m
+statefulset.apps/opensearch-cluster-master   3/3     14m
+statefulset.apps/otel-collector              1/1     14m</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="traefik-ingresses-for-sso">Traefik ingresses for SSO</h4>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> o11y get ingresses
+<span class="go">
+NAME                    CLASS       HOSTS
+o11y-sso-ingress	    traefik		jaeger.nsa2.com,prometheus.nsa2.com,grafana.nsa2.com
+oauth2-proxy-ingress	traefik		oauth2-proxy.nsa2.com</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="recap-manual-steps">Recap - Manual steps</h2>
+<div class="sectionbody">
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Create service-foundry namespace</p>
+</li>
+<li>
+<p>Create aws-secret</p>
+</li>
+<li>
+<p>Create service-foundry-github-ssh</p>
+</li>
+<li>
+<p>Create service-foundry-config-files</p>
+</li>
+<li>
+<p>Create service-foundry-builder job using Helm chart</p>
+</li>
+</ol>
+</div>
+<div class="sect2">
+<h3 id="1-create-service-foundry-namespace">1. Create service-foundry namespace</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl create namespace service-foundry</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="2-create-aws-secret">2. Create aws-secret</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="go">kubectl -n service-foundry create secret generic aws-secret \
+</span><span class="gp">  --from-literal=AWS_ACCESS_KEY_ID=$</span>AWS_ACCESS_KEY_ID <span class="se">\</span>
+<span class="gp">  --from-literal=AWS_ACCOUNT_ID=$</span>AWS_ACCOUNT_ID <span class="se">\</span>
+<span class="gp">  --from-literal=AWS_SECRET_ACCESS_KEY=$</span>AWS_SECRET_ACCESS_KEY <span class="se">\</span>
+<span class="gp">  --from-literal=AWS_REGION=$</span>AWS_REGION</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="3-create-service-foundry-github-ssh">3. Create service-foundry-github-ssh</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="nb">cd </span>ssh
+<span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> service-foundry create secret generic service-foundry-github-ssh <span class="nt">--from-file</span><span class="o">=</span>./id_rsa <span class="nt">--from-file</span><span class="o">=</span>./id_rsa.pub</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="4-create-service-foundry-config-files">4. Create service-foundry-config-files</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="nb">cd </span>service-foundry-config
+<span class="gp">$</span><span class="w"> </span>kubectl create secret generic service-foundry-config-files <span class="se">\</span>
+<span class="go">  --from-file=infra-foundry-config.yaml \
+  --from-file=o11y-foundry-config.yaml \
+  --from-file=sso-foundry-config.yaml \
+  -n service-foundry</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="5-create-service-foundry-builder-job-using-helm-chart">5. Create service-foundry-builder job using Helm chart</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="nb">cd </span>helm-charts
+<span class="gp">$</span><span class="w"> </span>helm <span class="nb">install </span>service-foundry-builder ./service-foundry-builder <span class="se">\</span>
+<span class="go">  -n service-foundry --create-namespace</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The Kubernetes Native Build Tool streamlines the build and deployment of containerized applications as Kubernetes Jobs. With Docker, Helm, and Kubernetes integrations, it offers a standardized workflow for building Docker images, deploying Kubernetes resources, and automating application lifecycle management in a cloud-native environment.</p>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>
