@@ -1,0 +1,741 @@
+---
+layout: documents
+title: Service Foundry Builder as Kubernetes Job
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Blog
+    url: /documents/blog/
+---
+= Service Foundry Builder as Kubernetes Job
+
+:imagesdir: images
+
+// /Users/young/Dev/alexamy/service-foundry-builder/README.adoc
+
+[.img-wide]
+image::service-foundry-builder-overview.png[]
+
+== Introduction
+
+This guide provides a comprehensive approach to setting up a runtime environment for building and deploying Kubernetes-native applications as Kubernetes Jobs. This Kubernetes-native build tool simplifies the build and deployment process by packaging essential utilities such as kubectl, Helm, Terraform, and Kaniko into a single runtime environment.
+
+== Docker Image
+
+The Docker image for the Kubernetes-native build tool is designed to streamline the application build and deployment process. It includes essential tools and dependencies required for managing Kubernetes resources and building Docker images.
+
+Included Tools:
+
+* Python3 and Pip
+* openssh-client
+* node and npm
+* kubectl
+* helm
+* yo (Yeoman)
+* jq
+* yq
+* terraform
+* AWS CLI
+* Azure CLI
+* git
+
+
+=== Dockerfile Overview
+
+The Dockerfile is structured to install and configure all necessary tools in a Debian-based environment. It includes Node.js, npm, AWS CLI, Azure CLI, Helm, and Terraform, among others. The Dockerfile also defines a service account for the builder and sets up essential environment variables.
+
+.docker/Dockerfile
+[source,dockerfile]
+----
+# Enable BuildKit support
+# docker buildx build --platform linux/amd64,linux/arm64 -t your-image-name .
+
+FROM debian:bullseye-slim
+
+ARG TARGETARCH
+ENV DEBIAN_FRONTEND=noninteractive
+
+
+# Install core dependencies (excluding nodejs and npm)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl unzip wget git jq \
+    ca-certificates software-properties-common \
+    python3 python3-pip lsb-release apt-transport-https \
+    openssh-client xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Define version
+ENV NODE_VERSION=22.9.0
+ENV NPM_VERSION=11.2.0
+
+# Install Node.js and npm
+RUN if [ "${TARGETARCH}" = "amd64" ]; then \
+      curl -fsSL https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz -o node.tar.xz ; \
+    else \
+      curl -fsSL https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-arm64.tar.xz -o node.tar.xz ; \
+    fi \
+    && tar -xJf node.tar.xz -C /usr/local --strip-components=1 \
+    && rm node.tar.xz \
+    && ln -sf /usr/local/bin/node /usr/bin/node \
+    && ln -sf /usr/local/bin/npm /usr/bin/npm \
+    && npm install -g npm@${NPM_VERSION}
+
+
+
+# Install kubectl
+RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${TARGETARCH}/kubectl" && \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && \
+    rm kubectl
+
+# Install Helm
+RUN curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+# Install Yeoman
+RUN npm install -g yo
+
+# Install yq (Mike Farah's Go version)
+RUN YQ_VERSION="v4.44.1" && \
+    curl -L https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${TARGETARCH} -o /usr/local/bin/yq && \
+    chmod +x /usr/local/bin/yq
+
+# Install Terraform
+RUN TERRAFORM_VERSION="1.8.4" && \
+    wget https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${TARGETARCH}.zip && \
+    unzip terraform_${TERRAFORM_VERSION}_linux_${TARGETARCH}.zip && \
+    mv terraform /usr/local/bin/ && \
+    rm terraform_${TERRAFORM_VERSION}_linux_${TARGETARCH}.zip
+
+# Install AWS CLI (v2 supports only x86_64 officially, workaround needed for arm64)
+RUN if [ "${TARGETARCH}" = "amd64" ]; then \
+      curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
+    else \
+      curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
+    fi && \
+    unzip awscliv2.zip && ./aws/install && \
+    rm -rf aws awscliv2.zip
+
+# Install Azure CLI
+RUN curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+
+
+# Create a script that will run the clone using the SSH key
+
+RUN groupadd --gid 1000 servicefoundry && \
+    useradd --uid 1000 --gid servicefoundry --create-home servicefoundry
+
+# Set ownership of directories needed later
+RUN mkdir -p /opt/nsa2/service-foundry \
+    && chown -R servicefoundry:servicefoundry /opt/nsa2/service-foundry
+
+USER servicefoundry
+
+WORKDIR /opt/nsa2/service-foundry
+
+ENV SF_WORKSPACE_DIR=/opt/nsa2/service-foundry/workspace
+
+# Copy install-generator script file
+COPY --chown=servicefoundry:servicefoundry install-generator.sh .
+RUN chmod +x install-generator.sh
+
+# Copy entrypoint script file
+COPY --chown=servicefoundry:servicefoundry entrypoint.sh .
+RUN chmod +x entrypoint.sh
+
+ENTRYPOINT ["/opt/nsa2/service-foundry/entrypoint.sh"]
+----
+
+=== Building the Docker Image
+
+[,terminal]
+----
+$ docker buildx create --use
+# $ docker buildx build --platform linux/amd64,linux/arm64 -t service-foundry-builder --load docker/
+$ docker buildx build --platform linux/arm64 -t service-foundry-builder --load docker/
+----
+
+=== Running the Docker Container
+
+[,terminal]
+----
+$ docker run -it --rm service-foundry-builder
+----
+
+== Integration with AWS ECR
+
+
+
+To deploy Docker images to AWS ECR, a script is provided to authenticate, clean up untagged images, and push the new build.
+
+
+.push-to-ecr.sh
+[source,bash]
+----
+#!/bin/bash
+
+REPO_NAME="service-foundry-builder"
+IMAGE_TAG="0.1.0"
+
+aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_NAME
+
+aws ecr describe-repositories --repository-names ${REPO_NAME} --region $AWS_REGION &> /dev/null || \
+    aws ecr create-repository --repository-name ${REPO_NAME} --region $AWS_REGION
+
+
+# Check if the tag exists
+EXISTS=$(aws ecr describe-images \
+  --repository-name $REPO_NAME \
+  --region $AWS_REGION \
+  --query "imageDetails[?contains(imageTags, \`$IMAGE_TAG\`)].imageDigest" \
+  --output text)
+
+if [ -n "$EXISTS" ]; then
+  echo "Deleting image with tag: $IMAGE_TAG"
+  aws ecr batch-delete-image \
+    --repository-name $REPO_NAME \
+    --region $AWS_REGION \
+    --image-ids imageTag=$IMAGE_TAG
+  echo "Deleted tag: $IMAGE_TAG"
+else
+  echo "Tag '$IMAGE_TAG' does not exist. Nothing to delete."
+fi
+
+# === Step 1: Delete untagged images ===
+echo "🔍 Finding untagged images in $REPO_NAME..."
+UNTAGGED_DIGESTS=$(aws ecr describe-images \
+  --repository-name $REPO_NAME \
+  --region $AWS_REGION \
+  --query 'imageDetails[?not_null(imageTags)==`false`].imageDigest' \
+  --output text)
+
+if [ -z "$UNTAGGED_DIGESTS" ]; then
+  echo "✅ No untagged images found."
+else
+  echo "🗑️ Deleting untagged images..."
+  for DIGEST in $UNTAGGED_DIGESTS; do
+    aws ecr batch-delete-image \
+      --repository-name $REPO_NAME \
+      --region $AWS_REGION \
+      --image-ids imageDigest=$DIGEST
+    echo "  - Deleted imageDigest: $DIGEST"
+  done
+fi
+
+echo "Building and pushing the Docker image..."
+
+docker buildx build --platform linux/amd64 -t $ECR_NAME/$REPO_NAME:$IMAGE_TAG . --push
+----
+
+Run the command below to push the Docker image to ECR. Make sure to replace the environment variables with your own values.
+
+[,terminal]
+----
+$ chmod +x push-to-ecr.sh
+$ ./push-to-ecr.sh
+----
+
+== Kubernetes Configuration
+
+=== Namespace Setup
+
+Create a namespace for Service Foundry. This namespace will be used to deploy the Service Foundry modules.
+
+[,terminal]
+----
+$ kubectl create namespace service-foundry
+----
+
+== Helm Chart
+
+To automate the deployment of Service Foundry Builder, we will create a Helm chart. This chart will include all the necessary Kubernetes resources and configurations needed to run the Service Foundry Builder.
+
+=== Create Helm Chart
+
+Create a new Helm chart for Service Foundry Builder. This chart will include all the necessary Kubernetes resources and configurations needed to run the Service Foundry Builder.
+
+[,terminal]
+----
+$ mkdir helm-charts
+$ cd helm-charts
+$ helm create service-foundry-builder
+----
+
+Structure of the Helm chart:
+
+[,terminal]
+----
+$ tree service-foundry-builder
+
+service-foundry-builder
+├── Chart.yaml
+├── charts
+├── templates
+│   ├── NOTES.txt
+│   ├── _helpers.tpl
+│   ├── hpa.yaml
+│   ├── ingress.yaml
+│   ├── job.yaml
+│   ├── rbac.yaml
+│   ├── service.yaml
+│   ├── serviceaccount.yaml
+│   └── tests
+│       └── test-connection.yaml
+└── values.yaml
+----
+
+1. The *deployment.yaml* file is replaced with job.yaml file. This is because we want to run the Service Foundry Builder as a Kubernetes Job instead of a Deployment.
+2. The *rbac.yaml* file is added to the templates folder. This file contains the RBAC configuration because Service Foundry needs to create Kubernetes resources including namespaces, deployments, services, config maps, secrets, CDRs, and so on.
+
+=== Required Kubernetes Secrets
+
+The following Kubernetes resources are required for the Service Foundry Builder Helm chart:
+
+[cols="1,3"]
+|===
+| Resource name  | Description
+
+| aws-secret(secret) | AWS credentials for ECR. This secret is used to authenticate with AWS services such as ECR.
+| service-foundry-github-ssh(secret) | GitHub SSH key for cloning repositories. This secret is used to authenticate with GitHub repositories such as generator-nsa2.
+| service-foundry-config-files(secret) | Service Foundry config files. This secret is used to provide the configuration files to the Service Foundry Builder.
+|===
+
+These resources are configured in the values.yaml file of the Helm chart.
+
+.helm-charts/service-foundry-builder/values.yaml - volumes and volumeMounts
+[source,yaml]
+----
+
+volumes:
+  - name: service-foundry-github-ssh
+    secret:
+      secretName: service-foundry-github-ssh
+      optional: false
+  - name: service-foundry-config-files
+    secret:
+      secretName: service-foundry-config-files
+      optional: false
+
+volumeMounts:
+  - name: service-foundry-github-ssh
+    mountPath: /opt/nsa2/github-ssh
+    readOnly: true
+  - name: service-foundry-config-files
+    mountPath: /opt/nsa2/service-foundry/config-files
+    readOnly: true
+
+
+envFrom:
+  - secretRef:
+      name: aws-secret
+----
+
+==== aws-secret
+
+To run AWS CLI on the Service Foundry Builder, we need to create a Kubernetes secret with the AWS credentials. This secret will be used to authenticate with AWS services such as ECR.
+
+[,terminal]
+----
+$ kubectl -n service-foundry create secret generic aws-secret \
+  --from-literal=AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+  --from-literal=AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID \
+  --from-literal=AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
+  --from-literal=AWS_REGION=$AWS_REGION
+----
+
+Replace the environment variables with your own values.
+
+To create repositories in ECR, we need environment variables below. The prefix *'TF_VAR_'* is used by Terraform to set the variables in the Terraform configuration files. These variables are used to configure AIM roles and policies for the ECR repositories.
+
+[,terminal]
+
+
+.Environment Variables
+|===
+| Name | Description
+
+| TF_VAR_region | AWS region
+| TF_VAR_eks_cluster_name | EKS cluster name
+|===
+
+These values are also configured in the values.yaml file of the Helm chart.
+
+.helm-charts/service-foundry-builder/values.yaml - extraEnvs
+[source,yaml]
+----
+extraEnvs:
+  - name: TF_VAR_aws_region
+    valueFrom:
+      secretKeyRef:
+        name: aws-secret
+        key: AWS_REGION
+  - name:  TF_VAR_eks_cluster_name
+    value: young-eks
+----
+
+
+==== service-foundry-github-ssh
+
+Service Foundry Builder needs to clone the generator-nsa2 repository from GitHub. To do this, we need to create a Kubernetes secret with the SSH key. This secret will be used to authenticate with GitHub repositories. The id_rsa.pub file is the public key that is added to the GitHub repository as a deploy key. The id_rsa file is the private key that is used to authenticate with GitHub.
+
+
+[,terminal]
+----
+$ cd ssh
+$ kubectl -n service-foundry create secret generic service-foundry-github-ssh --from-file=./id_rsa --from-file=./id_rsa.pub
+----
+
+==== service-foundry-config-files
+
+Configuration files for Service Foundry modules are stored in a Kubernetes secret. This secret will be used to provide the configuration files to the Service Foundry Builder.
+
+These files are used to create the Service Foundry modules.
+
+[,terminal]
+----
+$ cd service-foundry-config
+$ kubectl create secret generic service-foundry-config-files \
+  --from-file=infra-foundry-config.yaml \
+  --from-file=o11y-foundry-config.yaml \
+  --from-file=sso-foundry-config.yaml \
+  -n service-foundry
+----
+
+=== RBAC
+
+This RBAC configuration is used to give the service account the necessary permissions to create Kubernetes resources. The `ClusterRole` and `ClusterRoleBinding` are created to allow the service account to access all resources in the cluster.
+
+I added 'rbac.yaml' to the templates folder of the Helm chart. This file contains the RBAC configuration for the Kaniko executor.
+
+.helm-charts/service-foundry-builder/templates/rbac.yaml
+[source,yaml]
+----
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: service-foundry-builder-role
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: service-foundry-builder-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: service-foundry-builder-role
+subjects:
+  - kind: ServiceAccount
+    name: service-foundry-builder
+    namespace: {{ .Release.Namespace }}
+----
+
+
+
+=== entrypoint.sh
+
+entrypoint.sh is the main script that runs when the Docker container starts. It sets up the environment, installs the necessary tools, and runs the Service Foundry Builder commands.
+
+[source,bash]
+----
+#!/bin/bash
+set -e
+
+echo "======================================"
+echo " Service Foundry Builder Started (v1.0)"
+echo "======================================"
+
+echo "🔧 Versions:"
+echo "- kubectl: $(kubectl version --client || echo 'Not installed')"
+echo "- helm: $(helm version --short || echo 'Not installed')"
+echo "- terraform: $(terraform version | head -n 1 || echo 'Not installed')"
+echo "- Node version: $(node --version || echo 'Not installed')"
+echo "- npm version: $(npm --version || echo 'Not installed')"
+echo "- yo (Yeoman): $(yo --version || echo 'Not installed')"
+echo "- yq: $(yq --version || echo 'Not installed')"
+echo "- jq: $(jq --version || echo 'Not installed')"
+echo "- aws: $(aws --version || echo 'Not installed')"
+echo "- az: $(az version | grep azure-cli || echo 'Not installed')"
+
+echo ""
+echo "Current directory: $(pwd)"
+echo "Ready to run your commands!"
+
+CWD=$(pwd)
+
+if [ -n "$GENERATOR_NSA2_SSH_KEY_PATH" ]; then
+  ./install-generator.sh
+else
+  echo "No SSH key provided. Skipping generator-nsa2 clone."
+  exit 1
+fi
+
+echo "Service Foundry Config Files"
+echo "======================================"
+ls -l /opt/nsa2/service-foundry/config-files
+echo "======================================"
+
+
+# use infra-foundry-config.yaml
+if [ -f /opt/nsa2/service-foundry/config-files/infra-foundry-config.yaml ]; then
+  echo "Using /opt/nsa2/service-foundry/config-files/infra-foundry-config.yaml"
+
+  mkdir -p "$CWD/workspace/infra"
+
+
+  cp /opt/nsa2/service-foundry/config-files/infra-foundry-config.yaml "$CWD/workspace/infra/infra-foundry-config.yaml"
+
+  cd "$CWD/workspace/infra"
+  # run the generator
+  echo "Running yo nsa2:infra-foundry generate --force"
+  yo nsa2:infra-foundry generate --force
+
+  echo "Running yo nsa2:infra-foundry build --force"
+  yo nsa2:infra-foundry build --force
+
+  echo "Running yo nsa2:infra-foundry deploy --force"
+  yo nsa2:infra-foundry deploy --force
+
+  ls -l "$CWD/workspace/infra"
+
+  cd $CWD
+else
+  echo "No /opt/nsa2/service-foundry/config-files/infra-foundry-config.json found. Skipping infra-foundry generation."
+fi
+
+# use o11y-foundry-config.yaml
+if [ -f /opt/nsa2/service-foundry/config-files/o11y-foundry-config.yaml ]; then
+  echo "Using /opt/nsa2/service-foundry/config-files/o11y-foundry-config.yaml"
+
+  mkdir -p "$CWD/workspace/o11y"
+  cp /opt/nsa2/service-foundry/config-files/o11y-foundry-config.yaml "$CWD/workspace/o11y/o11y-foundry-config.yaml"
+  cd "$CWD/workspace/o11y"
+  # run the generator
+  echo "Running yo nsa2:o11y-foundry generate --force"
+  yo nsa2:o11y-foundry generate --force
+
+  echo "Running yo nsa2:o11y-foundry build --force"
+  yo nsa2:o11y-foundry build --force
+
+  echo "Running yo nsa2:o11y-foundry deploy --force"
+  yo nsa2:o11y-foundry deploy --force
+
+  ls -l "$CWD/workspace/o11y"
+
+  cd $CWD
+else
+  echo "No /opt/nsa2/service-foundry/config-files/o11y-foundry-config.yaml found. Skipping o11y-foundry generation."
+fi
+
+# if /opt/nsa2/service-foundry/config-files/sso-foundry-config.yaml exists, use it
+
+if [ -f /opt/nsa2/service-foundry/config-files/sso-foundry-config.yaml ]; then
+  echo "Using /opt/nsa2/service-foundry/config-files/sso-foundry-config.yaml"
+
+  mkdir -p "$CWD/workspace/sso"
+  cp /opt/nsa2/service-foundry/config-files/sso-foundry-config.yaml "$CWD/workspace/sso/sso-foundry-config.yaml"
+  cd "$CWD/workspace/sso"
+  # run the generator
+  echo "Running yo nsa2:sso-foundry generate --force"
+  yo nsa2:sso-foundry generate --force
+
+  echo "Running yo nsa2:sso-foundry build --force"
+  yo nsa2:sso-foundry build --force
+
+  echo "Running yo nsa2:sso-foundry deploy --force"
+  yo nsa2:sso-foundry deploy --force
+
+  ls -l "$CWD/workspace/sso"
+
+  cd $CWD
+else
+  echo "No /opt/nsa2/service-foundry/config-files/sso-foundry-config.yaml found. Skipping sso-foundry generation."
+fi
+
+echo "Service Foundry Builder completed successfully."
+
+----
+
+=== Deploy Service Foundry Builder Job to Kubernetes
+
+All Kubernetes applications configured in Service Foundry Config files are deployed in Kubernetes cluster.
+
+[,terminal]
+----
+$ cd helm-charts
+$ helm install service-foundry-builder ./service-foundry-builder \
+  -n service-foundry --create-namespace
+----
+
+==== Kubernetes namespaces before deployment:
+
+[,terminal]
+----
+$ kubectl get namespaces
+NAME              STATUS   AGE
+default           Active   36m
+kube-node-lease   Active   36m
+kube-public       Active   36m
+kube-system       Active   36m
+----
+
+==== Kubernetes namespaces after deployment:
+
+[,terminal]
+----
+$ kubectl get namespaces
+NAME                            STATUS   AGE
+cert-manager                    Active   12m
+default                         Active   57m
+keycloak                        Active   12m
+kube-node-lease                 Active   57m
+kube-public                     Active   57m
+kube-system                     Active   57m
+o11y                            Active   10m
+opentelemetry-operator-system   Active   12m
+service-foundry                 Active   15m
+traefik                         Active   12m
+----
+
+==== Kubernetes resources created by Service Foundry Builder:
+
+[,terminal]
+----
+$ kubectl -n o11y get all
+----
+
+*Example output:*
+[,terminal]
+----
+NAME                                         READY   STATUS    RESTARTS      AGE
+pod/cassandra-0                              1/1     Running   0             14m
+pod/cassandra-1                              1/1     Running   0             12m
+pod/cassandra-2                              1/1     Running   0             10m
+pod/data-prepper-8685879ccb-szbdz            1/1     Running   0             14m
+pod/grafana-6c5474d5c6-4p7xc                 1/1     Running   0             14m
+pod/jaeger-collector-6666cdf7b9-stk4p        1/1     Running   5 (12m ago)   14m
+pod/nsa2-otel-exporter-6f8b5b6f6f-n92r8      1/1     Running   2 (12m ago)   14m
+pod/oauth2-proxy-6c58576b75-jqkvk            1/1     Running   0             13m
+pod/opensearch-cluster-master-0              1/1     Running   0             14m
+pod/opensearch-cluster-master-1              1/1     Running   0             14m
+pod/opensearch-cluster-master-2              1/1     Running   0             14m
+pod/opensearch-dashboards-6c9cddc4c4-cc7hk   1/1     Running   0             14m
+pod/otel-collector-0                         1/1     Running   1 (13m ago)   14m
+pod/otel-spring-example-57d5cc6b88-64xf4     1/1     Running   0             14m
+pod/otel-targetallocator-549986cb8c-rk9tj    1/1     Running   0             14m
+
+NAME                                         TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)                                  AGE
+service/cassandra                            ClusterIP   10.100.151.223   <none>        9042/TCP                                 14m
+service/cassandra-headless                   ClusterIP   None             <none>        7000/TCP,7001/TCP,7199/TCP,9042/TCP      14m
+service/data-prepper                         ClusterIP   10.100.228.161   <none>        2021/TCP,21890/TCP,21891/TCP,21892/TCP   14m
+service/grafana                              ClusterIP   10.100.241.160   <none>        80/TCP                                   14m
+service/jaeger-collector                     ClusterIP   10.100.14.33     <none>        16686/TCP,4317/TCP,4318/TCP              14m
+service/jaeger-collector-extension           ClusterIP   10.100.196.252   <none>        16686/TCP                                14m
+service/jaeger-collector-headless            ClusterIP   None             <none>        16686/TCP,4317/TCP,4318/TCP              14m
+service/jaeger-collector-monitoring          ClusterIP   10.100.60.218    <none>        8888/TCP                                 14m
+service/nsa2-otel-exporter                   ClusterIP   10.100.51.157    <none>        4318/TCP,9464/TCP                        14m
+service/oauth2-proxy                         ClusterIP   10.100.85.172    <none>        80/TCP,44180/TCP                         13m
+service/opensearch-cluster-master            ClusterIP   10.100.232.232   <none>        9200/TCP,9300/TCP,9600/TCP               14m
+service/opensearch-cluster-master-headless   ClusterIP   None             <none>        9200/TCP,9300/TCP,9600/TCP               14m
+service/opensearch-dashboards                ClusterIP   10.100.248.218   <none>        5601/TCP,9601/TCP                        14m
+service/otel-collector                       ClusterIP   10.100.148.119   <none>        4317/TCP,4318/TCP                        14m
+service/otel-collector-headless              ClusterIP   None             <none>        4317/TCP,4318/TCP                        14m
+service/otel-collector-monitoring            ClusterIP   10.100.76.132    <none>        8888/TCP                                 14m
+service/otel-spring-example                  ClusterIP   10.100.174.1     <none>        8080/TCP,9464/TCP                        14m
+service/otel-targetallocator                 ClusterIP   10.100.205.196   <none>        80/TCP                                   14m
+
+NAME                                    READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/data-prepper            1/1     1            1           14m
+deployment.apps/grafana                 1/1     1            1           14m
+deployment.apps/jaeger-collector        1/1     1            1           14m
+deployment.apps/nsa2-otel-exporter      1/1     1            1           14m
+deployment.apps/oauth2-proxy            1/1     1            1           13m
+deployment.apps/opensearch-dashboards   1/1     1            1           14m
+deployment.apps/otel-spring-example     1/1     1            1           14m
+deployment.apps/otel-targetallocator    1/1     1            1           14m
+
+NAME                                               DESIRED   CURRENT   READY   AGE
+replicaset.apps/data-prepper-8685879ccb            1         1         1       14m
+replicaset.apps/grafana-6c5474d5c6                 1         1         1       14m
+replicaset.apps/jaeger-collector-6666cdf7b9        1         1         1       14m
+replicaset.apps/nsa2-otel-exporter-6f8b5b6f6f      1         1         1       14m
+replicaset.apps/oauth2-proxy-6c58576b75            1         1         1       13m
+replicaset.apps/opensearch-dashboards-6c9cddc4c4   1         1         1       14m
+replicaset.apps/otel-spring-example-57d5cc6b88     1         1         1       14m
+replicaset.apps/otel-targetallocator-549986cb8c    1         1         1       14m
+
+NAME                                         READY   AGE
+statefulset.apps/cassandra                   3/3     14m
+statefulset.apps/opensearch-cluster-master   3/3     14m
+statefulset.apps/otel-collector              1/1     14m
+----
+
+==== Traefik ingresses for SSO
+[,terminal]
+----
+$ kubectl -n o11y get ingresses
+
+NAME                    CLASS       HOSTS
+o11y-sso-ingress	    traefik		jaeger.nsa2.com,prometheus.nsa2.com,grafana.nsa2.com
+oauth2-proxy-ingress	traefik		oauth2-proxy.nsa2.com
+----
+
+
+== Recap - Manual steps
+
+. Create service-foundry namespace
+. Create aws-secret
+. Create service-foundry-github-ssh
+. Create service-foundry-config-files
+. Create service-foundry-builder job using Helm chart
+
+=== 1. Create service-foundry namespace
+[,terminal]
+----
+$ kubectl create namespace service-foundry
+----
+
+=== 2. Create aws-secret
+[,terminal]
+----
+kubectl -n service-foundry create secret generic aws-secret \
+  --from-literal=AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+  --from-literal=AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID \
+  --from-literal=AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
+  --from-literal=AWS_REGION=$AWS_REGION
+----
+
+=== 3. Create service-foundry-github-ssh
+[,terminal]
+----
+$ cd ssh
+$ kubectl -n service-foundry create secret generic service-foundry-github-ssh --from-file=./id_rsa --from-file=./id_rsa.pub
+----
+
+=== 4. Create service-foundry-config-files
+[,terminal]
+----
+$ cd service-foundry-config
+$ kubectl create secret generic service-foundry-config-files \
+  --from-file=infra-foundry-config.yaml \
+  --from-file=o11y-foundry-config.yaml \
+  --from-file=sso-foundry-config.yaml \
+  -n service-foundry
+----
+
+=== 5. Create service-foundry-builder job using Helm chart
+[,terminal]
+----
+$ cd helm-charts
+$ helm install service-foundry-builder ./service-foundry-builder \
+  -n service-foundry --create-namespace
+----
+
+== Conclusion
+
+The Kubernetes Native Build Tool streamlines the build and deployment of containerized applications as Kubernetes Jobs. With Docker, Helm, and Kubernetes integrations, it offers a standardized workflow for building Docker images, deploying Kubernetes resources, and automating application lifecycle management in a cloud-native environment.
