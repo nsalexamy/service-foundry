@@ -1,0 +1,91 @@
+---
+layout: documents
+title: Push and pull Helm charts to an Azure container Registry
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Blog
+    url: /documents/blog/
+---
+= Push and pull Helm charts to an Azure container Registry
+
+== Overview
+
+This article shows you how to push and pull Helm charts to an Azure container Registry. As for Helm charts, we are going to use Helm charts saved in this directory.
+
+=== Terms and concepts
+
+*OCI*:: Open Container Initiative
+*ACR*:: Azure Container Registry
+
+== Prerequisites
+
+* Azure container registry
+* Helm
+
+== Save charts to local archive
+
+To save charts to a local archive, run the following command:
+
+[source,shell]
+----
+$ helm package service-foundry-builder
+----
+
+== Authenticate with the registry
+
+To authenticate with the registry, run the following command:
+[source,shell]
+----
+$ ACR_NAME="your-acr-name"
+$ USER_NAME="helmtoken"
+$ PASSWORD=$(az acr token create -n $USER_NAME \
+                  -r $ACR_NAME \
+                  --scope-map _repositories_admin \
+                  --only-show-errors \
+                  --query "credentials.passwords[0].value" -o tsv)
+
+$ az acr login -n $ACR_NAME --username $USER_NAME --password $PASSWORD
+Login Succeeded
+----
+
+== Push charts to the registry as OCI artifacts
+
+To push charts to the registry as OCI artifacts, run the following command:
+[source,shell]
+----
+$ helm push service-foundry-builder-0.1.0.tgz oci://$ACR_NAME.azurecr.io/helm
+----
+
+== List charts in the repository
+
+To list charts in the repository, run the following command:
+[source,shell]
+----
+$ az acr repository list -n $ACR_NAME  | grep helm
+----
+
+== Install Helm charts from the registry
+
+To install Helm charts from the registry, run the following command:
+
+[source,shell]
+----
+$ helm -n service-foundry install service-foundry-builder oci://$ACR_NAME.azurecr.io/helm/service-foundry-builder --version 0.1.0
+
+$ helm -n service list
+----
+
+== Conclusion
+
+In this article, we have learned how to push and pull Helm charts to an Azure container Registry. We have also learned how to install Helm charts from the registry.
+
+== Resources
+
+* link:https://learn.microsoft.com/en-us/azure/container-registry/container-registry-helm-repos[Push and pull Helm charts to an Azure container Registry]
+
+* link:https://helm.sh/docs/[Helm documentation]
