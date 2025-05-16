@@ -1,0 +1,172 @@
+---
+layout: documents
+title: Push and pull Helm charts to AWS Elastic Container Registry
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Blog
+    url: /documents/blog/
+---
+= Push and pull Helm charts to AWS Elastic Container Registry
+
+:imagesdir: images
+
+[.img-wide]
+image::aws-ecr-helm-repo.png[]
+
+== Overview
+
+This article shows you how to push and pull Helm charts to an AWS Elastic Container Registry. As for Helm charts, we are going to use Helm charts saved in this directory.
+
+== Prerequisites
+
+* AWS Elastic Container Registry
+* Helm
+
+// == Save charts to local archive
+//
+// To save charts to a local archive, run the following command:
+//
+// [source,shell]
+// ----
+// $ helm package service-foundry-builder
+// ----
+
+== Steps to Push Helm Charts to AWS ECR
+
+=== 1. Enable OCI Support in Helm:
+
+First, ensure you have OCI support enabled in your Helm client. You can do this by running the following command:
+
+[source,shell]
+----
+$ export HELM_EXPERIMENTAL_OCI=1
+----
+
+=== 2. Authenticate to AWS ECR:
+You need to authenticate your Docker client to the AWS ECR registry. You can do this using the AWS CLI:
+[source,shell]
+----
+$ aws ecr get-login-password --region $AWS_REGION \
+  | helm registry login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+----
+
+AWS_REGION: The AWS region where your ECR is located (e.g., us-west-2).
+AWS_ACCOUNT_ID: Your AWS account ID. e.g., 123456789012.
+
+=== 3. Create a Repository in ECR:
+
+If the repository does not exist, create it using the AWS CLI:
+[source,shell]
+----
+#$ aws ecr create-repository --repository-name helm-charts \
+$ aws ecr create-repository --repository-name helm-charts/service-foundry-builder \
+  --region $AWS_REGION
+----
+
+// === 4. Enable OCI Artifiacts in ECR:
+//
+// Amazon ECR needs to be configured to accept OCI artifacts.
+//
+// To enable OCI artifacts in your ECR repository, use the following command:
+// [source,shell]
+// ----
+// $ aws ecr set-repository-policy \
+//   --repository-name helm-charts \
+//   --policy-text '{
+//     "Version": "2008-10-17",
+//     "Statement": [
+//       {
+//         "Sid": "AllowPushPull",
+//         "Effect": "Allow",
+//         "Principal": "*",
+//         "Action": [
+//           "ecr:BatchCheckLayerAvailability",
+//           "ecr:BatchGetImage",
+//           "ecr:PutImage"
+//         ]
+//       }
+//     ]
+//   }'
+// ----
+//
+// *Example Output:*
+// [,terminal]
+// ----
+// policyText: "{\n  \"Version\" : \"2008-10-17\",\n  \"Statement\" : [ {\n    \"Sid\"
+//   : \"AllowPushPull\",\n    \"Effect\" : \"Allow\",\n    \"Principal\" : \"*\",\n
+//   \   \"Action\" : [ \"ecr:BatchCheckLayerAvailability\", \"ecr:BatchGetImage\", \"ecr:PutImage\"
+//   ]\n  } ]\n}"
+// registryId: '445567090745'
+// repositoryName: helm-charts
+// ----
+
+=== 4. Package the Helm Chart:
+
+To package your Helm chart, navigate to the directory containing your chart and run:
+
+[source,shell]
+----
+$ helm package service-foundry-builder
+----
+
+// === 5. Save the Chart as an OCI Artifact:
+// To save the chart as an OCI artifact, use the following command:
+//
+// [source,shell]
+// ----
+// $ helm chart save ./service-foundry-builder-0.1.0.tgz oci://$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/helm-charts:0.1.0
+// ----
+
+=== 5. Push the Helm Chart to ECR:
+
+To push the Helm chart to your ECR repository, use the following command:
+
+[source,shell]
+----
+$ helm push service-foundry-builder-0.1.0.tgz oci://$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/helm-charts
+----
+
+*Example Output:*
+[,terminal]
+----
+Pushed: 445567090745.dkr.ecr.ca-west-1.amazonaws.com/helm-charts/service-foundry-builder:0.1.0
+Digest: sha256:f49b7c98b4df768c51bc0be54d989e9bc89ad05b136a020a330055bf64952d72
+----
+
+
+// === 6. List the Charts in ECR:
+//
+// To verify that the chart has been pushed successfully, you can list the charts in your ECR repository using the following command:
+// [source,shell]
+// ----
+// $ aws ecr describe-repositories --repository-names helm-charts
+// ----
+
+// === Pull the Helm Chart from ECR:
+//
+// To pull the Helm chart from ECR, use the following command:
+//
+// [source,shell]
+// ----
+// $ helm pull oci://$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/helm-charts/service-foundry-builder
+// ----
+
+=== 6. Install the Chart from ECR:
+
+To install the Helm chart from ECR, use the following command:
+
+[source,shell]
+----
+$ helm install service-foundry-builder \
+  oci://$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/helm-charts/service-foundry-builder \
+  -n service-foundry --create-namespace
+----
+
+== Conclusion
+
+In this article, we have covered the steps to push and pull Helm charts to and from AWS Elastic Container Registry (ECR). This allows you to manage your Helm charts in a secure and scalable manner using AWS services.
