@@ -1,0 +1,430 @@
+---
+layout: documents
+title:  Application Observability Platform - Scrape Metrics using OpenTelemetry Target Allocator
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+
+= Application Observability Platform - Scrape Metrics using OpenTelemetry Target Allocator
+
+:imagesdir: images
+[.img-wide]
+image::otel-scrap-metrics.png[]
+
+== Overview
+
+This guide outlines how to collect metrics from your application using the OpenTelemetry Target Allocator. It also demonstrates how to filter those metrics using the metrics filter processor in the OpenTelemetry Collector.
+
+Topics covered:
+
+* Instrumenting applications with OpenTelemetry to expose metrics
+* Configuring ServiceMonitor to work with the Target Allocator
+* Integrating Target Allocator in the OpenTelemetry Collector
+* Filtering metrics using the filter processor
+
+
+== Instrumenting Applications with OpenTelemetry
+
+OpenTelemetry Instrumentation allows automatic collection of telemetry data from your application, including metrics, traces, and logs.
+
+
+=== Step 1: Download the ava Agent
+
+You can download the latest OpenTelemetry Java Agent from the following link:
+
+* https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases
+
+The opentelemetry-javaagent.jar file is the Java agent that you can use to instrument your application.
+
+[source, terminal]
+----
+java -javaagent:path-to-opentelemetry-javaagent.jar -jar path-to-your-application.jar
+----
+
+OpenTelemetry exposes a Prometheus-compatible endpoint at:
+
+* http://<application-host>:9464/metrics
+
+=== Sample Dockerfile for a Spring Boot Application
+
+Below is a Dockerfile that integrates the OpenTelemetry Java Agent into a Spring Boot application:
+
+[,dockerfile]
+----
+FROM openjdk:21-jdk-bullseye
+COPY ./otel-spring-example-0.0.1-SNAPSHOT.jar /usr/app/otel-spring-example.jar
+COPY ./opentelemetry-javaagent.jar /usr/app/javaagent/opentelemetry-javaagent.jar
+WORKDIR /usr/app
+EXPOSE 8080
+EXPOSE 9464
+ENTRYPOINT ["java", "-Xshare:off", "-javaagent:/usr/app/javaagent/opentelemetry-javaagent.jar", "-jar", "otel-spring-example.jar", "--spring.cloud.bootstrap.enabled=true", "--server.port=8080", "--spring.main.banner-mode=off"]
+----
+
+The application exposes metrics on port 9464.
+
+== Accessing Exported Metrics
+
+With Service Foundry set up, the example app (otel-spring-example) runs in the o11y namespace and is instrumented with the OpenTelemetry agent.
+
+To port-forward and access the metrics endpoint:
+
+[source, terminal]
+----
+$ kubectl port-forward -n o11y svc/otel-spring-example 9464:9464
+----
+
+Then visit:
+
+http://localhost:9464/metrics
+
+This endpoint exposes a wide range of JVM and HTTP server metrics.
+
+.The entire metrics output is too long to display here, but you can see a sample of the metrics below:
+[%collapsible]
+====
+[source, properties]
+----
+# HELP http_server_request_duration_seconds Duration of HTTP server requests.
+# TYPE http_server_request_duration_seconds histogram
+http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="0.005"} 9055
+http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="0.01"} 9064
+http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="0.025"} 9066
+http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="0.05"} 9066
+http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="0.075"} 9066
+http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="0.1"} 9066
+http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="0.25"} 9066
+http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="0.5"} 9066
+http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="0.75"} 9066
+http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="1.0"} 9067
+http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="2.5"} 9068
+http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="5.0"} 9068
+http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="7.5"} 9068
+http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="10.0"} 9068
+http_server_request_duration_seconds_bucket{http_request_method="GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="+Inf"} 9068
+http_server_request_duration_seconds_count{http_request_method="GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http"} 9068
+http_server_request_duration_seconds_sum{http_request_method="GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http"} 10.92108946699998
+# HELP jvm_class_count Number of classes currently loaded.
+# TYPE jvm_class_count gauge
+jvm_class_count{otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 13574.0
+# HELP jvm_class_loaded_total Number of classes loaded since JVM start.
+# TYPE jvm_class_loaded_total counter
+jvm_class_loaded_total{otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 13801.0
+# HELP jvm_class_unloaded_total Number of classes unloaded since JVM start.
+# TYPE jvm_class_unloaded_total counter
+jvm_class_unloaded_total{otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 227.0
+# HELP jvm_cpu_count Number of processors available to the Java virtual machine.
+# TYPE jvm_cpu_count gauge
+jvm_cpu_count{otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 1.0
+# HELP jvm_cpu_recent_utilization_ratio Recent CPU utilization for the process as reported by the JVM.
+# TYPE jvm_cpu_recent_utilization_ratio gauge
+jvm_cpu_recent_utilization_ratio{otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 0.014705882352941176
+# HELP jvm_cpu_time_seconds_total CPU time used by the process as reported by the JVM.
+# TYPE jvm_cpu_time_seconds_total counter
+jvm_cpu_time_seconds_total{otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 60.84
+# HELP jvm_gc_duration_seconds Duration of JVM garbage collection actions.
+# TYPE jvm_gc_duration_seconds histogram
+jvm_gc_duration_seconds_bucket{jvm_gc_action="end of major GC",jvm_gc_name="MarkSweepCompact",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="0.01"} 0
+jvm_gc_duration_seconds_bucket{jvm_gc_action="end of major GC",jvm_gc_name="MarkSweepCompact",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="0.1"} 2
+jvm_gc_duration_seconds_bucket{jvm_gc_action="end of major GC",jvm_gc_name="MarkSweepCompact",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="1.0"} 3
+jvm_gc_duration_seconds_bucket{jvm_gc_action="end of major GC",jvm_gc_name="MarkSweepCompact",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="10.0"} 3
+jvm_gc_duration_seconds_bucket{jvm_gc_action="end of major GC",jvm_gc_name="MarkSweepCompact",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="+Inf"} 3
+jvm_gc_duration_seconds_count{jvm_gc_action="end of major GC",jvm_gc_name="MarkSweepCompact",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 3
+jvm_gc_duration_seconds_sum{jvm_gc_action="end of major GC",jvm_gc_name="MarkSweepCompact",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 0.375
+jvm_gc_duration_seconds_bucket{jvm_gc_action="end of minor GC",jvm_gc_name="Copy",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="0.01"} 143
+jvm_gc_duration_seconds_bucket{jvm_gc_action="end of minor GC",jvm_gc_name="Copy",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="0.1"} 156
+jvm_gc_duration_seconds_bucket{jvm_gc_action="end of minor GC",jvm_gc_name="Copy",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="1.0"} 156
+jvm_gc_duration_seconds_bucket{jvm_gc_action="end of minor GC",jvm_gc_name="Copy",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="10.0"} 156
+jvm_gc_duration_seconds_bucket{jvm_gc_action="end of minor GC",jvm_gc_name="Copy",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="+Inf"} 156
+jvm_gc_duration_seconds_count{jvm_gc_action="end of minor GC",jvm_gc_name="Copy",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 156
+jvm_gc_duration_seconds_sum{jvm_gc_action="end of minor GC",jvm_gc_name="Copy",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 0.8930000000000001
+# HELP jvm_memory_committed_bytes Measure of memory committed.
+# TYPE jvm_memory_committed_bytes gauge
+jvm_memory_committed_bytes{jvm_memory_pool_name="CodeHeap 'non-nmethods'",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 2555904.0
+jvm_memory_committed_bytes{jvm_memory_pool_name="CodeHeap 'non-profiled nmethods'",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 9764864.0
+jvm_memory_committed_bytes{jvm_memory_pool_name="CodeHeap 'profiled nmethods'",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 2.29376E7
+jvm_memory_committed_bytes{jvm_memory_pool_name="Compressed Class Space",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 9699328.0
+jvm_memory_committed_bytes{jvm_memory_pool_name="Eden Space",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 1.9398656E7
+jvm_memory_committed_bytes{jvm_memory_pool_name="Metaspace",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 7.962624E7
+jvm_memory_committed_bytes{jvm_memory_pool_name="Survivor Space",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 2359296.0
+jvm_memory_committed_bytes{jvm_memory_pool_name="Tenured Gen",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 4.8164864E7
+# HELP jvm_memory_limit_bytes Measure of max obtainable memory.
+# TYPE jvm_memory_limit_bytes gauge
+jvm_memory_limit_bytes{jvm_memory_pool_name="CodeHeap 'non-nmethods'",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 5828608.0
+jvm_memory_limit_bytes{jvm_memory_pool_name="CodeHeap 'non-profiled nmethods'",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 1.22916864E8
+jvm_memory_limit_bytes{jvm_memory_pool_name="CodeHeap 'profiled nmethods'",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 1.22912768E8
+jvm_memory_limit_bytes{jvm_memory_pool_name="Compressed Class Space",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 1.073741824E9
+jvm_memory_limit_bytes{jvm_memory_pool_name="Eden Space",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 7.1630848E7
+jvm_memory_limit_bytes{jvm_memory_pool_name="Survivor Space",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 8912896.0
+jvm_memory_limit_bytes{jvm_memory_pool_name="Tenured Gen",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 1.78978816E8
+# HELP jvm_memory_used_after_last_gc_bytes Measure of memory used, as measured after the most recent garbage collection event on this pool.
+# TYPE jvm_memory_used_after_last_gc_bytes gauge
+jvm_memory_used_after_last_gc_bytes{jvm_memory_pool_name="Eden Space",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 0.0
+jvm_memory_used_after_last_gc_bytes{jvm_memory_pool_name="Survivor Space",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 51432.0
+jvm_memory_used_after_last_gc_bytes{jvm_memory_pool_name="Tenured Gen",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 2.8897232E7
+# HELP jvm_memory_used_bytes Measure of memory used.
+# TYPE jvm_memory_used_bytes gauge
+jvm_memory_used_bytes{jvm_memory_pool_name="CodeHeap 'non-nmethods'",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 1465088.0
+jvm_memory_used_bytes{jvm_memory_pool_name="CodeHeap 'non-profiled nmethods'",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 9717760.0
+jvm_memory_used_bytes{jvm_memory_pool_name="CodeHeap 'profiled nmethods'",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 2.288896E7
+jvm_memory_used_bytes{jvm_memory_pool_name="Compressed Class Space",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 9219224.0
+jvm_memory_used_bytes{jvm_memory_pool_name="Eden Space",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 5660880.0
+jvm_memory_used_bytes{jvm_memory_pool_name="Metaspace",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 7.8783512E7
+jvm_memory_used_bytes{jvm_memory_pool_name="Survivor Space",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 51432.0
+jvm_memory_used_bytes{jvm_memory_pool_name="Tenured Gen",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 2.9044624E7
+# HELP jvm_thread_count Number of executing platform threads.
+# TYPE jvm_thread_count gauge
+jvm_thread_count{jvm_thread_daemon="false",jvm_thread_state="runnable",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 1.0
+jvm_thread_count{jvm_thread_daemon="false",jvm_thread_state="timed_waiting",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 2.0
+jvm_thread_count{jvm_thread_daemon="false",jvm_thread_state="waiting",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 1.0
+jvm_thread_count{jvm_thread_daemon="true",jvm_thread_state="runnable",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 8.0
+jvm_thread_count{jvm_thread_daemon="true",jvm_thread_state="timed_waiting",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 7.0
+jvm_thread_count{jvm_thread_daemon="true",jvm_thread_state="waiting",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 3.0
+# TYPE otlp_exporter_exported_total counter
+otlp_exporter_exported_total{otel_scope_name="io.opentelemetry.exporters.otlp-http",success="false",type="log"} 2.0
+otlp_exporter_exported_total{otel_scope_name="io.opentelemetry.exporters.otlp-http",success="true",type="log"} 13.0
+# TYPE otlp_exporter_seen_total counter
+otlp_exporter_seen_total{otel_scope_name="io.opentelemetry.exporters.otlp-http",type="log"} 15.0
+# HELP processedLogs_ratio_total The number of logs processed by the BatchLogRecordProcessor. [dropped=true if they were dropped due to high throughput]
+# TYPE processedLogs_ratio_total counter
+processedLogs_ratio_total{dropped="false",otel_scope_name="io.opentelemetry.sdk.logs",processorType="BatchLogRecordProcessor"} 13.0
+# HELP queueSize_ratio The number of items queued
+# TYPE queueSize_ratio gauge
+queueSize_ratio{otel_scope_name="io.opentelemetry.sdk.logs",processorType="BatchLogRecordProcessor"} 0.0
+queueSize_ratio{otel_scope_name="io.opentelemetry.sdk.trace",processorType="BatchSpanProcessor"} 0.0
+# TYPE target_info gauge
+target_info{container_id="df6df175d51d25b922e38ea865136c856c76ac6b0fd47749b3bfb21693dc8b00",host_arch="amd64",host_name="otel-spring-example-57d5cc6b88-tfhq9",os_description="Linux 5.10.236-228.935.amzn2.x86_64",os_type="linux",process_command_args="[/usr/local/openjdk-21/bin/java, -Xshare:off, -Dotel.javaagent.extensions=/usr/app/javaagent/nsa2-otel-extension-1.0-all.jar, -jar, otel-spring-example.jar, --spring.cloud.bootstrap.enabled=true, --server.port=8080, --spring.main.banner-mode=off]",process_executable_path="/usr/local/openjdk-21/bin/java",process_pid="1",process_runtime_description="Oracle Corporation OpenJDK 64-Bit Server VM 21+35-2513",process_runtime_name="OpenJDK Runtime Environment",process_runtime_version="21+35-2513",service_instance_id="1d0a9d8e-045e-4819-a833-af3f8ac947ea",service_name="otel-spring-example",service_version="0.0.1-SNAPSHOT",telemetry_distro_name="opentelemetry-java-instrumentation",telemetry_distro_version="2.9.0",telemetry_sdk_language="java",telemetry_sdk_name="opentelemetry",telemetry_sdk_version="1.43.0"} 1
+----
+====
+
+=== Collector Configuration with Target Allocator Enabled
+
+OpenTelemetry Target Allocator is a component that dynamically assigns scrape targets for metrics collection. It is used to automate the process of scraping metrics from OpenTelemetry-instrumented applications.
+
+.otel-collector.yaml - metrics related configuration
+[source, yaml]
+----
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel
+  namespace: o11y
+
+spec:
+  mode: statefulset
+  targetAllocator:
+    enabled: true
+    serviceAccount: otel-targetallocator-sa
+    prometheusCR:
+      enabled: true
+      # use this to enable ServiceMonitor
+      serviceMonitorSelector: {}
+      podMonitorSelector: {}
+
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: 'otel-collector'
+              scrape_interval: 30s
+              static_configs:
+                - targets: ['0.0.0.0:8888']
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 15
+      batch:
+        send_batch_size: 10000
+        timeout: 10s
+
+    exporters:
+      debug:
+        verbosity: detailed
+
+      prometheus:
+        endpoint: "0.0.0.0:8889"  # new scrape endpoint for filtered metrics
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: []
+          exporters: [prometheus]
+----
+
+In the above configuration, we have enabled the target allocator and set the service account to otel-targetallocator-sa. We have also enabled the ServiceMonitor and PodMonitor selectors, which will allow us to scrape metrics from the OpenTelemetry Target Allocator.
+
+=== Create ServiceMonitor
+
+A ServiceMonitor enables Prometheus to scrape metrics from the instrumented service:
+
+
+.otel-spring-example-service-monitor.yaml - ServiceMonitor configuration
+[source, yaml]
+----
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-spring-example-servicemonitor
+  namespace: o11y
+  labels:
+    metrics-unit: o11y
+
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-spring-example
+  endpoints:
+    - port: metrics
+      interval: 30s
+      scheme: http
+      path: /metrics
+----
+
+To ensure this is picked up by the Target Allocator, use the following in the Collector config:
+
+[source,yaml]
+----
+      serviceMonitorSelector:
+        matchLabels:
+          metrics-unit: o11y
+----
+
+From all Pods with label 'app.kubernetes.io/name: otel-spring-example', the ServiceMonitor will scrape metrics from the Pod with label 'metrics-unit: o11y'.
+
+== Scraping with Prometheus
+
+
+To scrape the OpenTelemetry Collector’s metrics, create a ScrapeConfig:
+
+
+.otel-collector-scrape-config.yaml - Prometheus scrape configuration
+[source, yaml]
+----
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: otel-collector-scrape-config
+  namespace: o11y
+  labels:
+    prometheus: o11y-prometheus
+
+spec:
+  staticConfigs:
+    - labels:
+        job: prometheus-job
+      targets:
+        - otel-collector:8889
+----
+
+And configure Prometheus to use it:
+
+.prometheus.yaml - Prometheus configuration
+[source, yaml]
+----
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: prometheus
+  namespace: o11y
+spec:
+  scrapeConfigSelector:
+    matchLabels:
+      prometheus: o11y-prometheus
+
+  resources:
+    requests:
+      memory: 400Mi
+  enableAdminAPI: false
+
+----
+
+Now, metrics can be queried directly from Prometheus.
+
+.Prometheus query - metrics with 'jvm_' prefix
+[.img-medium]
+image::query-on-prometheus-1.png[]
+
+== Filtering Metrics with the filter Processor
+
+To reduce noise and focus on essential metrics, apply a filter in the OpenTelemetry Collector configuration:
+
+.otel-collector.yaml - metrics related configuration
+[source, yaml]
+----
+    receivers:
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: 'otel-collector'
+              scrape_interval: 30s
+              static_configs:
+                - targets: ['0.0.0.0:8888']
+
+    processors:
+      filter/metrics:
+        metrics:
+          include:
+            match_type: regexp
+            metric_names:
+              - "^jvm_memory_.*"
+              - "^jvm_cpu_.*"
+              - "^jvm_threads_.*"
+              - "^http_server.*"
+              - "^jvm_gc_.*"
+
+    exporters:
+      prometheus:
+        endpoint: "0.0.0.0:8889"  # new scrape endpoint for filtered metrics
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: [filter/metrics]
+          exporters: [prometheus]
+
+----
+
+This limits the Prometheus exporter (on port 8889) to only expose selected metrics.
+
+Access them at:
+
+* http://otel-collector:8889/metrics
+
+Filtered view example:
+
+
+
+Now *jvm_class_count* metric is filtered out by the filter processor. You can see the metrics starting with 'jvm_' on Prometheus.
+
+.Prometheus query - filtered metrics with 'jvm_' prefix
+[.img-medium]
+image::query-on-prometheus-filtered.png[]
+
+== Conclusion
+
+In this guide, we demonstrated how to:
+
+* Instrument your Java application with OpenTelemetry
+* Scrape metrics using the OpenTelemetry Target Allocator
+* Use ServiceMonitor to automate target discovery
+* Filter unnecessary metrics using the metrics filter processor
+
+By following these steps, you can build a robust, scalable observability pipeline for your cloud-native applications.

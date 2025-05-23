@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Application Observability Platform - Scrape Metrics using OpenTelemetry Target Allocator</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+        
+        <a href="/service-foundry/pages/demo/" class="">Demo</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="active">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Application Observability Platform - Scrape Metrics using OpenTelemetry Target Allocator
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a></li>
+<li><a href="#instrumenting-applications-with-opentelemetry">Instrumenting Applications with OpenTelemetry</a>
+<ul class="sectlevel2">
+<li><a href="#step-1-download-the-ava-agent">Step 1: Download the ava Agent</a></li>
+<li><a href="#sample-dockerfile-for-a-spring-boot-application">Sample Dockerfile for a Spring Boot Application</a></li>
+</ul>
+</li>
+<li><a href="#accessing-exported-metrics">Accessing Exported Metrics</a>
+<ul class="sectlevel2">
+<li><a href="#collector-configuration-with-target-allocator-enabled">Collector Configuration with Target Allocator Enabled</a></li>
+<li><a href="#create-servicemonitor">Create ServiceMonitor</a></li>
+</ul>
+</li>
+<li><a href="#scraping-with-prometheus">Scraping with Prometheus</a></li>
+<li><a href="#filtering-metrics-with-the-filter-processor">Filtering Metrics with the filter Processor</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/otel-scrap-metrics.png" alt="otel scrap metrics">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide outlines how to collect metrics from your application using the OpenTelemetry Target Allocator. It also demonstrates how to filter those metrics using the metrics filter processor in the OpenTelemetry Collector.</p>
+</div>
+<div class="paragraph">
+<p>Topics covered:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Instrumenting applications with OpenTelemetry to expose metrics</p>
+</li>
+<li>
+<p>Configuring ServiceMonitor to work with the Target Allocator</p>
+</li>
+<li>
+<p>Integrating Target Allocator in the OpenTelemetry Collector</p>
+</li>
+<li>
+<p>Filtering metrics using the filter processor</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="instrumenting-applications-with-opentelemetry">Instrumenting Applications with OpenTelemetry</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>OpenTelemetry Instrumentation allows automatic collection of telemetry data from your application, including metrics, traces, and logs.</p>
+</div>
+<div class="sect2">
+<h3 id="step-1-download-the-ava-agent">Step 1: Download the ava Agent</h3>
+<div class="paragraph">
+<p>You can download the latest OpenTelemetry Java Agent from the following link:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases" class="bare">https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>The opentelemetry-javaagent.jar file is the Java agent that you can use to instrument your application.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="go">java -javaagent:path-to-opentelemetry-javaagent.jar -jar path-to-your-application.jar</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>OpenTelemetry exposes a Prometheus-compatible endpoint at:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="http://&lt;application-host&gt;:9464/metrics" class="bare">http://&lt;application-host&gt;:9464/metrics</a></p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="sample-dockerfile-for-a-spring-boot-application">Sample Dockerfile for a Spring Boot Application</h3>
+<div class="paragraph">
+<p>Below is a Dockerfile that integrates the OpenTelemetry Java Agent into a Spring Boot application:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="dockerfile"><span class="k">FROM</span><span class="s"> openjdk:21-jdk-bullseye</span>
+<span class="k">COPY</span><span class="s"> ./otel-spring-example-0.0.1-SNAPSHOT.jar /usr/app/otel-spring-example.jar</span>
+<span class="k">COPY</span><span class="s"> ./opentelemetry-javaagent.jar /usr/app/javaagent/opentelemetry-javaagent.jar</span>
+<span class="k">WORKDIR</span><span class="s"> /usr/app</span>
+<span class="k">EXPOSE</span><span class="s"> 8080</span>
+<span class="k">EXPOSE</span><span class="s"> 9464</span>
+<span class="k">ENTRYPOINT</span><span class="s"> ["java", "-Xshare:off", "-javaagent:/usr/app/javaagent/opentelemetry-javaagent.jar", "-jar", "otel-spring-example.jar", "--spring.cloud.bootstrap.enabled=true", "--server.port=8080", "--spring.main.banner-mode=off"]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The application exposes metrics on port 9464.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="accessing-exported-metrics">Accessing Exported Metrics</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>With Service Foundry set up, the example app (otel-spring-example) runs in the o11y namespace and is instrumented with the OpenTelemetry agent.</p>
+</div>
+<div class="paragraph">
+<p>To port-forward and access the metrics endpoint:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl port-forward <span class="nt">-n</span> o11y svc/otel-spring-example 9464:9464</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Then visit:</p>
+</div>
+<div class="paragraph">
+<p><a href="http://localhost:9464/metrics" class="bare">http://localhost:9464/metrics</a></p>
+</div>
+<div class="paragraph">
+<p>This endpoint exposes a wide range of JVM and HTTP server metrics.</p>
+</div>
+<details>
+<summary class="title">The entire metrics output is too long to display here, but you can see a sample of the metrics below:</summary>
+<div class="content">
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="properties"><span class="c"># HELP http_server_request_duration_seconds Duration of HTTP server requests.
+# TYPE http_server_request_duration_seconds histogram
+</span><span class="err">http_server_request_duration_seconds_bucket{</span><span class="py">http_request_method</span><span class="p">=</span><span class="s">"GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="0.005"} 9055</span>
+<span class="err">http_server_request_duration_seconds_bucket{</span><span class="py">http_request_method</span><span class="p">=</span><span class="s">"GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="0.01"} 9064</span>
+<span class="err">http_server_request_duration_seconds_bucket{</span><span class="py">http_request_method</span><span class="p">=</span><span class="s">"GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="0.025"} 9066</span>
+<span class="err">http_server_request_duration_seconds_bucket{</span><span class="py">http_request_method</span><span class="p">=</span><span class="s">"GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="0.05"} 9066</span>
+<span class="err">http_server_request_duration_seconds_bucket{</span><span class="py">http_request_method</span><span class="p">=</span><span class="s">"GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="0.075"} 9066</span>
+<span class="err">http_server_request_duration_seconds_bucket{</span><span class="py">http_request_method</span><span class="p">=</span><span class="s">"GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="0.1"} 9066</span>
+<span class="err">http_server_request_duration_seconds_bucket{</span><span class="py">http_request_method</span><span class="p">=</span><span class="s">"GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="0.25"} 9066</span>
+<span class="err">http_server_request_duration_seconds_bucket{</span><span class="py">http_request_method</span><span class="p">=</span><span class="s">"GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="0.5"} 9066</span>
+<span class="err">http_server_request_duration_seconds_bucket{</span><span class="py">http_request_method</span><span class="p">=</span><span class="s">"GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="0.75"} 9066</span>
+<span class="err">http_server_request_duration_seconds_bucket{</span><span class="py">http_request_method</span><span class="p">=</span><span class="s">"GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="1.0"} 9067</span>
+<span class="err">http_server_request_duration_seconds_bucket{</span><span class="py">http_request_method</span><span class="p">=</span><span class="s">"GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="2.5"} 9068</span>
+<span class="err">http_server_request_duration_seconds_bucket{</span><span class="py">http_request_method</span><span class="p">=</span><span class="s">"GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="5.0"} 9068</span>
+<span class="err">http_server_request_duration_seconds_bucket{</span><span class="py">http_request_method</span><span class="p">=</span><span class="s">"GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="7.5"} 9068</span>
+<span class="err">http_server_request_duration_seconds_bucket{</span><span class="py">http_request_method</span><span class="p">=</span><span class="s">"GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="10.0"} 9068</span>
+<span class="err">http_server_request_duration_seconds_bucket{</span><span class="py">http_request_method</span><span class="p">=</span><span class="s">"GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http",le="+Inf"} 9068</span>
+<span class="err">http_server_request_duration_seconds_count{</span><span class="py">http_request_method</span><span class="p">=</span><span class="s">"GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http"} 9068</span>
+<span class="err">http_server_request_duration_seconds_sum{</span><span class="py">http_request_method</span><span class="p">=</span><span class="s">"GET",http_response_status_code="200",http_route="/actuator/health/**",network_protocol_version="1.1",otel_scope_name="io.opentelemetry.tomcat-10.0",otel_scope_version="2.9.0-alpha",url_scheme="http"} 10.92108946699998</span>
+<span class="c"># HELP jvm_class_count Number of classes currently loaded.
+# TYPE jvm_class_count gauge
+</span><span class="err">jvm_class_count{</span><span class="py">otel_scope_name</span><span class="p">=</span><span class="s">"io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 13574.0</span>
+<span class="c"># HELP jvm_class_loaded_total Number of classes loaded since JVM start.
+# TYPE jvm_class_loaded_total counter
+</span><span class="err">jvm_class_loaded_total{</span><span class="py">otel_scope_name</span><span class="p">=</span><span class="s">"io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 13801.0</span>
+<span class="c"># HELP jvm_class_unloaded_total Number of classes unloaded since JVM start.
+# TYPE jvm_class_unloaded_total counter
+</span><span class="err">jvm_class_unloaded_total{</span><span class="py">otel_scope_name</span><span class="p">=</span><span class="s">"io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 227.0</span>
+<span class="c"># HELP jvm_cpu_count Number of processors available to the Java virtual machine.
+# TYPE jvm_cpu_count gauge
+</span><span class="err">jvm_cpu_count{</span><span class="py">otel_scope_name</span><span class="p">=</span><span class="s">"io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 1.0</span>
+<span class="c"># HELP jvm_cpu_recent_utilization_ratio Recent CPU utilization for the process as reported by the JVM.
+# TYPE jvm_cpu_recent_utilization_ratio gauge
+</span><span class="err">jvm_cpu_recent_utilization_ratio{</span><span class="py">otel_scope_name</span><span class="p">=</span><span class="s">"io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 0.014705882352941176</span>
+<span class="c"># HELP jvm_cpu_time_seconds_total CPU time used by the process as reported by the JVM.
+# TYPE jvm_cpu_time_seconds_total counter
+</span><span class="err">jvm_cpu_time_seconds_total{</span><span class="py">otel_scope_name</span><span class="p">=</span><span class="s">"io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 60.84</span>
+<span class="c"># HELP jvm_gc_duration_seconds Duration of JVM garbage collection actions.
+# TYPE jvm_gc_duration_seconds histogram
+</span><span class="err">jvm_gc_duration_seconds_bucket{</span><span class="py">jvm_gc_action</span><span class="p">=</span><span class="s">"end of major GC",jvm_gc_name="MarkSweepCompact",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="0.01"} 0</span>
+<span class="err">jvm_gc_duration_seconds_bucket{</span><span class="py">jvm_gc_action</span><span class="p">=</span><span class="s">"end of major GC",jvm_gc_name="MarkSweepCompact",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="0.1"} 2</span>
+<span class="err">jvm_gc_duration_seconds_bucket{</span><span class="py">jvm_gc_action</span><span class="p">=</span><span class="s">"end of major GC",jvm_gc_name="MarkSweepCompact",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="1.0"} 3</span>
+<span class="err">jvm_gc_duration_seconds_bucket{</span><span class="py">jvm_gc_action</span><span class="p">=</span><span class="s">"end of major GC",jvm_gc_name="MarkSweepCompact",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="10.0"} 3</span>
+<span class="err">jvm_gc_duration_seconds_bucket{</span><span class="py">jvm_gc_action</span><span class="p">=</span><span class="s">"end of major GC",jvm_gc_name="MarkSweepCompact",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="+Inf"} 3</span>
+<span class="err">jvm_gc_duration_seconds_count{</span><span class="py">jvm_gc_action</span><span class="p">=</span><span class="s">"end of major GC",jvm_gc_name="MarkSweepCompact",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 3</span>
+<span class="err">jvm_gc_duration_seconds_sum{</span><span class="py">jvm_gc_action</span><span class="p">=</span><span class="s">"end of major GC",jvm_gc_name="MarkSweepCompact",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 0.375</span>
+<span class="err">jvm_gc_duration_seconds_bucket{</span><span class="py">jvm_gc_action</span><span class="p">=</span><span class="s">"end of minor GC",jvm_gc_name="Copy",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="0.01"} 143</span>
+<span class="err">jvm_gc_duration_seconds_bucket{</span><span class="py">jvm_gc_action</span><span class="p">=</span><span class="s">"end of minor GC",jvm_gc_name="Copy",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="0.1"} 156</span>
+<span class="err">jvm_gc_duration_seconds_bucket{</span><span class="py">jvm_gc_action</span><span class="p">=</span><span class="s">"end of minor GC",jvm_gc_name="Copy",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="1.0"} 156</span>
+<span class="err">jvm_gc_duration_seconds_bucket{</span><span class="py">jvm_gc_action</span><span class="p">=</span><span class="s">"end of minor GC",jvm_gc_name="Copy",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="10.0"} 156</span>
+<span class="err">jvm_gc_duration_seconds_bucket{</span><span class="py">jvm_gc_action</span><span class="p">=</span><span class="s">"end of minor GC",jvm_gc_name="Copy",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha",le="+Inf"} 156</span>
+<span class="err">jvm_gc_duration_seconds_count{</span><span class="py">jvm_gc_action</span><span class="p">=</span><span class="s">"end of minor GC",jvm_gc_name="Copy",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 156</span>
+<span class="err">jvm_gc_duration_seconds_sum{</span><span class="py">jvm_gc_action</span><span class="p">=</span><span class="s">"end of minor GC",jvm_gc_name="Copy",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 0.8930000000000001</span>
+<span class="c"># HELP jvm_memory_committed_bytes Measure of memory committed.
+# TYPE jvm_memory_committed_bytes gauge
+</span><span class="err">jvm_memory_committed_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"CodeHeap 'non-nmethods'",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 2555904.0</span>
+<span class="err">jvm_memory_committed_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"CodeHeap 'non-profiled nmethods'",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 9764864.0</span>
+<span class="err">jvm_memory_committed_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"CodeHeap 'profiled nmethods'",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 2.29376E7</span>
+<span class="err">jvm_memory_committed_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"Compressed Class Space",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 9699328.0</span>
+<span class="err">jvm_memory_committed_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"Eden Space",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 1.9398656E7</span>
+<span class="err">jvm_memory_committed_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"Metaspace",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 7.962624E7</span>
+<span class="err">jvm_memory_committed_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"Survivor Space",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 2359296.0</span>
+<span class="err">jvm_memory_committed_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"Tenured Gen",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 4.8164864E7</span>
+<span class="c"># HELP jvm_memory_limit_bytes Measure of max obtainable memory.
+# TYPE jvm_memory_limit_bytes gauge
+</span><span class="err">jvm_memory_limit_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"CodeHeap 'non-nmethods'",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 5828608.0</span>
+<span class="err">jvm_memory_limit_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"CodeHeap 'non-profiled nmethods'",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 1.22916864E8</span>
+<span class="err">jvm_memory_limit_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"CodeHeap 'profiled nmethods'",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 1.22912768E8</span>
+<span class="err">jvm_memory_limit_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"Compressed Class Space",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 1.073741824E9</span>
+<span class="err">jvm_memory_limit_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"Eden Space",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 7.1630848E7</span>
+<span class="err">jvm_memory_limit_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"Survivor Space",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 8912896.0</span>
+<span class="err">jvm_memory_limit_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"Tenured Gen",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 1.78978816E8</span>
+<span class="c"># HELP jvm_memory_used_after_last_gc_bytes Measure of memory used, as measured after the most recent garbage collection event on this pool.
+# TYPE jvm_memory_used_after_last_gc_bytes gauge
+</span><span class="err">jvm_memory_used_after_last_gc_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"Eden Space",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 0.0</span>
+<span class="err">jvm_memory_used_after_last_gc_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"Survivor Space",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 51432.0</span>
+<span class="err">jvm_memory_used_after_last_gc_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"Tenured Gen",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 2.8897232E7</span>
+<span class="c"># HELP jvm_memory_used_bytes Measure of memory used.
+# TYPE jvm_memory_used_bytes gauge
+</span><span class="err">jvm_memory_used_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"CodeHeap 'non-nmethods'",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 1465088.0</span>
+<span class="err">jvm_memory_used_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"CodeHeap 'non-profiled nmethods'",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 9717760.0</span>
+<span class="err">jvm_memory_used_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"CodeHeap 'profiled nmethods'",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 2.288896E7</span>
+<span class="err">jvm_memory_used_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"Compressed Class Space",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 9219224.0</span>
+<span class="err">jvm_memory_used_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"Eden Space",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 5660880.0</span>
+<span class="err">jvm_memory_used_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"Metaspace",jvm_memory_type="non_heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 7.8783512E7</span>
+<span class="err">jvm_memory_used_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"Survivor Space",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 51432.0</span>
+<span class="err">jvm_memory_used_bytes{</span><span class="py">jvm_memory_pool_name</span><span class="p">=</span><span class="s">"Tenured Gen",jvm_memory_type="heap",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 2.9044624E7</span>
+<span class="c"># HELP jvm_thread_count Number of executing platform threads.
+# TYPE jvm_thread_count gauge
+</span><span class="err">jvm_thread_count{</span><span class="py">jvm_thread_daemon</span><span class="p">=</span><span class="s">"false",jvm_thread_state="runnable",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 1.0</span>
+<span class="err">jvm_thread_count{</span><span class="py">jvm_thread_daemon</span><span class="p">=</span><span class="s">"false",jvm_thread_state="timed_waiting",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 2.0</span>
+<span class="err">jvm_thread_count{</span><span class="py">jvm_thread_daemon</span><span class="p">=</span><span class="s">"false",jvm_thread_state="waiting",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 1.0</span>
+<span class="err">jvm_thread_count{</span><span class="py">jvm_thread_daemon</span><span class="p">=</span><span class="s">"true",jvm_thread_state="runnable",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 8.0</span>
+<span class="err">jvm_thread_count{</span><span class="py">jvm_thread_daemon</span><span class="p">=</span><span class="s">"true",jvm_thread_state="timed_waiting",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 7.0</span>
+<span class="err">jvm_thread_count{</span><span class="py">jvm_thread_daemon</span><span class="p">=</span><span class="s">"true",jvm_thread_state="waiting",otel_scope_name="io.opentelemetry.runtime-telemetry-java8",otel_scope_version="2.9.0-alpha"} 3.0</span>
+<span class="c"># TYPE otlp_exporter_exported_total counter
+</span><span class="err">otlp_exporter_exported_total{</span><span class="py">otel_scope_name</span><span class="p">=</span><span class="s">"io.opentelemetry.exporters.otlp-http",success="false",type="log"} 2.0</span>
+<span class="err">otlp_exporter_exported_total{</span><span class="py">otel_scope_name</span><span class="p">=</span><span class="s">"io.opentelemetry.exporters.otlp-http",success="true",type="log"} 13.0</span>
+<span class="c"># TYPE otlp_exporter_seen_total counter
+</span><span class="err">otlp_exporter_seen_total{</span><span class="py">otel_scope_name</span><span class="p">=</span><span class="s">"io.opentelemetry.exporters.otlp-http",type="log"} 15.0</span>
+<span class="c"># HELP processedLogs_ratio_total The number of logs processed by the BatchLogRecordProcessor. [dropped=true if they were dropped due to high throughput]
+# TYPE processedLogs_ratio_total counter
+</span><span class="err">processedLogs_ratio_total{</span><span class="py">dropped</span><span class="p">=</span><span class="s">"false",otel_scope_name="io.opentelemetry.sdk.logs",processorType="BatchLogRecordProcessor"} 13.0</span>
+<span class="c"># HELP queueSize_ratio The number of items queued
+# TYPE queueSize_ratio gauge
+</span><span class="err">queueSize_ratio{</span><span class="py">otel_scope_name</span><span class="p">=</span><span class="s">"io.opentelemetry.sdk.logs",processorType="BatchLogRecordProcessor"} 0.0</span>
+<span class="err">queueSize_ratio{</span><span class="py">otel_scope_name</span><span class="p">=</span><span class="s">"io.opentelemetry.sdk.trace",processorType="BatchSpanProcessor"} 0.0</span>
+<span class="c"># TYPE target_info gauge
+</span><span class="err">target_info{</span><span class="py">container_id</span><span class="p">=</span><span class="s">"df6df175d51d25b922e38ea865136c856c76ac6b0fd47749b3bfb21693dc8b00",host_arch="amd64",host_name="otel-spring-example-57d5cc6b88-tfhq9",os_description="Linux 5.10.236-228.935.amzn2.x86_64",os_type="linux",process_command_args="[/usr/local/openjdk-21/bin/java, -Xshare:off, -Dotel.javaagent.extensions=/usr/app/javaagent/nsa2-otel-extension-1.0-all.jar, -jar, otel-spring-example.jar, --spring.cloud.bootstrap.enabled=true, --server.port=8080, --spring.main.banner-mode=off]",process_executable_path="/usr/local/openjdk-21/bin/java",process_pid="1",process_runtime_description="Oracle Corporation OpenJDK 64-Bit Server VM 21+35-2513",process_runtime_name="OpenJDK Runtime Environment",process_runtime_version="21+35-2513",service_instance_id="1d0a9d8e-045e-4819-a833-af3f8ac947ea",service_name="otel-spring-example",service_version="0.0.1-SNAPSHOT",telemetry_distro_name="opentelemetry-java-instrumentation",telemetry_distro_version="2.9.0",telemetry_sdk_language="java",telemetry_sdk_name="opentelemetry",telemetry_sdk_version="1.43.0"} 1</span></code></pre>
+</div>
+</div>
+</div>
+</details>
+<div class="sect2">
+<h3 id="collector-configuration-with-target-allocator-enabled">Collector Configuration with Target Allocator Enabled</h3>
+<div class="paragraph">
+<p>OpenTelemetry Target Allocator is a component that dynamically assigns scrape targets for metrics collection. It is used to automate the process of scraping metrics from OpenTelemetry-instrumented applications.</p>
+</div>
+<div class="listingblock">
+<div class="title">otel-collector.yaml - metrics related configuration</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">opentelemetry.io/v1beta1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">OpenTelemetryCollector</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">otel</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">mode</span><span class="pi">:</span> <span class="s">statefulset</span>
+  <span class="na">targetAllocator</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">serviceAccount</span><span class="pi">:</span> <span class="s">otel-targetallocator-sa</span>
+    <span class="na">prometheusCR</span><span class="pi">:</span>
+      <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+      <span class="c1"># use this to enable ServiceMonitor</span>
+      <span class="na">serviceMonitorSelector</span><span class="pi">:</span> <span class="pi">{}</span>
+      <span class="na">podMonitorSelector</span><span class="pi">:</span> <span class="pi">{}</span>
+
+  <span class="na">config</span><span class="pi">:</span>
+    <span class="na">receivers</span><span class="pi">:</span>
+      <span class="na">otlp</span><span class="pi">:</span>
+        <span class="na">protocols</span><span class="pi">:</span>
+          <span class="na">grpc</span><span class="pi">:</span>
+            <span class="na">endpoint</span><span class="pi">:</span> <span class="s">0.0.0.0:4317</span>
+          <span class="na">http</span><span class="pi">:</span>
+            <span class="na">endpoint</span><span class="pi">:</span> <span class="s">0.0.0.0:4318</span>
+
+      <span class="na">prometheus</span><span class="pi">:</span>
+        <span class="na">config</span><span class="pi">:</span>
+          <span class="na">scrape_configs</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">job_name</span><span class="pi">:</span> <span class="s1">'</span><span class="s">otel-collector'</span>
+              <span class="na">scrape_interval</span><span class="pi">:</span> <span class="s">30s</span>
+              <span class="na">static_configs</span><span class="pi">:</span>
+                <span class="pi">-</span> <span class="na">targets</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">0.0.0.0:8888'</span><span class="pi">]</span>
+
+    <span class="na">processors</span><span class="pi">:</span>
+      <span class="na">memory_limiter</span><span class="pi">:</span>
+        <span class="na">check_interval</span><span class="pi">:</span> <span class="s">1s</span>
+        <span class="na">limit_percentage</span><span class="pi">:</span> <span class="m">75</span>
+        <span class="na">spike_limit_percentage</span><span class="pi">:</span> <span class="m">15</span>
+      <span class="na">batch</span><span class="pi">:</span>
+        <span class="na">send_batch_size</span><span class="pi">:</span> <span class="m">10000</span>
+        <span class="na">timeout</span><span class="pi">:</span> <span class="s">10s</span>
+
+    <span class="na">exporters</span><span class="pi">:</span>
+      <span class="na">debug</span><span class="pi">:</span>
+        <span class="na">verbosity</span><span class="pi">:</span> <span class="s">detailed</span>
+
+      <span class="na">prometheus</span><span class="pi">:</span>
+        <span class="na">endpoint</span><span class="pi">:</span> <span class="s2">"</span><span class="s">0.0.0.0:8889"</span>  <span class="c1"># new scrape endpoint for filtered metrics</span>
+
+    <span class="na">service</span><span class="pi">:</span>
+      <span class="na">pipelines</span><span class="pi">:</span>
+        <span class="na">metrics</span><span class="pi">:</span>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp</span><span class="pi">,</span> <span class="nv">prometheus</span><span class="pi">]</span>
+          <span class="na">processors</span><span class="pi">:</span> <span class="pi">[]</span>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">prometheus</span><span class="pi">]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In the above configuration, we have enabled the target allocator and set the service account to otel-targetallocator-sa. We have also enabled the ServiceMonitor and PodMonitor selectors, which will allow us to scrape metrics from the OpenTelemetry Target Allocator.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-servicemonitor">Create ServiceMonitor</h3>
+<div class="paragraph">
+<p>A ServiceMonitor enables Prometheus to scrape metrics from the instrumented service:</p>
+</div>
+<div class="listingblock">
+<div class="title">otel-spring-example-service-monitor.yaml - ServiceMonitor configuration</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">monitoring.coreos.com/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceMonitor</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">otel-spring-example-servicemonitor</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">metrics-unit</span><span class="pi">:</span> <span class="s">o11y</span>
+
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">selector</span><span class="pi">:</span>
+    <span class="na">matchLabels</span><span class="pi">:</span>
+      <span class="na">app.kubernetes.io/name</span><span class="pi">:</span> <span class="s">otel-spring-example</span>
+  <span class="na">endpoints</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">port</span><span class="pi">:</span> <span class="s">metrics</span>
+      <span class="na">interval</span><span class="pi">:</span> <span class="s">30s</span>
+      <span class="na">scheme</span><span class="pi">:</span> <span class="s">http</span>
+      <span class="na">path</span><span class="pi">:</span> <span class="s">/metrics</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To ensure this is picked up by the Target Allocator, use the following in the Collector config:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">      <span class="na">serviceMonitorSelector</span><span class="pi">:</span>
+        <span class="na">matchLabels</span><span class="pi">:</span>
+          <span class="na">metrics-unit</span><span class="pi">:</span> <span class="s">o11y</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>From all Pods with label 'app.kubernetes.io/name: otel-spring-example', the ServiceMonitor will scrape metrics from the Pod with label 'metrics-unit: o11y'.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="scraping-with-prometheus">Scraping with Prometheus</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To scrape the OpenTelemetry Collector’s metrics, create a ScrapeConfig:</p>
+</div>
+<div class="listingblock">
+<div class="title">otel-collector-scrape-config.yaml - Prometheus scrape configuration</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">monitoring.coreos.com/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ScrapeConfig</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">otel-collector-scrape-config</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">prometheus</span><span class="pi">:</span> <span class="s">o11y-prometheus</span>
+
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">staticConfigs</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">labels</span><span class="pi">:</span>
+        <span class="na">job</span><span class="pi">:</span> <span class="s">prometheus-job</span>
+      <span class="na">targets</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="s">otel-collector:8889</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>And configure Prometheus to use it:</p>
+</div>
+<div class="listingblock">
+<div class="title">prometheus.yaml - Prometheus configuration</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">monitoring.coreos.com/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Prometheus</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">prometheus</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">scrapeConfigSelector</span><span class="pi">:</span>
+    <span class="na">matchLabels</span><span class="pi">:</span>
+      <span class="na">prometheus</span><span class="pi">:</span> <span class="s">o11y-prometheus</span>
+
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">400Mi</span>
+  <span class="na">enableAdminAPI</span><span class="pi">:</span> <span class="kc">false</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now, metrics can be queried directly from Prometheus.</p>
+</div>
+<div class="imageblock img-medium">
+<div class="content">
+<img src="images/query-on-prometheus-1.png" alt="query on prometheus 1">
+</div>
+<div class="title">Figure 1. Prometheus query - metrics with 'jvm_' prefix</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="filtering-metrics-with-the-filter-processor">Filtering Metrics with the filter Processor</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To reduce noise and focus on essential metrics, apply a filter in the OpenTelemetry Collector configuration:</p>
+</div>
+<div class="listingblock">
+<div class="title">otel-collector.yaml - metrics related configuration</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">    <span class="na">receivers</span><span class="pi">:</span>
+      <span class="na">prometheus</span><span class="pi">:</span>
+        <span class="na">config</span><span class="pi">:</span>
+          <span class="na">scrape_configs</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">job_name</span><span class="pi">:</span> <span class="s1">'</span><span class="s">otel-collector'</span>
+              <span class="na">scrape_interval</span><span class="pi">:</span> <span class="s">30s</span>
+              <span class="na">static_configs</span><span class="pi">:</span>
+                <span class="pi">-</span> <span class="na">targets</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">0.0.0.0:8888'</span><span class="pi">]</span>
+
+    <span class="na">processors</span><span class="pi">:</span>
+      <span class="na">filter/metrics</span><span class="pi">:</span>
+        <span class="na">metrics</span><span class="pi">:</span>
+          <span class="na">include</span><span class="pi">:</span>
+            <span class="na">match_type</span><span class="pi">:</span> <span class="s">regexp</span>
+            <span class="na">metric_names</span><span class="pi">:</span>
+              <span class="pi">-</span> <span class="s2">"</span><span class="s">^jvm_memory_.*"</span>
+              <span class="pi">-</span> <span class="s2">"</span><span class="s">^jvm_cpu_.*"</span>
+              <span class="pi">-</span> <span class="s2">"</span><span class="s">^jvm_threads_.*"</span>
+              <span class="pi">-</span> <span class="s2">"</span><span class="s">^http_server.*"</span>
+              <span class="pi">-</span> <span class="s2">"</span><span class="s">^jvm_gc_.*"</span>
+
+    <span class="na">exporters</span><span class="pi">:</span>
+      <span class="na">prometheus</span><span class="pi">:</span>
+        <span class="na">endpoint</span><span class="pi">:</span> <span class="s2">"</span><span class="s">0.0.0.0:8889"</span>  <span class="c1"># new scrape endpoint for filtered metrics</span>
+
+    <span class="na">service</span><span class="pi">:</span>
+      <span class="na">pipelines</span><span class="pi">:</span>
+        <span class="na">metrics</span><span class="pi">:</span>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp</span><span class="pi">,</span> <span class="nv">prometheus</span><span class="pi">]</span>
+          <span class="na">processors</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">filter/metrics</span><span class="pi">]</span>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">prometheus</span><span class="pi">]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This limits the Prometheus exporter (on port 8889) to only expose selected metrics.</p>
+</div>
+<div class="paragraph">
+<p>Access them at:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="http://otel-collector:8889/metrics" class="bare">http://otel-collector:8889/metrics</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Filtered view example:</p>
+</div>
+<div class="paragraph">
+<p>Now <strong>jvm_class_count</strong> metric is filtered out by the filter processor. You can see the metrics starting with 'jvm_' on Prometheus.</p>
+</div>
+<div class="imageblock img-medium">
+<div class="content">
+<img src="images/query-on-prometheus-filtered.png" alt="query on prometheus filtered">
+</div>
+<div class="title">Figure 2. Prometheus query - filtered metrics with 'jvm_' prefix</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this guide, we demonstrated how to:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Instrument your Java application with OpenTelemetry</p>
+</li>
+<li>
+<p>Scrape metrics using the OpenTelemetry Target Allocator</p>
+</li>
+<li>
+<p>Use ServiceMonitor to automate target discovery</p>
+</li>
+<li>
+<p>Filter unnecessary metrics using the metrics filter processor</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>By following these steps, you can build a robust, scalable observability pipeline for your cloud-native applications.</p>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>
