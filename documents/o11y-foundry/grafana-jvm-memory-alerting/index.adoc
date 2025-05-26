@@ -1,0 +1,352 @@
+---
+layout: documents
+title: Alerting Incidents in Grafana - A Guide to Application Observability Rules
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+
+= Alerting Incidents in Grafana: A Guide to Application Observability Rules
+
+:imagesdir: images
+
+[.img-wide]
+image::alerting-incidents-in-grafana.png[]
+
+== Overview
+
+This guide explains how to configure a Grafana dashboard and alert rules to monitor JVM memory usage in a Kubernetes environment. The objective is to detect situations where the JVM memory usage of Java applications running in Pods exceeds 80% for more than one minute, and to notify service operators accordingly.
+
+
+== Incident Scenario: JVM Memory Usage > 80% for 1 Minute
+
+This scenario captures an incident where Java applications running in any Pod use more than 80% of their allocated JVM heap memory for over one minute, triggering an alert notification to the designated service operators.
+
+=== Metrics Utilized
+
+* jvm_memory_used_bytes{jvm_memory_type="heap"} - JVM heap memory used (in bytes)
+* jvm_memory_limit_bytes{jvm_memory_type="heap"} - JVM heap memory limit (in bytes, e.g., set via -Xms256m in the Dockerfile)
+* sum by(pod) - Aggregates the metric values per Pod
+
+== Prometheus Queries
+
+The following Prometheus queries are used to calculate JVM memory usage per Pod and serve as the basis for visualization and alerting in Grafana.
+
+* A: The maximun JVM message usage per Pod
+* B: The used JVM memory per Pod
+* C: (A / B) * 100 - The percentage of JVM memory usage per Pod
+
+
+=== Maximum JVM Heap Memory per Pod
+
+[source,]
+----
+sum by (pod) (
+  jvm_memory_limit_bytes{jvm_memory_type="heap"}
+)
+----
+
+As seen in the screenshot below, the maximum JVM memory limit per Pod is 256MB. There are two pods running the otel-spring-example application.
+
+.Prometheus Query - JVM Memory Limit per Pod
+[.img-wide]
+image::jvm-memory-limit-per-pod.png[]
+
+=== The used JVM memory per Pod
+
+[source,]
+----
+sum by (pod) (
+  jvm_memory_used_bytes{jvm_memory_type="heap"}
+)
+----
+
+As seen in the screenshot below, the used JVM memory per Pod is 120MB. The otel-spring-example application is consuming 120MB of memory.
+
+.Prometheus Query - JVM Memory Used per Pod
+[.img-wide]
+image::jvm-memory-used-per-pod.png[]
+
+Memory usage trends typically fluctuate due to garbage collection (GC). Usage increases with application activity and drops after GC.
+
+
+=== VM Heap Memory Usage Percentage per Pod
+
+[source,]
+----
+sum by (pod) (
+  jvm_memory_used_bytes{jvm_memory_type="heap"}
+) /
+sum by (pod) (
+  jvm_memory_limit_bytes{jvm_memory_type="heap"}
+) * 100
+----
+
+As seen in the screenshot below, the percentage of JVM memory usage per Pod looks similar to the used JVM memory per Pod.
+
+.Prometheus Query - JVM Memory Usage Percentage per Pod
+[.img-wide]
+image::jvm-memory-used-percentage.png[]
+
+== Grafana Setup
+=== Grafana SMTP Configuration
+
+To enable email notifications for alerts, configure Grafana's SMTP settings using a ConfigMap and Kubernetes secret.
+
+
+.custom values.yaml for Grafana Helm Chart
+[source,yaml]
+----
+grafana.ini:
+  ## <1>
+  smtp:
+    enabled: true
+    host: your-smtp-server:your-smtp-server-port # for example, smtp.gmail.com:587
+    from_address: your-email-address
+    from_name: Grafana Alerts
+    skip_verify: false
+    startTLS_policy: MandatoryStartTLS
+
+smtp:
+  # this secret must contain user and password for SMTP server
+  ## <2>
+  existingSecret: grafana-smtp-credentials
+----
+<1> SMTP configuration for Grafana
+<2> Kubernetes secret for SMTP credentials
+
+=== Create Grafana SMTP credentials secret
+
+Create a Kubernetes secret to store the SMTP credentials. This secret will be used by Grafana to send alert notifications via email.
+[source,terminal]
+----
+$ kubectl -n o11y create secret generic grafana-smtp-credentials \
+  --from-literal=user=your-smtp-user \
+  --from-literal=password=your-smtp-password
+----
+
+
+== Grafana Configuration
+
+=== Connection to Prometheus
+
+
+. Navigate Connections > Add new connection
+. Select Prometheus
+. Click 'Add new data source' button at top-right corner
+. Fili in the details:
+  - Name: o11y-prometheus
+  - Set as Default: true
+  - Prometheus server URL: http://prometheus:9090
+  - Authentication methods: Forward OAuth Identity
+. Click 'Save & test' button
+
+
+=== Setting Up Alerting
+
+==== Contact points
+
+. Navigate Alerting > Contact points.
+. Click 'Create contact point' button
+. Configure:
+  - Name: Service Operators
+  - Integration: Email
+  - Addresses: nsalexamy@gmail.com
+. Click Test, then Save contact point
+
+==== Alert Rules
+
+. Go to Alerting > Alert rules
+. Click 'New alert rule' button
+. Fill out the form
+  - Name: high-jvm-memory-usage
+  - Data source: o11y-prometheus
+  - PromQL: use the PromQL below
+  - Threshold: IS ABOVE 80
+  - Folder: java-metrics
+//   - Click 'New folder' and input 'java-metrics' for Folder name.
+//   - Click 'New evaluation group' and input 'java-metrics-evaluation' for Evaluation group name and select 30s for Evaluation interval.
+  - Evaluation Group: java-metrics-evaluation
+  - Evaluation interval: 30s
+  - Pending period: 1m
+  - Contact point: Service Operators
+. Click 'Save rule and exit'
+
+.PromQL
+[source,text]
+----
+(
+  sum by(pod) (jvm_memory_used_bytes{jvm_memory_type="heap"})
+  /
+  sum by(pod) (jvm_memory_limit_bytes{jvm_memory_type="heap"})
+) * 100
+----
+
+== Dashboards
+
+. Navigate Dashboards > New > New dashboard
+. Click 'Add visualization' button
+. Select o11y-prometheus for Data source
+. Input the PromQL used in the previous section
+. Click 'Save dashboard' and name it 'JVM Memory Usage'
+
+== Application Setup: otel-spring-example
+
+A Spring Boot application instrumented with OpenTelemetry, used to simulate JVM memory consumption.
+
+
+=== Dockerfile for otel-spring-example
+
+To make it easy to test, the JVM memory is set to 256MB in the Dockerfile of the otel-spring-example application. The application is instrumented with OpenTelemetry and uses the OpenTelemetry Java agent to collect metrics.
+
+.Dockerfile
+[source,dockerfile]
+----
+FROM openjdk:21-jdk-bullseye
+COPY otel-spring-example/otel-spring-example-0.0.1-SNAPSHOT.jar /usr/app/otel-spring-example.jar
+COPY otel-spring-example/opentelemetry-javaagent.jar /usr/app/javaagent/opentelemetry-javaagent.jar
+COPY otel-spring-example/nsa2-otel-extension-1.0-all.jar /usr/app/javaagent/nsa2-otel-extension-1.0-all.jar
+WORKDIR /usr/app
+EXPOSE 8080
+EXPOSE 9464
+ENTRYPOINT ["java", "-Xshare:off", "-Xms256m", "-Xmx256m", "-Dotel.javaagent.extensions=/usr/app/javaagent/nsa2-otel-extension-1.0-all.jar", "-jar", "otel-spring-example.jar", "--spring.cloud.bootstrap.enabled=true", "--server.port=8080", "--spring.main.banner-mode=off"]
+----
+
+=== MetricsController.java
+
+This controller is designed for testing metrics.
+
+The endpoint below allocates the given amount of memory in MB for 1 minute.
+
+* /metrics/consume/memory/{mb}
+
+
+.MetricsController.java
+[source,java]
+----
+@RestController
+@RequestMapping("/metrics")
+@Slf4j
+@RequiredArgsConstructor
+public class MetricsController {
+    public static final int MB = 1024 * 1024;
+    public static final int SLEEP_TIME_IN_SECONDS = 60; // 60 seconds
+
+    private final SleepClientService sleepClientService;
+
+    @GetMapping("/consume/memory/{mb}")
+    @SuppressWarnings("rawtypes")
+    public Map consumeMemory(@PathVariable int mb) {
+
+        log.info("Consuming memory of {} MB", mb);
+        List<byte[]> memoryHog = new ArrayList<>();
+
+        memoryHog.add(new byte[mb * MB]);
+
+
+        Map result = sleepClientService.callSleepController(SLEEP_TIME_IN_SECONDS);
+
+        log.info("releasing memory of {} MB", mb);
+        // Release the memory
+        memoryHog.clear();
+
+        result.put("memory-used", mb + "MB");
+
+
+        return result;
+    }
+}
+----
+
+=== Testing the Endpoint
+
+Port forward to call the endpoint
+[source,terminal]
+----
+$ kubectl -n o11y port-forward svc/otel-spring-example 8080:8080
+----
+
+
+After checking the current memory usage, you can run the command below to make the total memory usage to be 210MB to 220MB, which is over 80% of the maximum JVM memory limit (256MB).
+
+Run the command below to make the application to use more 140MB memory for testing
+[source,terminal]
+----
+$ curl http://localhost:8080/metrics/consume/memory/140
+----
+
+When running the test, the JVM memory usage should be over 80% for more than 1 minute. You can check the Grafana dashboard to see the JVM memory usage.
+
+=== Monitor the dashboard to confirm JVM memory usage exceeds 80% for over 1 minute.
+
+The JVM memory usage can be checked in the Grafana dashboard. The dashboard shows the JVM memory usage per Pod and the percentage of JVM memory usage per Pod.
+
+.Grafana Dashboard - JVM Memory Usage
+[.img-wide]
+image::grafana-dashboard.png[]
+
+=== Alerting Incident
+
+And the percentage of JVM memory usage per Pod stays over 80% for more than 1 minute, then the alert is triggered as shown below.
+
+.Grafana Alert - High JVM Memory Usage
+[.img-wide]
+image::grafana-alert-rule-triggered.png[]
+
+=== Email Notification
+
+When the alert is triggered, an email notification is sent to the configured contact point. The email contains details about the alert, including the alert name, state, and a link to the Grafana dashboard for further investigation.
+
+
+.Grafana Alert Notification - Email
+[.img-wide]
+image::grafana-alert-email.png[]
+
+== Conclusion
+
+This guide demonstrates how to set up Grafana alert rules and dashboards for JVM memory monitoring in Kubernetes. By implementing these configurations, service teams can proactively respond to memory-related incidents in Java applications
+
+This document is also available with better formatting at https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/grafana-jvm-memory-alerting/
+
+// == Prometheus Query
+//
+// [source,]
+// ----
+// sum(jvm_memory_used_bytes{jvm_memory_type="heap"}) / sum(jvm_memory_limit_bytes{jvm_memory_type="heap"}) * 100
+// ----
+//
+// [source,]
+// ----
+// sum(jvm_memory_limit_bytes{jvm_memory_type="heap"})
+// ----
+//
+// [source,]
+// ----
+// sum(jvm_memory_limit_bytes{jvm_memory_type="heap"})
+// ----
+//
+// [source,terminal]
+// ----
+// $ kubectl -n o11y scale deployment otel-spring-example --replicas=3
+// ----
+//
+// sum by pod
+// [source,]
+// ----
+// sum by (pod) (
+//   jvm_memory_used_bytes{jvm_memory_type="heap"}
+// ) /
+// sum by (pod) (
+//   jvm_memory_limit_bytes{jvm_memory_type="heap"}
+// ) * 100
+// ----
+//
+//
+// ulge qvik yflp tlib
+// ulgeqvikyflptlib
