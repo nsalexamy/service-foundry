@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Alerting Incidents in Grafana: A Guide to Application Observability Rules</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+        
+        <a href="/service-foundry/pages/demo/" class="">Demo</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="active">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Alerting Incidents in Grafana: A Guide to Application Observability Rules
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a></li>
+<li><a href="#incident-scenario-jvm-memory-usage-80-for-1-minute">Incident Scenario: JVM Memory Usage &gt; 80% for 1 Minute</a>
+<ul class="sectlevel2">
+<li><a href="#metrics-utilized">Metrics Utilized</a></li>
+</ul>
+</li>
+<li><a href="#prometheus-queries">Prometheus Queries</a>
+<ul class="sectlevel2">
+<li><a href="#maximum-jvm-heap-memory-per-pod">Maximum JVM Heap Memory per Pod</a></li>
+<li><a href="#the-used-jvm-memory-per-pod">The used JVM memory per Pod</a></li>
+<li><a href="#vm-heap-memory-usage-percentage-per-pod">VM Heap Memory Usage Percentage per Pod</a></li>
+</ul>
+</li>
+<li><a href="#grafana-setup">Grafana Setup</a>
+<ul class="sectlevel2">
+<li><a href="#grafana-smtp-configuration">Grafana SMTP Configuration</a></li>
+<li><a href="#create-grafana-smtp-credentials-secret">Create Grafana SMTP credentials secret</a></li>
+</ul>
+</li>
+<li><a href="#grafana-configuration">Grafana Configuration</a>
+<ul class="sectlevel2">
+<li><a href="#connection-to-prometheus">Connection to Prometheus</a></li>
+<li><a href="#setting-up-alerting">Setting Up Alerting</a></li>
+</ul>
+</li>
+<li><a href="#dashboards">Dashboards</a></li>
+<li><a href="#application-setup-otel-spring-example">Application Setup: otel-spring-example</a>
+<ul class="sectlevel2">
+<li><a href="#dockerfile-for-otel-spring-example">Dockerfile for otel-spring-example</a></li>
+<li><a href="#metricscontroller-java">MetricsController.java</a></li>
+<li><a href="#testing-the-endpoint">Testing the Endpoint</a></li>
+<li><a href="#monitor-the-dashboard-to-confirm-jvm-memory-usage-exceeds-80-for-over-1-minute">Monitor the dashboard to confirm JVM memory usage exceeds 80% for over 1 minute.</a></li>
+<li><a href="#alerting-incident">Alerting Incident</a></li>
+<li><a href="#email-notification">Email Notification</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/alerting-incidents-in-grafana.png" alt="alerting incidents in grafana">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide explains how to configure a Grafana dashboard and alert rules to monitor JVM memory usage in a Kubernetes environment. The objective is to detect situations where the JVM memory usage of Java applications running in Pods exceeds 80% for more than one minute, and to notify service operators accordingly.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="incident-scenario-jvm-memory-usage-80-for-1-minute">Incident Scenario: JVM Memory Usage &gt; 80% for 1 Minute</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This scenario captures an incident where Java applications running in any Pod use more than 80% of their allocated JVM heap memory for over one minute, triggering an alert notification to the designated service operators.</p>
+</div>
+<div class="sect2">
+<h3 id="metrics-utilized">Metrics Utilized</h3>
+<div class="ulist">
+<ul>
+<li>
+<p>jvm_memory_used_bytes{jvm_memory_type="heap"} - JVM heap memory used (in bytes)</p>
+</li>
+<li>
+<p>jvm_memory_limit_bytes{jvm_memory_type="heap"} - JVM heap memory limit (in bytes, e.g., set via -Xms256m in the Dockerfile)</p>
+</li>
+<li>
+<p>sum by(pod) - Aggregates the metric values per Pod</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="prometheus-queries">Prometheus Queries</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The following Prometheus queries are used to calculate JVM memory usage per Pod and serve as the basis for visualization and alerting in Grafana.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>A: The maximun JVM message usage per Pod</p>
+</li>
+<li>
+<p>B: The used JVM memory per Pod</p>
+</li>
+<li>
+<p>C: (A / B) * 100 - The percentage of JVM memory usage per Pod</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="maximum-jvm-heap-memory-per-pod">Maximum JVM Heap Memory per Pod</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code>sum by (pod) (
+  jvm_memory_limit_bytes{jvm_memory_type="heap"}
+)</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>As seen in the screenshot below, the maximum JVM memory limit per Pod is 256MB. There are two pods running the otel-spring-example application.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/jvm-memory-limit-per-pod.png" alt="jvm memory limit per pod">
+</div>
+<div class="title">Figure 1. Prometheus Query - JVM Memory Limit per Pod</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="the-used-jvm-memory-per-pod">The used JVM memory per Pod</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code>sum by (pod) (
+  jvm_memory_used_bytes{jvm_memory_type="heap"}
+)</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>As seen in the screenshot below, the used JVM memory per Pod is 120MB. The otel-spring-example application is consuming 120MB of memory.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/jvm-memory-used-per-pod.png" alt="jvm memory used per pod">
+</div>
+<div class="title">Figure 2. Prometheus Query - JVM Memory Used per Pod</div>
+</div>
+<div class="paragraph">
+<p>Memory usage trends typically fluctuate due to garbage collection (GC). Usage increases with application activity and drops after GC.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="vm-heap-memory-usage-percentage-per-pod">VM Heap Memory Usage Percentage per Pod</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code>sum by (pod) (
+  jvm_memory_used_bytes{jvm_memory_type="heap"}
+) /
+sum by (pod) (
+  jvm_memory_limit_bytes{jvm_memory_type="heap"}
+) * 100</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>As seen in the screenshot below, the percentage of JVM memory usage per Pod looks similar to the used JVM memory per Pod.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/jvm-memory-used-percentage.png" alt="jvm memory used percentage">
+</div>
+<div class="title">Figure 3. Prometheus Query - JVM Memory Usage Percentage per Pod</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="grafana-setup">Grafana Setup</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="grafana-smtp-configuration">Grafana SMTP Configuration</h3>
+<div class="paragraph">
+<p>To enable email notifications for alerts, configure Grafana&#8217;s SMTP settings using a ConfigMap and Kubernetes secret.</p>
+</div>
+<div class="listingblock">
+<div class="title">custom values.yaml for Grafana Helm Chart</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">grafana.ini</span><span class="pi">:</span>
+  <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="na">smtp</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">host</span><span class="pi">:</span> <span class="s">your-smtp-server:your-smtp-server-port</span> <span class="c1"># for example, smtp.gmail.com:587</span>
+    <span class="na">from_address</span><span class="pi">:</span> <span class="s">your-email-address</span>
+    <span class="na">from_name</span><span class="pi">:</span> <span class="s">Grafana Alerts</span>
+    <span class="na">skip_verify</span><span class="pi">:</span> <span class="kc">false</span>
+    <span class="na">startTLS_policy</span><span class="pi">:</span> <span class="s">MandatoryStartTLS</span>
+
+<span class="na">smtp</span><span class="pi">:</span>
+  <span class="c1"># this secret must contain user and password for SMTP server</span>
+  <span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+  <span class="na">existingSecret</span><span class="pi">:</span> <span class="s">grafana-smtp-credentials</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>SMTP configuration for Grafana</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Kubernetes secret for SMTP credentials</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-grafana-smtp-credentials-secret">Create Grafana SMTP credentials secret</h3>
+<div class="paragraph">
+<p>Create a Kubernetes secret to store the SMTP credentials. This secret will be used by Grafana to send alert notifications via email.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> o11y create secret generic grafana-smtp-credentials <span class="se">\</span>
+<span class="go">  --from-literal=user=your-smtp-user \
+  --from-literal=password=your-smtp-password</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="grafana-configuration">Grafana Configuration</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="connection-to-prometheus">Connection to Prometheus</h3>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Navigate Connections &gt; Add new connection</p>
+</li>
+<li>
+<p>Select Prometheus</p>
+</li>
+<li>
+<p>Click 'Add new data source' button at top-right corner</p>
+</li>
+<li>
+<p>Fili in the details:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Name: o11y-prometheus</p>
+</li>
+<li>
+<p>Set as Default: true</p>
+</li>
+<li>
+<p>Prometheus server URL: <a href="http://prometheus:9090" class="bare">http://prometheus:9090</a></p>
+</li>
+<li>
+<p>Authentication methods: Forward OAuth Identity</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p>Click 'Save &amp; test' button</p>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect2">
+<h3 id="setting-up-alerting">Setting Up Alerting</h3>
+<div class="sect3">
+<h4 id="contact-points">Contact points</h4>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Navigate Alerting &gt; Contact points.</p>
+</li>
+<li>
+<p>Click 'Create contact point' button</p>
+</li>
+<li>
+<p>Configure:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Name: Service Operators</p>
+</li>
+<li>
+<p>Integration: Email</p>
+</li>
+<li>
+<p>Addresses: <a href="mailto:nsalexamy@gmail.com">nsalexamy@gmail.com</a></p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p>Click Test, then Save contact point</p>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect3">
+<h4 id="alert-rules">Alert Rules</h4>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Go to Alerting &gt; Alert rules</p>
+</li>
+<li>
+<p>Click 'New alert rule' button</p>
+</li>
+<li>
+<p>Fill out the form</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Name: high-jvm-memory-usage</p>
+</li>
+<li>
+<p>Data source: o11y-prometheus</p>
+</li>
+<li>
+<p>PromQL: use the PromQL below</p>
+</li>
+<li>
+<p>Threshold: IS ABOVE 80</p>
+</li>
+<li>
+<p>Folder: java-metrics</p>
+</li>
+<li>
+<p>Evaluation Group: java-metrics-evaluation</p>
+</li>
+<li>
+<p>Evaluation interval: 30s</p>
+</li>
+<li>
+<p>Pending period: 1m</p>
+</li>
+<li>
+<p>Contact point: Service Operators</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p>Click 'Save rule and exit'</p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="title">PromQL</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="text">(
+  sum by(pod) (jvm_memory_used_bytes{jvm_memory_type="heap"})
+  /
+  sum by(pod) (jvm_memory_limit_bytes{jvm_memory_type="heap"})
+) * 100</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="dashboards">Dashboards</h2>
+<div class="sectionbody">
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Navigate Dashboards &gt; New &gt; New dashboard</p>
+</li>
+<li>
+<p>Click 'Add visualization' button</p>
+</li>
+<li>
+<p>Select o11y-prometheus for Data source</p>
+</li>
+<li>
+<p>Input the PromQL used in the previous section</p>
+</li>
+<li>
+<p>Click 'Save dashboard' and name it 'JVM Memory Usage'</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="application-setup-otel-spring-example">Application Setup: otel-spring-example</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>A Spring Boot application instrumented with OpenTelemetry, used to simulate JVM memory consumption.</p>
+</div>
+<div class="sect2">
+<h3 id="dockerfile-for-otel-spring-example">Dockerfile for otel-spring-example</h3>
+<div class="paragraph">
+<p>To make it easy to test, the JVM memory is set to 256MB in the Dockerfile of the otel-spring-example application. The application is instrumented with OpenTelemetry and uses the OpenTelemetry Java agent to collect metrics.</p>
+</div>
+<div class="listingblock">
+<div class="title">Dockerfile</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="dockerfile"><span class="k">FROM</span><span class="s"> openjdk:21-jdk-bullseye</span>
+<span class="k">COPY</span><span class="s"> otel-spring-example/otel-spring-example-0.0.1-SNAPSHOT.jar /usr/app/otel-spring-example.jar</span>
+<span class="k">COPY</span><span class="s"> otel-spring-example/opentelemetry-javaagent.jar /usr/app/javaagent/opentelemetry-javaagent.jar</span>
+<span class="k">COPY</span><span class="s"> otel-spring-example/nsa2-otel-extension-1.0-all.jar /usr/app/javaagent/nsa2-otel-extension-1.0-all.jar</span>
+<span class="k">WORKDIR</span><span class="s"> /usr/app</span>
+<span class="k">EXPOSE</span><span class="s"> 8080</span>
+<span class="k">EXPOSE</span><span class="s"> 9464</span>
+<span class="k">ENTRYPOINT</span><span class="s"> ["java", "-Xshare:off", "-Xms256m", "-Xmx256m", "-Dotel.javaagent.extensions=/usr/app/javaagent/nsa2-otel-extension-1.0-all.jar", "-jar", "otel-spring-example.jar", "--spring.cloud.bootstrap.enabled=true", "--server.port=8080", "--spring.main.banner-mode=off"]</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="metricscontroller-java">MetricsController.java</h3>
+<div class="paragraph">
+<p>This controller is designed for testing metrics.</p>
+</div>
+<div class="paragraph">
+<p>The endpoint below allocates the given amount of memory in MB for 1 minute.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>/metrics/consume/memory/{mb}</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">MetricsController.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@RestController</span>
+<span class="nd">@RequestMapping</span><span class="o">(</span><span class="s">"/metrics"</span><span class="o">)</span>
+<span class="nd">@Slf4j</span>
+<span class="nd">@RequiredArgsConstructor</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">MetricsController</span> <span class="o">{</span>
+    <span class="kd">public</span> <span class="kd">static</span> <span class="kd">final</span> <span class="kt">int</span> <span class="no">MB</span> <span class="o">=</span> <span class="mi">1024</span> <span class="o">*</span> <span class="mi">1024</span><span class="o">;</span>
+    <span class="kd">public</span> <span class="kd">static</span> <span class="kd">final</span> <span class="kt">int</span> <span class="no">SLEEP_TIME_IN_SECONDS</span> <span class="o">=</span> <span class="mi">60</span><span class="o">;</span> <span class="c1">// 60 seconds</span>
+
+    <span class="kd">private</span> <span class="kd">final</span> <span class="nc">SleepClientService</span> <span class="n">sleepClientService</span><span class="o">;</span>
+
+    <span class="nd">@GetMapping</span><span class="o">(</span><span class="s">"/consume/memory/{mb}"</span><span class="o">)</span>
+    <span class="nd">@SuppressWarnings</span><span class="o">(</span><span class="s">"rawtypes"</span><span class="o">)</span>
+    <span class="kd">public</span> <span class="nc">Map</span> <span class="nf">consumeMemory</span><span class="o">(</span><span class="nd">@PathVariable</span> <span class="kt">int</span> <span class="n">mb</span><span class="o">)</span> <span class="o">{</span>
+
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"Consuming memory of {} MB"</span><span class="o">,</span> <span class="n">mb</span><span class="o">);</span>
+        <span class="nc">List</span><span class="o">&lt;</span><span class="kt">byte</span><span class="o">[]&gt;</span> <span class="n">memoryHog</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">ArrayList</span><span class="o">&lt;&gt;();</span>
+
+        <span class="n">memoryHog</span><span class="o">.</span><span class="na">add</span><span class="o">(</span><span class="k">new</span> <span class="kt">byte</span><span class="o">[</span><span class="n">mb</span> <span class="o">*</span> <span class="no">MB</span><span class="o">]);</span>
+
+
+        <span class="nc">Map</span> <span class="n">result</span> <span class="o">=</span> <span class="n">sleepClientService</span><span class="o">.</span><span class="na">callSleepController</span><span class="o">(</span><span class="no">SLEEP_TIME_IN_SECONDS</span><span class="o">);</span>
+
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"releasing memory of {} MB"</span><span class="o">,</span> <span class="n">mb</span><span class="o">);</span>
+        <span class="c1">// Release the memory</span>
+        <span class="n">memoryHog</span><span class="o">.</span><span class="na">clear</span><span class="o">();</span>
+
+        <span class="n">result</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="s">"memory-used"</span><span class="o">,</span> <span class="n">mb</span> <span class="o">+</span> <span class="s">"MB"</span><span class="o">);</span>
+
+
+        <span class="k">return</span> <span class="n">result</span><span class="o">;</span>
+    <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="testing-the-endpoint">Testing the Endpoint</h3>
+<div class="paragraph">
+<p>Port forward to call the endpoint</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> o11y port-forward svc/otel-spring-example 8080:8080</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>After checking the current memory usage, you can run the command below to make the total memory usage to be 210MB to 220MB, which is over 80% of the maximum JVM memory limit (256MB).</p>
+</div>
+<div class="paragraph">
+<p>Run the command below to make the application to use more 140MB memory for testing</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>curl http://localhost:8080/metrics/consume/memory/140</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>When running the test, the JVM memory usage should be over 80% for more than 1 minute. You can check the Grafana dashboard to see the JVM memory usage.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="monitor-the-dashboard-to-confirm-jvm-memory-usage-exceeds-80-for-over-1-minute">Monitor the dashboard to confirm JVM memory usage exceeds 80% for over 1 minute.</h3>
+<div class="paragraph">
+<p>The JVM memory usage can be checked in the Grafana dashboard. The dashboard shows the JVM memory usage per Pod and the percentage of JVM memory usage per Pod.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-dashboard.png" alt="grafana dashboard">
+</div>
+<div class="title">Figure 4. Grafana Dashboard - JVM Memory Usage</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="alerting-incident">Alerting Incident</h3>
+<div class="paragraph">
+<p>And the percentage of JVM memory usage per Pod stays over 80% for more than 1 minute, then the alert is triggered as shown below.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-alert-rule-triggered.png" alt="grafana alert rule triggered">
+</div>
+<div class="title">Figure 5. Grafana Alert - High JVM Memory Usage</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="email-notification">Email Notification</h3>
+<div class="paragraph">
+<p>When the alert is triggered, an email notification is sent to the configured contact point. The email contains details about the alert, including the alert name, state, and a link to the Grafana dashboard for further investigation.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-alert-email.png" alt="grafana alert email">
+</div>
+<div class="title">Figure 6. Grafana Alert Notification - Email</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide demonstrates how to set up Grafana alert rules and dashboards for JVM memory monitoring in Kubernetes. By implementing these configurations, service teams can proactively respond to memory-related incidents in Java applications</p>
+</div>
+<div class="paragraph">
+<p>This document is also available with better formatting at <a href="https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/grafana-jvm-memory-alerting/" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/grafana-jvm-memory-alerting/</a></p>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>
