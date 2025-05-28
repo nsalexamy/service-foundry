@@ -1,0 +1,364 @@
+= Automating Grafana Resource Provisioning with Helm Charts
+
+:imagesdir: images
+
+[.img-wide]
+image::provisioning-grafana-resources.png[]
+
+== Overview
+
+This guide outlines how to provision Grafana resources using Helm charts in a Kubernetes environment. The following Grafana components are covered:
+
+* Datasources
+* Dashboard Providers
+* Dashboards
+* Alerting Contact Points
+* Alerting Rules
+
+For more details on Grafana provisioning, refer to the official documentation:
+
+* https://grafana.com/docs/grafana/latest/administration/provisioning/
+
+== Grafana Datasources
+
+A Grafana datasource defines how Grafana connects to external systems such as Prometheus, Elasticsearch, or MySQL to retrieve data for dashboards and panels.
+
+=== Key Capabilities
+
+ * Connect to external data sources
+ * Configure authentication and access modes
+ * Query and visualize metrics
+ * Support various data source types (e.g., Prometheus, Loki)
+
+=== Example: Prometheus Datasource Configuration
+
+Here, we will configure a Prometheus datasource for Grafana using a Helm chart. This datasource will be used to query metrics collected by Prometheus.
+
+.values.yaml - datasources
+[source,yaml]
+----
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+    - name: o11y-prometheus
+      type: prometheus
+      url: http://prometheus:9090
+      uid: o11y-prometheus
+      # Access mode - proxy (server in the UI) or direct (browser in the UI).
+      access: proxy
+      isDefault: true
+----
+
+.Grafana Datasource
+[.img-wide]
+image::grafana-datasources.png[]
+
+== Grafana Dashboard Providers
+
+Dashboard providers in Grafana enable you to load dashboards from files at startup. This allows dashboards to be managed declaratively, which is ideal for CI/CD pipelines or GitOps workflows.
+
+=== Key Capabilities
+
+ * Load dashboards automatically from JSON files
+ * Group dashboards into folders
+ * Control editability and deletion
+ * Integrate with Infrastructure as Code tools
+
+=== Example: Dashboard Provider Configuration
+
+The example below shows how to configure a dashboard provider in Grafana using a Helm chart. This configuration will load dashboards from a specified directory and make them available in Grafana.
+
+.values.yaml - dashboardProviders
+[source,yaml]
+----
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      - name: default
+        orgId: 1
+        folder: ''
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/default
+----
+
+== Grafana Dashboards
+
+Dashboards are visual interfaces that display data through panels such as graphs, tables, and gauges. They provide real-time observability and insights for developers and operators
+
+=== Key Capabilities
+
+ * Aggregate and visualize telemetry data
+ * Organize data into panels and layouts
+ * Share and reuse across teams
+
+=== Example 1: Inline JSON Dashboard Configuration
+
+RAW_JSON is a JSON representation of a Grafana dashboard. The example below shows how to configure a dashboard in Grafana using a Helm chart. This configuration will load a dashboard from a JSON file and make it available in Grafana.
+
+.values.yaml - dashboards
+[source,yaml]
+----
+dashboards:
+  # default is the name of the dashboard provider
+  default:
+    some-dashboard:
+      json: |
+        $RAW_JSON
+----
+
+This way is more straightforward for simple dashboards, but it can become cumbersome for larger or more complex dashboards. In this document, we will focus on using ConfigMaps to manage Grafana dashboards, which is a more scalable approach.
+
+.Grafana Dashboard
+[.img-wide]
+image::grafana-dashboard.png[]
+
+=== Example 2: Using a ConfigMap to Load Dashboards
+
+The example below shows how to configure a dashboard in Grafana using a Helm chart with the `dashboardConfigMaps` section. This configuration will load a dashboard from a ConfigMap and make it available in Grafana.
+
+.values.yaml - dashboardConfigMaps
+[source,yaml]
+----
+dashboardsConfigMaps:
+  # default is the name of the dashboard provider
+  # grafana-default-dashboards is the name of the ConfigMap containing the dashboard JSON files
+  default: grafana-default-dashboards
+----
+
+==== Creating the ConfigMap
+
+Use the following command to generate a ConfigMap containing all dashboard JSON files:
+
+[,terminal]
+----
+$ kubectl -n o11y create configmap grafana-default-dashboards --from-file=./dashboards/
+----
+
+This command creates a ConfigMap named `grafana-default-dashboards` in the `o11y` namespace, containing all JSON files from the `./dashboards/` directory. Grafana will automatically load these dashboards when it starts.
+
+.View Details - jvm-memory-dashboard.json
+[%collapsible]
+====
+.jvm-memory-dashboard.json
+[source,json]
+----
+include::jvm-metrics-dashboard.json[]
+----
+====
+
+== Grafana Alerting
+
+Grafana’s unified alerting system enables you to define alert rules and notification channels declaratively.
+
+.values.yaml - alerting structure
+[source,yaml]
+----
+alerting:
+  policies.yaml: {}
+  rules.yaml: {}
+  contactpoints.yaml: {}
+  templates.yaml: {}
+  mutetimes.yaml: {}
+----
+
+This guide focuses on contactpoints.yaml and rules.yaml.
+
+
+[NOTE]
+====
+Unlike dashboards, alerting resources are typically not managed via ConfigMaps but instead provisioned directly from Helm values.
+====
+
+== Contact Points
+
+Contact points define how alerts are delivered to external systems such as email, Slack, or PagerDuty.
+
+
+=== Key Capabilities
+
+ * Define alert notification channels
+ * Configure contact methods for teams or services
+ * Enable alert routing and escalation
+
+=== Example: Email Contact Point Configuration
+
+The example below shows how to configure a contact point in Grafana using a Helm chart. This configuration will create an email contact point that sends notifications to a specified email address.
+
+.values.yaml - contactpoints
+[source,yaml]
+----
+alerting:
+  contactpoints.yaml:
+    apiVersion: 1
+    contactPoints:
+      - orgId: 1
+        name: service-operators
+        receivers:
+          - uid: cen4b1ckf03cwb
+            type: email
+            settings:
+              addresses: nsalexamy@gmail.com
+              singleEmail: false
+            disableResolveMessage: false
+----
+
+.Grafana ContactPoints
+[.img-wide]
+image::grafana-contactpoints.png[]
+
+== Alert Rules
+
+Alert rules define the logic and thresholds that determine when an alert should be triggered.
+
+=== Key Capabilities
+ * Monitor specific metrics using PromQL or expressions
+ * Define thresholds for alerting
+ * Trigger actions via contact points
+
+=== Example: Alert Rules for JVM Memory and CPU Usage
+
+The example below shows how to configure alert rules in Grafana using a Helm chart. This configuration will create alert rules that monitor JVM memory usage and CPU utilization, triggering notifications when thresholds are exceeded.
+
+
+.values.yaml - rules
+[source,yaml]
+----
+# in alerting section
+  rules.yaml:
+    apiVersion: 1
+    groups:
+      - orgId: 1
+        name: java-metrics-evaluation
+        folder: java-metrics
+        interval: 1m
+        rules:
+          - uid: een4b7bt3iu4gf
+            title: High JVM Memory Usage
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: o11y-prometheus
+                model:
+                  editorMode: code
+                  expr: |-
+                    (
+                                      sum by(pod) (jvm_memory_used_bytes{jvm_memory_type="heap"})
+                                      /
+                                      sum by(pod) (jvm_memory_limit_bytes{jvm_memory_type="heap"})
+                                    ) * 100
+                  instant: true
+                  intervalMs: 1000
+                  legendFormat: __auto
+                  maxDataPoints: 43200
+                  range: false
+                  refId: A
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params:
+                          - 80
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - C
+                      reducer:
+                        params: [ ]
+                        type: last
+                      type: query
+                  datasource:
+                    type: __expr__
+                    uid: __expr__
+                  expression: A
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+                  refId: C
+                  type: threshold
+            dashboardUid: ""
+            panelId: 0
+            noDataState: NoData
+            execErrState: Error
+            for: 1m
+            isPaused: false
+            notification_settings:
+              receiver: service-operators
+      - orgId: 1
+        name: jvm-cpu-evaluation
+        folder: java-metrics
+        interval: 30s
+        rules:
+          - uid: den6wkxi4n75sf
+            title: high-jvm-cpu
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: o11y-prometheus
+                model:
+                  editorMode: code
+                  expr: avg_over_time(jvm_cpu_recent_utilization_ratio[2m])
+                  instant: true
+                  intervalMs: 1000
+                  legendFormat: __auto
+                  maxDataPoints: 43200
+                  range: false
+                  refId: A
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params:
+                          - 0.6
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - C
+                      reducer:
+                        params: [ ]
+                        type: last
+                      type: query
+                  datasource:
+                    type: __expr__
+                    uid: __expr__
+                  expression: A
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+                  refId: C
+                  type: threshold
+            noDataState: NoData
+            execErrState: Error
+            for: 1m
+            isPaused: false
+            notification_settings:
+              receiver: service-operators
+----
+
+.Grafana Alert Rules
+[.img-wide]
+image::grafana-alert-rules.png[]
+
+== Conclusion
+
+This guide demonstrated how to provision and manage Grafana resources using Helm charts, covering datasources, dashboard providers, dashboards, contact points, and alert rules. This approach enables repeatable, automated deployment of observability tooling within Kubernetes environments.
+
+To explore advanced configurations, refer to the official Grafana documentation.
+
+You can also view this document in web format at:
+https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/grafana-resource-provisioning/
+
