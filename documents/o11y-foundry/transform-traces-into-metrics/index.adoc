@@ -1,0 +1,48 @@
+= Grafana Dashboard and Alerts for Traces
+
+:imagesdir: images
+== Overview
+This guide provides instructions on how to set up Grafana dashboards and alerts for monitoring traces in your observability stack. It covers the following topics:
+
+== Simple Grafana Dashboard for Jaeger Traces
+This section describes how to create a simple Grafana dashboard to visualize Jaeger traces. The dashboard will include panels for displaying trace data, such as the number of traces, trace duration, and error rates.
+
+== Transmission of Traces to Prometheus
+
+=== spanmetrics processor
+
+The `spanmetrics` processor is used to convert trace spans into metrics that can be scraped by Prometheus. This allows you to monitor trace data alongside other metrics in your observability stack.
+
+.otel-collector.yaml - spanmetrics processor configuration
+[source,yaml]
+----
+
+    processors:
+
+      spanmetrics:
+        metrics_exporter: prometheus
+        histogram:
+          explicit:
+            buckets: [0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
+        dimensions:
+          - name: http.request.method
+          - name: http.response.status_code
+          - name: service.name
+          - name: span.kind
+
+    exporters:
+      prometheus:
+        endpoint: "0.0.0.0:8889"
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch, spanmetrics]
+          exporters: []
+
+        metrics/spanmetrics:
+          receivers: []
+          processors: []
+          exporters: [prometheus]
+----
