@@ -1,0 +1,364 @@
+---
+layout: documents
+title: Converting Traces to Metrics Using OpenTelemetry Collector for Grafana Dashboards and Alerting
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+= Converting Traces to Metrics Using OpenTelemetry Collector for Grafana Dashboards and Alerting
+
+:imagesdir: images
+
+[.img-wide]
+image::convert-traces-to-metrics.png[]
+
+== Overview
+This guide outlines how to convert distributed trace data into Prometheus metrics using the spanmetrics connector in the OpenTelemetry Collector. The resulting metrics can be visualized in Grafana dashboards and used to configure real-time alerting.
+
+Key topics include:
+
+* Configuring the spanmetrics connector in OpenTelemetry Collector
+* Creating Grafana dashboards for trace visualization
+* Defining PromQL-based alert rules for traces
+* Validating alerts using a sample Spring Boot application
+
+// === Grafana Dashboard for Jaeger Traces
+// This section describes how to create a simple Grafana dashboard to visualize Jaeger traces. The dashboard will include panels for displaying trace data, such as the number of traces, trace duration, and error rates.
+
+== Trace-to-Metrics Conversion in OpenTelemetry Collector
+
+OpenTelemetry Collector’s spanmetrics connector converts trace spans into Prometheus-compatible metrics. This enables comprehensive observability by aligning trace data with traditional metric-based monitoring.
+
+
+=== Deprecation Notice
+
+[WARNING]
+====
+The legacy spanmetrics processor is deprecated. Use the spanmetrics connector instead.
+====
+
+References:
+
+* https://pkg.go.dev/github.com/open-telemetry/opentelemetry-collector-contrib/processor/spanmetricsprocessor#section-readme[Spanmetrics Processor (Deprecated)]
+* For more details, refer to https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/release/v0.117.x/connector/spanmetricsconnector[Spanmetrics Connector]
+
+=== Configuration Example
+
+Below is a configuration snippet for enabling the spanmetrics connector in OpenTelemetry Collector (version 0.127.0+):
+
+.otel-collector.yaml - spanmetrics connector configuration
+[source,yaml]
+----
+spec:
+  image: otel/opentelemetry-collector-contrib:latest # 0.127.0 or later
+  config:
+
+    exporters:
+      prometheus:
+        endpoint: "0.0.0.0:8889"
+
+
+    connectors:
+      spanmetrics:
+        histogram:
+          explicit:
+            ## <1>
+            buckets: [100ms, 300ms, 500ms, 1s, 2s, 5s, 10s, 30s, 60s, 120s]
+        ## <2>
+        dimensions:
+          - name: http.request.method
+          - name: http.response.status_code
+        exemplars:
+          enabled: true
+        exclude_dimensions: ['status.code']
+        dimensions_cache_size: 1000
+        aggregation_temporality: "AGGREGATION_TEMPORALITY_CUMULATIVE"
+        metrics_flush_interval: 15s
+        ## <3>
+        events:
+          enabled: true
+          dimensions:
+            - name: exception.type
+            - name: exception.message
+        ## <4>
+        resource_metrics_key_attributes:
+          - service.name
+          - telemetry.sdk.language
+          - telemetry.sdk.name
+
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          ## <5>
+          exporters: [otlp/jaeger, spanmetrics]
+
+        metrics/spanmetrics:
+          ## <6>
+          receivers: [spanmetrics]
+          processors: []
+          exporters: [prometheus]
+----
+
+<1> Configure the histogram buckets for span durations. These buckets define the ranges for which metrics will be generated based on span durations.
+<2> Define the dimensions to be included in the generated metrics. These dimensions can be used to filter and group metrics in Prometheus.
+<3> Enable exemplars to provide additional context for the generated metrics.
+<4> Specify the resource metrics key attributes to be included in the generated metrics. These attributes provide additional metadata about the service and SDK.
+<5> Configure the traces pipeline to include the `spanmetrics` connector as an exporter. This allows the connector to process trace spans and generate metrics.
+<6> Configure a separate metrics pipeline for the `spanmetrics` connector to export metrics to Prometheus.
+
+
+== Metrics Exposed by Spanmetrics Connector
+
+The following Prometheus metrics are generated from trace spans:
+
+* traces_span_metrics_calls_total
+* traces_span_metrics_duration_milliseconds_bucket
+* traces_span_metrics_duration_milliseconds_sum
+* traces_span_metrics_duration_milliseconds_count
+
+These metrics provide insight into span volume, latency, and error distribution.
+
+=== traces_span_metrics_calls_total
+
+This metric counts the total number of trace spans processed by the `spanmetrics` connector. It can be used to monitor the volume of trace data being processed.
+
+=== traces_span_metrics_duration_milliseconds_bucket
+
+This metric provides a histogram of the duration of trace spans in milliseconds. It allows you to analyze the distribution of span durations and identify performance bottlenecks.
+
+=== traces_span_metrics_duration_milliseconds_sum
+
+This metric provides the total duration of all trace spans processed by the `spanmetrics` connector. It can be used to calculate average span durations and monitor overall performance.
+
+=== traces_span_metrics_duration_milliseconds_count
+
+This metric counts the number of trace spans processed by the `spanmetrics` connector. It can be used to monitor the volume of trace data and identify trends over time.
+
+
+== Example PromQL Queries for Dashboards
+
+
+=== High Error Rate per Endpoint
+
+This query identifies endpoints with a high error rate per service and span. It calculates the rate of spans with non-2xx HTTP response status codes over the last minute.
+
+[source,text]
+----
+sum by (service_name, span_name) (
+  rate(traces_span_metrics_duration_milliseconds_count{http_response_status_code!~"2.."}[1m])
+)
+----
+
+
+=== Long Duration Spans (Duration > 10s)
+
+This query identifies spans that have a duration greater than 10 seconds in the last minute. It calculates the rate of spans with a duration greater than 10 seconds by subtracting the count of spans with a duration less than or equal to 10 seconds from the total count of spans. When the result is greater than 0, it indicates that there are spans with a duration greater than 10 seconds.
+
+[source,text]
+----
+rate(traces_span_metrics_duration_milliseconds_count[1m])
+-
+ignoring(le) rate(traces_span_metrics_duration_milliseconds_bucket{le="10000.0"}[1m])
+----
+
+
+=== Traces Dashboard
+
+This dashboard contains panels for visualizing trace metrics from Java applications. It includes panels for high error rates, long duration spans.
+
+.Grafana UI - Java Application Traces Dashboard
+[.img-wide]
+image::traces-dashboard.png[]
+
+
+== Alert Rules Using PromQL
+
+=== High Error Rate per Endpoints (≥ 3 Errors in 1 Minute)
+
+This query identifies endpoints with a high error rate, defined as having more than 3 errors in the last minute. It can be used to trigger alerts for endpoints that are experiencing issues.
+
+The value 0.05 is calculated based on the expected number of errors per minute. For example, if you expect 3 errors per minute, the rate would be 3/60 = 0.05.
+
+----
+sum by (service_name, span_name) (
+  rate(traces_span_metrics_duration_milliseconds_count{http_response_status_code!~"2.."}[1m])
+) > 0.05
+----
+
+With this query, you can monitor the error rates of your endpoints and take proactive measures to address any issues that arise.
+
+The pending period for this alert rule is set to 0 minutes, meaning that the alert will be triggered immediately when the condition is met.
+
+.Grafana UI - High Error Rate Alert Rule
+[.img-wide]
+image::high-error-rate-alert-rule.png[]
+
+
+=== Long Duration Spans (≥ 10s) in the Last Minute
+
+This query identifies spans that have a duration of 10 seconds or more in the last minute. It can be used to monitor performance issues and identify slow spans.
+
+----
+rate(traces_span_metrics_duration_milliseconds_count[1m])
+-
+ignoring(le) rate(traces_span_metrics_duration_milliseconds_bucket{le="10000.0"}[1m]) > 0
+----
+
+This query calculates the rate of spans with a duration greater than 10 seconds by subtracting the count of spans with a duration less than or equal to 10 seconds from the total count of spans in the last minute.
+
+.Grafana UI - Long Duration Spans Alert Rule
+[.img-wide]
+image::long-duration-spans-alert-rule.png[]
+
+The pending period for this alert rule is set to 0 minutes, meaning that the alert will be triggered immediately when the condition is met.
+
+== Alert Testing with Sample Application
+
+The otel-spring-example application included in the service-foundry-builder project can be used to test your alert configuration.
+
+
+=== Accessing the Application
+
+To access the application, you can use the following URL:
+
+[source,terminal]
+----
+$ kubectl port-forward service/otel-spring-example 8080:8080 -n o11y
+----
+
+=== Simulating High Error Rates
+
+Use ErrorController to trigger controlled errors:
+
+
+.ErrorController.java
+[source,java]
+----
+@RequestMapping("/error")
+@RestController
+@RequiredArgsConstructor
+@Slf4j
+public class ErrorController {
+    @GetMapping("/cause/{samplingRate}")
+    public Map<String, String> causeError(@PathVariable double samplingRate) {
+        // Simulate an error based on the sampling rate
+        log.info("cause-error - samplingRate: {}", samplingRate);
+
+        if (Math.random() < samplingRate) {
+            log.info("An error occurred for sampling rate: {}", samplingRate);
+            throw new ErrorControllerException(samplingRate);
+        } else {
+            log.info("No error occurred for sampling rate: {}", samplingRate);
+            return Map.of("status", "success", "samplingRate", String.valueOf(samplingRate), "message", "No error occurred");
+        }
+
+    }
+}
+----
+
+Send test requests:
+
+[source,terminal]
+----
+for i in {1..100}; do curl -X GET http://localhost:8080/error/cause/0.2; done
+----
+
+This command will send 100 requests to the `/error/cause/0.2` endpoint, where approximately 20% of the requests will result in an error. This should trigger the high error rate alert in Grafana.
+
+After running the command, you can check the Grafana dashboard to see if the alert for high error rates has been triggered.
+
+.Grafana UI - Firing High Error Rate Alert
+[.img-wide]
+image::firing-high-error-rate-alert.png[]
+
+And the notification will be sent to the configured notification channels, such as email or Slack.
+
+.Email Notification for High Error Rate Alert
+[.img-wide]
+image::high-error-rate-notification.png[]
+
+=== Simulating Long Duration Spans
+
+Use SleepController to simulate delays:
+
+.SleepController.java
+[source,java]
+----
+@RestController
+@RequestMapping("/sleep")
+@Slf4j
+public class SleepController {
+
+    @GetMapping("/{sleepInSeconds}")
+    @PostMapping("/{sleepInSeconds}")
+    public Map<String, Object> sleep(@PathVariable long sleepInSeconds) {
+        log.info("Sleeping for {} seconds", sleepInSeconds);
+        try {
+            Thread.sleep(sleepInSeconds * 1000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        return Map.of("status", "success", "message", "Slept for " + sleepInSeconds + " seconds");
+    }
+}
+----
+
+Send test requests:
+
+[source,terminal]
+----
+$ for i in {1..10}; do curl -X GET "http://localhost:8080/sleep/$(( (RANDOM % 15) + 1))"; done
+----
+
+This command will send 10 requests to the `/sleep/{sleepInSeconds}` endpoint, where each request will sleep for a random duration between 1 and 15 seconds. This should trigger the long duration spans alert in Grafana.
+
+After running the command, you can check the Grafana dashboard to see if the alert for long duration spans has been triggered.
+
+.Grafana UI - Firing Long Duration Spans Alert
+[.img-wide]
+image::firing-long-duration-spans.png[]
+
+And the notification will be sent to the configured notification channels, such as email or Slack.
+
+.Email Notification for Long Duration Spans Alert
+[.img-wide]
+image::long-duration-spans-notification.png[]
+
+== Conclusion
+
+This document demonstrates how to extend your observability stack by converting traces into metrics using the OpenTelemetry Collector. With the spanmetrics connector, trace spans are transformed into Prometheus metrics, enabling unified visualization and alerting through Grafana. The included PromQL queries and Spring Boot examples allow you to validate your alert rules and proactively monitor application health.
+
+You can also view this document in web format at:
+https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/convert-traces-to-metrics/
+
+// == Working PromQL Queries
+//
+// ----
+// [source,text]
+// ----
+// sum by (service_name, span_name) (rate(traces_span_metrics_duration_milliseconds_count{http_response_status_code!~"2.."}[1m]))
+//
+// sum by (service_name, span_name) (traces_span_metrics_duration_milliseconds_count{http_response_status_code!~"2.."}[1m])
+// ----
+//
+// ----
+// rate(traces_span_metrics_duration_milliseconds_count[1m])
+// -
+// rate(traces_span_metrics_duration_milliseconds_bucket{le="10000.0"}[1m])
+// > 0
+// ----
+//
+// ----
+// rate(traces_span_metrics_duration_milliseconds_count[1m])
+// -
+// ignoring(le) rate(traces_span_metrics_duration_milliseconds_bucket{le="10000.0"}[1m])
+// ----

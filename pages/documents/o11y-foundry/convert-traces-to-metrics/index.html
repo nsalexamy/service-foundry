@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Converting Traces to Metrics Using OpenTelemetry Collector for Grafana Dashboards and Alerting</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+        
+        <a href="/service-foundry/pages/demo/" class="">Demo</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="active">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Converting Traces to Metrics Using OpenTelemetry Collector for Grafana Dashboards and Alerting
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a></li>
+<li><a href="#trace-to-metrics-conversion-in-opentelemetry-collector">Trace-to-Metrics Conversion in OpenTelemetry Collector</a>
+<ul class="sectlevel2">
+<li><a href="#deprecation-notice">Deprecation Notice</a></li>
+<li><a href="#configuration-example">Configuration Example</a></li>
+</ul>
+</li>
+<li><a href="#metrics-exposed-by-spanmetrics-connector">Metrics Exposed by Spanmetrics Connector</a>
+<ul class="sectlevel2">
+<li><a href="#traces_span_metrics_calls_total">traces_span_metrics_calls_total</a></li>
+<li><a href="#traces_span_metrics_duration_milliseconds_bucket">traces_span_metrics_duration_milliseconds_bucket</a></li>
+<li><a href="#traces_span_metrics_duration_milliseconds_sum">traces_span_metrics_duration_milliseconds_sum</a></li>
+<li><a href="#traces_span_metrics_duration_milliseconds_count">traces_span_metrics_duration_milliseconds_count</a></li>
+</ul>
+</li>
+<li><a href="#example-promql-queries-for-dashboards">Example PromQL Queries for Dashboards</a>
+<ul class="sectlevel2">
+<li><a href="#high-error-rate-per-endpoint">High Error Rate per Endpoint</a></li>
+<li><a href="#long-duration-spans-duration-10s">Long Duration Spans (Duration &gt; 10s)</a></li>
+<li><a href="#traces-dashboard">Traces Dashboard</a></li>
+</ul>
+</li>
+<li><a href="#alert-rules-using-promql">Alert Rules Using PromQL</a>
+<ul class="sectlevel2">
+<li><a href="#high-error-rate-per-endpoints-3-errors-in-1-minute">High Error Rate per Endpoints (≥ 3 Errors in 1 Minute)</a></li>
+<li><a href="#long-duration-spans-10s-in-the-last-minute">Long Duration Spans (≥ 10s) in the Last Minute</a></li>
+</ul>
+</li>
+<li><a href="#alert-testing-with-sample-application">Alert Testing with Sample Application</a>
+<ul class="sectlevel2">
+<li><a href="#accessing-the-application">Accessing the Application</a></li>
+<li><a href="#simulating-high-error-rates">Simulating High Error Rates</a></li>
+<li><a href="#simulating-long-duration-spans">Simulating Long Duration Spans</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/convert-traces-to-metrics.png" alt="convert traces to metrics">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide outlines how to convert distributed trace data into Prometheus metrics using the spanmetrics connector in the OpenTelemetry Collector. The resulting metrics can be visualized in Grafana dashboards and used to configure real-time alerting.</p>
+</div>
+<div class="paragraph">
+<p>Key topics include:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Configuring the spanmetrics connector in OpenTelemetry Collector</p>
+</li>
+<li>
+<p>Creating Grafana dashboards for trace visualization</p>
+</li>
+<li>
+<p>Defining PromQL-based alert rules for traces</p>
+</li>
+<li>
+<p>Validating alerts using a sample Spring Boot application</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="trace-to-metrics-conversion-in-opentelemetry-collector">Trace-to-Metrics Conversion in OpenTelemetry Collector</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>OpenTelemetry Collector’s spanmetrics connector converts trace spans into Prometheus-compatible metrics. This enables comprehensive observability by aligning trace data with traditional metric-based monitoring.</p>
+</div>
+<div class="sect2">
+<h3 id="deprecation-notice">Deprecation Notice</h3>
+<div class="admonitionblock warning">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-warning" title="Warning"></i>
+</td>
+<td class="content">
+<div class="paragraph">
+<p>The legacy spanmetrics processor is deprecated. Use the spanmetrics connector instead.</p>
+</div>
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>References:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://pkg.go.dev/github.com/open-telemetry/opentelemetry-collector-contrib/processor/spanmetricsprocessor#section-readme">Spanmetrics Processor (Deprecated)</a></p>
+</li>
+<li>
+<p>For more details, refer to <a href="https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/release/v0.117.x/connector/spanmetricsconnector">Spanmetrics Connector</a></p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="configuration-example">Configuration Example</h3>
+<div class="paragraph">
+<p>Below is a configuration snippet for enabling the spanmetrics connector in OpenTelemetry Collector (version 0.127.0+):</p>
+</div>
+<div class="listingblock">
+<div class="title">otel-collector.yaml - spanmetrics connector configuration</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">spec</span><span class="pi">:</span>
+  <span class="na">image</span><span class="pi">:</span> <span class="s">otel/opentelemetry-collector-contrib:latest</span> <span class="c1"># 0.127.0 or later</span>
+  <span class="na">config</span><span class="pi">:</span>
+
+    <span class="na">exporters</span><span class="pi">:</span>
+      <span class="na">prometheus</span><span class="pi">:</span>
+        <span class="na">endpoint</span><span class="pi">:</span> <span class="s2">"</span><span class="s">0.0.0.0:8889"</span>
+
+
+    <span class="na">connectors</span><span class="pi">:</span>
+      <span class="na">spanmetrics</span><span class="pi">:</span>
+        <span class="na">histogram</span><span class="pi">:</span>
+          <span class="na">explicit</span><span class="pi">:</span>
+            <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+            <span class="na">buckets</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">100ms</span><span class="pi">,</span> <span class="nv">300ms</span><span class="pi">,</span> <span class="nv">500ms</span><span class="pi">,</span> <span class="nv">1s</span><span class="pi">,</span> <span class="nv">2s</span><span class="pi">,</span> <span class="nv">5s</span><span class="pi">,</span> <span class="nv">10s</span><span class="pi">,</span> <span class="nv">30s</span><span class="pi">,</span> <span class="nv">60s</span><span class="pi">,</span> <span class="nv">120s</span><span class="pi">]</span>
+        <span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+        <span class="na">dimensions</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">http.request.method</span>
+          <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">http.response.status_code</span>
+        <span class="na">exemplars</span><span class="pi">:</span>
+          <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+        <span class="na">exclude_dimensions</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">status.code'</span><span class="pi">]</span>
+        <span class="na">dimensions_cache_size</span><span class="pi">:</span> <span class="m">1000</span>
+        <span class="na">aggregation_temporality</span><span class="pi">:</span> <span class="s2">"</span><span class="s">AGGREGATION_TEMPORALITY_CUMULATIVE"</span>
+        <span class="na">metrics_flush_interval</span><span class="pi">:</span> <span class="s">15s</span>
+        <span class="c1">#</span><i class="conum" data-value="3"></i><b>(3)</b>
+        <span class="na">events</span><span class="pi">:</span>
+          <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+          <span class="na">dimensions</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">exception.type</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">exception.message</span>
+        <span class="c1">#</span><i class="conum" data-value="4"></i><b>(4)</b>
+        <span class="na">resource_metrics_key_attributes</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="s">service.name</span>
+          <span class="pi">-</span> <span class="s">telemetry.sdk.language</span>
+          <span class="pi">-</span> <span class="s">telemetry.sdk.name</span>
+
+
+    <span class="na">service</span><span class="pi">:</span>
+      <span class="na">pipelines</span><span class="pi">:</span>
+        <span class="na">traces</span><span class="pi">:</span>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp</span><span class="pi">]</span>
+          <span class="na">processors</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">memory_limiter</span><span class="pi">,</span> <span class="nv">batch</span><span class="pi">]</span>
+          <span class="c1">#</span><i class="conum" data-value="5"></i><b>(5)</b>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp/jaeger</span><span class="pi">,</span> <span class="nv">spanmetrics</span><span class="pi">]</span>
+
+        <span class="na">metrics/spanmetrics</span><span class="pi">:</span>
+          <span class="c1">#</span><i class="conum" data-value="6"></i><b>(6)</b>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">spanmetrics</span><span class="pi">]</span>
+          <span class="na">processors</span><span class="pi">:</span> <span class="pi">[]</span>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">prometheus</span><span class="pi">]</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Configure the histogram buckets for span durations. These buckets define the ranges for which metrics will be generated based on span durations.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Define the dimensions to be included in the generated metrics. These dimensions can be used to filter and group metrics in Prometheus.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Enable exemplars to provide additional context for the generated metrics.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>Specify the resource metrics key attributes to be included in the generated metrics. These attributes provide additional metadata about the service and SDK.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td>Configure the traces pipeline to include the <code>spanmetrics</code> connector as an exporter. This allows the connector to process trace spans and generate metrics.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="6"></i><b>6</b></td>
+<td>Configure a separate metrics pipeline for the <code>spanmetrics</code> connector to export metrics to Prometheus.</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="metrics-exposed-by-spanmetrics-connector">Metrics Exposed by Spanmetrics Connector</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The following Prometheus metrics are generated from trace spans:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>traces_span_metrics_calls_total</p>
+</li>
+<li>
+<p>traces_span_metrics_duration_milliseconds_bucket</p>
+</li>
+<li>
+<p>traces_span_metrics_duration_milliseconds_sum</p>
+</li>
+<li>
+<p>traces_span_metrics_duration_milliseconds_count</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>These metrics provide insight into span volume, latency, and error distribution.</p>
+</div>
+<div class="sect2">
+<h3 id="traces_span_metrics_calls_total">traces_span_metrics_calls_total</h3>
+<div class="paragraph">
+<p>This metric counts the total number of trace spans processed by the <code>spanmetrics</code> connector. It can be used to monitor the volume of trace data being processed.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="traces_span_metrics_duration_milliseconds_bucket">traces_span_metrics_duration_milliseconds_bucket</h3>
+<div class="paragraph">
+<p>This metric provides a histogram of the duration of trace spans in milliseconds. It allows you to analyze the distribution of span durations and identify performance bottlenecks.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="traces_span_metrics_duration_milliseconds_sum">traces_span_metrics_duration_milliseconds_sum</h3>
+<div class="paragraph">
+<p>This metric provides the total duration of all trace spans processed by the <code>spanmetrics</code> connector. It can be used to calculate average span durations and monitor overall performance.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="traces_span_metrics_duration_milliseconds_count">traces_span_metrics_duration_milliseconds_count</h3>
+<div class="paragraph">
+<p>This metric counts the number of trace spans processed by the <code>spanmetrics</code> connector. It can be used to monitor the volume of trace data and identify trends over time.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="example-promql-queries-for-dashboards">Example PromQL Queries for Dashboards</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="high-error-rate-per-endpoint">High Error Rate per Endpoint</h3>
+<div class="paragraph">
+<p>This query identifies endpoints with a high error rate per service and span. It calculates the rate of spans with non-2xx HTTP response status codes over the last minute.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="text">sum by (service_name, span_name) (
+  rate(traces_span_metrics_duration_milliseconds_count{http_response_status_code!~"2.."}[1m])
+)</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="long-duration-spans-duration-10s">Long Duration Spans (Duration &gt; 10s)</h3>
+<div class="paragraph">
+<p>This query identifies spans that have a duration greater than 10 seconds in the last minute. It calculates the rate of spans with a duration greater than 10 seconds by subtracting the count of spans with a duration less than or equal to 10 seconds from the total count of spans. When the result is greater than 0, it indicates that there are spans with a duration greater than 10 seconds.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="text">rate(traces_span_metrics_duration_milliseconds_count[1m])
+-
+ignoring(le) rate(traces_span_metrics_duration_milliseconds_bucket{le="10000.0"}[1m])</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="traces-dashboard">Traces Dashboard</h3>
+<div class="paragraph">
+<p>This dashboard contains panels for visualizing trace metrics from Java applications. It includes panels for high error rates, long duration spans.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/traces-dashboard.png" alt="traces dashboard">
+</div>
+<div class="title">Figure 1. Grafana UI - Java Application Traces Dashboard</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="alert-rules-using-promql">Alert Rules Using PromQL</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="high-error-rate-per-endpoints-3-errors-in-1-minute">High Error Rate per Endpoints (≥ 3 Errors in 1 Minute)</h3>
+<div class="paragraph">
+<p>This query identifies endpoints with a high error rate, defined as having more than 3 errors in the last minute. It can be used to trigger alerts for endpoints that are experiencing issues.</p>
+</div>
+<div class="paragraph">
+<p>The value 0.05 is calculated based on the expected number of errors per minute. For example, if you expect 3 errors per minute, the rate would be 3/60 = 0.05.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>sum by (service_name, span_name) (
+  rate(traces_span_metrics_duration_milliseconds_count{http_response_status_code!~"2.."}[1m])
+) &gt; 0.05</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>With this query, you can monitor the error rates of your endpoints and take proactive measures to address any issues that arise.</p>
+</div>
+<div class="paragraph">
+<p>The pending period for this alert rule is set to 0 minutes, meaning that the alert will be triggered immediately when the condition is met.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/high-error-rate-alert-rule.png" alt="high error rate alert rule">
+</div>
+<div class="title">Figure 2. Grafana UI - High Error Rate Alert Rule</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="long-duration-spans-10s-in-the-last-minute">Long Duration Spans (≥ 10s) in the Last Minute</h3>
+<div class="paragraph">
+<p>This query identifies spans that have a duration of 10 seconds or more in the last minute. It can be used to monitor performance issues and identify slow spans.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>rate(traces_span_metrics_duration_milliseconds_count[1m])
+-
+ignoring(le) rate(traces_span_metrics_duration_milliseconds_bucket{le="10000.0"}[1m]) &gt; 0</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This query calculates the rate of spans with a duration greater than 10 seconds by subtracting the count of spans with a duration less than or equal to 10 seconds from the total count of spans in the last minute.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/long-duration-spans-alert-rule.png" alt="long duration spans alert rule">
+</div>
+<div class="title">Figure 3. Grafana UI - Long Duration Spans Alert Rule</div>
+</div>
+<div class="paragraph">
+<p>The pending period for this alert rule is set to 0 minutes, meaning that the alert will be triggered immediately when the condition is met.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="alert-testing-with-sample-application">Alert Testing with Sample Application</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The otel-spring-example application included in the service-foundry-builder project can be used to test your alert configuration.</p>
+</div>
+<div class="sect2">
+<h3 id="accessing-the-application">Accessing the Application</h3>
+<div class="paragraph">
+<p>To access the application, you can use the following URL:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl port-forward service/otel-spring-example 8080:8080 <span class="nt">-n</span> o11y</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="simulating-high-error-rates">Simulating High Error Rates</h3>
+<div class="paragraph">
+<p>Use ErrorController to trigger controlled errors:</p>
+</div>
+<div class="listingblock">
+<div class="title">ErrorController.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@RequestMapping</span><span class="o">(</span><span class="s">"/error"</span><span class="o">)</span>
+<span class="nd">@RestController</span>
+<span class="nd">@RequiredArgsConstructor</span>
+<span class="nd">@Slf4j</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">ErrorController</span> <span class="o">{</span>
+    <span class="nd">@GetMapping</span><span class="o">(</span><span class="s">"/cause/{samplingRate}"</span><span class="o">)</span>
+    <span class="kd">public</span> <span class="nc">Map</span><span class="o">&lt;</span><span class="nc">String</span><span class="o">,</span> <span class="nc">String</span><span class="o">&gt;</span> <span class="nf">causeError</span><span class="o">(</span><span class="nd">@PathVariable</span> <span class="kt">double</span> <span class="n">samplingRate</span><span class="o">)</span> <span class="o">{</span>
+        <span class="c1">// Simulate an error based on the sampling rate</span>
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"cause-error - samplingRate: {}"</span><span class="o">,</span> <span class="n">samplingRate</span><span class="o">);</span>
+
+        <span class="k">if</span> <span class="o">(</span><span class="nc">Math</span><span class="o">.</span><span class="na">random</span><span class="o">()</span> <span class="o">&lt;</span> <span class="n">samplingRate</span><span class="o">)</span> <span class="o">{</span>
+            <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"An error occurred for sampling rate: {}"</span><span class="o">,</span> <span class="n">samplingRate</span><span class="o">);</span>
+            <span class="k">throw</span> <span class="k">new</span> <span class="nf">ErrorControllerException</span><span class="o">(</span><span class="n">samplingRate</span><span class="o">);</span>
+        <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+            <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"No error occurred for sampling rate: {}"</span><span class="o">,</span> <span class="n">samplingRate</span><span class="o">);</span>
+            <span class="k">return</span> <span class="nc">Map</span><span class="o">.</span><span class="na">of</span><span class="o">(</span><span class="s">"status"</span><span class="o">,</span> <span class="s">"success"</span><span class="o">,</span> <span class="s">"samplingRate"</span><span class="o">,</span> <span class="nc">String</span><span class="o">.</span><span class="na">valueOf</span><span class="o">(</span><span class="n">samplingRate</span><span class="o">),</span> <span class="s">"message"</span><span class="o">,</span> <span class="s">"No error occurred"</span><span class="o">);</span>
+        <span class="o">}</span>
+
+    <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Send test requests:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">for i in {1..100};</span><span class="w"> </span><span class="k">do </span>curl <span class="nt">-X</span> GET http://localhost:8080/error/cause/0.2<span class="p">;</span> <span class="k">done</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This command will send 100 requests to the <code>/error/cause/0.2</code> endpoint, where approximately 20% of the requests will result in an error. This should trigger the high error rate alert in Grafana.</p>
+</div>
+<div class="paragraph">
+<p>After running the command, you can check the Grafana dashboard to see if the alert for high error rates has been triggered.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/firing-high-error-rate-alert.png" alt="firing high error rate alert">
+</div>
+<div class="title">Figure 4. Grafana UI - Firing High Error Rate Alert</div>
+</div>
+<div class="paragraph">
+<p>And the notification will be sent to the configured notification channels, such as email or Slack.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/high-error-rate-notification.png" alt="high error rate notification">
+</div>
+<div class="title">Figure 5. Email Notification for High Error Rate Alert</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="simulating-long-duration-spans">Simulating Long Duration Spans</h3>
+<div class="paragraph">
+<p>Use SleepController to simulate delays:</p>
+</div>
+<div class="listingblock">
+<div class="title">SleepController.java</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="java"><span class="nd">@RestController</span>
+<span class="nd">@RequestMapping</span><span class="o">(</span><span class="s">"/sleep"</span><span class="o">)</span>
+<span class="nd">@Slf4j</span>
+<span class="kd">public</span> <span class="kd">class</span> <span class="nc">SleepController</span> <span class="o">{</span>
+
+    <span class="nd">@GetMapping</span><span class="o">(</span><span class="s">"/{sleepInSeconds}"</span><span class="o">)</span>
+    <span class="nd">@PostMapping</span><span class="o">(</span><span class="s">"/{sleepInSeconds}"</span><span class="o">)</span>
+    <span class="kd">public</span> <span class="nc">Map</span><span class="o">&lt;</span><span class="nc">String</span><span class="o">,</span> <span class="nc">Object</span><span class="o">&gt;</span> <span class="nf">sleep</span><span class="o">(</span><span class="nd">@PathVariable</span> <span class="kt">long</span> <span class="n">sleepInSeconds</span><span class="o">)</span> <span class="o">{</span>
+        <span class="n">log</span><span class="o">.</span><span class="na">info</span><span class="o">(</span><span class="s">"Sleeping for {} seconds"</span><span class="o">,</span> <span class="n">sleepInSeconds</span><span class="o">);</span>
+        <span class="k">try</span> <span class="o">{</span>
+            <span class="nc">Thread</span><span class="o">.</span><span class="na">sleep</span><span class="o">(</span><span class="n">sleepInSeconds</span> <span class="o">*</span> <span class="mi">1000</span><span class="o">);</span>
+        <span class="o">}</span> <span class="k">catch</span> <span class="o">(</span><span class="nc">InterruptedException</span> <span class="n">e</span><span class="o">)</span> <span class="o">{</span>
+            <span class="n">e</span><span class="o">.</span><span class="na">printStackTrace</span><span class="o">();</span>
+        <span class="o">}</span>
+        <span class="k">return</span> <span class="nc">Map</span><span class="o">.</span><span class="na">of</span><span class="o">(</span><span class="s">"status"</span><span class="o">,</span> <span class="s">"success"</span><span class="o">,</span> <span class="s">"message"</span><span class="o">,</span> <span class="s">"Slept for "</span> <span class="o">+</span> <span class="n">sleepInSeconds</span> <span class="o">+</span> <span class="s">" seconds"</span><span class="o">);</span>
+    <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Send test requests:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="k">for </span>i <span class="k">in</span> <span class="o">{</span>1..10<span class="o">}</span><span class="p">;</span> <span class="k">do </span>curl <span class="nt">-X</span> GET <span class="s2">"http://localhost:8080/sleep/</span><span class="k">$((</span> <span class="o">(</span>RANDOM <span class="o">%</span> <span class="m">15</span><span class="o">)</span> <span class="o">+</span> <span class="m">1</span><span class="k">))</span><span class="s2">"</span><span class="p">;</span> <span class="k">done</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This command will send 10 requests to the <code>/sleep/{sleepInSeconds}</code> endpoint, where each request will sleep for a random duration between 1 and 15 seconds. This should trigger the long duration spans alert in Grafana.</p>
+</div>
+<div class="paragraph">
+<p>After running the command, you can check the Grafana dashboard to see if the alert for long duration spans has been triggered.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/firing-long-duration-spans.png" alt="firing long duration spans">
+</div>
+<div class="title">Figure 6. Grafana UI - Firing Long Duration Spans Alert</div>
+</div>
+<div class="paragraph">
+<p>And the notification will be sent to the configured notification channels, such as email or Slack.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/long-duration-spans-notification.png" alt="long duration spans notification">
+</div>
+<div class="title">Figure 7. Email Notification for Long Duration Spans Alert</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This document demonstrates how to extend your observability stack by converting traces into metrics using the OpenTelemetry Collector. With the spanmetrics connector, trace spans are transformed into Prometheus metrics, enabling unified visualization and alerting through Grafana. The included PromQL queries and Spring Boot examples allow you to validate your alert rules and proactively monitor application health.</p>
+</div>
+<div class="paragraph">
+<p>You can also view this document in web format at:
+<a href="https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/convert-traces-to-metrics/" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/convert-traces-to-metrics/</a></p>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>
