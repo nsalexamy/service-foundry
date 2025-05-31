@@ -1,0 +1,181 @@
+---
+layout: documents
+title: Grafana Integration with OpenSearch for Centralized Logging
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+
+= Grafana Integration with OpenSearch for Centralized Log Management
+
+:imagesdir: images
+
+[.img-wide]
+image::grafana-integration-with-opensearch.png[]
+
+== Introduction
+
+This guide provides a comprehensive overview of integrating *Grafana* with *OpenSearch* to enable centralized log visualization and monitoring. It covers:
+
+* Installing the OpenSearch plugin for Grafana
+* Configuring OpenSearch as a Grafana data source
+* Querying logs within Grafana
+* Provisioning the OpenSearch data source via Helm values
+
+== Installing the OpenSearch Plugin for Grafana
+
+To connect Grafana to OpenSearch, the grafana-opensearch-datasource plugin must be installed.
+
+.grafana-values.yaml - plugins
+[source,yaml]
+----
+plugins:
+  - grafana-opensearch-datasource
+----
+
+.Grafana UI - Data Sources - OpenSearch Plugin
+[.img-medium]
+image::grafana-opensearch-installed.png[]
+
+Ensure the plugin status is marked as *Installed* in the Grafana Data Sources UI.
+
+== Configuring OpenSearch as a Data Source
+
+To add OpenSearch as a Grafana data source:
+
+. In Grafana, go to *Connections* > *Add new connection*
+. Search for and select *OpenSearch*
+. Click *Add new data source*
+. Fill in following fields:
+
+* ** Name **:  grafana-opensearch-datasource
+* ** HTTP URL **:  https://opensearch-cluster-master:9200
+* ** Auth Basic Auth **:  Enabled
+* ** Auth With CA Cert **:  Enabled
+* ** User **:  admin
+* ** Password **:  your-opensearch-admin-password
+* ** TLS/SSL Auth Details - CA Cert **:  OpenSearch CA certificate
+* ** Time field **:  time
+* ** Log field name **:  severityText
+* ** Message field name **:  body
+
+
+// |===
+// | Property | Value
+//
+// | Name | grafana-opensearch-datasource
+// | HTTP URL | https://opensearch-cluster-master:9200
+//
+// | Auth Basic Auth | Enabled
+// | Auth With CA Cert | Enabled
+//
+// | User | admin
+// | Password | your-opensearch-admin-password
+//
+// | TLS/SSL Auth Details - CA Cert | OpenSearch CA certificate
+//
+// | Index name | o11y-*
+// | Pattern | Daily
+// | Time field | time
+// | Log field name | severityText
+// | Message field name | body
+// |===
+
+=== Retrieving the OpenSearch CA Certificate
+
+If you manage certificates with cert-manager, and the OpenSearch cluster uses a secret named opensearch-tls, run:
+
+[source,terminal]
+----
+$ ko get secret opensearch-tls -o yaml | yq '.data."ca.crt"' | base64 -d
+----
+
+=== OpenSearch listed in Data Sources
+
+Once you have created the OpenSearch data source in Grafana, you can test the connection by clicking the "Save & Test" button. If the connection is successful, you will see a confirmation message.
+
+.Grafana UI - Data Sources
+[.img-wide]
+image::grafana-datasources.png[]
+
+== Exploring Logs in Grafana Using OpenSearch
+
+After configuring OpenSearch, click the Explore button next to the data source to run Lucene queries and view logs.
+
+=== Sample Log Queries
+
+Click on '*Logs*' tab for *Lucene Query Type* to search logs.
+
+Filter logs by service name:
+[text,lucene]
+----
+serviceName: "otel-spring-example"
+----
+
+Filter logs by severity level:
+[text,lucene]
+----
+serviceName: "otel-spring-example" AND severityText: "ERROR"
+----
+
+.Grafana UI - Explore Logs of a Service
+[.img-wide]
+image::grafana-explore-opensearch-search-log.png[]
+
+Click any log entry to view detailed fields such as timestamp, severity, message, and service metadata.
+
+
+.Grafana UI - Log Entry Details
+[.img-wide]
+image::grafana-explore-opensearch-detail-view.png[]
+
+== Provisioning the OpenSearch Data Source
+
+To provision the OpenSearch data source during Grafana deployment via Helm, add the following configuration to your grafana-values.yaml file:
+
+.grafana-values.yaml - datasources - OpenSearch
+[source,yaml]
+----
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+    - name: o11y-opensearch
+      type: grafana-opensearch-datasource
+      url: https://opensearch-cluster-master:9200
+      uid: "--opensearch--"
+      basicAuth: true
+      basicAuthUser: admin
+      editable: true
+      jsonData:
+        pplEnabled: true
+        version: 2.19.1
+        timeField: "time"
+        logMessageField: "body"
+        logLevelField: "severityText"
+        tlsAuthWithCACert: true
+
+      secureJsonData:
+        basicAuthPassword: your-initial-admin-password
+        tlsCACert: |
+          -----BEGIN CERTIFICATE-----
+          YOUR_CA_CERTIFICATE_CONTENT_HERE
+          -----END CERTIFICATE-----
+
+----
+
+== Conclusion
+
+By integrating Grafana with OpenSearch, you enable powerful log exploration and visualization capabilities across your applications. This setup eliminates the need for standalone log viewers by consolidating observability into Grafana dashboards. With support for provisioning, automation, and secure TLS-based authentication, this solution is ideal for modern Kubernetes-native environments.
+
+📖 View the web version of this document:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/grafana-opensearch-integration/
+
+
