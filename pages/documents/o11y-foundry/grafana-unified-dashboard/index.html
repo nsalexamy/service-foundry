@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Building a Unified Observability Dashboard with Grafana</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+        
+        <a href="/service-foundry/pages/demo/" class="">Demo</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="active">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Building a Unified Observability Dashboard with Grafana
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#unified-grafana-dashboard-overview">Unified Grafana Dashboard Overview</a>
+<ul class="sectlevel2">
+<li><a href="#key-benefits">Key Benefits</a></li>
+</ul>
+</li>
+<li><a href="#grafana-configuration">Grafana Configuration</a>
+<ul class="sectlevel2">
+<li><a href="#data-source-configuration">Data Source Configuration</a></li>
+<li><a href="#unified-dashboard-provisioning">Unified Dashboard Provisioning</a></li>
+<li><a href="#configuring-alerts">Configuring Alerts</a></li>
+</ul>
+</li>
+<li><a href="#exploring-telemetry-in-grafana">Exploring Telemetry in Grafana</a>
+<ul class="sectlevel2">
+<li><a href="#metrics-example-jvm-memory-usage">Metrics Example (JVM Memory Usage)</a></li>
+<li><a href="#traces-example-jaeger">Traces Example (Jaeger)</a></li>
+<li><a href="#logs-example-opensearch">Logs Example (OpenSearch)</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-unified-dashboard.png" alt="grafana unified dashboard">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide provides a detailed walkthrough on creating a <strong>unified observability dashboard</strong> in <strong>Grafana</strong>. By integrating multiple data sources—<strong>Prometheus</strong> for metrics, <strong>Jaeger</strong> for distributed tracing, and <strong>OpenSearch</strong> for centralized logging—Grafana becomes a single pane of glass for monitoring your entire application landscape.</p>
+</div>
+<div class="paragraph">
+<p>The dashboard enables real-time visibility across logs, metrics, and traces, allowing for faster diagnostics and streamlined operational workflows.</p>
+</div>
+<div class="paragraph">
+<p>Related articles:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/grafana-jvm-memory-alerting/">Grafana - Integration with Prometheus for JVM Memory Alerting</a></p>
+</li>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/grafana-jaeger-integration/">Grafana - Integration with Jaeger for Distributed Tracing</a></p>
+</li>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/grafana-opensearch-integration/">Grafana - Integration with OpenSearch for Centralized Logging</a></p>
+</li>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/convert-traces-to-metrics/">Converting Traces to Metrics with OpenTelemetry Collector</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="unified-grafana-dashboard-overview">Unified Grafana Dashboard Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The unified dashboard brings together various observability signals through dedicated panels:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Metrics Panel</strong>: Real-time application and system metrics from Prometheus (e.g., JVM memory usage, CPU).</p>
+</li>
+<li>
+<p><strong>Traces Panel</strong>: Distributed tracing data visualized from Jaeger.</p>
+</li>
+<li>
+<p><strong>Logs Panel</strong>: Application logs searchable via OpenSearch and visualized in Grafana.</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="key-benefits">Key Benefits</h3>
+<div class="paragraph">
+<p>A unified Grafana dashboard provides several advantages:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Centralized Observability</strong>: One dashboard to monitor logs, metrics, and traces.</p>
+</li>
+<li>
+<p><strong>Improved Incident Response</strong>: Easier root cause analysis by correlating signals in one view.</p>
+</li>
+<li>
+<p><strong>Customizable and Extensible</strong>: Easily tailored to your operational needs.</p>
+</li>
+<li>
+<p><strong>Team Collaboration</strong>: Shared dashboards promote team visibility and operational alignment.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="grafana-configuration">Grafana Configuration</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Service Foundry for Observability automates Grafana setup using pre-configured Helm values that include:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Data source provisioning for Prometheus, Jaeger, and OpenSearch</p>
+</li>
+<li>
+<p>A unified dashboard integrating all three sources</p>
+</li>
+<li>
+<p>Alerting rules for JVM and trace-based metrics</p>
+</li>
+</ul>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+<div class="paragraph">
+<p>All configurations are managed via the grafana-values.yaml file used in Helm deployment.</p>
+</div>
+</td>
+</tr>
+</table>
+</div>
+<div class="sect2">
+<h3 id="data-source-configuration">Data Source Configuration</h3>
+<div class="listingblock">
+<div class="title">grafana-values.yaml - data sources</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">datasources</span><span class="pi">:</span>
+  <span class="na">datasources.yaml</span><span class="pi">:</span>
+    <span class="na">apiVersion</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="na">datasources</span><span class="pi">:</span>
+    <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">&lt;%= namespace %&gt;-prometheus</span>
+      <span class="na">type</span><span class="pi">:</span> <span class="s">prometheus</span>
+      <span class="na">url</span><span class="pi">:</span> <span class="s">http://prometheus:9090</span>
+      <span class="na">uid</span><span class="pi">:</span> <span class="s">prometheus</span>
+      <span class="c1"># Access mode - proxy (server in the UI) or direct (browser in the UI).</span>
+      <span class="na">access</span><span class="pi">:</span> <span class="s">proxy</span>
+      <span class="na">isDefault</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">&lt;%= namespace %&gt;-jaeger</span>
+      <span class="na">type</span><span class="pi">:</span> <span class="s">jaeger</span>
+      <span class="na">url</span><span class="pi">:</span> <span class="s">http://jaeger-collector:16686</span>
+      <span class="na">uid</span><span class="pi">:</span> <span class="s">jaeger</span>
+      <span class="na">access</span><span class="pi">:</span> <span class="s">proxy</span>
+    <span class="c1">#</span><i class="conum" data-value="3"></i><b>(3)</b>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">&lt;%= namespace %&gt;-opensearch</span>
+      <span class="na">type</span><span class="pi">:</span> <span class="s">grafana-opensearch-datasource</span>
+      <span class="na">url</span><span class="pi">:</span> <span class="s">https://opensearch-cluster-master:9200</span>
+      <span class="na">uid</span><span class="pi">:</span> <span class="s2">"</span><span class="s">--opensearch--"</span>
+      <span class="c1">#access: proxy</span>
+      <span class="na">basicAuth</span><span class="pi">:</span> <span class="kc">true</span>
+      <span class="na">basicAuthUser</span><span class="pi">:</span> <span class="s">admin</span>
+      <span class="na">editable</span><span class="pi">:</span> <span class="kc">true</span>
+      <span class="na">jsonData</span><span class="pi">:</span>
+        <span class="na">pplEnabled</span><span class="pi">:</span> <span class="kc">true</span>
+        <span class="na">version</span><span class="pi">:</span> <span class="s">2.19.1</span>
+        <span class="na">timeField</span><span class="pi">:</span> <span class="s2">"</span><span class="s">time"</span>
+        <span class="na">logMessageField</span><span class="pi">:</span> <span class="s2">"</span><span class="s">body"</span>
+        <span class="na">logLevelField</span><span class="pi">:</span> <span class="s2">"</span><span class="s">severityText"</span>
+        <span class="na">tlsAuthWithCACert</span><span class="pi">:</span> <span class="kc">true</span>
+
+      <span class="na">secureJsonData</span><span class="pi">:</span>
+        <span class="na">basicAuthPassword</span><span class="pi">:</span> <span class="s">&lt;%= opensearch.initialAdminPassword %&gt;</span>
+        <span class="na">tlsCACert</span><span class="pi">:</span> <span class="pi">|</span>
+          <span class="s">-----BEGIN CERTIFICATE-----</span>
+          <span class="s">YOUR_CA_CERTIFICATE_CONTENT_HERE</span>
+          <span class="s">-----END CERTIFICATE-----</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Add Prometheus as a data source for metrics collection.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Add Jaeger as a data source for distributed tracing.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Add OpenSearch as a data source for centralized logging.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Service Foundry for Observability automatically provisions these data sources during the Grafana deployment using Helm. The <code>grafana-values.yaml</code> file contains the necessary configurations to set up these data sources.</p>
+</div>
+<div class="paragraph">
+<p>The screenshot below shows the Grafana UI with the provisioned data sources.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-datasources.png" alt="grafana datasources">
+</div>
+<div class="title">Figure 1. Provisioned Grafana Data Sources</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="unified-dashboard-provisioning">Unified Dashboard Provisioning</h3>
+<div class="paragraph">
+<p>Set up dashboard providers and load dashboards via ConfigMaps:</p>
+</div>
+<div class="listingblock">
+<div class="title">grafana-values.yaml - dashboardProviders</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">dashboardProviders</span><span class="pi">:</span>
+  <span class="na">dashboardproviders.yaml</span><span class="pi">:</span>
+    <span class="na">apiVersion</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="na">providers</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">default</span>
+        <span class="na">orgId</span><span class="pi">:</span> <span class="m">1</span>
+        <span class="na">folder</span><span class="pi">:</span> <span class="s1">'</span><span class="s">'</span>
+        <span class="na">type</span><span class="pi">:</span> <span class="s">file</span>
+        <span class="na">disableDeletion</span><span class="pi">:</span> <span class="kc">false</span>
+        <span class="na">editable</span><span class="pi">:</span> <span class="kc">true</span>
+        <span class="na">options</span><span class="pi">:</span>
+          <span class="na">path</span><span class="pi">:</span> <span class="s">/var/lib/grafana/dashboards/default</span></code></pre>
+</div>
+</div>
+<div class="sect3">
+<h4 id="configmap-for-dashboards">ConfigMap for Dashboards</h4>
+<div class="paragraph">
+<p>To load the unified dashboard into Grafana, you need to create a ConfigMap that contains the dashboard JSON file. This ConfigMap will be referenced in the <code>grafana-values.yaml</code> file.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>jvm-memory-dashboard.json - JVM Memory Dashboard</p>
+</li>
+<li>
+<p>traces-java-applications.json - Traces Dashboard</p>
+</li>
+<li>
+<p>traces-to-metrics.json - Metrics converted from Traces</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">grafana-values.yaml - dashboardsConfigMaps</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">dashboardsConfigMaps</span><span class="pi">:</span>
+  <span class="na">default</span><span class="pi">:</span> <span class="s">grafana-default-dashboards</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The screenshot below shows the unified dashboard that combines metrics, traces, and logs from Prometheus, Jaeger, and OpenSearch.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-dashboards.png" alt="grafana dashboards">
+</div>
+<div class="title">Figure 2. Provisioned Grafana Dashboards</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="configuring-alerts">Configuring Alerts</h3>
+<div class="paragraph">
+<p>Alerts are managed directly in grafana-values.yaml since ConfigMaps are not supported for alert provisioning.</p>
+</div>
+<div class="sect3">
+<h4 id="contact-points-e-g-email">Contact Points (e.g., Email)</h4>
+<div class="paragraph">
+<p>Contact points are used to define how Grafana sends alerts. You can configure contact points such as email, Slack, or other notification channels.</p>
+</div>
+<div class="listingblock">
+<div class="title">grafana-values.yaml - contactPoints</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">alerting</span><span class="pi">:</span>
+  <span class="na">contactpoints.yaml</span><span class="pi">:</span>
+    <span class="na">apiVersion</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="na">contactPoints</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">orgId</span><span class="pi">:</span> <span class="m">1</span>
+        <span class="na">name</span><span class="pi">:</span> <span class="s">service-operators</span>
+        <span class="na">receivers</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">uid</span><span class="pi">:</span> <span class="s">cen4b1ckf03cwb</span>
+            <span class="na">type</span><span class="pi">:</span> <span class="s">email</span>
+            <span class="na">settings</span><span class="pi">:</span>
+              <span class="na">addresses</span><span class="pi">:</span> <span class="s">your-email@example.com</span>
+              <span class="na">singleEmail</span><span class="pi">:</span> <span class="kc">false</span>
+            <span class="na">disableResolveMessage</span><span class="pi">:</span> <span class="kc">false</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The screenshot below shows the Grafana UI where you can configure contact points for alert notifications.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-contact-points.png" alt="grafana contact points">
+</div>
+<div class="title">Figure 3. Grafana UI - Contact Points Configuration</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="alerting-rules">Alerting Rules</h4>
+<div class="paragraph">
+<p>Alert rules can be defined in the 'rules.yaml' section of the <code>grafana-values.yaml</code> file. These rules specify the conditions under which alerts are triggered.</p>
+</div>
+<div class="paragraph">
+<p>Since the contents of the alerting rules can be quite extensive, I just provide a brief overview here. Here are some examples of alerting rules that can be defined:</p>
+</div>
+<div class="imageblock img-medium">
+<div class="content">
+<img src="images/grafana-rules-configuration.png" alt="grafana rules configuration">
+</div>
+<div class="title">Figure 4. grafana-values.yaml - alertingRules</div>
+</div>
+<div class="paragraph">
+<p>Here is an example of an alerting rule for monitoring JVM memory usage:</p>
+</div>
+<div class="listingblock">
+<div class="title">grafana-values.yaml - alertingRules example</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">      <span class="pi">-</span> <span class="na">orgId</span><span class="pi">:</span> <span class="m">1</span>
+        <span class="na">name</span><span class="pi">:</span> <span class="s">java-metrics-evaluation</span>
+        <span class="na">folder</span><span class="pi">:</span> <span class="s">java-metrics</span>
+        <span class="na">interval</span><span class="pi">:</span> <span class="s">1m</span>
+        <span class="na">rules</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">uid</span><span class="pi">:</span> <span class="s">een4b7bt3iu4gf</span>
+            <span class="na">title</span><span class="pi">:</span> <span class="s">High JVM Memory Usage</span>
+            <span class="na">condition</span><span class="pi">:</span> <span class="s">C</span>
+            <span class="na">data</span><span class="pi">:</span>
+              <span class="pi">-</span> <span class="na">refId</span><span class="pi">:</span> <span class="s">A</span>
+                <span class="na">relativeTimeRange</span><span class="pi">:</span>
+                  <span class="na">from</span><span class="pi">:</span> <span class="m">600</span>
+                  <span class="na">to</span><span class="pi">:</span> <span class="m">0</span>
+                <span class="na">datasourceUid</span><span class="pi">:</span> <span class="s">o11y-prometheus</span>
+                <span class="na">model</span><span class="pi">:</span>
+                  <span class="na">editorMode</span><span class="pi">:</span> <span class="s">code</span>
+                  <span class="na">expr</span><span class="pi">:</span> <span class="pi">|-</span>
+                    <span class="s">(</span>
+                                      <span class="s">sum by(pod) (jvm_memory_used_bytes{jvm_memory_type="heap"})</span>
+                                      <span class="s">/</span>
+                                      <span class="s">sum by(pod) (jvm_memory_limit_bytes{jvm_memory_type="heap"})</span>
+                                    <span class="s">) * 100</span>
+                  <span class="na">instant</span><span class="pi">:</span> <span class="kc">true</span>
+                  <span class="na">intervalMs</span><span class="pi">:</span> <span class="m">1000</span>
+                  <span class="na">legendFormat</span><span class="pi">:</span> <span class="s">__auto</span>
+                  <span class="na">maxDataPoints</span><span class="pi">:</span> <span class="m">43200</span>
+                  <span class="na">range</span><span class="pi">:</span> <span class="kc">false</span>
+                  <span class="na">refId</span><span class="pi">:</span> <span class="s">A</span>
+              <span class="pi">-</span> <span class="na">refId</span><span class="pi">:</span> <span class="s">C</span>
+                <span class="na">datasourceUid</span><span class="pi">:</span> <span class="s">__expr__</span>
+                <span class="na">model</span><span class="pi">:</span>
+                  <span class="na">conditions</span><span class="pi">:</span>
+                    <span class="pi">-</span> <span class="na">evaluator</span><span class="pi">:</span>
+                        <span class="na">params</span><span class="pi">:</span>
+                          <span class="pi">-</span> <span class="m">80</span>
+                        <span class="na">type</span><span class="pi">:</span> <span class="s">gt</span>
+                      <span class="na">operator</span><span class="pi">:</span>
+                        <span class="na">type</span><span class="pi">:</span> <span class="s">and</span>
+                      <span class="na">query</span><span class="pi">:</span>
+                        <span class="na">params</span><span class="pi">:</span>
+                          <span class="pi">-</span> <span class="s">C</span>
+                      <span class="na">reducer</span><span class="pi">:</span>
+                        <span class="na">params</span><span class="pi">:</span> <span class="pi">[</span> <span class="pi">]</span>
+                        <span class="na">type</span><span class="pi">:</span> <span class="s">last</span>
+                      <span class="na">type</span><span class="pi">:</span> <span class="s">query</span>
+                  <span class="na">datasource</span><span class="pi">:</span>
+                    <span class="na">type</span><span class="pi">:</span> <span class="s">__expr__</span>
+                    <span class="na">uid</span><span class="pi">:</span> <span class="s">__expr__</span>
+                  <span class="na">expression</span><span class="pi">:</span> <span class="s">A</span>
+                  <span class="na">intervalMs</span><span class="pi">:</span> <span class="m">1000</span>
+                  <span class="na">maxDataPoints</span><span class="pi">:</span> <span class="m">43200</span>
+                  <span class="na">refId</span><span class="pi">:</span> <span class="s">C</span>
+                  <span class="na">type</span><span class="pi">:</span> <span class="s">threshold</span>
+            <span class="na">dashboardUid</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span>
+            <span class="na">panelId</span><span class="pi">:</span> <span class="m">0</span>
+            <span class="na">noDataState</span><span class="pi">:</span> <span class="s">NoData</span>
+            <span class="na">execErrState</span><span class="pi">:</span> <span class="s">Error</span>
+            <span class="na">for</span><span class="pi">:</span> <span class="s">1m</span>
+            <span class="na">isPaused</span><span class="pi">:</span> <span class="kc">false</span>
+            <span class="na">notification_settings</span><span class="pi">:</span>
+              <span class="na">receiver</span><span class="pi">:</span> <span class="s">service-operators</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The screenshot below shows the Grafana UI where you can configure alerting rules for monitoring JVM memory usage, CPU utilization, and trace metrics.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-alert-rules.png" alt="grafana alert rules">
+</div>
+<div class="title">Figure 5. Grafana UI - Alerting Rules Configuration</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="exploring-telemetry-in-grafana">Exploring Telemetry in Grafana</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Use the Explore tab in Grafana to interactively query metrics, traces, and logs.</p>
+</div>
+<div class="paragraph">
+<p>Navigate to Data Sources in Grafana to see the provisioned data sources.</p>
+</div>
+<div class="sect2">
+<h3 id="metrics-example-jvm-memory-usage">Metrics Example (JVM Memory Usage)</h3>
+<div class="paragraph">
+<p>Click 'Explore' next to the Prometheus data source to run queries and visualize metrics.</p>
+</div>
+<div class="paragraph">
+<p>PromQL queries can be used to retrieve specific metrics. For example, to monitor JVM memory usage, you can use the following query:</p>
+</div>
+<div class="listingblock">
+<div class="title">PromQL</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="text">(
+  sum by(pod) (jvm_memory_used_bytes{jvm_memory_type="heap"})
+  /
+  sum by(pod) (jvm_memory_limit_bytes{jvm_memory_type="heap"})
+) * 100</code></pre>
+</div>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-explore-metrics.png" alt="grafana explore metrics">
+</div>
+<div class="title">Figure 6. Grafana UI - Explore Metrics</div>
+</div>
+<div class="paragraph">
+<p>This can be added to a Grafana dashboard panel to visualize JVM memory usage over time.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="traces-example-jaeger">Traces Example (Jaeger)</h3>
+<div class="paragraph">
+<p>Click 'Explore' next to the Jaeger data source to run queries and visualize traces.</p>
+</div>
+<div class="paragraph">
+<p>Choose the 'Search' query type and select your application service (e.g., <code>otel-spring-example</code>) to view traces. Operation name can be specified to filter traces further.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-explore-traces.png" alt="grafana explore traces">
+</div>
+<div class="title">Figure 7. Grafana UI - Explore Traces</div>
+</div>
+<div class="paragraph">
+<p>Click on a trace to drill down into its spans, durations, and metadata.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-explore-metrics-details.png" alt="grafana explore metrics details">
+</div>
+<div class="title">Figure 8. Grafana UI - Trace Detail View</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="logs-example-opensearch">Logs Example (OpenSearch)</h3>
+<div class="paragraph">
+<p>Click 'Explore' next to the OpenSearch data source to run Lucene queries and view logs.</p>
+</div>
+<div class="paragraph">
+<p>Choose the 'Logs' query type to search logs. You can filter logs by service name, severity level, or other fields.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>serviceName: "otel-spring-example" AND severityText: "ERROR"</pre>
+</div>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-explore-logs.png" alt="grafana explore logs">
+</div>
+<div class="title">Figure 9. Grafana UI - Explore Logs</div>
+</div>
+<div class="paragraph">
+<p>All detials of the log entry, such as timestamp, severity, message, and service metadata, can be viewed by clicking on any log entry.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-explore-logs-details.png" alt="grafana explore logs details">
+</div>
+<div class="title">Figure 10. Grafana UI - Log Entry Details</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>By unifying metrics, traces, and logs into a single Grafana dashboard, you can achieve comprehensive visibility and faster diagnostics across your microservices environment. This centralized observability experience empowers teams to proactively manage system performance and collaborate more effectively.</p>
+</div>
+<div class="paragraph">
+<p>📘 View the web version:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/grafana-unified-dashboard/" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/grafana-unified-dashboard/</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>

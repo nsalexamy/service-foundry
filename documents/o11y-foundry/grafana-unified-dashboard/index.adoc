@@ -1,0 +1,383 @@
+---
+layout: documents
+title: Building a Unified Observability Dashboard with Grafana
+summary: "In this article, I share how to build a unified observability dashboard using Grafana by integrating three key telemetry sources: Prometheus for metrics, Jaeger for traces, and OpenSearch for logs. With a single dashboard, you gain real-time insights into system health, request flows, and log events—all from one place. The guide covers everything from Helm-based provisioning of data sources and dashboards to configuring alerting rules and exploring telemetry interactively. This centralized approach simplifies operations, improves troubleshooting, and enables proactive monitoring for cloud-native applications."
+tags: #Grafana #Observability #Prometheus #Jaeger #OpenSearch #DevOps #Monitoring #Tracing #Logging #CloudNative #Kubernetes #SRE #Helm #UnifiedDashboard
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+
+= Building a Unified Observability Dashboard with Grafana
+
+:imagesdir: images
+
+[.img-wide]
+image::grafana-unified-dashboard.png[]
+
+== Introduction
+
+This guide provides a detailed walkthrough on creating a *unified observability dashboard* in *Grafana*. By integrating multiple data sources—*Prometheus* for metrics, *Jaeger* for distributed tracing, and *OpenSearch* for centralized logging—Grafana becomes a single pane of glass for monitoring your entire application landscape.
+
+The dashboard enables real-time visibility across logs, metrics, and traces, allowing for faster diagnostics and streamlined operational workflows.
+
+
+Related articles:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/grafana-jvm-memory-alerting/[Grafana - Integration with Prometheus for JVM Memory Alerting]
+* https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/grafana-jaeger-integration/[Grafana - Integration with Jaeger for Distributed Tracing]
+* https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/grafana-opensearch-integration/[Grafana - Integration with OpenSearch for Centralized Logging]
+* https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/convert-traces-to-metrics/[Converting Traces to Metrics with OpenTelemetry Collector]
+
+== Unified Grafana Dashboard Overview
+
+The unified dashboard brings together various observability signals through dedicated panels:
+
+
+* **Metrics Panel**: Real-time application and system metrics from Prometheus (e.g., JVM memory usage, CPU).
+* **Traces Panel**: Distributed tracing data visualized from Jaeger.
+* **Logs Panel**: Application logs searchable via OpenSearch and visualized in Grafana.
+
+
+=== Key Benefits
+
+A unified Grafana dashboard provides several advantages:
+
+* **Centralized Observability**: One dashboard to monitor logs, metrics, and traces.
+* **Improved Incident Response**: Easier root cause analysis by correlating signals in one view.
+* **Customizable and Extensible**: Easily tailored to your operational needs.
+* **Team Collaboration**: Shared dashboards promote team visibility and operational alignment.
+
+
+== Grafana Configuration
+
+Service Foundry for Observability automates Grafana setup using pre-configured Helm values that include:
+
+* Data source provisioning for Prometheus, Jaeger, and OpenSearch
+* A unified dashboard integrating all three sources
+* Alerting rules for JVM and trace-based metrics
+
+[NOTE]
+====
+All configurations are managed via the grafana-values.yaml file used in Helm deployment.
+====
+
+=== Data Source Configuration
+
+.grafana-values.yaml - data sources
+[source,yaml]
+----
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+    ## <1>
+    - name: <%= namespace %>-prometheus
+      type: prometheus
+      url: http://prometheus:9090
+      uid: prometheus
+      # Access mode - proxy (server in the UI) or direct (browser in the UI).
+      access: proxy
+      isDefault: true
+    ## <2>
+    - name: <%= namespace %>-jaeger
+      type: jaeger
+      url: http://jaeger-collector:16686
+      uid: jaeger
+      access: proxy
+    ## <3>
+    - name: <%= namespace %>-opensearch
+      type: grafana-opensearch-datasource
+      url: https://opensearch-cluster-master:9200
+      uid: "--opensearch--"
+      #access: proxy
+      basicAuth: true
+      basicAuthUser: admin
+      editable: true
+      jsonData:
+        pplEnabled: true
+        version: 2.19.1
+        timeField: "time"
+        logMessageField: "body"
+        logLevelField: "severityText"
+        tlsAuthWithCACert: true
+
+      secureJsonData:
+        basicAuthPassword: <%= opensearch.initialAdminPassword %>
+        tlsCACert: |
+          -----BEGIN CERTIFICATE-----
+          YOUR_CA_CERTIFICATE_CONTENT_HERE
+          -----END CERTIFICATE-----
+
+----
+<1> Add Prometheus as a data source for metrics collection.
+<2> Add Jaeger as a data source for distributed tracing.
+<3> Add OpenSearch as a data source for centralized logging.
+
+Service Foundry for Observability automatically provisions these data sources during the Grafana deployment using Helm. The `grafana-values.yaml` file contains the necessary configurations to set up these data sources.
+
+The screenshot below shows the Grafana UI with the provisioned data sources.
+
+.Provisioned Grafana Data Sources
+[.img-wide]
+image::grafana-datasources.png[]
+
+=== Unified Dashboard Provisioning
+
+Set up dashboard providers and load dashboards via ConfigMaps:
+
+
+.grafana-values.yaml - dashboardProviders
+[source,yaml]
+----
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      - name: default
+        orgId: 1
+        folder: ''
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/default
+----
+
+==== ConfigMap for Dashboards
+
+To load the unified dashboard into Grafana, you need to create a ConfigMap that contains the dashboard JSON file. This ConfigMap will be referenced in the `grafana-values.yaml` file.
+
+
+* jvm-memory-dashboard.json - JVM Memory Dashboard
+* traces-java-applications.json - Traces Dashboard
+* traces-to-metrics.json - Metrics converted from Traces
+
+.grafana-values.yaml - dashboardsConfigMaps
+[source,yaml]
+----
+dashboardsConfigMaps:
+  default: grafana-default-dashboards
+----
+
+The screenshot below shows the unified dashboard that combines metrics, traces, and logs from Prometheus, Jaeger, and OpenSearch.
+
+.Provisioned Grafana Dashboards
+[.img-wide]
+image::grafana-dashboards.png[]
+
+
+=== Configuring Alerts
+
+Alerts are managed directly in grafana-values.yaml since ConfigMaps are not supported for alert provisioning.
+
+==== Contact Points (e.g., Email)
+
+Contact points are used to define how Grafana sends alerts. You can configure contact points such as email, Slack, or other notification channels.
+
+.grafana-values.yaml - contactPoints
+[source,yaml]
+----
+alerting:
+  contactpoints.yaml:
+    apiVersion: 1
+    contactPoints:
+      - orgId: 1
+        name: service-operators
+        receivers:
+          - uid: cen4b1ckf03cwb
+            type: email
+            settings:
+              addresses: your-email@example.com
+              singleEmail: false
+            disableResolveMessage: false
+----
+
+The screenshot below shows the Grafana UI where you can configure contact points for alert notifications.
+
+.Grafana UI - Contact Points Configuration
+[.img-wide]
+image::grafana-contact-points.png[]
+
+==== Alerting Rules
+
+Alert rules can be defined in the 'rules.yaml' section of the `grafana-values.yaml` file. These rules specify the conditions under which alerts are triggered.
+
+Since the contents of the alerting rules can be quite extensive, I just provide a brief overview here. Here are some examples of alerting rules that can be defined:
+
+.grafana-values.yaml - alertingRules
+[.img-medium]
+image::grafana-rules-configuration.png[]
+
+Here is an example of an alerting rule for monitoring JVM memory usage:
+
+.grafana-values.yaml - alertingRules example
+[source,yaml]
+----
+      - orgId: 1
+        name: java-metrics-evaluation
+        folder: java-metrics
+        interval: 1m
+        rules:
+          - uid: een4b7bt3iu4gf
+            title: High JVM Memory Usage
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: o11y-prometheus
+                model:
+                  editorMode: code
+                  expr: |-
+                    (
+                                      sum by(pod) (jvm_memory_used_bytes{jvm_memory_type="heap"})
+                                      /
+                                      sum by(pod) (jvm_memory_limit_bytes{jvm_memory_type="heap"})
+                                    ) * 100
+                  instant: true
+                  intervalMs: 1000
+                  legendFormat: __auto
+                  maxDataPoints: 43200
+                  range: false
+                  refId: A
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params:
+                          - 80
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - C
+                      reducer:
+                        params: [ ]
+                        type: last
+                      type: query
+                  datasource:
+                    type: __expr__
+                    uid: __expr__
+                  expression: A
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+                  refId: C
+                  type: threshold
+            dashboardUid: ""
+            panelId: 0
+            noDataState: NoData
+            execErrState: Error
+            for: 1m
+            isPaused: false
+            notification_settings:
+              receiver: service-operators
+
+----
+
+The screenshot below shows the Grafana UI where you can configure alerting rules for monitoring JVM memory usage, CPU utilization, and trace metrics.
+
+.Grafana UI - Alerting Rules Configuration
+[.img-wide]
+image::grafana-alert-rules.png[]
+
+// == Drilldown into Observability Data
+//
+// [NOTE]
+// ====
+// Explore Metrics, Logs, Traces and Profiles have moved!
+// Looking for the Grafana Explore apps? They are now called the Grafana Drilldown apps and can be found under Menu > Drilldown
+// ====
+//
+// Drilldown menu is a new feature in Grafana that allows you to explore metrics, logs, traces, and profiles directly from the dashboard. This feature provides a more integrated experience for analyzing observability data.
+//
+// .Grafana UI - Drilldown Menu
+// [.img-wide]
+// image::grafana-drilldown-metrics.png[]
+//
+// Select the dashboard panel you want to explore, then click on the Drilldown icon to access the metrics, logs, traces, or profiles related to that panel.
+
+
+
+== Exploring Telemetry in Grafana
+
+Use the Explore tab in Grafana to interactively query metrics, traces, and logs.
+
+Navigate to Data Sources in Grafana to see the provisioned data sources.
+
+=== Metrics Example (JVM Memory Usage)
+
+Click 'Explore' next to the Prometheus data source to run queries and visualize metrics.
+
+PromQL queries can be used to retrieve specific metrics. For example, to monitor JVM memory usage, you can use the following query:
+
+.PromQL
+[source,text]
+----
+(
+  sum by(pod) (jvm_memory_used_bytes{jvm_memory_type="heap"})
+  /
+  sum by(pod) (jvm_memory_limit_bytes{jvm_memory_type="heap"})
+) * 100
+----
+
+.Grafana UI - Explore Metrics
+[.img-wide]
+image::grafana-explore-metrics.png[]
+
+This can be added to a Grafana dashboard panel to visualize JVM memory usage over time.
+
+=== Traces Example (Jaeger)
+
+Click 'Explore' next to the Jaeger data source to run queries and visualize traces.
+
+Choose the 'Search' query type and select your application service (e.g., `otel-spring-example`) to view traces. Operation name can be specified to filter traces further.
+
+.Grafana UI - Explore Traces
+[.img-wide]
+image::grafana-explore-traces.png[]
+
+Click on a trace to drill down into its spans, durations, and metadata.
+
+.Grafana UI - Trace Detail View
+[.img-wide]
+image::grafana-explore-metrics-details.png[]
+
+=== Logs Example (OpenSearch)
+
+Click 'Explore' next to the OpenSearch data source to run Lucene queries and view logs.
+
+Choose the 'Logs' query type to search logs. You can filter logs by service name, severity level, or other fields.
+
+[text,lucene]
+----
+serviceName: "otel-spring-example" AND severityText: "ERROR"
+----
+
+.Grafana UI - Explore Logs
+[.img-wide]
+image::grafana-explore-logs.png[]
+
+All detials of the log entry, such as timestamp, severity, message, and service metadata, can be viewed by clicking on any log entry.
+
+.Grafana UI - Log Entry Details
+[.img-wide]
+image::grafana-explore-logs-details.png[]
+
+
+== Conclusion
+
+By unifying metrics, traces, and logs into a single Grafana dashboard, you can achieve comprehensive visibility and faster diagnostics across your microservices environment. This centralized observability experience empowers teams to proactively manage system performance and collaborate more effectively.
+
+📘 View the web version:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/grafana-unified-dashboard/
