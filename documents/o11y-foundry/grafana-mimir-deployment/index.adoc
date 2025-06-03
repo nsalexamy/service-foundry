@@ -1,0 +1,373 @@
+---
+layout: documents
+title: Grafana Mimir Deployment Guide for Scalable Metrics Storage
+summary: "In this article, I walk through deploying Grafana Mimir on Kubernetes using Helm for scalable, high-availability time series storage. Mimir extends Prometheus by supporting multi-tenancy, long-term S3-based storage, and horizontal scaling, making it ideal for modern cloud-native environments. The guide includes S3 bucket setup, secret management, custom Helm configurations, OpenTelemetry integration, and Grafana data source provisioning. Whether you’re building a production-grade observability stack or modernizing your monitoring backend, Mimir is a robust foundation for metrics at scale."
+tags: #Grafana #Mimir #Prometheus #OpenTelemetry #Kubernetes #Monitoring #Observability #DevOps #CloudNative #Helm #TimeSeriesData #Scalability #SRE
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+// docs/mimir/index.adoc
+
+
+= Grafana Mimir Deployment Guide for Scalable Metrics Storage
+
+:imagesdir: images
+
+[.img-wide]
+image::grafana-mimir-with-otel.png[]
+
+== Introduction
+
+This guide outlines the process for deploying Grafana Mimir on a Kubernetes cluster using Helm. Grafana Mimir is a highly scalable, multi-tenant time series database designed for long-term storage of Prometheus metrics and enterprise-grade observability.
+
+=== Why Grafana Mimir?
+
+While Prometheus is widely adopted for monitoring and alerting, it has limitations in long-term retention, scalability, and high availability. Mimir addresses these limitations by offering:
+
+* Horizontal scalability
+* High availability
+* Multi-tenancy
+* Long-term storage
+* Query federation support
+
+=== Prometheus vs. Mimir
+
+|===
+| Feature | Prometheus | Grafana Mimir
+
+| *Storage* | Local | Remote (e.g., S3)
+| *HA Support* | Limited | Full
+| *Scalability* | Single-node | Horizontally scalable
+| *Multi-tenancy* | Not supported | Supported
+|===
+
+
+
+=== Mimir Architecture Overview
+
+Grafana Mimir is composed of distributed microservices:
+
+* *Distributor* – Routes metrics to ingesters
+* *Ingester* – Stores metrics in memory and flushes to long-term storage
+* *Querier / Query Frontend / Query Scheduler* – Optimizes and executes queries
+* *Store Gateway* – Provides access to historical data in object storage
+* *Compactor* – Optimizes and deduplicates time series blocks
+* *Ruler / Alertmanager* – Handles rule evaluation and alerting
+* *Overrides Exporter* / Rollout Operator – Configuration and deployment management
+
+
+.Microservices of Mimir
+[.img-wide]
+[source,shell]
+----
+$ kubectl -n mimir get pods
+
+get pods
+NAME                                        READY   STATUS      RESTARTS   AGE
+mimir-alertmanager-0                        1/1     Running     0          24m
+mimir-compactor-0                           1/1     Running     0          24m
+mimir-distributor-64b789cbf-rxpc9           1/1     Running     0          24m
+mimir-ingester-zone-a-0                     1/1     Running     0          24m
+mimir-ingester-zone-b-0                     1/1     Running     0          24m
+mimir-ingester-zone-c-0                     1/1     Running     0          24m
+mimir-make-minio-buckets-5.4.0-2swr7        0/1     Completed   0          24m
+mimir-minio-5477c4c7b4-p6kdw                1/1     Running     0          24m
+mimir-nginx-7b49958f6b-s97r6                1/1     Running     0          24m
+mimir-overrides-exporter-5b55fc5498-4ltgg   1/1     Running     0          24m
+mimir-querier-6846596d85-77x55              1/1     Running     0          24m
+mimir-querier-6846596d85-8z4rw              1/1     Running     0          24m
+mimir-query-frontend-564f784bd-flnsk        1/1     Running     0          24m
+mimir-query-scheduler-5d56cc5fbc-nx9zm      1/1     Running     0          24m
+mimir-query-scheduler-5d56cc5fbc-wjg27      1/1     Running     0          24m
+mimir-rollout-operator-5d576bc569-2pkwd     1/1     Running     0          24m
+mimir-ruler-7b9d584d54-v7pgj                1/1     Running     0          24m
+mimir-store-gateway-zone-a-0                1/1     Running     0          24m
+mimir-store-gateway-zone-b-0                1/1     Running     0          24m
+mimir-store-gateway-zone-c-0                1/1     Running     0          24m
+----
+
+== Installation Steps
+
+=== Add the Grafana Helm Repository
+
+[source,shell]
+----
+$ helm repo add grafana https://grafana.github.io/helm-charts
+$ helm repo update grafana
+----
+
+// === Pull the Mimir Chart
+//
+// [source,shell]
+// ----
+// $ helm pull grafana/mimir-distributed
+// ----
+
+===  Retrieve Default Chart Values
+
+[source,shell]
+----
+$ helm show values grafana/mimir-distributed > values.yaml
+----
+
+=== Prepare S3 Buckets
+
+// Prepare environment variables for S3 bucket configuration.
+
+// [source,shell]
+// ----
+// $ S3_BUCKET_NAME="nsa2-sf-mimir-blocks-bucket"
+// $ S3_REGION="${AWS_REGION:-us-east-1}"
+// ----
+
+Create the following S3 buckets for storing blocks, alertmanager data, and ruler rules:
+
+* {your-s3-prefix}-mimir-blocks-bucket
+* {your-s3-prefix}-mimir-alertmanager-bucket
+* {your-s3-prefix}-mimir-ruler-bucket
+
+Create the S3 bucket using the AWS CLI.
+
+[source,shell]
+----
+#$ aws s3 mb s3://$S3_BUCKET_NAME --region $S3_REGION
+
+$ aws s3 mb s3://{your-s3-prefix}-mimir-blocks-bucket --region $S3_REGION
+$ aws s3 mb s3://{your-s3-prefix}-mimir-alertmanager-bucket --region $S3_REGION
+$ aws s3 mb s3://{your-s3-prefix}-mimir-ruler-bucket --region $S3_REGION
+
+----
+
+To validate:
+
+[source,shell]
+----
+$ aws s3 ls --region $S3_REGION
+----
+
+Delete the S3 bucket if needed.
+[source,shell]
+----
+$ aws s3 rb s3://$S3_BUCKET_NAME --force --region $S3_REGION
+----
+
+// How to display items in the S3 bucket.
+// [source,shell]
+// ----
+// $ aws s3 ls s3://$S3_BUCKET_NAME --region $S3_REGION
+// ----
+
+=== Create Kubernetes Secret for S3 Access
+
+Create mimir-s3-credentials secret in the mimir namespace. This secret contains the AWS credentials required for Mimir to access the S3 buckets.
+
+[source,shell]
+----
+$ kubectl get namespaces mimir || kubectl create namespace mimir
+
+$ kubectl -n mimir create secret generic mimir-s3-credentials \
+  --from-literal=AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+  --from-literal=AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID \
+  --from-literal=AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
+  --from-literal=AWS_REGION=$AWS_REGION
+----
+
+=== Define Custom Helm Values
+
+.custom-values.yaml
+[source,yaml]
+----
+# 46
+global:
+  extraEnvFrom:
+    ## <1>
+    - secretRef:
+        name: mimir-s3-credentials
+
+mimir:
+  structuredConfig:
+    common:
+      storage:
+        backend: "s3"
+        s3:
+          endpoint: "s3.ca-west-1.amazonaws.com"
+          region: "ca-west-1"
+          access_key_id: "${AWS_ACCESS_KEY_ID}"
+          secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
+
+
+    # Configuration specific to blocks storage (metrics data)
+    ## <1>
+    blocks_storage:
+      backend: "s3"
+      s3:
+        bucket_name: "{your-s3-prefix}-mimir-blocks-bucket"
+        region: "ca-west-1"
+        endpoint: "s3.ca-west-1.amazonaws.com"
+        access_key_id: "${AWS_ACCESS_KEY_ID}"
+        secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
+      tsdb:
+        block_ranges_period: [10m]  # 2h by default
+        retention_period: 24h  # 15d by default
+    alertmanager_storage:
+      backend: "s3"
+      s3:
+        bucket_name: "{your-s3-prefix}-mimir-alertmanager-bucket"
+        region: "ca-west-1"
+        endpoint: "s3.ca-west-1.amazonaws.com"
+        access_key_id: "${AWS_ACCESS_KEY_ID}"
+        secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
+    ruler_storage:
+      backend: "s3"
+      s3:
+        bucket_name: "{your-s3-prefix}-mimir-ruler-bucket"
+        region: "ca-west-1"
+        endpoint: "s3.ca-west-1.amazonaws.com"
+        access_key_id: "${AWS_ACCESS_KEY_ID}"
+        secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
+
+----
+<1>. The `extraEnvFrom` section allows Mimir to access the AWS credentials stored in the Kubernetes secret `mimir-s3-credentials`. This is necessary for Mimir to authenticate with the S3 service.
+<2>. The `blocks_storage` section configures Mimir to use the specified S3 bucket for storing metrics data. The `retention_period` is set to 24 hours, and the `block_ranges_period` is set to 10 minutes.
+
+=== Deploy Mimir with Helm
+
+[source,shell]
+----
+$ helm install mimir grafana/mimir-distributed \
+  --namespace mimir --create-namespace \
+  -f custom-values.yaml
+----
+
+Example Output:
+----
+W0602 15:41:29.928025   58136 warnings.go:70] metadata.name: this is used in Pod names and hostnames, which can result in surprising behavior; a DNS label is recommended: [must not contain dots]
+NAME: mimir
+LAST DEPLOYED: Mon Jun  2 15:41:25 2025
+NAMESPACE: mimir
+STATUS: deployed
+REVISION: 1
+NOTES:
+Welcome to Grafana Mimir!
+Remote write endpoints for Prometheus or Grafana Agent:
+Ingress is not enabled, see the nginx.ingress values.
+From inside the cluster:
+  http://mimir-nginx.mimir.svc:80/api/v1/push
+
+Read address, Grafana data source (Prometheus) URL:
+Ingress is not enabled, see the nginx.ingress values.
+From inside the cluster:
+  http://mimir-nginx.mimir.svc:80/prometheus
+
+**IMPORTANT**: Always consult CHANGELOG.md file at https://github.com/grafana/mimir/blob/main/operations/helm/charts/mimir-distributed/CHANGELOG.md and the deprecation list there to learn about breaking changes that require action during upgrade.
+----
+
+== Maintenance Commands
+
+=== Upgrade or Reinstall
+
+[source,shell]
+----
+$ helm upgrade --install mimir grafana/mimir-distributed \
+  --namespace mimir \
+  -f custom-values.yaml
+----
+
+== Uninstall and Cleanup
+[source,shell]
+----
+$ helm uninstall mimir --namespace mimir
+----
+
+Delete PVCs
+[source,shell]
+----
+$ kubectl -n mimir get pvc -l app.kubernetes.io/name=mimir | awk 'NR>1' | awk '{print $1}' | xargs -I {} kubectl -n mimir delete pvc {}
+----
+
+=== Verify S3 Storage
+
+[source,shell]
+----
+$ aws s3 ls s3://$S3_BUCKET_NAME --recursive --human-readable --summarize
+
+2025-06-03 02:08:52   91 Bytes __mimir_cluster/mimir_cluster_seed.json
+2025-06-03 02:40:45   11.7 KiB anonymous/01JWTJKJJNBRNMBVMTYXZ9RJB9/chunks/000001
+2025-06-03 02:40:45   42.9 KiB anonymous/01JWTJKJJNBRNMBVMTYXZ9RJB9/index
+2025-06-03 02:40:45  617 Bytes anonymous/01JWTJKJJNBRNMBVMTYXZ9RJB9/meta.json
+
+Total Objects: 4
+Total Size: 55.4 KiB
+----
+
+// .AWS Console - S3 bucket
+// [.img-wide]
+// image::aws-s3-blocks-bucket.png[]
+
+== OpenTelemetry Integration
+
+Configure the OpenTelemetry Collector to forward metrics to Mimir:
+
+[source,yaml]
+----
+spec:
+  config:
+    # omitted for brevity
+
+    exporters:
+
+      ## <1>
+      prometheusremotewrite:
+        endpoint: http://mimir-nginx.mimir.svc:80/api/v1/push
+        tls:
+          insecure: true
+
+
+    services:
+      pipelines:
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: [filter/metrics]
+          exporters: [prometheus, prometheusremotewrite]
+
+        metrics/spanmetrics:
+          receivers: [spanmetrics]
+          processors: []
+          exporters: [prometheus, prometheusremotewrite]
+----
+<1>. The `prometheusremotewrite` exporter is configured to send metrics to Mimir's remote write endpoint.
+
+== Grafana Integration
+
+=== Add Mimir as a Prometheus Data Source
+
+To add Mimir as a data source in Grafana, follow these steps:
+
+1.	Go to Connections > Add new connection
+2.	Select Prometheus as the data source
+3.	Set the URL to http://mimir-nginx.mimir.svc:80/prometheus
+4.	Name the data source (e.g., prometheus-mimir)
+
+.Grafana Data Source - prometheus-mimir
+[.img-wide]
+image::grafana-mimir-datasource.png[]
+
+.Grafana Explore - Mimir Data Source
+[.img-wide]
+image::grafana-mimir-explore.png[]
+
+== Conclusion
+
+With Grafana Mimir deployed, your observability stack gains a robust, scalable backend for long-term metric storage. Mimir enhances Prometheus with enterprise-grade features including HA, multi-tenancy, and deep integration with Grafana and OpenTelemetry. This setup ensures your monitoring system is ready for growth and operational reliability at scale.
+
+
+📘 View the web version:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/grafana-mimir-deployment/
