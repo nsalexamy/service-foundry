@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Grafana Mimir Deployment Guide for Scalable Metrics Storage</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+<!--    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">-->
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">Service Foundry</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+        
+        <a href="/service-foundry/pages/demo/" class="">Demo</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="active">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Grafana Mimir Deployment Guide for Scalable Metrics Storage
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#why-grafana-mimir">Why Grafana Mimir?</a></li>
+<li><a href="#prometheus-vs-mimir">Prometheus vs. Mimir</a></li>
+<li><a href="#mimir-architecture-overview">Mimir Architecture Overview</a></li>
+</ul>
+</li>
+<li><a href="#installation-steps">Installation Steps</a>
+<ul class="sectlevel2">
+<li><a href="#add-the-grafana-helm-repository">Add the Grafana Helm Repository</a></li>
+<li><a href="#retrieve-default-chart-values">Retrieve Default Chart Values</a></li>
+<li><a href="#prepare-s3-buckets">Prepare S3 Buckets</a></li>
+<li><a href="#create-kubernetes-secret-for-s3-access">Create Kubernetes Secret for S3 Access</a></li>
+<li><a href="#define-custom-helm-values">Define Custom Helm Values</a></li>
+<li><a href="#deploy-mimir-with-helm">Deploy Mimir with Helm</a></li>
+</ul>
+</li>
+<li><a href="#maintenance-commands">Maintenance Commands</a>
+<ul class="sectlevel2">
+<li><a href="#upgrade-or-reinstall">Upgrade or Reinstall</a></li>
+</ul>
+</li>
+<li><a href="#uninstall-and-cleanup">Uninstall and Cleanup</a>
+<ul class="sectlevel2">
+<li><a href="#verify-s3-storage">Verify S3 Storage</a></li>
+</ul>
+</li>
+<li><a href="#opentelemetry-integration">OpenTelemetry Integration</a></li>
+<li><a href="#grafana-integration">Grafana Integration</a>
+<ul class="sectlevel2">
+<li><a href="#add-mimir-as-a-prometheus-data-source">Add Mimir as a Prometheus Data Source</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-mimir-with-otel.png" alt="grafana mimir with otel">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide outlines the process for deploying Grafana Mimir on a Kubernetes cluster using Helm. Grafana Mimir is a highly scalable, multi-tenant time series database designed for long-term storage of Prometheus metrics and enterprise-grade observability.</p>
+</div>
+<div class="sect2">
+<h3 id="why-grafana-mimir">Why Grafana Mimir?</h3>
+<div class="paragraph">
+<p>While Prometheus is widely adopted for monitoring and alerting, it has limitations in long-term retention, scalability, and high availability. Mimir addresses these limitations by offering:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Horizontal scalability</p>
+</li>
+<li>
+<p>High availability</p>
+</li>
+<li>
+<p>Multi-tenancy</p>
+</li>
+<li>
+<p>Long-term storage</p>
+</li>
+<li>
+<p>Query federation support</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="prometheus-vs-mimir">Prometheus vs. Mimir</h3>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 33.3333%;">
+<col style="width: 33.3333%;">
+<col style="width: 33.3334%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Feature</th>
+<th class="tableblock halign-left valign-top">Prometheus</th>
+<th class="tableblock halign-left valign-top">Grafana Mimir</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Storage</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Local</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Remote (e.g., S3)</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>HA Support</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Limited</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Full</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Scalability</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Single-node</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Horizontally scalable</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Multi-tenancy</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Not supported</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Supported</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="sect2">
+<h3 id="mimir-architecture-overview">Mimir Architecture Overview</h3>
+<div class="paragraph">
+<p>Grafana Mimir is composed of distributed microservices:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Distributor</strong> – Routes metrics to ingesters</p>
+</li>
+<li>
+<p><strong>Ingester</strong> – Stores metrics in memory and flushes to long-term storage</p>
+</li>
+<li>
+<p><strong>Querier / Query Frontend / Query Scheduler</strong> – Optimizes and executes queries</p>
+</li>
+<li>
+<p><strong>Store Gateway</strong> – Provides access to historical data in object storage</p>
+</li>
+<li>
+<p><strong>Compactor</strong> – Optimizes and deduplicates time series blocks</p>
+</li>
+<li>
+<p><strong>Ruler / Alertmanager</strong> – Handles rule evaluation and alerting</p>
+</li>
+<li>
+<p><strong>Overrides Exporter</strong> / Rollout Operator – Configuration and deployment management</p>
+</li>
+</ul>
+</div>
+<div class="listingblock img-wide">
+<div class="title">Microservices of Mimir</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> mimir get pods
+
+get pods
+NAME                                        READY   STATUS      RESTARTS   AGE
+mimir-alertmanager-0                        1/1     Running     0          24m
+mimir-compactor-0                           1/1     Running     0          24m
+mimir-distributor-64b789cbf-rxpc9           1/1     Running     0          24m
+mimir-ingester-zone-a-0                     1/1     Running     0          24m
+mimir-ingester-zone-b-0                     1/1     Running     0          24m
+mimir-ingester-zone-c-0                     1/1     Running     0          24m
+mimir-make-minio-buckets-5.4.0-2swr7        0/1     Completed   0          24m
+mimir-minio-5477c4c7b4-p6kdw                1/1     Running     0          24m
+mimir-nginx-7b49958f6b-s97r6                1/1     Running     0          24m
+mimir-overrides-exporter-5b55fc5498-4ltgg   1/1     Running     0          24m
+mimir-querier-6846596d85-77x55              1/1     Running     0          24m
+mimir-querier-6846596d85-8z4rw              1/1     Running     0          24m
+mimir-query-frontend-564f784bd-flnsk        1/1     Running     0          24m
+mimir-query-scheduler-5d56cc5fbc-nx9zm      1/1     Running     0          24m
+mimir-query-scheduler-5d56cc5fbc-wjg27      1/1     Running     0          24m
+mimir-rollout-operator-5d576bc569-2pkwd     1/1     Running     0          24m
+mimir-ruler-7b9d584d54-v7pgj                1/1     Running     0          24m
+mimir-store-gateway-zone-a-0                1/1     Running     0          24m
+mimir-store-gateway-zone-b-0                1/1     Running     0          24m
+mimir-store-gateway-zone-c-0                1/1     Running     0          24m</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installation-steps">Installation Steps</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="add-the-grafana-helm-repository">Add the Grafana Helm Repository</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm repo add grafana https://grafana.github.io/helm-charts
+<span class="nv">$ </span>helm repo update grafana</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="retrieve-default-chart-values">Retrieve Default Chart Values</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm show values grafana/mimir-distributed <span class="o">&gt;</span> values.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="prepare-s3-buckets">Prepare S3 Buckets</h3>
+<div class="paragraph">
+<p>Create the following S3 buckets for storing blocks, alertmanager data, and ruler rules:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>{your-s3-prefix}-mimir-blocks-bucket</p>
+</li>
+<li>
+<p>{your-s3-prefix}-mimir-alertmanager-bucket</p>
+</li>
+<li>
+<p>{your-s3-prefix}-mimir-ruler-bucket</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Create the S3 bucket using the AWS CLI.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c">#$ aws s3 mb s3://$S3_BUCKET_NAME --region $S3_REGION</span>
+
+<span class="nv">$ </span>aws s3 mb s3://<span class="o">{</span>your-s3-prefix<span class="o">}</span><span class="nt">-mimir-blocks-bucket</span> <span class="nt">--region</span> <span class="nv">$S3_REGION</span>
+<span class="nv">$ </span>aws s3 mb s3://<span class="o">{</span>your-s3-prefix<span class="o">}</span><span class="nt">-mimir-alertmanager-bucket</span> <span class="nt">--region</span> <span class="nv">$S3_REGION</span>
+<span class="nv">$ </span>aws s3 mb s3://<span class="o">{</span>your-s3-prefix<span class="o">}</span><span class="nt">-mimir-ruler-bucket</span> <span class="nt">--region</span> <span class="nv">$S3_REGION</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To validate:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>aws s3 <span class="nb">ls</span> <span class="nt">--region</span> <span class="nv">$S3_REGION</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Delete the S3 bucket if needed.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>aws s3 rb s3://<span class="nv">$S3_BUCKET_NAME</span> <span class="nt">--force</span> <span class="nt">--region</span> <span class="nv">$S3_REGION</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-kubernetes-secret-for-s3-access">Create Kubernetes Secret for S3 Access</h3>
+<div class="paragraph">
+<p>Create mimir-s3-credentials secret in the mimir namespace. This secret contains the AWS credentials required for Mimir to access the S3 buckets.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl get namespaces mimir <span class="o">||</span> kubectl create namespace mimir
+
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> mimir create secret generic mimir-s3-credentials <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span><span class="nv">AWS_ACCESS_KEY_ID</span><span class="o">=</span><span class="nv">$AWS_ACCESS_KEY_ID</span> <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span><span class="nv">AWS_ACCOUNT_ID</span><span class="o">=</span><span class="nv">$AWS_ACCOUNT_ID</span> <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span><span class="nv">AWS_SECRET_ACCESS_KEY</span><span class="o">=</span><span class="nv">$AWS_SECRET_ACCESS_KEY</span> <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span><span class="nv">AWS_REGION</span><span class="o">=</span><span class="nv">$AWS_REGION</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="define-custom-helm-values">Define Custom Helm Values</h3>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># 46</span>
+<span class="na">global</span><span class="pi">:</span>
+  <span class="na">extraEnvFrom</span><span class="pi">:</span>
+    <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="pi">-</span> <span class="na">secretRef</span><span class="pi">:</span>
+        <span class="na">name</span><span class="pi">:</span> <span class="s">mimir-s3-credentials</span>
+
+<span class="na">mimir</span><span class="pi">:</span>
+  <span class="na">structuredConfig</span><span class="pi">:</span>
+    <span class="na">common</span><span class="pi">:</span>
+      <span class="na">storage</span><span class="pi">:</span>
+        <span class="na">backend</span><span class="pi">:</span> <span class="s2">"</span><span class="s">s3"</span>
+        <span class="na">s3</span><span class="pi">:</span>
+          <span class="na">endpoint</span><span class="pi">:</span> <span class="s2">"</span><span class="s">s3.ca-west-1.amazonaws.com"</span>
+          <span class="na">region</span><span class="pi">:</span> <span class="s2">"</span><span class="s">ca-west-1"</span>
+          <span class="na">access_key_id</span><span class="pi">:</span> <span class="s2">"</span><span class="s">${AWS_ACCESS_KEY_ID}"</span>
+          <span class="na">secret_access_key</span><span class="pi">:</span> <span class="s2">"</span><span class="s">${AWS_SECRET_ACCESS_KEY}"</span>
+
+
+    <span class="c1"># Configuration specific to blocks storage (metrics data)</span>
+    <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="na">blocks_storage</span><span class="pi">:</span>
+      <span class="na">backend</span><span class="pi">:</span> <span class="s2">"</span><span class="s">s3"</span>
+      <span class="na">s3</span><span class="pi">:</span>
+        <span class="na">bucket_name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">{your-s3-prefix}-mimir-blocks-bucket"</span>
+        <span class="na">region</span><span class="pi">:</span> <span class="s2">"</span><span class="s">ca-west-1"</span>
+        <span class="na">endpoint</span><span class="pi">:</span> <span class="s2">"</span><span class="s">s3.ca-west-1.amazonaws.com"</span>
+        <span class="na">access_key_id</span><span class="pi">:</span> <span class="s2">"</span><span class="s">${AWS_ACCESS_KEY_ID}"</span>
+        <span class="na">secret_access_key</span><span class="pi">:</span> <span class="s2">"</span><span class="s">${AWS_SECRET_ACCESS_KEY}"</span>
+      <span class="na">tsdb</span><span class="pi">:</span>
+        <span class="na">block_ranges_period</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">10m</span><span class="pi">]</span>  <span class="c1"># 2h by default</span>
+        <span class="na">retention_period</span><span class="pi">:</span> <span class="s">24h</span>  <span class="c1"># 15d by default</span>
+    <span class="na">alertmanager_storage</span><span class="pi">:</span>
+      <span class="na">backend</span><span class="pi">:</span> <span class="s2">"</span><span class="s">s3"</span>
+      <span class="na">s3</span><span class="pi">:</span>
+        <span class="na">bucket_name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">{your-s3-prefix}-mimir-alertmanager-bucket"</span>
+        <span class="na">region</span><span class="pi">:</span> <span class="s2">"</span><span class="s">ca-west-1"</span>
+        <span class="na">endpoint</span><span class="pi">:</span> <span class="s2">"</span><span class="s">s3.ca-west-1.amazonaws.com"</span>
+        <span class="na">access_key_id</span><span class="pi">:</span> <span class="s2">"</span><span class="s">${AWS_ACCESS_KEY_ID}"</span>
+        <span class="na">secret_access_key</span><span class="pi">:</span> <span class="s2">"</span><span class="s">${AWS_SECRET_ACCESS_KEY}"</span>
+    <span class="na">ruler_storage</span><span class="pi">:</span>
+      <span class="na">backend</span><span class="pi">:</span> <span class="s2">"</span><span class="s">s3"</span>
+      <span class="na">s3</span><span class="pi">:</span>
+        <span class="na">bucket_name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">{your-s3-prefix}-mimir-ruler-bucket"</span>
+        <span class="na">region</span><span class="pi">:</span> <span class="s2">"</span><span class="s">ca-west-1"</span>
+        <span class="na">endpoint</span><span class="pi">:</span> <span class="s2">"</span><span class="s">s3.ca-west-1.amazonaws.com"</span>
+        <span class="na">access_key_id</span><span class="pi">:</span> <span class="s2">"</span><span class="s">${AWS_ACCESS_KEY_ID}"</span>
+        <span class="na">secret_access_key</span><span class="pi">:</span> <span class="s2">"</span><span class="s">${AWS_SECRET_ACCESS_KEY}"</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>&lt;1&gt;. The <code>extraEnvFrom</code> section allows Mimir to access the AWS credentials stored in the Kubernetes secret <code>mimir-s3-credentials</code>. This is necessary for Mimir to authenticate with the S3 service.
+&lt;2&gt;. The <code>blocks_storage</code> section configures Mimir to use the specified S3 bucket for storing metrics data. The <code>retention_period</code> is set to 24 hours, and the <code>block_ranges_period</code> is set to 10 minutes.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="deploy-mimir-with-helm">Deploy Mimir with Helm</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nb">install </span>mimir grafana/mimir-distributed <span class="se">\</span>
+  <span class="nt">--namespace</span> mimir <span class="nt">--create-namespace</span> <span class="se">\</span>
+  <span class="nt">-f</span> custom-values.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Example Output:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>W0602 15:41:29.928025   58136 warnings.go:70] metadata.name: this is used in Pod names and hostnames, which can result in surprising behavior; a DNS label is recommended: [must not contain dots]
+NAME: mimir
+LAST DEPLOYED: Mon Jun  2 15:41:25 2025
+NAMESPACE: mimir
+STATUS: deployed
+REVISION: 1
+NOTES:
+Welcome to Grafana Mimir!
+Remote write endpoints for Prometheus or Grafana Agent:
+Ingress is not enabled, see the nginx.ingress values.
+From inside the cluster:
+  http://mimir-nginx.mimir.svc:80/api/v1/push
+
+Read address, Grafana data source (Prometheus) URL:
+Ingress is not enabled, see the nginx.ingress values.
+From inside the cluster:
+  http://mimir-nginx.mimir.svc:80/prometheus
+
+**IMPORTANT**: Always consult CHANGELOG.md file at https://github.com/grafana/mimir/blob/main/operations/helm/charts/mimir-distributed/CHANGELOG.md and the deprecation list there to learn about breaking changes that require action during upgrade.</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="maintenance-commands">Maintenance Commands</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="upgrade-or-reinstall">Upgrade or Reinstall</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm upgrade <span class="nt">--install</span> mimir grafana/mimir-distributed <span class="se">\</span>
+  <span class="nt">--namespace</span> mimir <span class="se">\</span>
+  <span class="nt">-f</span> custom-values.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="uninstall-and-cleanup">Uninstall and Cleanup</h2>
+<div class="sectionbody">
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm uninstall mimir <span class="nt">--namespace</span> mimir</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Delete PVCs</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> mimir get pvc <span class="nt">-l</span> app.kubernetes.io/name<span class="o">=</span>mimir | <span class="nb">awk</span> <span class="s1">'NR&gt;1'</span> | <span class="nb">awk</span> <span class="s1">'{print $1}'</span> | xargs <span class="nt">-I</span> <span class="o">{}</span> kubectl <span class="nt">-n</span> mimir delete pvc <span class="o">{}</span></code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="verify-s3-storage">Verify S3 Storage</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>aws s3 <span class="nb">ls </span>s3://<span class="nv">$S3_BUCKET_NAME</span> <span class="nt">--recursive</span> <span class="nt">--human-readable</span> <span class="nt">--summarize</span>
+
+2025-06-03 02:08:52   91 Bytes __mimir_cluster/mimir_cluster_seed.json
+2025-06-03 02:40:45   11.7 KiB anonymous/01JWTJKJJNBRNMBVMTYXZ9RJB9/chunks/000001
+2025-06-03 02:40:45   42.9 KiB anonymous/01JWTJKJJNBRNMBVMTYXZ9RJB9/index
+2025-06-03 02:40:45  617 Bytes anonymous/01JWTJKJJNBRNMBVMTYXZ9RJB9/meta.json
+
+Total Objects: 4
+Total Size: 55.4 KiB</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="opentelemetry-integration">OpenTelemetry Integration</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Configure the OpenTelemetry Collector to forward metrics to Mimir:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">spec</span><span class="pi">:</span>
+  <span class="na">config</span><span class="pi">:</span>
+    <span class="c1"># omitted for brevity</span>
+
+    <span class="na">exporters</span><span class="pi">:</span>
+
+      <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+      <span class="na">prometheusremotewrite</span><span class="pi">:</span>
+        <span class="na">endpoint</span><span class="pi">:</span> <span class="s">http://mimir-nginx.mimir.svc:80/api/v1/push</span>
+        <span class="na">tls</span><span class="pi">:</span>
+          <span class="na">insecure</span><span class="pi">:</span> <span class="kc">true</span>
+
+
+    <span class="na">services</span><span class="pi">:</span>
+      <span class="na">pipelines</span><span class="pi">:</span>
+        <span class="na">metrics</span><span class="pi">:</span>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp</span><span class="pi">,</span> <span class="nv">prometheus</span><span class="pi">]</span>
+          <span class="na">processors</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">filter/metrics</span><span class="pi">]</span>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">prometheus</span><span class="pi">,</span> <span class="nv">prometheusremotewrite</span><span class="pi">]</span>
+
+        <span class="na">metrics/spanmetrics</span><span class="pi">:</span>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">spanmetrics</span><span class="pi">]</span>
+          <span class="na">processors</span><span class="pi">:</span> <span class="pi">[]</span>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">prometheus</span><span class="pi">,</span> <span class="nv">prometheusremotewrite</span><span class="pi">]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>&lt;1&gt;. The <code>prometheusremotewrite</code> exporter is configured to send metrics to Mimir&#8217;s remote write endpoint.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="grafana-integration">Grafana Integration</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="add-mimir-as-a-prometheus-data-source">Add Mimir as a Prometheus Data Source</h3>
+<div class="paragraph">
+<p>To add Mimir as a data source in Grafana, follow these steps:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Go to Connections &gt; Add new connection</p>
+</li>
+<li>
+<p>Select Prometheus as the data source</p>
+</li>
+<li>
+<p>Set the URL to <a href="http://mimir-nginx.mimir.svc:80/prometheus" class="bare">http://mimir-nginx.mimir.svc:80/prometheus</a></p>
+</li>
+<li>
+<p>Name the data source (e.g., prometheus-mimir)</p>
+</li>
+</ol>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-mimir-datasource.png" alt="grafana mimir datasource">
+</div>
+<div class="title">Figure 1. Grafana Data Source - prometheus-mimir</div>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-mimir-explore.png" alt="grafana mimir explore">
+</div>
+<div class="title">Figure 2. Grafana Explore - Mimir Data Source</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>With Grafana Mimir deployed, your observability stack gains a robust, scalable backend for long-term metric storage. Mimir enhances Prometheus with enterprise-grade features including HA, multi-tenancy, and deep integration with Grafana and OpenTelemetry. This setup ensures your monitoring system is ready for growth and operational reliability at scale.</p>
+</div>
+<div class="paragraph">
+<p>📘 View the web version:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/grafana-mimir-deployment/" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/grafana-mimir-deployment/</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>
