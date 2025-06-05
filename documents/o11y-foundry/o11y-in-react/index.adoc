@@ -1,0 +1,609 @@
+---
+layout: documents
+title: Implementing End-to-End Observability in React Applications with OpenTelemetry
+summary: "In this article, I walk through how to implement end-to-end observability in a React application using OpenTelemetry (OTel). By instrumenting both frontend and backend components, developers can trace user interactions and API calls across the full stack. The guide covers setting up a Vite-based React project, enabling OTLP tracing with the OTel JS SDK, configuring the OpenTelemetry Collector, and visualizing traces in Jaeger or Grafana. Whether you’re debugging performance issues or improving reliability, this setup gives you full-stack visibility and a strong observability foundation."
+tags: #OpenTelemetry #ReactJS #Observability #FrontendMonitoring #DevOps #Jaeger #Grafana #WebDevelopment #Tracing #CloudNative #Kubernetes #ViteJS #OpenSourceTools
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+
+= Implementing End-to-End Observability in React Applications with OpenTelemetry
+
+:projectdir: ..
+:sourcedir: {projectdir}/src
+:imagesdir: images
+
+[.img-wide]
+image::end-to-end-observability.png[]
+
+== Overview
+
+This comprehensive guide walks through the process of implementing *end-to-end observability* in a *React application* using *OpenTelemetry (OTel)*. It covers application setup, OTLP tracing integration, and visualization using observability tools such as *Jaeger* and *Grafana*.
+
+By instrumenting both the frontend and backend, developers can trace user interactions, monitor API calls, and gain full-stack visibility into their application’s behavior.
+
+The guide consists of two parts:
+
+* Part 1: Setting up a React application
+* Part 2: Integrating OpenTelemetry for frontend tracing
+
+=== OpenTelemetry Language SDK Status
+
+Note that the status of OpenTelemetry JavaScript SDK for Logs is currently in development.
+
+.OTel SDK Status from https://opentelemetry.io/docs/languages/
+[.img-medium]
+image::otel-sdk-status.png[]
+
+// === React-O11y-App Overview
+//
+// This is a React application that uses the OpenTelemetry libraries to provide observability features. It is designed to help developers monitor and debug their applications more effectively.
+
+
+
+== Part 1: Setting Up the React Application
+
+// In part 1, we will set up a basic React application using Vite. To test the observability features, we will create a simple React component that simulates a user interaction and logs some events.
+
+=== Step 1: Bootstrap the React Project
+
+Use Vite to create a new React + TypeScript project:
+
+[source,shell]
+----
+$ npm create vite@latest react-o11y-app --template react-ts
+
+Need to install the following packages:
+  create-vite@latest
+  create-vite@6.5.0
+  Ok to proceed? (y) y
+? Select a framework: › React
+? Select a variant: › TypeScript
+
+
+$ cd react-o11y-app
+$ npm install
+----
+
+=== Step 2: Install Supporting Libraries
+
+Install Axios and developer tools:
+
+[source,shell]
+----
+$ npm install axios 
+$ npm install --save-dev eslint prettier
+----
+
+===Step 3: Configure Access to the OTLP Endpoint
+
+You can expose the OTLP endpoint using:
+
+* ** Ingress Controller**
+* *Port Forwarding*
+
+=== 3.1: Expose with Ingress
+
+.otel-collector-ingress.yaml
+[source,yaml]
+----
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: otel-collector-ingress
+  namespace: o11y
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  ingressClassName: traefik
+  rules:
+    ## otel-collector
+    ## <1>
+    - host: otel-collector.nsa2.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: otel-collector
+                port:
+                  name: otlp-http
+
+    ## <2>
+    ## otel-spring-example
+    - host: otel-spring-example.nsa2.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: otel-spring-example
+                port:
+                  name: http
+----
+<1> This rule exposes the OTLP endpoint for the OpenTelemetry Collector.
+<2> This rule exposes the OTLP endpoint for the OTEL Spring Example application.
+
+
+Apply it:
+
+[source,shell]
+----
+$ kubectl apply -f react-o11y-backend-ingress.yaml
+----
+
+// Use http://otel-collector.nsa2.com as the OTLP endpoint in your `.env` file:
+//
+// [source,shell]
+// ----
+// $ export VITE_OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.nsa2.com
+// ----
+
+=== 3.2: Use Port Forwarding (Dev)
+
+[source,shell]
+----
+$ kubectl -n o11y port-forward service/otel-collector 4318:4318
+----
+
+// Use http://localhost:4318 as the OTLP endpoint in your `.env` file:
+//
+// [source,shell]
+// ----
+// $ export VITE_OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+// ----
+
+
+=== Step 4: Configure Environment Variables
+
+To configure the OpenTelemetry libraries, we will use environment variables. Create a `.env` file in the root of your project and add the following variables:
+
+[source,shell]
+----
+$ touch .env
+----
+
+.src/.env
+[source,properties]
+----
+VITE_OTEL_EXPORTER_OTLP_ENDPOINT=
+VITE_OTEL_SPRING_EXAMPLE_URL=
+----
+
+
+The actual values for these variables will be set with environment variables like this:
+
+[source,shell]
+----
+#$ export VITE_OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+$ export VITE_OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+# OR
+$ export VITE_OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.nsa2.com
+
+$ export VITE_OTEL_SPRING_EXAMPLE_URL=http://otel-spring-example.nsa2.com
+
+----
+
+=== Step 5: Add API Request Logic
+
+.src/api/observaility.ts
+[source,typescript]
+----
+import axios from 'axios';
+
+
+const otelSpringExampleUrl = import.meta.env.VITE_OTEL_SPRING_EXAMPLE_URL || 'http://localhost:8080';
+
+console.log('Using OTEL Spring Example URL:', otelSpringExampleUrl);
+
+const api = axios.create({
+  baseURL: otelSpringExampleUrl
+});
+
+
+export const sleepCall = async (seconds:number): Promise<string> => {
+  const response = await api.get(`/sleep/${seconds}`);
+  return response.data;
+}; 
+----
+
+=== Step 6: Create a Test Component(TraceButton)
+
+Build a simple button component to test interactions, and wire it into your App.tsx and main.tsx.
+
+.src/components/TraceButton.tsx
+[source,typescript]
+----
+import { useState } from 'react';
+import { sleepCall } from '../api/observability';
+
+export const TraceButton = () => {
+  const [seconds, setSeconds] = useState(1);
+  const [response, setResponse] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleClick = async () => {
+    setLoading(true);
+    setResponse('');
+    console.log('Calling sleep endpoint with seconds:', seconds);
+    try {
+      const result = await sleepCall(seconds);
+      console.log('-- Response from sleep endpoint:', JSON.stringify(result));
+      setResponse(result['message'] || `Slept for ${seconds} seconds`);
+    } catch (error) {
+      console.error('Request failed:', error);
+      setResponse('Error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: '1rem' }}>
+      <label>
+        Sleep Seconds:{' '}
+        <input
+          type="number"
+          id="secondsInput"
+          value={seconds}
+          onChange={(e) => setSeconds(Number(e.target.value))}
+          min={1}
+          style={{ width: '60px', marginRight: '1rem' }}
+        />
+      </label>
+      <button onClick={handleClick} disabled={loading} id='traceButton' >
+        {loading ? 'Waiting...' : 'Call Sleep Endpoint'}
+      </button>
+      <div style={{ marginTop: '1rem' }}>{response && <p>{response}</p>}</div>
+    </div>
+  );
+};
+----
+
+=== Step 7: Create the Home Page
+
+.src/pages/Home.tsx
+[source,typescript]
+----
+import { TraceButton } from '../components/TraceButton';
+
+const Home = () => {
+  return (
+    <div>
+      <h1>Observability Test App</h1>
+      <TraceButton />
+    </div>
+  );
+};
+
+export default Home;
+----
+
+=== Step 8: Load the Home Page in the App Component
+
+.src/App.tsx
+[source,typescript]
+----
+
+import './App.css'
+import Home from './pages/Home';
+
+function App() {
+  return <Home />;
+}
+
+export default App
+
+----
+
+=== Step 9: Keep the main.tsx file as is
+
+.src/main.tsx
+[source,typescript]
+----
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App.tsx'
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+)
+----
+
+=== Step 10: Start Development Server
+
+Start the development server:
+
+[source,shell]
+----
+$ npm run dev
+----
+
+Visit http://localhost:5173 to test the app.
+
+.React Application UI for Testing Observability
+[.img-wide]
+image::react-app-ui.png[]
+
+== Part 2: Enabling OpenTelemetry Tracing
+
+In part 2, we will apply the OpenTelemetry libraries to our React application to store traces.
+
+=== Step 1: Install OpenTelemetry Packages
+
+Install the OpenTelemetry libraries to enable observability features in your application.
+
+[source,shell]
+----
+$ npm install @opentelemetry/api @opentelemetry/sdk-trace-web @opentelemetry/instrumentation-fetch
+$ npm install @opentelemetry/sdk-trace-base
+$ npm install @opentelemetry/resources
+$ npm install @opentelemetry/context-zone  @opentelemetry/instrumentation-document-load
+$ npm install @opentelemetry/instrumentation-xml-http-request
+$ npm install @opentelemetry/instrumentation-user-interaction
+$ npm install @opentelemetry/exporter-trace-otlp-http
+----
+
+=== Step 2: Initialize OpenTelemetry Tracing
+
+.src/otel.ts
+[source,typescript]
+----
+import { WebTracerProvider } from '@opentelemetry/sdk-trace-web';
+import  { 
+    resourceFromAttributes, 
+    defaultResource 
+} from '@opentelemetry/resources';
+import {
+    ATTR_SERVICE_NAME,
+    ATTR_SERVICE_VERSION,
+} from '@opentelemetry/semantic-conventions';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { registerInstrumentations } from '@opentelemetry/instrumentation';
+import { FetchInstrumentation } from '@opentelemetry/instrumentation-fetch';
+import { ZoneContextManager } from '@opentelemetry/context-zone';
+// import { SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { ConsoleSpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { DocumentLoadInstrumentation } from '@opentelemetry/instrumentation-document-load';
+import { UserInteractionInstrumentation } from '@opentelemetry/instrumentation-user-interaction';
+import { XMLHttpRequestInstrumentation } from '@opentelemetry/instrumentation-xml-http-request';
+// Logs
+// import { logs } from '@opentelemetry/api';
+import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
+
+
+// <1>
+const otlpEndpoint = import.meta.env.VITE_OTEL_EXPORTER_OTLP_ENDPOINT; // Adjust to your OTLP endpoint
+// <2>
+const otelSpringExampleUrl = import.meta.env.VITE_OTEL_SPRING_EXAMPLE_URL || 'http://localhost:8080';
+// Convert to regex safely
+const escapedUrl = otelSpringExampleUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const otelUrlRegex = new RegExp(escapedUrl);
+
+// <3>
+const resource = defaultResource().merge(
+    resourceFromAttributes({
+        [ATTR_SERVICE_NAME]: 'react-o11y-app', // Adjust to your service name
+        [ATTR_SERVICE_VERSION]: '1.0.0', // Optional: Add version or other attributes
+    })
+);
+
+// <4>
+const traceExporter = new OTLPTraceExporter({
+  url: `${otlpEndpoint}/v1/traces`, // or your collector's trace endpoint
+  headers: {}, // optional headers (e.g., for auth)
+});
+
+
+
+// <5>
+const provider = new WebTracerProvider({
+    spanProcessors: [
+        new SimpleSpanProcessor(traceExporter),
+        // new SimpleSpanProcessor(new ConsoleSpanExporter()), // Optional: Console exporter for debugging
+    ],
+    
+    resource: resource,// Optional: Add version or other attributes
+});
+
+// <6>
+provider.register({
+    contextManager: new ZoneContextManager(), // Use ZoneContextManager for Angular compatibility
+});
+
+
+// <7>
+registerInstrumentations({
+  instrumentations: [
+    new DocumentLoadInstrumentation(),
+    new UserInteractionInstrumentation(),
+    new FetchInstrumentation({
+      propagateTraceHeaderCorsUrls: [/\/api\//, otelUrlRegex], // adjust to your backend
+    }),
+    new XMLHttpRequestInstrumentation({
+      propagateTraceHeaderCorsUrls: [/\/api\//, otelUrlRegex],
+    }),
+  ],
+});
+----
+<1> The OTLP endpoint is configured using the environment variable `VITE_OTEL_EXPORTER_OTLP_ENDPOINT`.
+<2> The OTEL Spring Example URL is configured using the environment variable `VITE_OTEL_SPRING_EXAMPLE_URL`. This URL is used to propagate trace headers to the backend.
+<3> The resource is created with service name and version attributes.
+<4> The `OTLPTraceExporter` is initialized with the OTLP endpoint for traces.
+<5> The `WebTracerProvider` is created with a `SimpleSpanProcessor` that uses the `OTLPTraceExporter` to send traces.
+<6> The `ZoneContextManager` is registered to manage context propagation in the application.
+<7> The instrumentations are registered to automatically instrument document load events, user interactions, fetch requests, and XMLHttpRequests. The `propagateTraceHeaderCorsUrls` option is used to specify which URLs should propagate trace headers.
+
+
+==== Instrumentation Details
+
+The following instrumentations are automatically registered:
+
+* DocumentLoadInstrumentation: Automatically instruments document load events.
+* UserInteractionInstrumentation: Automatically instruments user interactions like clicks and form submissions.
+* FetchInstrumentation: Automatically instruments fetch requests, propagating trace headers to specified URLs.
+* XMLHttpRequestInstrumentation: Automatically instruments XMLHttpRequests, propagating trace headers to specified URLs.
+
+
+
+=== Step 3: Initialize OpenTelemetry in the main.tsx file
+
+Add the following code to the top of your `main.tsx` file to initialize OpenTelemetry:
+
+[source,typescript]
+----
+import './otel';
+----
+
+.src/main.tsx - updated
+[source,typescript]
+----
+import './otel';
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App.tsx'
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+)
+----
+
+=== Step 4: Set Up CORS on OTLP Collector
+
+Ensure your OpenTelemetry Collector allows frontend origins:
+
+otel-collector.yaml
+[source,yaml]
+----
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+            ## <1>
+            cors:
+              allowed_origins:
+                - "http://localhost:5173"
+                - "http://react-o11y-app.nsa2.com"
+                - "https://react-o11y-app.nsa2.com"
+
+              allowed_headers:
+                - "Authorization"
+                - "Content-Type"
+                - "Accept"
+                - "User-Agent"
+                - "X-Forwarded-For"
+                - "X-Requested-With"
+              max_age: 3600
+----
+<1> The CORS configuration allows requests from the specified origins, which is necessary for the frontend to communicate with the OTLP endpoint.
+
+== Validation
+
+Start the app and click the button. Traces should appear in:
+
+* Console (if ConsoleSpanExporter enabled)
+* Jaeger or Grafana UI
+
+[source,shell]
+----
+$ export VITE_OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.nsa2.com
+$ export VITE_OTEL_SPRING_EXAMPLE_URL=http://otel-spring-example.nsa2.com
+
+$ npm run dev
+----
+
+
+Visit `http://localhost:5173`
+
+.React Application UI for Testing Observability
+[.img-wide]
+image::react-app-ui.png[]
+
+=== Using ConsoleSpanExporter
+
+All traces will be logged to the console. This is useful for debugging and verifying that traces are being sent correctly. You can also use the ConsoleSpanExporter to log traces to the console for debugging purposes.
+
+.Traces from React in Console
+[.img-wide]
+image::traces-on-console.png[]
+
+
+To turn off the ConsoleSpanExporter, you can comment out the line in the `otel.ts` file:
+
+.src/otel.ts - updated
+[source,typescript]
+----
+const provider = new WebTracerProvider({
+    spanProcessors: [
+        new SimpleSpanProcessor(traceExporter),
+        // new SimpleSpanProcessor(new ConsoleSpanExporter()), // Optional: Console exporter for debugging
+    ],
+    
+    resource: resource,// Optional: Add version or other attributes
+});
+----
+
+=== Using OTLPTraceExporter
+
+The `OTLPTraceExporter` is used to send traces to an OpenTelemetry Collector or backend that supports the OTLP protocol.
+
+.Grafana UI for Jaeger - Search Traces
+[.img-wide]
+image::grafana-jaeger-search.png[]
+
+
+.Grafana UI for Jaeger - Detail View from react-o11y-app and otel-spring-example
+[.img-wide]
+image::grafana-jaeger-details.png[]
+
+// == Part 3: Apply OLTP Loggings to the React Application
+
+// In part 3, we will enhance our React application by adding logging capabilities using the OpenTelemetry libraries. This will allow us to capture and send logs to our observability backend.
+
+// === Step 1: Install Logging Dependencies
+
+// [source,shell]
+// ----
+// $ npm install @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http
+// ----
+
+== Further Enhancements
+
+Planned additions:
+
+* Deploying the React application in Kubernetes
+* Visualizing frontend traces in Grafana dashboards
+* Adding OTLP logging support
+
+== Conclusion
+
+This guide demonstrated how to build an end-to-end observable React application using OpenTelemetry. By integrating tracing at the frontend and backend levels, developers can gain actionable insights and improve the overall reliability and debuggability of their applications.
+
+📘 View the web version:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/o11y-in-react/
+
+== References
+
+* https://opentelemetry.io/docs/languages/js/getting-started/browser/
+* https://opentelemetry.io/docs/languages/js/instrumentation/
