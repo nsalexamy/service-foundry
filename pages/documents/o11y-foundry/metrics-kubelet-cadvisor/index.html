@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scraping Container Metrics via Kubelet cAdvisor in Kubernetes</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">
+    Service Foundry
+</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/products/" class="">Products</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+        
+        <a href="/service-foundry/pages/demo/" class="">Demo</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="active">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Scraping Container Metrics via Kubelet cAdvisor in Kubernetes
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a></li>
+<li><a href="#accessing-cadvisor-metrics-from-kubelet">Accessing cAdvisor Metrics from Kubelet</a>
+<ul class="sectlevel2">
+<li><a href="#rbac-configuration-for-metrics-access">RBAC Configuration for Metrics Access</a></li>
+<li><a href="#verifying-access-to-kubelet-cadvisor-metrics">Verifying Access to Kubelet cAdvisor Metrics</a></li>
+</ul>
+</li>
+<li><a href="#opentelemetry-collector-configuration">OpenTelemetry Collector Configuration</a></li>
+<li><a href="#setting-up-a-servicemonitor">Setting up a ServiceMonitor</a></li>
+<li><a href="#merging-metrics-into-prometheus">Merging Metrics into Prometheus</a></li>
+<li><a href="#visualizing-with-promql-in-grafana">Visualizing with PromQL in Grafana</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/scrape-container-metrics.png" alt="scrape container metrics">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide provides a comprehensive walkthrough for collecting container resource metrics using the cAdvisor endpoint exposed by Kubelet on Kubernetes nodes. These metrics provide deep visibility into container performance, including CPU, memory, disk I/O, and network usage—essential for robust monitoring and troubleshooting.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="accessing-cadvisor-metrics-from-kubelet">Accessing cAdvisor Metrics from Kubelet</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Kubelet exposes cAdvisor(Container Advisor) metrics on the /metrics/cadvisor endpoint, accessible over port 10250 (TLS) or 10255 (non-TLS).</p>
+</div>
+<div class="paragraph">
+<p>The endpoint looks like this:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>https://&lt;node-ip&gt;:10250/metrics/cadvisor</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To verify:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> kube-system get service kubelet <span class="nt">-o</span> wide
+<span class="go">
+</span><span class="gp">#</span><span class="w"> </span>Output
+<span class="go">NAME      TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)                        AGE   SELECTOR
+</span><span class="gp">kubelet   ClusterIP   None         &lt;none&gt;</span><span class="w">        </span>10250/TCP,10255/TCP,4194/TCP   26m   &lt;none&gt;</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>For details on the kubelet service, you can run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> kube-system get service kubelet <span class="nt">-o</span> yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Sample output:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Service</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">creationTimestamp</span><span class="pi">:</span> <span class="s2">"</span><span class="s">2025-06-06T20:32:07Z"</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">app.kubernetes.io/managed-by</span><span class="pi">:</span> <span class="s">prometheus-operator</span>
+    <span class="na">app.kubernetes.io/name</span><span class="pi">:</span> <span class="s">kubelet</span>
+    <span class="na">k8s-app</span><span class="pi">:</span> <span class="s">kubelet</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">kubelet</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">kube-system</span>
+  <span class="na">resourceVersion</span><span class="pi">:</span> <span class="s2">"</span><span class="s">29241"</span>
+  <span class="na">uid</span><span class="pi">:</span> <span class="s">57fe6d64-5a0f-496d-a900-2942ba59d79a</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">clusterIP</span><span class="pi">:</span> <span class="s">None</span>
+  <span class="na">clusterIPs</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">None</span>
+  <span class="na">internalTrafficPolicy</span><span class="pi">:</span> <span class="s">Cluster</span>
+  <span class="na">ipFamilies</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">IPv4</span>
+  <span class="pi">-</span> <span class="s">IPv6</span>
+  <span class="na">ipFamilyPolicy</span><span class="pi">:</span> <span class="s">RequireDualStack</span>
+  <span class="na">ports</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">https-metrics</span>
+    <span class="na">port</span><span class="pi">:</span> <span class="m">10250</span>
+    <span class="na">protocol</span><span class="pi">:</span> <span class="s">TCP</span>
+    <span class="na">targetPort</span><span class="pi">:</span> <span class="m">10250</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">http-metrics</span>
+    <span class="na">port</span><span class="pi">:</span> <span class="m">10255</span>
+    <span class="na">protocol</span><span class="pi">:</span> <span class="s">TCP</span>
+    <span class="na">targetPort</span><span class="pi">:</span> <span class="m">10255</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">cadvisor</span>
+    <span class="na">port</span><span class="pi">:</span> <span class="m">4194</span>
+    <span class="na">protocol</span><span class="pi">:</span> <span class="s">TCP</span>
+    <span class="na">targetPort</span><span class="pi">:</span> <span class="m">4194</span>
+  <span class="na">sessionAffinity</span><span class="pi">:</span> <span class="s">None</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s">ClusterIP</span>
+<span class="na">status</span><span class="pi">:</span>
+  <span class="na">loadBalancer</span><span class="pi">:</span> <span class="pi">{}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The port name <code>https-metrics</code> is used for secure metrics scraping, while <code>http-metrics</code> is for insecure metrics. Using 'https-metrics' is recommended for security reasons.</p>
+</div>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">NOTE</dt>
+<dd>
+<p>Port 10250 requires authentication via bearer token or client certificates.</p>
+</dd>
+<dt class="hdlist1">TIP</dt>
+<dd>
+<p>If the kubelet service is missing, install Prometheus Operator via Helm. It will provision the required service automatically.</p>
+</dd>
+</dl>
+</div>
+<div class="sect2">
+<h3 id="rbac-configuration-for-metrics-access">RBAC Configuration for Metrics Access</h3>
+<div class="paragraph">
+<p>To scrape Kubelet cAdvisor metrics, you need to ensure that the Prometheus service account has the necessary permissions. You can create a ClusterRole and ClusterRoleBinding to grant access to the Kubelet metrics.</p>
+</div>
+<div class="listingblock">
+<div class="title">kubelet-cadvisor-rbac.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># kubelet-scraper-sa.yaml</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceAccount</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">kubelet-scraper</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">monitoring</span>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRoleBinding</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">otel-targetallocator-rb-monitoring</span>
+<span class="na">subjects</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceAccount</span>
+    <span class="na">name</span><span class="pi">:</span>  <span class="s">kubelet-scraper</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="s">monitoring</span>
+<span class="na">roleRef</span><span class="pi">:</span>
+  <span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRole</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">otel-targetallocator-role</span>
+  <span class="na">apiGroup</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io</span>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRoleBinding</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">otel-targetallocator-cr-rb-monitoring</span>
+<span class="na">subjects</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceAccount</span>
+    <span class="na">name</span><span class="pi">:</span>  <span class="s">kubelet-scraper</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="s">monitoring</span>
+<span class="na">roleRef</span><span class="pi">:</span>
+  <span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRole</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">otel-targetallocator-cr-role</span>
+  <span class="na">apiGroup</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The Cluster Roles <code>otel-targetallocator-role</code> and <code>otel-targetallocator-cr-role</code> was covered in the previous documentation on <a href="https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/metrics-otel-collector/">Collecting Metrics using OpenTelemetry Collector and Visualizing them using Prometheus and Grafana on Kubernetes</a></p>
+</div>
+<div class="paragraph">
+<p>Apply it with:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl create namespace monitoring
+<span class="gp">$</span><span class="w"> </span>kubectl apply <span class="nt">-f</span> kubelet-cadvisor-rbac.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="verifying-access-to-kubelet-cadvisor-metrics">Verifying Access to Kubelet cAdvisor Metrics</h3>
+<div class="paragraph">
+<p>To access the Kubelet cAdvisor metrics, you can use the following command to retrieve the metrics directly from the Kubelet API. This requires that you have access to the Kubernetes cluster and the necessary permissions to read the Kubelet metrics.</p>
+</div>
+<div class="paragraph">
+<p>Get Node IP addresses:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl get nodes <span class="nt">-o</span> wide</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Use the internal IP address of one of the nodes to access the Kubelet metrics. The Kubelet API is typically available at <code><a href="https://&lt;node-ip&gt;:10250/metrics/cadvisor" class="bare">https://&lt;node-ip&gt;:10250/metrics/cadvisor</a></code>.</p>
+</div>
+<div class="paragraph">
+<p>Use busybox pod to access the Kubelet metrics. First, create a pod with the <code>kubelet-scraper</code> service account in the <code>monitoring</code> namespace. This pod will have the necessary permissions to access the Kubelet metrics.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl run <span class="nt">-i</span> <span class="nt">-t</span> <span class="nt">--rm</span> busybox <span class="nt">--image</span><span class="o">=</span>busybox <span class="nt">--restart</span><span class="o">=</span>Never <span class="nt">--overrides</span><span class="o">=</span><span class="s1">'{"spec": { "serviceAccountName": "kubelet-scraper" } }'</span> <span class="nt">-n</span> monitoring</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now, you are inside the busybox pod. First, retrieve the bearer token for authentication:</p>
+</div>
+<div class="listingblock">
+<div class="title">inside busybox pod</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">#</span><span class="w"> </span><span class="nv">TOKEN</span><span class="o">=</span><span class="si">$(</span><span class="nb">cat</span> /var/run/secrets/kubernetes.io/serviceaccount/token<span class="si">)</span>
+<span class="go">
+</span><span class="gp">#</span><span class="w"> </span><span class="nb">echo</span> <span class="nv">$TOKEN</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now, you can use <code>wget</code> to access the Kubelet cAdvisor metrics endpoint. Replace <code>&lt;node-ip&gt;</code> with the actual Internal IP address of your Kubernetes node:</p>
+</div>
+<div class="listingblock">
+<div class="title">inside busybox pod</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>wget <span class="nt">--no-check-certificate</span> <span class="nt">--header</span><span class="o">=</span><span class="s2">"Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span> https://192.168.39.48:10250/metrics/cadvisor <span class="nt">-O</span> -</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Example Output:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">#</span><span class="w"> </span>HELP cadvisor_version_info A metric with a constant <span class="s1">'1'</span> value labeled by kernel version, OS version, docker version, cadvisor version &amp; cadvisor revision.
+<span class="gp">#</span><span class="w"> </span>TYPE cadvisor_version_info gauge
+<span class="go">cadvisor_version_info{cadvisorRevision="",cadvisorVersion="",dockerVersion="",kernelVersion="5.10.236-228.935.amzn2.x86_64",osVersion="Amazon Linux 2"} 1
+
+// Kubelet cAdvisor metrics - omitted for brevity
+
+</span><span class="gp">#</span><span class="w"> </span>TYPE machine_swap_bytes gauge
+<span class="go">machine_swap_bytes{boot_id="810cc739-14e6-4fd5-855b-545e7a2b7c48",machine_id="ec2333bbe85a7b8da257530bee8bab25",system_uuid="ec2333bb-e85a-7b8d-a257-530bee8bab25"} 0
+-                    100% |*********************************************************************************************************************************************|  498k  0:00:00 ETA
+written to stdout</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>It returns a large number of metrics related to container resource usage, such as CPU, memory, disk I/O, and network statistics. You can use these metrics to monitor the performance of your containers and troubleshoot issues.</p>
+</div>
+<div class="paragraph">
+<p>In this example, we will use metrics filter to narrow down the metrics to a specific container, such as <code>otel-spring-example</code>, <code>react-o11y-app</code>, or 'cassandra'.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="opentelemetry-collector-configuration">OpenTelemetry Collector Configuration</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This OpenTelemetry Collector configuration focuses on scraping Kubelet cAdvisor metrics. It includes the necessary receivers, processors, exporters, and service settings to collect and export Kubelet metrics.</p>
+</div>
+<div class="paragraph">
+<p>Configure the collector to scrape and filter Kubelet metrics:</p>
+</div>
+<div class="listingblock">
+<div class="title">kubelet-metrics-collector.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="s">Unresolved directive in index.adoc - include::kubelet-metrics-collector.yaml[]</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Scrapes cAdvisor metrics via Prometheus receiver.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Applies filtering to reduce data volume.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Targets specific containers of interest.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>For details on the OpenTelemetry Collector Filter processor, refer to the <a href="https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/filterprocessor">Filter Processor documentation</a>.</p>
+</div>
+<div class="paragraph">
+<p>Deploy with:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl apply <span class="nt">-f</span> kubelet-metrics-collector.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="setting-up-a-servicemonitor">Setting up a ServiceMonitor</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Create a ServiceMonitor to instruct the OpenTelemetry Target Allocator:</p>
+</div>
+<div class="listingblock">
+<div class="title">kubelet-cadvisor-servicemonitor.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="s">Unresolved directive in index.adoc - include::kubelet-cadvisor-servicemonitor.yaml[]</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The https-metrics port is used for secure scraping of Kubelet metrics, while the http-metrics port is used for insecure scraping. The cadvisor port is specifically for cAdvisor metrics.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The path is set to <code>/metrics/cadvisor</code>, which is the endpoint for Kubelet cAdvisor metrics.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>The <code>kubelet-scraper</code> service account is used to authenticate the scraping of Kubelet metrics. This service account should have the necessary permissions to access the Kubelet metrics endpoint.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Apply it:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl apply <span class="nt">-f</span> kubelet-cadvisor-servicemonitor.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="merging-metrics-into-prometheus">Merging Metrics into Prometheus</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To forward these metrics to Prometheus:</p>
+</div>
+<div class="listingblock">
+<div class="title">kubelet-metrics-scrape-config.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="s">Unresolved directive in index.adoc - include::kubelet-metrics-scrape-config.yaml[]</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>This label selector is used to identify the ScrapeConfig that can be used by Prometheus to scrape metrics from the Kubelet cAdvisor endpoint.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The endpoint is the Prometheus exporter endpoint of the OpenTelemetry Collector that is scraping Kubelet cAdvisor metrics.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Apply the scraping configuration to Prometheus:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl apply <span class="nt">-f</span> kubelet-metrics-scrape-config.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="visualizing-with-promql-in-grafana">Visualizing with PromQL in Grafana</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Sample PromQL:</p>
+</div>
+<div class="listingblock">
+<div class="title">View container memory usage in Grafana</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="promql">container_memory_usage_bytes</code></pre>
+</div>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-container-memory-usage.png" alt="grafana container memory usage">
+</div>
+<div class="title">Figure 1. Grafana UI - Exploring Container Memory Usage</div>
+</div>
+<div class="paragraph">
+<p>Note that the metrics include metrics related to containers including <code>otel-spring-example</code>, <code>react-o11y-app</code>, and 'cassandra'.</p>
+</div>
+<div class="listingblock">
+<div class="title">kubelet-metrics-collector.yaml - filter/containers</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">      <span class="na">filter/containers</span><span class="pi">:</span>
+        <span class="na">error_mode</span><span class="pi">:</span> <span class="s">propagate</span>
+        <span class="na">metrics</span><span class="pi">:</span>
+          <span class="na">datapoint</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="pi">|</span>
+              <span class="s">not ( attributes["container"] == "react-o11y-app"</span>
+                <span class="s">or attributes["container"] == "otel-spring-example"</span>
+                <span class="s">or attributes["container"] == "cassandra")</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>You can modify the queries to specify containers of interest.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sql"><span class="n">container_memory_usage_bytes</span><span class="p">{</span><span class="n">container</span><span class="o">=</span><span class="nv">"otel-spring-example"</span><span class="p">}</span> <span class="k">OR</span> <span class="n">container_memory_usage_bytes</span><span class="p">{</span><span class="n">container</span><span class="o">=</span><span class="nv">"react-o11y-app"</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The following query can be used to see the File System Read Bytes for containers:</p>
+</div>
+<div class="listingblock">
+<div class="title">View file system read bytes</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="promql">container_fs_reads_bytes_total</code></pre>
+</div>
+</div>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">NOTE</dt>
+<dd>
+<p>Metrics like container_fs_reads_bytes_total may be filtered out. To retain them, adjust the filter processor in the OpenTelemetry Collector config:</p>
+</dd>
+</dl>
+</div>
+<div class="listingblock">
+<div class="title">kubelet-metrics-collector.yaml - filter/metrics</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">      <span class="na">filter/metrics</span><span class="pi">:</span>
+        <span class="na">metrics</span><span class="pi">:</span>
+          <span class="na">include</span><span class="pi">:</span>
+            <span class="na">match_type</span><span class="pi">:</span> <span class="s">regexp</span>
+            <span class="na">metric_names</span><span class="pi">:</span>
+              <span class="pi">-</span> <span class="s2">"</span><span class="s">^container_cpu.*"</span>
+              <span class="pi">-</span> <span class="s2">"</span><span class="s">^container_memory_.*"</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>You can see the result of the query in Grafana:</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-container-fs-reads-nodata.png" alt="grafana container fs reads nodata">
+</div>
+<div class="title">Figure 2. Grafana UI - Exploring Container File System Reads - No Data</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>By integrating cAdvisor metrics exposed by Kubelet into your observability stack via OpenTelemetry Collector and Prometheus, you gain powerful insights into container-level performance across your Kubernetes nodes. This guide helps you configure access, scrape securely, filter meaningfully, and visualize effectively using Grafana.</p>
+</div>
+<div class="paragraph">
+<p>📘 View the web version:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/metrics-kubelet-cadvisor/" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/metrics-kubelet-cadvisor/</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>
