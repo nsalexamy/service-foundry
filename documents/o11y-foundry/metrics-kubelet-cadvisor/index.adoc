@@ -1,0 +1,351 @@
+---
+layout: documents
+title: Scraping Container Metrics via Kubelet cAdvisor in Kubernetes
+summary: "This article provides a practical guide to collecting container-level resource metrics using Kubelet’s cAdvisor endpoint in a Kubernetes cluster. It walks through exposing and securing the /metrics/cadvisor endpoint, setting up RBAC permissions, using OpenTelemetry Collector with filters to focus on key containers, and visualizing data in Grafana via Prometheus. This solution is ideal for engineers seeking deep insights into container performance without relying on application-level instrumentation."
+tags: #Kubernetes #Observability #OpenTelemetry #Prometheus #Grafana #DevOps #ContainerMonitoring #cAdvisor #InfrastructureMonitoring #SRE
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+
+= Scraping Container Metrics via Kubelet cAdvisor in Kubernetes
+
+:imagesdir: images
+
+[.img-wide]
+image::scrape-container-metrics.png[]
+
+== Overview
+
+This guide provides a comprehensive walkthrough for collecting container resource metrics using the cAdvisor endpoint exposed by Kubelet on Kubernetes nodes. These metrics provide deep visibility into container performance, including CPU, memory, disk I/O, and network usage—essential for robust monitoring and troubleshooting.
+
+== Accessing cAdvisor Metrics from Kubelet
+
+Kubelet exposes cAdvisor(Container Advisor) metrics on the /metrics/cadvisor endpoint, accessible over port 10250 (TLS) or 10255 (non-TLS).
+
+The endpoint looks like this:
+----
+https://<node-ip>:10250/metrics/cadvisor
+----
+
+To verify:
+
+[source,terminal]
+----
+$ kubectl -n kube-system get service kubelet -o wide
+
+# Output
+NAME      TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)                        AGE   SELECTOR
+kubelet   ClusterIP   None         <none>        10250/TCP,10255/TCP,4194/TCP   26m   <none>
+----
+
+For details on the kubelet service, you can run the following command:
+
+[source,terminal]
+----
+$ kubectl -n kube-system get service kubelet -o yaml
+----
+
+Sample output:
+[source,yaml]
+----
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: "2025-06-06T20:32:07Z"
+  labels:
+    app.kubernetes.io/managed-by: prometheus-operator
+    app.kubernetes.io/name: kubelet
+    k8s-app: kubelet
+  name: kubelet
+  namespace: kube-system
+  resourceVersion: "29241"
+  uid: 57fe6d64-5a0f-496d-a900-2942ba59d79a
+spec:
+  clusterIP: None
+  clusterIPs:
+  - None
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  - IPv6
+  ipFamilyPolicy: RequireDualStack
+  ports:
+  - name: https-metrics
+    port: 10250
+    protocol: TCP
+    targetPort: 10250
+  - name: http-metrics
+    port: 10255
+    protocol: TCP
+    targetPort: 10255
+  - name: cadvisor
+    port: 4194
+    protocol: TCP
+    targetPort: 4194
+  sessionAffinity: None
+  type: ClusterIP
+status:
+  loadBalancer: {}
+----
+
+The port name `https-metrics` is used for secure metrics scraping, while `http-metrics` is for insecure metrics. Using 'https-metrics' is recommended for security reasons.
+
+NOTE:: Port 10250 requires authentication via bearer token or client certificates.
+
+TIP:: If the kubelet service is missing, install Prometheus Operator via Helm. It will provision the required service automatically.
+
+
+=== RBAC Configuration for Metrics Access
+
+To scrape Kubelet cAdvisor metrics, you need to ensure that the Prometheus service account has the necessary permissions. You can create a ClusterRole and ClusterRoleBinding to grant access to the Kubelet metrics.
+
+.kubelet-cadvisor-rbac.yaml
+[source,yaml]
+----
+# kubelet-scraper-sa.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubelet-scraper
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-targetallocator-rb-monitoring
+subjects:
+  - kind: ServiceAccount
+    name:  kubelet-scraper
+    namespace: monitoring
+roleRef:
+  kind: ClusterRole
+  name: otel-targetallocator-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-targetallocator-cr-rb-monitoring
+subjects:
+  - kind: ServiceAccount
+    name:  kubelet-scraper
+    namespace: monitoring
+roleRef:
+  kind: ClusterRole
+  name: otel-targetallocator-cr-role
+  apiGroup: rbac.authorization.k8s.io
+
+----
+
+The Cluster Roles `otel-targetallocator-role` and `otel-targetallocator-cr-role` was covered in the previous documentation on link:https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/metrics-otel-collector/[Collecting Metrics using OpenTelemetry Collector and Visualizing them using Prometheus and Grafana on Kubernetes]
+
+Apply it with:
+
+[source,terminal]
+----
+$ kubectl create namespace monitoring
+$ kubectl apply -f kubelet-cadvisor-rbac.yaml
+----
+
+=== Verifying Access to Kubelet cAdvisor Metrics
+
+To access the Kubelet cAdvisor metrics, you can use the following command to retrieve the metrics directly from the Kubelet API. This requires that you have access to the Kubernetes cluster and the necessary permissions to read the Kubelet metrics.
+
+Get Node IP addresses:
+[source,terminal]
+----
+$ kubectl get nodes -o wide
+----
+
+Use the internal IP address of one of the nodes to access the Kubelet metrics. The Kubelet API is typically available at `https://<node-ip>:10250/metrics/cadvisor`.
+
+Use busybox pod to access the Kubelet metrics. First, create a pod with the `kubelet-scraper` service account in the `monitoring` namespace. This pod will have the necessary permissions to access the Kubelet metrics.
+
+[source,terminal]
+----
+$ kubectl run -i -t --rm busybox --image=busybox --restart=Never --overrides='{"spec": { "serviceAccountName": "kubelet-scraper" } }' -n monitoring
+----
+
+Now, you are inside the busybox pod. First, retrieve the bearer token for authentication:
+
+.inside busybox pod
+[source,terminal]
+----
+# TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+
+# echo $TOKEN
+----
+
+Now, you can use `wget` to access the Kubelet cAdvisor metrics endpoint. Replace `<node-ip>` with the actual Internal IP address of your Kubernetes node:
+
+.inside busybox pod
+[source,terminal]
+----
+$ wget --no-check-certificate --header="Authorization: Bearer $TOKEN" https://192.168.39.48:10250/metrics/cadvisor -O -
+----
+
+Example Output:
+[source,terminal]
+----
+# HELP cadvisor_version_info A metric with a constant '1' value labeled by kernel version, OS version, docker version, cadvisor version & cadvisor revision.
+# TYPE cadvisor_version_info gauge
+cadvisor_version_info{cadvisorRevision="",cadvisorVersion="",dockerVersion="",kernelVersion="5.10.236-228.935.amzn2.x86_64",osVersion="Amazon Linux 2"} 1
+
+// Kubelet cAdvisor metrics - omitted for brevity
+
+# TYPE machine_swap_bytes gauge
+machine_swap_bytes{boot_id="810cc739-14e6-4fd5-855b-545e7a2b7c48",machine_id="ec2333bbe85a7b8da257530bee8bab25",system_uuid="ec2333bb-e85a-7b8d-a257-530bee8bab25"} 0
+-                    100% |*********************************************************************************************************************************************|  498k  0:00:00 ETA
+written to stdout
+----
+
+It returns a large number of metrics related to container resource usage, such as CPU, memory, disk I/O, and network statistics. You can use these metrics to monitor the performance of your containers and troubleshoot issues.
+
+In this example, we will use metrics filter to narrow down the metrics to a specific container, such as `otel-spring-example`, `react-o11y-app`, or 'cassandra'.
+
+== OpenTelemetry Collector Configuration
+
+This OpenTelemetry Collector configuration focuses on scraping Kubelet cAdvisor metrics. It includes the necessary receivers, processors, exporters, and service settings to collect and export Kubelet metrics.
+
+Configure the collector to scrape and filter Kubelet metrics:
+
+.kubelet-metrics-collector.yaml
+[source,yaml]
+----
+include::kubelet-metrics-collector.yaml[]
+----
+<1> Scrapes cAdvisor metrics via Prometheus receiver.
+<2> Applies filtering to reduce data volume.
+<3> Targets specific containers of interest.
+
+For details on the OpenTelemetry Collector Filter processor, refer to the link:https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/filterprocessor[Filter Processor documentation].
+
+Deploy with:
+
+[source,terminal]
+----
+$ kubectl apply -f kubelet-metrics-collector.yaml
+----
+
+== Setting up a ServiceMonitor
+
+Create a ServiceMonitor to instruct the OpenTelemetry Target Allocator:
+
+.kubelet-cadvisor-servicemonitor.yaml
+[source,yaml]
+----
+include::kubelet-cadvisor-servicemonitor.yaml[]
+----
+
+<1> The https-metrics port is used for secure scraping of Kubelet metrics, while the http-metrics port is used for insecure scraping. The cadvisor port is specifically for cAdvisor metrics.
+<2> The path is set to `/metrics/cadvisor`, which is the endpoint for Kubelet cAdvisor metrics.
+<3> The `kubelet-scraper` service account is used to authenticate the scraping of Kubelet metrics. This service account should have the necessary permissions to access the Kubelet metrics endpoint.
+
+Apply it:
+
+[source,terminal]
+----
+$ kubectl apply -f kubelet-cadvisor-servicemonitor.yaml
+----
+
+== Merging Metrics into Prometheus
+
+To forward these metrics to Prometheus:
+
+.kubelet-metrics-scrape-config.yaml
+[source,yaml]
+----
+include::kubelet-metrics-scrape-config.yaml[]
+----
+<1> This label selector is used to identify the ScrapeConfig that can be used by Prometheus to scrape metrics from the Kubelet cAdvisor endpoint.
+<2> The endpoint is the Prometheus exporter endpoint of the OpenTelemetry Collector that is scraping Kubelet cAdvisor metrics.
+
+
+Apply the scraping configuration to Prometheus:
+[source,terminal]
+----
+$ kubectl apply -f kubelet-metrics-scrape-config.yaml
+----
+
+
+== Visualizing with PromQL in Grafana
+
+Sample PromQL:
+
+.View container memory usage in Grafana
+[source,promql]
+----
+container_memory_usage_bytes
+----
+
+.Grafana UI - Exploring Container Memory Usage
+[.img-wide]
+image::grafana-container-memory-usage.png[]
+
+Note that the metrics include metrics related to containers including `otel-spring-example`, `react-o11y-app`, and 'cassandra'.
+
+
+.kubelet-metrics-collector.yaml - filter/containers
+[source,yaml]
+----
+      filter/containers:
+        error_mode: propagate
+        metrics:
+          datapoint:
+            - |
+              not ( attributes["container"] == "react-o11y-app"
+                or attributes["container"] == "otel-spring-example"
+                or attributes["container"] == "cassandra")
+----
+
+You can modify the queries to specify containers of interest.
+
+[source,sql]
+----
+container_memory_usage_bytes{container="otel-spring-example"} OR container_memory_usage_bytes{container="react-o11y-app"}
+----
+
+The following query can be used to see the File System Read Bytes for containers:
+
+.View file system read bytes
+[source,promql]
+----
+container_fs_reads_bytes_total
+----
+
+NOTE:: Metrics like container_fs_reads_bytes_total may be filtered out. To retain them, adjust the filter processor in the OpenTelemetry Collector config:
+
+
+.kubelet-metrics-collector.yaml - filter/metrics
+[source,yaml]
+----
+      filter/metrics:
+        metrics:
+          include:
+            match_type: regexp
+            metric_names:
+              - "^container_cpu.*"
+              - "^container_memory_.*"
+----
+
+You can see the result of the query in Grafana:
+
+.Grafana UI - Exploring Container File System Reads - No Data
+[.img-wide]
+image::grafana-container-fs-reads-nodata.png[]
+
+== Conclusion
+
+By integrating cAdvisor metrics exposed by Kubelet into your observability stack via OpenTelemetry Collector and Prometheus, you gain powerful insights into container-level performance across your Kubernetes nodes. This guide helps you configure access, scrape securely, filter meaningfully, and visualize effectively using Grafana.
+
+📘 View the web version:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/metrics-kubelet-cadvisor/
+

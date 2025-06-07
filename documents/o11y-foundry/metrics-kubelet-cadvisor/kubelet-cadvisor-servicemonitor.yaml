@@ -1,0 +1,28 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kubelet-cadvisor
+  namespace: kube-system
+  labels:
+    otel-collector: kubelet-metrics
+    metrics-unit: monitoring
+    release: otel                    # should match your OTEL Target Allocator or Prometheus selector
+spec:
+  jobLabel: k8s-app
+  selector:
+    matchLabels:
+      k8s-app: kubelet               # must match the label of the kubelet service
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  endpoints:
+    ## <1>
+    - port: https-metrics
+      scheme: https
+      interval: 30s
+      ## <2>
+      path: /metrics/cadvisor
+      tlsConfig:
+        insecureSkipVerify: true
+      ## <3>
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
