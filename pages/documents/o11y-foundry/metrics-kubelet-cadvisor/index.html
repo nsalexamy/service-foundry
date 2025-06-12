@@ -404,7 +404,104 @@ written to stdout</span></code></pre>
 <div class="listingblock">
 <div class="title">kubelet-metrics-collector.yaml</div>
 <div class="content">
-<pre class="rouge highlight"><code data-lang="yaml"><span class="s">Unresolved directive in index.adoc - include::kubelet-metrics-collector.yaml[]</span></code></pre>
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">opentelemetry.io/v1beta1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">OpenTelemetryCollector</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">kubelet-metrics</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">monitoring</span>
+
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">image</span><span class="pi">:</span> <span class="s">otel/opentelemetry-collector-contrib:0.127.0</span> <span class="c1"># 0.127.0 or later. latest is not recommended for production use.</span>
+  <span class="na">mode</span><span class="pi">:</span> <span class="s">statefulset</span>
+  <span class="na">serviceAccount</span><span class="pi">:</span> <span class="s">kubelet-scraper</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">1</span>
+  <span class="na">targetAllocator</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">serviceAccount</span><span class="pi">:</span> <span class="s">kubelet-scraper</span>
+    <span class="na">prometheusCR</span><span class="pi">:</span>
+      <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+      <span class="na">serviceMonitorSelector</span><span class="pi">:</span>
+        <span class="na">matchLabels</span><span class="pi">:</span>
+          <span class="na">otel-collector</span><span class="pi">:</span> <span class="s">kubelet-metrics</span>
+      <span class="c1">#podMonitorSelector: {}</span>
+
+
+  <span class="na">config</span><span class="pi">:</span>
+    <span class="na">receivers</span><span class="pi">:</span>
+      <span class="na">otlp</span><span class="pi">:</span>
+        <span class="na">protocols</span><span class="pi">:</span>
+          <span class="na">grpc</span><span class="pi">:</span>
+            <span class="na">endpoint</span><span class="pi">:</span> <span class="s">0.0.0.0:4317</span>
+          <span class="na">http</span><span class="pi">:</span>
+            <span class="na">endpoint</span><span class="pi">:</span> <span class="s">0.0.0.0:4318</span>
+
+      <span class="na">prometheus</span><span class="pi">:</span>
+        <span class="na">config</span><span class="pi">:</span>
+          <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+          <span class="na">scrape_configs</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">job_name</span><span class="pi">:</span> <span class="s1">'</span><span class="s">kubectl-metrics-collector-job'</span>
+              <span class="na">scrape_interval</span><span class="pi">:</span> <span class="s">30s</span>
+              <span class="na">static_configs</span><span class="pi">:</span>
+                <span class="pi">-</span> <span class="na">targets</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">0.0.0.0:8888'</span><span class="pi">]</span>
+
+    <span class="na">processors</span><span class="pi">:</span>
+      <span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+      <span class="na">filter/metrics</span><span class="pi">:</span>
+        <span class="na">metrics</span><span class="pi">:</span>
+          <span class="na">include</span><span class="pi">:</span>
+            <span class="na">match_type</span><span class="pi">:</span> <span class="s">regexp</span>
+            <span class="na">metric_names</span><span class="pi">:</span>
+              <span class="pi">-</span> <span class="s2">"</span><span class="s">^container_cpu.*"</span>
+              <span class="pi">-</span> <span class="s2">"</span><span class="s">^container_memory_.*"</span>
+<span class="c1">#            expressions:</span>
+<span class="c1">#              - 'attributes["container"] == "react-o11y-app"'</span>
+<span class="c1">#              - 'attributes["container"] == "otel-spring-example"'</span>
+<span class="c1">#              - 'resource.container == "react-o11y-app"'</span>
+<span class="c1">#              - 'resource.container == "otel-spring-example"'</span>
+      <span class="c1">#</span><i class="conum" data-value="3"></i><b>(3)</b>
+      <span class="na">filter/containers</span><span class="pi">:</span>
+        <span class="na">error_mode</span><span class="pi">:</span> <span class="s">propagate</span>
+        <span class="na">metrics</span><span class="pi">:</span>
+          <span class="na">datapoint</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="pi">|</span>
+              <span class="s">not ( attributes["container"] == "react-o11y-app"</span>
+                <span class="s">or attributes["container"] == "otel-spring-example"</span>
+                <span class="s">or attributes["container"] == "cassandra")</span>
+<span class="c1">#            - 'Not HasAttrOnDatapoint("container", "react-o11y-app") or HasAttrOnDatapoint("container", "otel-spring-example")' # Filter by container attribute</span>
+<span class="c1">#            - 'not (resource.attributes["container"] == "react-o11y-app")' # Exclude kubelet metrics</span>
+<span class="c1">#            - 'resource.attributes["namespace"] =="kube-system"' # Filter by namespace</span>
+<span class="c1">#            - 'resource.attributes["namespace"] =="default"' # Filter by namespace</span>
+<span class="c1">#            - 'resource.attributes["namespace"] =="monitoring"' # Filter by namespace</span>
+<span class="c1">#            - 'resource.attributes["namespace"] =="cert-manager"'</span>
+<span class="c1">#            - 'resource.attributes["namespace"] =="keycloak"' # Filter by namespace</span>
+<span class="c1">#            - 'resource.attributes["namespace"] =="kube-public"' # Filter by namespace</span>
+<span class="c1">#            - 'resource.attributes["namespace"] =="kube-node-lease"' # Filter by namespace</span>
+<span class="c1">#            - 'resource.attributes["namespace"] =="opentelemetry-operator-system"' # Filter by namespace</span>
+<span class="c1">#            - 'resource.attributes["namespace"] =="service-foundry"'</span>
+<span class="c1">#            - 'resource.attributes["namespace"] =="traefik"'# Filter by namespace and container</span>
+
+<span class="c1">#          include:</span>
+<span class="c1">#            match_type: expr</span>
+<span class="c1">#            expressions:</span>
+<span class="c1">#              - 'Label("container") == "react-o11y-app"' # Use OR within a single expression</span>
+<span class="c1">#              - 'attributes["container"] == "react-o11y-app" or attributes["container"] == "otel-spring-example"' # Use OR within a single expression</span>
+
+    <span class="c1">#              - 'resource.container == "kubelet"'</span>
+<span class="c1">#              - 'resource.container == "kube-proxy"'</span>
+
+    <span class="na">exporters</span><span class="pi">:</span>
+      <span class="na">debug</span><span class="pi">:</span>
+        <span class="na">verbosity</span><span class="pi">:</span> <span class="s">detailed</span>
+
+      <span class="na">prometheus</span><span class="pi">:</span>
+        <span class="na">endpoint</span><span class="pi">:</span> <span class="s2">"</span><span class="s">0.0.0.0:8889"</span>
+
+    <span class="na">service</span><span class="pi">:</span>
+      <span class="na">pipelines</span><span class="pi">:</span>
+        <span class="na">metrics</span><span class="pi">:</span>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp</span><span class="pi">,</span> <span class="nv">prometheus</span><span class="pi">]</span>
+          <span class="na">processors</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">filter/metrics</span><span class="pi">,</span> <span class="nv">filter/containers</span><span class="pi">]</span>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">debug</span><span class="pi">,</span> <span class="nv">prometheus</span><span class="pi">]</span></code></pre>
 </div>
 </div>
 <div class="colist arabic">
@@ -445,7 +542,34 @@ written to stdout</span></code></pre>
 <div class="listingblock">
 <div class="title">kubelet-cadvisor-servicemonitor.yaml</div>
 <div class="content">
-<pre class="rouge highlight"><code data-lang="yaml"><span class="s">Unresolved directive in index.adoc - include::kubelet-cadvisor-servicemonitor.yaml[]</span></code></pre>
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">monitoring.coreos.com/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceMonitor</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">kubelet-cadvisor</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">kube-system</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">otel-collector</span><span class="pi">:</span> <span class="s">kubelet-metrics</span>
+    <span class="na">metrics-unit</span><span class="pi">:</span> <span class="s">monitoring</span>
+    <span class="na">release</span><span class="pi">:</span> <span class="s">otel</span>                    <span class="c1"># should match your OTEL Target Allocator or Prometheus selector</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">jobLabel</span><span class="pi">:</span> <span class="s">k8s-app</span>
+  <span class="na">selector</span><span class="pi">:</span>
+    <span class="na">matchLabels</span><span class="pi">:</span>
+      <span class="na">k8s-app</span><span class="pi">:</span> <span class="s">kubelet</span>               <span class="c1"># must match the label of the kubelet service</span>
+  <span class="na">namespaceSelector</span><span class="pi">:</span>
+    <span class="na">matchNames</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">kube-system</span>
+  <span class="na">endpoints</span><span class="pi">:</span>
+    <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="pi">-</span> <span class="na">port</span><span class="pi">:</span> <span class="s">https-metrics</span>
+      <span class="na">scheme</span><span class="pi">:</span> <span class="s">https</span>
+      <span class="na">interval</span><span class="pi">:</span> <span class="s">30s</span>
+      <span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+      <span class="na">path</span><span class="pi">:</span> <span class="s">/metrics/cadvisor</span>
+      <span class="na">tlsConfig</span><span class="pi">:</span>
+        <span class="na">insecureSkipVerify</span><span class="pi">:</span> <span class="kc">true</span>
+      <span class="c1">#</span><i class="conum" data-value="3"></i><b>(3)</b>
+      <span class="na">bearerTokenFile</span><span class="pi">:</span> <span class="s">/var/run/secrets/kubernetes.io/serviceaccount/token</span></code></pre>
 </div>
 </div>
 <div class="colist arabic">
@@ -483,7 +607,24 @@ written to stdout</span></code></pre>
 <div class="listingblock">
 <div class="title">kubelet-metrics-scrape-config.yaml</div>
 <div class="content">
-<pre class="rouge highlight"><code data-lang="yaml"><span class="s">Unresolved directive in index.adoc - include::kubelet-metrics-scrape-config.yaml[]</span></code></pre>
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">monitoring.coreos.com/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ScrapeConfig</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">kubelet-metrics-scrape-config</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+<span class="c1">#  namespace: monitoring</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="na">prometheus</span><span class="pi">:</span> <span class="s">o11y-prometheus</span>
+
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">staticConfigs</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">labels</span><span class="pi">:</span>
+        <span class="na">job</span><span class="pi">:</span> <span class="s">kubelet-metrics-scrape-job</span>
+      <span class="na">targets</span><span class="pi">:</span>
+<span class="c1">#        - kubelet-metrics-collector:8889</span>
+        <span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+        <span class="pi">-</span> <span class="s">kubelet-metrics-collector.monitoring.svc:8889</span></code></pre>
 </div>
 </div>
 <div class="colist arabic">
