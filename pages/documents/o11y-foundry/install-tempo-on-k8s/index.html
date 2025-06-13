@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Deploying Grafana Tempo on Kubernetes: A Practical Guide</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">
+    Service Foundry
+</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/products/" class="">Products</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+        
+        <a href="/service-foundry/pages/demo/" class="">Demo</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="active">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Deploying Grafana Tempo on Kubernetes: A Practical Guide
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#why-we-migrated-from-jaeger-to-tempo">Why We Migrated from Jaeger to Tempo</a></li>
+<li><a href="#overview-of-tempo">Overview of Tempo</a>
+<ul class="sectlevel2">
+<li><a href="#key-advantages">Key Advantages</a></li>
+</ul>
+</li>
+<li><a href="#prerequisites">Prerequisites</a>
+<ul class="sectlevel2">
+<li><a href="#add-the-tempo-helm-repository">Add the Tempo Helm Repository</a></li>
+<li><a href="#search-the-tempo-helm-chart">Search the Tempo Helm Chart</a></li>
+<li><a href="#choose-between-tempo-and-tempo-distributed">Choose Between Tempo and Tempo Distributed</a></li>
+<li><a href="#download-the-tempo-chart">Download the Tempo Chart</a></li>
+<li><a href="#inspect-default-helm-values">Inspect Default Helm Values</a></li>
+</ul>
+</li>
+<li><a href="#deploying-tempo-with-local-storage">Deploying Tempo with Local Storage</a>
+<ul class="sectlevel2">
+<li><a href="#create-tempo-local-storage-values-yaml">Create tempo-local-storage-values.yaml</a></li>
+<li><a href="#install-tempo-with-local-storage">Install Tempo with Local Storage</a></li>
+</ul>
+</li>
+<li><a href="#deploying-tempo-with-s3-storage">Deploying Tempo with S3 Storage</a>
+<ul class="sectlevel2">
+<li><a href="#create-s3-bucket">Create S3 Bucket</a></li>
+<li><a href="#create-secret-for-s3-credentials">Create Secret for S3 Credentials</a></li>
+<li><a href="#tempo-s3-values-yaml">tempo-s3-values.yaml</a></li>
+<li><a href="#install-tempo-with-s3-configuration">Install Tempo with S3 Configuration</a></li>
+<li><a href="#upgrade-tempo-with-s3-configuration">Upgrade Tempo with S3 Configuration</a></li>
+<li><a href="#uninstall-tempo">Uninstall Tempo</a></li>
+</ul>
+</li>
+<li><a href="#configuring-opentelemetry-collector">Configuring OpenTelemetry Collector</a></li>
+<li><a href="#grafana-configuration-for-tempo">Grafana Configuration for Tempo</a></li>
+<li><a href="#exploring-traces-in-grafana">Exploring Traces in Grafana</a>
+<ul class="sectlevel2">
+<li><a href="#exploring-traces-in-grafana-2">Exploring Traces in Grafana</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/lgtm-tempo-for-traces.png" alt="lgtm tempo for traces">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide provides a comprehensive walkthrough for deploying Grafana Tempo on a Kubernetes cluster. Tempo is a high-performance, distributed tracing backend that is part of the Grafana Labs observability suite. Designed to ingest large volumes of trace data efficiently, Tempo integrates seamlessly with Grafana for trace visualization.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="why-we-migrated-from-jaeger-to-tempo">Why We Migrated from Jaeger to Tempo</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Previously, our trace pipeline was configured as follows:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>OpenTelemetry Collector received traces via OTLP from applications.</p>
+</li>
+<li>
+<p>The OTLP/Jaeger exporter forwarded traces to the Jaeger v2 Collector.</p>
+</li>
+<li>
+<p>The Jaeger Collector stored traces in a Cassandra cluster.</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>I used to implement the data flow for traces below:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>OTLP Receiver in Otel Collector handles Traces from applications</p>
+</li>
+<li>
+<p>The OTLP/Jaeger Exporter sends the traces to Jaeger V2 Collector</p>
+</li>
+<li>
+<p>Jaeger V2 Collector stores traces into Cassandra Cluster</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>While this setup worked under light workloads, it became unstable under heavy trace loads. The OpenTelemetry Collector experienced degraded performance when forwarding traces to Jaeger, often due to collector unresponsiveness. Additionally, Jaeger’s documentation lacked clarity, and improvements to the project have been slow.</p>
+</div>
+<div class="paragraph">
+<p>As a result, we adopted Tempo for its scalability, active development, and stronger integration with the OpenTelemetry ecosystem.</p>
+</div>
+<details>
+<summary class="title">Error messages regarding jeager-otlp-exporter</summary>
+<div class="content">
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="console"><span class="go">2025-06-11T06:15:57.472Z	info	internal/retry_sender.go:133	Exporting failed. Will retry the request after interval.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "rpc error: code = DeadlineExceeded desc = context deadline exceeded", "interval": "27.486363199s"}
+2025-06-11T06:16:17.124Z	info	internal/retry_sender.go:133	Exporting failed. Will retry the request after interval.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "rpc error: code = DeadlineExceeded desc = context deadline exceeded", "interval": "35.903204822s"}
+2025-06-11T06:16:29.970Z	info	internal/retry_sender.go:133	Exporting failed. Will retry the request after interval.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "rpc error: code = DeadlineExceeded desc = stream terminated by RST_STREAM with error code: CANCEL", "interval": "43.439142489s"}
+2025-06-11T06:16:58.029Z	error	internal/queue_sender.go:57	Exporting failed. Dropping data.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "no more retries left: rpc error: code = DeadlineExceeded desc = stream terminated by RST_STREAM with error code: CANCEL", "dropped_items": 90}
+go.opentelemetry.io/collector/exporter/exporterhelper/internal.NewQueueSender.func1
+	go.opentelemetry.io/collector/exporter@v0.127.0/exporterhelper/internal/queue_sender.go:57
+go.opentelemetry.io/collector/exporter/exporterhelper/internal/queuebatch.(*disabledBatcher[...]).Consume
+	go.opentelemetry.io/collector/exporter@v0.127.0/exporterhelper/internal/queuebatch/disabled_batcher.go:22
+go.opentelemetry.io/collector/exporter/exporterhelper/internal/queuebatch.(*asyncQueue[...]).Start.func1
+	go.opentelemetry.io/collector/exporter@v0.127.0/exporterhelper/internal/queuebatch/async_queue.go:47
+2025-06-11T06:17:18.410Z	error	internal/queue_sender.go:57	Exporting failed. Dropping data.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "no more retries left: rpc error: code = DeadlineExceeded desc = context deadline exceeded", "dropped_items": 87}
+go.opentelemetry.io/collector/exporter/exporterhelper/internal.NewQueueSender.func1
+	go.opentelemetry.io/collector/exporter@v0.127.0/exporterhelper/internal/queue_sender.go:57
+go.opentelemetry.io/collector/exporter/exporterhelper/internal/queuebatch.(*disabledBatcher[...]).Consume
+	go.opentelemetry.io/collector/exporter@v0.127.0/exporterhelper/internal/queuebatch/disabled_batcher.go:22
+go.opentelemetry.io/collector/exporter/exporterhelper/internal/queuebatch.(*asyncQueue[...]).Start.func1
+	go.opentelemetry.io/collector/exporter@v0.127.0/exporterhelper/internal/queuebatch/async_queue.go:47</span></code></pre>
+</div>
+</div>
+</div>
+</details>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview-of-tempo">Overview of Tempo</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Tempo is a scalable, distributed backend for tracing that supports high-throughput ingestion and storage of trace data. It is optimized for integration with the broader Grafana stack and supports both single-binary and distributed deployment modes.</p>
+</div>
+<div class="sect2">
+<h3 id="key-advantages">Key Advantages</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Scalability</strong> – Handles large volumes of trace data efficiently.</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Cost-Effective Storage** – Uses object storage for traces.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Grafana Integration</strong> – Native support for visualization alongside logs and metrics.</p>
+</li>
+<li>
+<p><strong>OpenTelemetry Support</strong> – Easily ingests data using the OTLP protocol.</p>
+</li>
+<li>
+<p><strong>Flexible Deployment</strong> – Supports both single-binary and distributed modes.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="prerequisites">Prerequisites</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="add-the-tempo-helm-repository">Add the Tempo Helm Repository</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm repo add grafana https://grafana.github.io/helm-charts
+<span class="gp">$</span><span class="w"> </span>helm repo update grafana</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="search-the-tempo-helm-chart">Search the Tempo Helm Chart</h3>
+<div class="paragraph">
+<p>Confirm that which version of Tempo is available in the Grafana Helm repository. You can search for the Tempo chart using the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm search repo grafana/tempo
+<span class="go">
+NAME                            CHART VERSION   APP VERSION     DESCRIPTION
+grafana/tempo                   1.23.0          2.8.0           Grafana Tempo Single Binary Mode
+grafana/tempo-distributed       1.42.0          2.8.0           Grafana Tempo in MicroService mode
+grafana/tempo-vulture           0.8.0           2.6.1           Grafana Tempo Vulture - A tool to monitor Tempo...
+</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="choose-between-tempo-and-tempo-distributed">Choose Between Tempo and Tempo Distributed</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Tempo (Single Binary)</strong>: Ideal for development and small-scale use.</p>
+</li>
+<li>
+<p><strong>Tempo Distributed</strong>: Microservices-based architecture for production use.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>This guide focuses on deploying Tempo in <strong>Single Binary</strong> mode.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="download-the-tempo-chart">Download the Tempo Chart</h3>
+<div class="paragraph">
+<p>The command below downloads the Tempo Helm chart version 1.23.0 from the Grafana repository. You can specify a different version if needed.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm pull grafana/tempo <span class="nt">--version</span> 1.23.0</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The tempo-1.23.0.tgz file is downloaded to your current directory. This file contains the Helm chart for Tempo, which you can use to deploy Tempo on your Kubernetes cluster.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="inspect-default-helm-values">Inspect Default Helm Values</h3>
+<div class="paragraph">
+<p>Understanding the default values of the Helm chart is crucial for customizing your deployment. You can view the default values by running the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm show values grafana/tempo <span class="nt">--version</span> 1.23.0 <span class="o">&gt;</span> tempo-values-1.23.0.yaml</code></pre>
+</div>
+</div>
+<div class="sect3">
+<h4 id="create-namespace">Create namespace</h4>
+<div class="paragraph">
+<p>Before installing Tempo, ensure that the <code>o11y</code> namespace exists in your Kubernetes cluster. If it does not exist, you can create it using the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl get namespace o11y &amp;&gt; /dev/null <span class="o">||</span> kubectl create namespace o11y</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deploying-tempo-with-local-storage">Deploying Tempo with Local Storage</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="create-tempo-local-storage-values-yaml">Create tempo-local-storage-values.yaml</h3>
+<div class="paragraph">
+<p>This file is used to override the default values for the Tempo installation on Kubernetes. It specifies the number of replicas and local storage settings.</p>
+</div>
+<div class="listingblock">
+<div class="title">tempo-local-storage-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">replicas</span><span class="pi">:</span> <span class="m">2</span>
+
+<span class="na">tempo</span><span class="pi">:</span>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">limits</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">1000m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">1Gi</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">300m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">200Mi</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-tempo-with-local-storage">Install Tempo with Local Storage</h3>
+<div class="paragraph">
+<p>Run the following command to install Tempo using the Helm chart with local storage. This command installs Tempo in the <code>o11y</code> namespace and creates the namespace if it does not exist:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm <span class="nb">install </span>tempo grafana/tempo <span class="se">\</span>
+<span class="go">  --namespace o11y \
+  --create-namespace \
+  --version 1.23.0 \
+  --values tempo-local-storage-values.yaml</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Example output:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="console"><span class="go">NAME: tempo
+LAST DEPLOYED: Wed Jun 11 18:00:26 2025
+NAMESPACE: tempo
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deploying-tempo-with-s3-storage">Deploying Tempo with S3 Storage</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Make sure you have an AWS account and the AWS CLI installed and configured with the necessary permissions to create S3 buckets and secrets.</p>
+</div>
+<div class="sect2">
+<h3 id="create-s3-bucket">Create S3 Bucket</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="nv">S3_BUCKET_NAME</span><span class="o">=</span>your-bucket-name
+<span class="go">
+</span><span class="gp">$</span><span class="w"> </span>aws s3 mb s3://<span class="nv">$S3_BUCKET_NAME</span> <span class="nt">--region</span> <span class="nv">$AWS_REGION</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-secret-for-s3-credentials">Create Secret for S3 Credentials</h3>
+<div class="paragraph">
+<p>You need to create a Kubernetes secret to store your AWS credentials for accessing the S3 bucket. Replace <code>your-aws-access-key-id</code> and <code>your-aws-secret-access-key</code> with your actual AWS credentials.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl create secret generic aws-secret <span class="se">\</span>
+<span class="go">  --from-literal=AWS_ACCESS_KEY_ID=your-access-key \
+  --from-literal=AWS_SECRET_ACCESS_KEY=your-secret-key \
+  -n o11y</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="tempo-s3-values-yaml">tempo-s3-values.yaml</h3>
+<div class="listingblock">
+<div class="title">tempo-s3-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># This file is used to override the default values for the Tempo installation on Kubernetes.</span>
+
+<span class="na">replicas</span><span class="pi">:</span> <span class="m">2</span>
+
+<span class="na">tempo</span><span class="pi">:</span>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">limits</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">1000m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">1Gi</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">300m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">200Mi</span>
+
+  <span class="na">storage</span><span class="pi">:</span>
+    <span class="na">trace</span><span class="pi">:</span>
+      <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+      <span class="na">backend</span><span class="pi">:</span> <span class="s">s3</span>
+      <span class="na">s3</span><span class="pi">:</span>
+        <span class="na">bucket</span><span class="pi">:</span> <span class="s2">"</span><span class="s">your-bucket-name"</span> <span class="c1"># Replace with your S3 bucket name</span>
+        <span class="na">endpoint</span><span class="pi">:</span> <span class="s2">"</span><span class="s">s3.amazonaws.com"</span>
+        <span class="na">region</span><span class="pi">:</span> <span class="s2">"</span><span class="s">your-region"</span> <span class="c1"># Replace with your AWS region, e.g., us-west-2</span>
+        <span class="na">prefix</span><span class="pi">:</span> <span class="s2">"</span><span class="s">tempo"</span>
+        <span class="na">insecure</span><span class="pi">:</span> <span class="kc">false</span>
+
+  <span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+  <span class="na">extraEnvFrom</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">secretRef</span><span class="pi">:</span>
+        <span class="na">name</span><span class="pi">:</span> <span class="s">aws-secret</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The <code>backend</code> is set to <code>s3</code>, and the S3 bucket, endpoint, region, and prefix are specified for trace storage.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The <code>extraEnvFrom</code> section is used to reference the Kubernetes secret containing AWS credentials, allowing Tempo to access the S3 bucket.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-tempo-with-s3-configuration">Install Tempo with S3 Configuration</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm <span class="nb">install </span>tempo grafana/tempo <span class="se">\</span>
+<span class="go">  --namespace o11y \
+  --create-namespace \
+  --version 1.23.0 \
+  --values tempo-s3-values.yaml</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Example output:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="console"><span class="go">NAME: tempo
+LAST DEPLOYED: Thu Jun 12 16:41:25 2025
+NAMESPACE: o11y
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="upgrade-tempo-with-s3-configuration">Upgrade Tempo with S3 Configuration</h3>
+<div class="listingblock terminal">
+<div class="content">
+<pre>$ helm upgrade --install tempo grafana/tempo \
+  --namespace o11y \
+  --create-namespace \
+  --version 1.23.0 \
+  --values tempo-s3-values.yaml</pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="uninstall-tempo">Uninstall Tempo</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm uninstall tempo <span class="nt">-n</span> o11y</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="configuring-opentelemetry-collector">Configuring OpenTelemetry Collector</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To forward traces to Tempo, configure the OpenTelemetry Collector with the OTLP exporter:</p>
+</div>
+<div class="listingblock">
+<div class="title">otel-collector.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">spec</span><span class="pi">:</span>
+  <span class="na">config</span><span class="pi">:</span>
+    <span class="na">exporters</span><span class="pi">:</span>
+      <span class="c1"># other exporters can be added here</span>
+
+      <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+      <span class="na">otlp/tempo</span><span class="pi">:</span>
+        <span class="na">endpoint</span><span class="pi">:</span> <span class="s">http://tempo.o11y.svc:4317</span>
+        <span class="na">tls</span><span class="pi">:</span>
+          <span class="na">insecure</span><span class="pi">:</span> <span class="kc">true</span>
+
+    <span class="na">service</span><span class="pi">:</span>
+      <span class="na">pipelines</span><span class="pi">:</span>
+        <span class="na">traces</span><span class="pi">:</span>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp</span><span class="pi">]</span>
+          <span class="na">processors</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">memory_limiter</span><span class="pi">,</span> <span class="nv">batch</span><span class="pi">]</span>
+          <span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp/tempo</span><span class="pi">,</span> <span class="nv">spanmetrics</span><span class="pi">]</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The <code>otlp/tempo</code> exporter is configured to send traces to Tempo using the OTLP protocol. The endpoint is set to the Tempo service URL.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The 'otlp/tempo' exporter is added to the traces pipeline, allowing the OpenTelemetry Collector to send traces to Tempo.</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="grafana-configuration-for-tempo">Grafana Configuration for Tempo</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In the Grafana UI:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Navigate to <strong>Configuration &gt; Data Sources</strong>.</p>
+</li>
+<li>
+<p>Add a new data source.</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>Use the following settings:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Name</strong>: tempo</p>
+</li>
+<li>
+<p><strong>URL</strong>: <a href="http://tempo.o11y.svc:3100" class="bare">http://tempo.o11y.svc:3100</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="exploring-traces-in-grafana">Exploring Traces in Grafana</h2>
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-datasources-tempo.png" alt="grafana datasources tempo">
+</div>
+<div class="title">Figure 1. Grafana UI - Data Sources</div>
+</div>
+<div class="sect2">
+<h3 id="exploring-traces-in-grafana-2">Exploring Traces in Grafana</h3>
+<div class="paragraph">
+<p>Go to Explore, select the Tempo data source, and run trace queries.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-tempo-search.png" alt="grafana tempo search">
+</div>
+<div class="title">Figure 2. Grafana UI - Tempo Traces</div>
+</div>
+<div class="paragraph">
+<p>Click on any trace to inspect span details, attributes.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-tempo-details.png" alt="grafana tempo details">
+</div>
+<div class="title">Figure 3. Grafana UI - Tempo Trace Details</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide covered how to install Grafana Tempo on Kubernetes using both local and S3 storage options. We also demonstrated how to configure the OpenTelemetry Collector to export traces to Tempo and integrate Tempo with Grafana for visualization and analysis.</p>
+</div>
+<div class="paragraph">
+<p>📘 View the web version:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/install-tempo-on-k8s/" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/install-tempo-on-k8s/</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>

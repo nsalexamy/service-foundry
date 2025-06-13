@@ -1,0 +1,369 @@
+---
+layout: documents
+title: "Deploying Grafana Tempo on Kubernetes: A Practical Guide"
+summary: "In this article, I share a hands-on guide for deploying Grafana Tempo, a high-scale distributed tracing backend, on Kubernetes. The guide covers why we transitioned from Jaeger to Tempo, how to install it using Helm with local or S3-based storage, and how to integrate it with OpenTelemetry and Grafana. You’ll also learn how to configure the OpenTelemetry Collector to export traces and explore trace data through Grafana’s UI. This setup is ideal for teams building a modern observability stack in cloud-native environments."
+tags: #Kubernetes #OpenTelemetry #Grafana #Tempo #DistributedTracing #DevOps #CloudNative #Observability #SRE #Helm #Jaeger #Prometheus
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+
+// docs/grafana-lab/tempo/install-tempo-on-k8s/index.ado
+
+= Deploying Grafana Tempo on Kubernetes: A Practical Guide
+
+:imagesdir: images
+
+[.img-wide]
+image::lgtm-tempo-for-traces.png[]
+
+== Introduction
+
+This guide provides a comprehensive walkthrough for deploying Grafana Tempo on a Kubernetes cluster. Tempo is a high-performance, distributed tracing backend that is part of the Grafana Labs observability suite. Designed to ingest large volumes of trace data efficiently, Tempo integrates seamlessly with Grafana for trace visualization.
+
+== Why We Migrated from Jaeger to Tempo
+
+Previously, our trace pipeline was configured as follows:
+
+. OpenTelemetry Collector received traces via OTLP from applications.
+. The OTLP/Jaeger exporter forwarded traces to the Jaeger v2 Collector.
+. The Jaeger Collector stored traces in a Cassandra cluster.
+
+
+I used to implement the data flow for traces below:
+
+. OTLP Receiver in Otel Collector handles Traces from applications
+. The OTLP/Jaeger Exporter sends the traces to Jaeger V2 Collector
+. Jaeger V2 Collector stores traces into Cassandra Cluster
+
+While this setup worked under light workloads, it became unstable under heavy trace loads. The OpenTelemetry Collector experienced degraded performance when forwarding traces to Jaeger, often due to collector unresponsiveness. Additionally, Jaeger’s documentation lacked clarity, and improvements to the project have been slow.
+
+As a result, we adopted Tempo for its scalability, active development, and stronger integration with the OpenTelemetry ecosystem.
+
+.Error messages regarding jeager-otlp-exporter
+[%collapsible%]
+====
+[source,console]
+----
+2025-06-11T06:15:57.472Z	info	internal/retry_sender.go:133	Exporting failed. Will retry the request after interval.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "rpc error: code = DeadlineExceeded desc = context deadline exceeded", "interval": "27.486363199s"}
+2025-06-11T06:16:17.124Z	info	internal/retry_sender.go:133	Exporting failed. Will retry the request after interval.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "rpc error: code = DeadlineExceeded desc = context deadline exceeded", "interval": "35.903204822s"}
+2025-06-11T06:16:29.970Z	info	internal/retry_sender.go:133	Exporting failed. Will retry the request after interval.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "rpc error: code = DeadlineExceeded desc = stream terminated by RST_STREAM with error code: CANCEL", "interval": "43.439142489s"}
+2025-06-11T06:16:58.029Z	error	internal/queue_sender.go:57	Exporting failed. Dropping data.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "no more retries left: rpc error: code = DeadlineExceeded desc = stream terminated by RST_STREAM with error code: CANCEL", "dropped_items": 90}
+go.opentelemetry.io/collector/exporter/exporterhelper/internal.NewQueueSender.func1
+	go.opentelemetry.io/collector/exporter@v0.127.0/exporterhelper/internal/queue_sender.go:57
+go.opentelemetry.io/collector/exporter/exporterhelper/internal/queuebatch.(*disabledBatcher[...]).Consume
+	go.opentelemetry.io/collector/exporter@v0.127.0/exporterhelper/internal/queuebatch/disabled_batcher.go:22
+go.opentelemetry.io/collector/exporter/exporterhelper/internal/queuebatch.(*asyncQueue[...]).Start.func1
+	go.opentelemetry.io/collector/exporter@v0.127.0/exporterhelper/internal/queuebatch/async_queue.go:47
+2025-06-11T06:17:18.410Z	error	internal/queue_sender.go:57	Exporting failed. Dropping data.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "no more retries left: rpc error: code = DeadlineExceeded desc = context deadline exceeded", "dropped_items": 87}
+go.opentelemetry.io/collector/exporter/exporterhelper/internal.NewQueueSender.func1
+	go.opentelemetry.io/collector/exporter@v0.127.0/exporterhelper/internal/queue_sender.go:57
+go.opentelemetry.io/collector/exporter/exporterhelper/internal/queuebatch.(*disabledBatcher[...]).Consume
+	go.opentelemetry.io/collector/exporter@v0.127.0/exporterhelper/internal/queuebatch/disabled_batcher.go:22
+go.opentelemetry.io/collector/exporter/exporterhelper/internal/queuebatch.(*asyncQueue[...]).Start.func1
+	go.opentelemetry.io/collector/exporter@v0.127.0/exporterhelper/internal/queuebatch/async_queue.go:47
+----
+====
+
+== Overview of Tempo
+
+Tempo is a scalable, distributed backend for tracing that supports high-throughput ingestion and storage of trace data. It is optimized for integration with the broader Grafana stack and supports both single-binary and distributed deployment modes.
+
+=== Key Advantages
+
+
+* *Scalability* – Handles large volumes of trace data efficiently.
+*** Cost-Effective Storage** – Uses object storage for traces.
+* *Grafana Integration* – Native support for visualization alongside logs and metrics.
+* *OpenTelemetry Support* – Easily ingests data using the OTLP protocol.
+* *Flexible Deployment* – Supports both single-binary and distributed modes.
+
+== Prerequisites
+
+=== Add the Tempo Helm Repository
+
+
+[,terminal]
+----
+$ helm repo add grafana https://grafana.github.io/helm-charts
+$ helm repo update grafana
+----
+
+=== Search the Tempo Helm Chart
+
+Confirm that which version of Tempo is available in the Grafana Helm repository. You can search for the Tempo chart using the following command:
+
+[,terminal]
+----
+$ helm search repo grafana/tempo
+
+NAME                            CHART VERSION   APP VERSION     DESCRIPTION
+grafana/tempo                   1.23.0          2.8.0           Grafana Tempo Single Binary Mode
+grafana/tempo-distributed       1.42.0          2.8.0           Grafana Tempo in MicroService mode
+grafana/tempo-vulture           0.8.0           2.6.1           Grafana Tempo Vulture - A tool to monitor Tempo...
+
+----
+
+=== Choose Between Tempo and Tempo Distributed
+
+* *Tempo (Single Binary)*: Ideal for development and small-scale use.
+
+* *Tempo Distributed*: Microservices-based architecture for production use.
+
+This guide focuses on deploying Tempo in *Single Binary* mode.
+
+
+=== Download the Tempo Chart
+
+The command below downloads the Tempo Helm chart version 1.23.0 from the Grafana repository. You can specify a different version if needed.
+
+[,terminal]
+----
+$ helm pull grafana/tempo --version 1.23.0
+----
+
+The tempo-1.23.0.tgz file is downloaded to your current directory. This file contains the Helm chart for Tempo, which you can use to deploy Tempo on your Kubernetes cluster.
+
+=== Inspect Default Helm Values
+
+Understanding the default values of the Helm chart is crucial for customizing your deployment. You can view the default values by running the following command:
+
+[,terminal]
+----
+$ helm show values grafana/tempo --version 1.23.0 > tempo-values-1.23.0.yaml
+----
+
+
+==== Create namespace
+
+Before installing Tempo, ensure that the `o11y` namespace exists in your Kubernetes cluster. If it does not exist, you can create it using the following command:
+[,terminal]
+----
+$ kubectl get namespace o11y &> /dev/null || kubectl create namespace o11y
+----
+
+== Deploying Tempo with Local Storage
+
+=== Create tempo-local-storage-values.yaml
+
+This file is used to override the default values for the Tempo installation on Kubernetes. It specifies the number of replicas and local storage settings.
+
+.tempo-local-storage-values.yaml
+[source,yaml]
+----
+replicas: 2
+
+tempo:
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 300m
+      memory: 200Mi
+----
+
+=== Install Tempo with Local Storage
+
+Run the following command to install Tempo using the Helm chart with local storage. This command installs Tempo in the `o11y` namespace and creates the namespace if it does not exist:
+
+[,terminal]
+----
+$ helm install tempo grafana/tempo \
+  --namespace o11y \
+  --create-namespace \
+  --version 1.23.0 \
+  --values tempo-local-storage-values.yaml
+----
+
+Example output:
+[source,console]
+----
+NAME: tempo
+LAST DEPLOYED: Wed Jun 11 18:00:26 2025
+NAMESPACE: tempo
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+----
+
+
+== Deploying Tempo with S3 Storage
+
+Make sure you have an AWS account and the AWS CLI installed and configured with the necessary permissions to create S3 buckets and secrets.
+
+=== Create S3 Bucket
+
+[,terminal]
+----
+$ S3_BUCKET_NAME=your-bucket-name
+
+$ aws s3 mb s3://$S3_BUCKET_NAME --region $AWS_REGION
+----
+
+=== Create Secret for S3 Credentials
+
+You need to create a Kubernetes secret to store your AWS credentials for accessing the S3 bucket. Replace `your-aws-access-key-id` and `your-aws-secret-access-key` with your actual AWS credentials.
+
+[,terminal]
+----
+$ kubectl create secret generic aws-secret \
+  --from-literal=AWS_ACCESS_KEY_ID=your-access-key \
+  --from-literal=AWS_SECRET_ACCESS_KEY=your-secret-key \
+  -n o11y
+----
+
+
+=== tempo-s3-values.yaml
+
+.tempo-s3-values.yaml
+[source,yaml]
+----
+# This file is used to override the default values for the Tempo installation on Kubernetes.
+
+replicas: 2
+
+tempo:
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 300m
+      memory: 200Mi
+
+  storage:
+    trace:
+      ## <1>
+      backend: s3
+      s3:
+        bucket: "your-bucket-name" # Replace with your S3 bucket name
+        endpoint: "s3.amazonaws.com"
+        region: "your-region" # Replace with your AWS region, e.g., us-west-2
+        prefix: "tempo"
+        insecure: false
+
+  ## <2>
+  extraEnvFrom:
+    - secretRef:
+        name: aws-secret
+----
+<1> The `backend` is set to `s3`, and the S3 bucket, endpoint, region, and prefix are specified for trace storage.
+<2> The `extraEnvFrom` section is used to reference the Kubernetes secret containing AWS credentials, allowing Tempo to access the S3 bucket.
+
+
+
+=== Install Tempo with S3 Configuration
+
+[,terminal]
+----
+$ helm install tempo grafana/tempo \
+  --namespace o11y \
+  --create-namespace \
+  --version 1.23.0 \
+  --values tempo-s3-values.yaml
+----
+
+Example output:
+[source,console]
+----
+NAME: tempo
+LAST DEPLOYED: Thu Jun 12 16:41:25 2025
+NAMESPACE: o11y
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+
+----
+
+=== Upgrade Tempo with S3 Configuration
+
+[.terminal]
+----
+$ helm upgrade --install tempo grafana/tempo \
+  --namespace o11y \
+  --create-namespace \
+  --version 1.23.0 \
+  --values tempo-s3-values.yaml
+----
+
+=== Uninstall Tempo
+[,terminal]
+----
+$ helm uninstall tempo -n o11y
+----
+
+== Configuring OpenTelemetry Collector
+
+To forward traces to Tempo, configure the OpenTelemetry Collector with the OTLP exporter:
+
+.otel-collector.yaml
+[source,yaml]
+----
+spec:
+  config:
+    exporters:
+      # other exporters can be added here
+
+      ## <1>
+      otlp/tempo:
+        endpoint: http://tempo.o11y.svc:4317
+        tls:
+          insecure: true
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          ## <2>
+          exporters: [otlp/tempo, spanmetrics]
+----
+<1> The `otlp/tempo` exporter is configured to send traces to Tempo using the OTLP protocol. The endpoint is set to the Tempo service URL.
+<2> The 'otlp/tempo' exporter is added to the traces pipeline, allowing the OpenTelemetry Collector to send traces to Tempo.
+
+== Grafana Configuration for Tempo
+
+In the Grafana UI:
+
+. Navigate to *Configuration > Data Sources*.
+. Add a new data source.
+
+Use the following settings:
+
+* **Name**: tempo
+* **URL**: http://tempo.o11y.svc:3100
+
+== Exploring Traces in Grafana
+
+.Grafana UI - Data Sources
+[.img-wide]
+image::grafana-datasources-tempo.png[]
+
+=== Exploring Traces in Grafana
+
+Go to Explore, select the Tempo data source, and run trace queries.
+
+.Grafana UI - Tempo Traces
+[.img-wide]
+image::grafana-tempo-search.png[]
+
+Click on any trace to inspect span details, attributes.
+
+.Grafana UI - Tempo Trace Details
+[.img-wide]
+image::grafana-tempo-details.png[]
+
+== Conclusion
+
+This guide covered how to install Grafana Tempo on Kubernetes using both local and S3 storage options. We also demonstrated how to configure the OpenTelemetry Collector to export traces to Tempo and integrate Tempo with Grafana for visualization and analysis.
+
+📘 View the web version:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/install-tempo-on-k8s/
