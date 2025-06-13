@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Jaeger Collector Issue</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#otel-collector-issue-with-jaeger-collector">Otel Collector Issue with Jaeger Collector</a></li>
+</ul>
+</div>
+<div class="sect1">
+<h2 id="otel-collector-issue-with-jaeger-collector">Otel Collector Issue with Jaeger Collector</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>when making a bunch of requests to the Jaeger collector, it seems that the collector is not able to handle the load and starts dropping data. This is evident from the logs where it shows "Exporting failed. Dropping data." with a specific error message indicating that no more retries are left.</p>
+</div>
+<div class="paragraph">
+<p>The command below simulates making 200 requests to the Jaeger collector with a specific error condition (in this case, a 0.1 second delay). The collector is configured to retry failed exports, but after several attempts, it eventually drops the data due to the inability to successfully export the traces.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="k">for </span>i <span class="k">in</span> <span class="o">{</span>1..200<span class="o">}</span><span class="p">;</span> <span class="k">do </span>curl http://localhost:8080/error/cause/0.1<span class="p">;</span> <span class="k">done</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>A while later, the Jaeger collector logs show that it is still trying to export traces but is encountering issues with deadlines being exceeded and streams being terminated by RST_STREAM with error code CANCEL. Eventually, it reaches a point where it has no more retries left and starts dropping data.</p>
+</div>
+<div class="paragraph">
+<p>Once this happens, your Collector enters a degraded state — trace data is received but cannot be exported, and eventually the queue keeps dropping spans unless you restart or relieve the load.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="go">2025-06-11T20:53:15.247Z	info	internal/retry_sender.go:133	Exporting failed. Will retry the request after interval.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "rpc error: code = DeadlineExceeded desc = context deadline exceeded", "interval": "44.547949526s"}
+2025-06-11T20:53:42.907Z	info	internal/retry_sender.go:133	Exporting failed. Will retry the request after interval.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "rpc error: code = DeadlineExceeded desc = stream terminated by RST_STREAM with error code: CANCEL", "interval": "20.05360616s"}
+2025-06-11T20:54:04.799Z	info	internal/retry_sender.go:133	Exporting failed. Will retry the request after interval.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "rpc error: code = DeadlineExceeded desc = stream terminated by RST_STREAM with error code: CANCEL", "interval": "21.42405197s"}
+2025-06-11T20:54:07.964Z	info	internal/retry_sender.go:133	Exporting failed. Will retry the request after interval.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "rpc error: code = DeadlineExceeded desc = stream terminated by RST_STREAM with error code: CANCEL", "interval": "25.964850527s"}
+2025-06-11T20:54:31.225Z	info	internal/retry_sender.go:133	Exporting failed. Will retry the request after interval.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "rpc error: code = DeadlineExceeded desc = context deadline exceeded", "interval": "35.46772141s"}
+2025-06-11T20:54:38.932Z	info	internal/retry_sender.go:133	Exporting failed. Will retry the request after interval.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "rpc error: code = DeadlineExceeded desc = stream terminated by RST_STREAM with error code: CANCEL", "interval": "23.671648865s"}
+2025-06-11T20:55:07.606Z	info	internal/retry_sender.go:133	Exporting failed. Will retry the request after interval.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "rpc error: code = DeadlineExceeded desc = context deadline exceeded", "interval": "17.117230544s"}
+2025-06-11T20:55:11.693Z	info	internal/retry_sender.go:133	Exporting failed. Will retry the request after interval.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "rpc error: code = DeadlineExceeded desc = context deadline exceeded", "interval": "30.338961088s"}
+2025-06-11T20:55:29.727Z	info	internal/retry_sender.go:133	Exporting failed. Will retry the request after interval.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "rpc error: code = DeadlineExceeded desc = stream terminated by RST_STREAM with error code: CANCEL", "interval": "33.643995275s"}
+2025-06-11T20:55:47.034Z	info	internal/retry_sender.go:133	Exporting failed. Will retry the request after interval.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "rpc error: code = DeadlineExceeded desc = context deadline exceeded", "interval": "43.042381821s"}
+2025-06-11T20:56:08.374Z	error	internal/queue_sender.go:57	Exporting failed. Dropping data.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "no more retries left: rpc error: code = DeadlineExceeded desc = stream terminated by RST_STREAM with error code: CANCEL", "dropped_items": 98}
+go.opentelemetry.io/collector/exporter/exporterhelper/internal.NewQueueSender.func1
+	go.opentelemetry.io/collector/exporter@v0.127.0/exporterhelper/internal/queue_sender.go:57
+go.opentelemetry.io/collector/exporter/exporterhelper/internal/queuebatch.(*disabledBatcher[...]).Consume
+	go.opentelemetry.io/collector/exporter@v0.127.0/exporterhelper/internal/queuebatch/disabled_batcher.go:22
+go.opentelemetry.io/collector/exporter/exporterhelper/internal/queuebatch.(*asyncQueue[...]).Start.func1
+	go.opentelemetry.io/collector/exporter@v0.127.0/exporterhelper/internal/queuebatch/async_queue.go:47
+2025-06-11T20:56:35.080Z	error	internal/queue_sender.go:57	Exporting failed. Dropping data.	{"resource": {}, "otelcol.component.id": "otlp/jaeger", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "error": "no more retries left: rpc error: code = DeadlineExceeded desc = stream terminated by RST_STREAM with error code: CANCEL", "dropped_items": 93}
+go.opentelemetry.io/collector/exporter/exporterhelper/internal.NewQueueSender.func1
+	go.opentelemetry.io/collector/exporter@v0.127.0/exporterhelper/internal/queue_sender.go:57
+go.opentelemetry.io/collector/exporter/exporterhelper/internal/queuebatch.(*disabledBatcher[...]).Consume
+	go.opentelemetry.io/collector/exporter@v0.127.0/exporterhelper/internal/queuebatch/disabled_batcher.go:22
+go.opentelemetry.io/collector/exporter/exporterhelper/internal/queuebatch.(*asyncQueue[...]).Start.func1
+	go.opentelemetry.io/collector/exporter@v0.127.0/exporterhelper/internal/queuebatch/async_queue.go:47</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</body>
+</html>

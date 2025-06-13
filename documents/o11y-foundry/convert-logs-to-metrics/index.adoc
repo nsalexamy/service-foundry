@@ -1,0 +1,357 @@
+
+
+
+= Converting Logs to Metrics Using OpenTelemetry Collector
+
+== Introduction
+
+WARNING:: This is not working
+
+Unlike traces, OpenTelemetry does not have a built-in mechanism to convert logs into metrics. However, you can achieve this by using the `countconnector` in the OpenTelemetry Collector. This connector allows you to count occurrences of specific log attributes and convert them into metrics.
+
+== OpenTelemetry Collector Configuration
+
+.logs-count-collector.yaml
+[source,yaml]
+----
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: logs-count-scrape-config
+  namespace: o11y
+#  namespace: monitoring
+  labels:
+    ## <1>
+    prometheus: o11y-prometheus
+
+spec:
+  staticConfigs:
+    - labels:
+        job: kubelet-metrics-scrape-job
+      targets:
+        ## <2>
+        - logs-count-collector:8889
+
+
+----
+
+Apply it:
+
+[source,terminal]
+----
+$ kubectl apply -f logs-count-collector.yaml
+----
+
+== ScrapeConfig for Prometheus
+
+.logs-count-scrape-config.yaml
+[source,yaml]
+----
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: logs-count
+  namespace: o11y
+
+spec:
+  image: otel/opentelemetry-collector-contrib:latest # 0.127.0 or later
+  mode: statefulset
+  serviceAccount: otel-targetallocator-sa
+  # must be one because this handles _count_total metrics
+  # if using multiple replicas, the value of the metric will be up and down which is not what we want
+  replicas: 1
+
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      transform/instrumentation_scope:
+        log_statements:
+          - context: log
+            statements:
+              - set(attributes["throwing_class"], instrumentation_scope.name)
+              #- set(attributes["instrumentation_scope.name"], instrumentation_scope.name)
+              - set(attributes["service_name"], resource.attributes["service.name"])
+              - set(attributes["host_name"], resource.attributes["host.name"])
+
+    connectors:
+      count:
+        logs:
+          otel_spring_example_error_count:
+            description: "Count of service errors"
+            conditions:
+              - 'severity_number >= SEVERITY_NUMBER_ERROR'
+              - 'attributes["service_name"] == "otel-spring-example"'
+
+            # only only key attributes are supported
+            attributes:
+              # - key: service_name
+              # value: attributes["service_name"]
+              # - key: host_name
+              # default_value: 'unspecified_host'
+              # - key: throwing_class
+              # value: attributes["throwing_class"]
+              # - key: service.name
+              # value: attributes["service.name"]
+              #- key: host.name
+              #  value: attributes["host.name"]
+              - key: exception.type
+                default_value: 'unspecified_exception_type'
+              # - key: service.name
+              #- key: host.name
+              #- key: instrumentation_scope.name
+              #- name: exception.type
+
+            #  - key: service.name
+            #  - key: host.name
+            #  - key: telemetry.sdk.language
+            #conditions:
+            #  - 'severity_number >= SEVERITY_NUMBER_ERROR'
+    exporters:
+      debug:
+        verbosity: detailed
+
+      prometheus:
+        endpoint: "0.0.0.0:8889"
+
+    service:
+      pipelines:
+        logs:
+          receivers: [otlp]
+          processors: [transform/instrumentation_scope]
+          exporters: [count]
+
+        metrics/count:
+          receivers: [count]
+          processors: []
+          exporters: [debug, prometheus]
+
+
+----
+
+Apply it:
+
+[source,terminal]
+----
+$ kubectl apply -f logs-count-scrape-config.yaml
+----
+
+== PromQL Queries
+----
+sum by (service_name, exception_type) (rate(service_error_count_total[1m]))
+----
+
+
+rate(service_error_count_total[2m]) * 60
+
+sum(increase(service_error_count_total[2m]))
+
+sum(increase(otel_spring_example_error_count_total[2m]))
+
+
+
+otel_spring_example_error_count_total
+
+sum by (exception_type) (rate(otel_spring_example_error_count_total[1m]))
+
+sum by (exception_type) (rate(otel_spring_example_error_count_total[1m]))
+
+
+== Lucene Query
+
+----
+severityText: "ERROR" AND exception.type: "com.nsa2.example.otel.exceptions.ErrorControllerException"
+----
+
+.log.txt
+[source,txt]
+----
+2025-06-08T22:22:40.946Z	info	Logs	{"resource": {}, "otelcol.component.id": "debug", "otelcol.component.kind": "exporter", "otelcol.signal": "logs", "resource logs": 1, "log records": 3}
+2025-06-08T22:22:40.946Z	info	ResourceLog #0
+Resource SchemaURL: https://opentelemetry.io/schemas/1.24.0
+Resource attributes:
+     -> container.id: Str(6d930e7fc5bf3f873c4b6c8428dc248361025f61aebc784c14717769156ba17c)
+     -> host.arch: Str(amd64)
+     -> host.name: Str(otel-spring-example-57d5cc6b88-4ssfz)
+     -> os.description: Str(Linux 5.10.236-228.935.amzn2.x86_64)
+     -> os.type: Str(linux)
+     -> process.command_args: Slice(["/usr/local/openjdk-21/bin/java","-Xshare:off","-Xms256m","-Xmx256m","-Dotel.javaagent.extensions=/usr/app/javaagent/nsa2-otel-extension-1.0-all.jar","-jar","otel-spring-example.jar","--spring.cloud.bootstrap.enabled=true","--server.port=8080","--spring.main.banner-mode=off"])
+     -> process.executable.path: Str(/usr/local/openjdk-21/bin/java)
+     -> process.pid: Int(1)
+     -> process.runtime.description: Str(Oracle Corporation OpenJDK 64-Bit Server VM 21+35-2513)
+     -> process.runtime.name: Str(OpenJDK Runtime Environment)
+     -> process.runtime.version: Str(21+35-2513)
+     -> service.instance.id: Str(e5537520-295e-4dfd-8831-dbc965aaa3be)
+     -> service.name: Str(otel-spring-example)
+     -> service.version: Str(0.0.1-SNAPSHOT)
+     -> telemetry.distro.name: Str(opentelemetry-java-instrumentation)
+     -> telemetry.distro.version: Str(2.9.0)
+     -> telemetry.sdk.language: Str(java)
+     -> telemetry.sdk.name: Str(opentelemetry)
+     -> telemetry.sdk.version: Str(1.43.0)
+ScopeLogs #0
+ScopeLogs SchemaURL:
+InstrumentationScope com.nsa2.example.otel.controller.ErrorController
+LogRecord #0
+ObservedTimestamp: 2025-06-08 22:22:33.434342149 +0000 UTC
+Timestamp: 2025-06-08 22:22:33.43427794 +0000 UTC
+SeverityText: INFO
+SeverityNumber: Info(9)
+Body: Str(cause-error - samplingRate: 1.0)
+Attributes:
+     -> instrumentation_scope.name: Str(com.nsa2.example.otel.controller.ErrorController)
+Trace ID: 030a36271029847884613ebd29364202
+Span ID: 2b77f2145d48959e
+Flags: 1
+LogRecord #1
+ObservedTimestamp: 2025-06-08 22:22:33.434613092 +0000 UTC
+Timestamp: 2025-06-08 22:22:33.434577429 +0000 UTC
+SeverityText: INFO
+SeverityNumber: Info(9)
+Body: Str(An error occurred for sampling rate: 1.0)
+Attributes:
+     -> instrumentation_scope.name: Str(com.nsa2.example.otel.controller.ErrorController)
+Trace ID: 030a36271029847884613ebd29364202
+Span ID: 2b77f2145d48959e
+Flags: 1
+ScopeLogs #1
+ScopeLogs SchemaURL:
+InstrumentationScope com.nsa2.example.otel.config.DefaultControllerAdvice
+LogRecord #0
+ObservedTimestamp: 2025-06-08 22:22:33.435411436 +0000 UTC
+Timestamp: 2025-06-08 22:22:33.434955683 +0000 UTC
+SeverityText: ERROR
+SeverityNumber: Error(17)
+Body: Str(ErrorControllerException: Simulated error for sampling rate: 1.0)
+Attributes:
+     -> exception.message: Str(Simulated error for sampling rate: 1.0)
+     -> exception.stacktrace: Str(com.nsa2.example.otel.exceptions.ErrorControllerException: Simulated error for sampling rate: 1.0
+	at com.nsa2.example.otel.controller.ErrorController.causeError(ErrorController.java:25)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.web.method.support.InvocableHandlerMethod.doInvoke(InvocableHandlerMethod.java:257)
+	at org.springframework.web.method.support.InvocableHandlerMethod.invokeForRequest(InvocableHandlerMethod.java:190)
+	at org.springframework.web.servlet.mvc.method.annotation.ServletInvocableHandlerMethod.invokeAndHandle(ServletInvocableHandlerMethod.java:118)
+	at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.invokeHandlerMethod(RequestMappingHandlerAdapter.java:986)
+	at org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter.handleInternal(RequestMappingHandlerAdapter.java:891)
+	at org.springframework.web.servlet.mvc.method.AbstractHandlerMethodAdapter.handle(AbstractHandlerMethodAdapter.java:87)
+	at org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1088)
+	at org.springframework.web.servlet.DispatcherServlet.doService(DispatcherServlet.java:978)
+	at org.springframework.web.servlet.FrameworkServlet.processRequest(FrameworkServlet.java:1014)
+	at org.springframework.web.servlet.FrameworkServlet.doGet(FrameworkServlet.java:903)
+	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:564)
+	at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885)
+	at jakarta.servlet.http.HttpServlet.service(HttpServlet.java:658)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:195)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
+	at org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:51)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
+	at org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
+	at org.springframework.web.filter.FormContentFilter.doFilterInternal(FormContentFilter.java:93)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
+	at org.springframework.web.servlet.v6_0.OpenTelemetryHandlerMappingFilter.doFilter(OpenTelemetryHandlerMappingFilter.java:78)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
+	at org.springframework.web.filter.ServerHttpObservationFilter.doFilterInternal(ServerHttpObservationFilter.java:114)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
+	at org.springframework.web.filter.CharacterEncodingFilter.doFilterInternal(CharacterEncodingFilter.java:201)
+	at org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)
+	at org.apache.catalina.core.StandardWrapperValve.invoke(StandardWrapperValve.java:167)
+	at org.apache.catalina.core.StandardContextValve.invoke(StandardContextValve.java:90)
+	at org.apache.catalina.authenticator.AuthenticatorBase.invoke(AuthenticatorBase.java:483)
+	at org.apache.catalina.core.StandardHostValve.invoke(StandardHostValve.java:115)
+	at org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:93)
+	at org.apache.catalina.core.StandardEngineValve.invoke(StandardEngineValve.java:74)
+	at org.apache.catalina.valves.RemoteIpValve.invoke(RemoteIpValve.java:731)
+	at org.apache.catalina.connector.CoyoteAdapter.service(CoyoteAdapter.java:344)
+	at org.apache.coyote.http11.Http11Processor.service(Http11Processor.java:397)
+	at org.apache.coyote.AbstractProcessorLight.process(AbstractProcessorLight.java:63)
+	at org.apache.coyote.AbstractProtocol$ConnectionHandler.process(AbstractProtocol.java:905)
+	at org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1741)
+	at org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:52)
+	at java.base/java.lang.VirtualThread.run(VirtualThread.java:311)
+)
+     -> exception.type: Str(com.nsa2.example.otel.exceptions.ErrorControllerException)
+     -> instrumentation_scope.name: Str(com.nsa2.example.otel.config.DefaultControllerAdvice)
+Trace ID: 030a36271029847884613ebd29364202
+Span ID: 2b77f2145d48959e
+Flags: 1
+	{"resource": {}, "otelcol.component.id": "debug", "otelcol.component.kind": "exporter", "otelcol.signal": "logs"}
+2025-06-08T22:22:40.946Z	info	Metrics	{"resource": {}, "otelcol.component.id": "debug", "otelcol.component.kind": "exporter", "otelcol.signal": "metrics", "resource metrics": 1, "metrics": 1, "data points": 1}
+2025-06-08T22:22:40.946Z	info	ResourceMetrics #0
+Resource SchemaURL:
+Resource attributes:
+     -> container.id: Str(6d930e7fc5bf3f873c4b6c8428dc248361025f61aebc784c14717769156ba17c)
+     -> host.arch: Str(amd64)
+     -> host.name: Str(otel-spring-example-57d5cc6b88-4ssfz)
+     -> os.description: Str(Linux 5.10.236-228.935.amzn2.x86_64)
+     -> os.type: Str(linux)
+     -> process.command_args: Slice(["/usr/local/openjdk-21/bin/java","-Xshare:off","-Xms256m","-Xmx256m","-Dotel.javaagent.extensions=/usr/app/javaagent/nsa2-otel-extension-1.0-all.jar","-jar","otel-spring-example.jar","--spring.cloud.bootstrap.enabled=true","--server.port=8080","--spring.main.banner-mode=off"])
+     -> process.executable.path: Str(/usr/local/openjdk-21/bin/java)
+     -> process.pid: Int(1)
+     -> process.runtime.description: Str(Oracle Corporation OpenJDK 64-Bit Server VM 21+35-2513)
+     -> process.runtime.name: Str(OpenJDK Runtime Environment)
+     -> process.runtime.version: Str(21+35-2513)
+     -> service.instance.id: Str(e5537520-295e-4dfd-8831-dbc965aaa3be)
+     -> service.name: Str(otel-spring-example)
+     -> service.version: Str(0.0.1-SNAPSHOT)
+     -> telemetry.distro.name: Str(opentelemetry-java-instrumentation)
+     -> telemetry.distro.version: Str(2.9.0)
+     -> telemetry.sdk.language: Str(java)
+     -> telemetry.sdk.name: Str(opentelemetry)
+     -> telemetry.sdk.version: Str(1.43.0)
+ScopeMetrics #0
+ScopeMetrics SchemaURL:
+InstrumentationScope github.com/open-telemetry/opentelemetry-collector-contrib/connector/countconnector
+Metric #0
+Descriptor:
+     -> Name: service_error.count
+     -> Description: Count of service errors
+     -> Unit:
+     -> DataType: Sum
+     -> IsMonotonic: true
+     -> AggregationTemporality: Delta
+NumberDataPoints #0
+Data point attributes:
+     -> exception.type: Str(com.nsa2.example.otel.exceptions.ErrorControllerException)
+     -> instrumentation_scope.name: Str(com.nsa2.example.otel.config.DefaultControllerAdvice)
+StartTimestamp: 1970-01-01 00:00:00 +0000 UTC
+Timestamp: 2025-06-08 22:22:40.946523887 +0000 UTC
+Value: 1
+	{"resource": {}, "otelcol.component.id": "debug", "otelcol.component.kind": "exporter", "otelcol.signal": "metrics"}
+2025-06-08T22:25:37.195Z	info	otelcol@v0.127.0/collector.go:358	Received signal from OS	{"resource": {}, "signal": "terminated"}
+2025-06-08T22:25:37.195Z	info	service@v0.127.0/service.go:331	Starting shutdown...	{"resource": {}}
+2025-06-08T22:25:37.196Z	info	targetallocator/manager.go:88	Stopping target allocator	{"resource": {}, "otelcol.component.id": "prometheus", "otelcol.component.kind": "receiver", "otelcol.signal": "metrics"}
+2025-06-08T22:25:37.196Z	info	spanmetricsconnector@v0.127.0/connector.go:227	Shutting down spanmetrics connector	{"resource": {}, "otelcol.component.id": "spanmetrics", "otelcol.component.kind": "connector", "otelcol.signal": "traces", "otelcol.signal.output": "metrics"}
+2025-06-08T22:25:37.196Z	info	spanmetricsconnector@v0.127.0/connector.go:229	Stopping ticker	{"resource": {}, "otelcol.component.id": "spanmetrics", "otelcol.component.kind": "connector", "otelcol.signal": "traces", "otelcol.signal.output": "metrics"}
+2025-06-08T22:25:37.196Z	info	extensions/extensions.go:69	Stopping extensions...	{"resource": {}}
+2025-06-08T22:25:37.196Z	info	service@v0.127.0/service.go:345	Shutdown complete.	{"resource": {}}
+2025-06-08T22:25:39.569Z	info	otelcol@v0.127.0/collector.go:358	Received signal from OS	{"resource": {}, "signal": "terminated"}
+2025-06-08T22:25:39.569Z	info	service@v0.127.0/service.go:331	Starting shutdown...	{"resource": {}}
+2025-06-08T22:25:39.570Z	info	targetallocator/manager.go:88	Stopping target allocator	{"resource": {}, "otelcol.component.id": "prometheus", "otelcol.component.kind": "receiver", "otelcol.signal": "metrics"}
+2025-06-08T22:25:39.570Z	info	spanmetricsconnector@v0.127.0/connector.go:227	Shutting down spanmetrics connector	{"resource": {}, "otelcol.component.id": "spanmetrics", "otelcol.component.kind": "connector", "otelcol.signal": "traces", "otelcol.signal.output": "metrics"}
+2025-06-08T22:25:39.570Z	info	spanmetricsconnector@v0.127.0/connector.go:229	Stopping ticker	{"resource": {}, "otelcol.component.id": "spanmetrics", "otelcol.component.kind": "connector", "otelcol.signal": "traces", "otelcol.signal.output": "metrics"}
+2025-06-08T22:25:39.571Z	info	extensions/extensions.go:69	Stopping extensions...	{"resource": {}}
+2025-06-08T22:25:39.571Z	info	service@v0.127.0/service.go:345	Shutdown complete.	{"resource": {}}
+----
+
+== References
+
+* https://bindplane.com/blog/turning-logs-into-metrics-with-opentelemetry-and-bindplane-op[Turning Logs into Metrics with OpenTelemetry and BindPlane]
+* https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/countconnector

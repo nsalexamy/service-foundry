@@ -219,7 +219,107 @@ Configure the collector to scrape and filter Kubelet metrics:
 .kubelet-metrics-collector.yaml
 [source,yaml]
 ----
-include::kubelet-metrics-collector.yaml[]
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: kubelet-metrics
+  namespace: monitoring
+
+spec:
+  image: otel/opentelemetry-collector-contrib:0.127.0 # 0.127.0 or later. latest is not recommended for production use.
+  mode: statefulset
+  serviceAccount: kubelet-scraper
+  replicas: 1
+  targetAllocator:
+    enabled: true
+    serviceAccount: kubelet-scraper
+    prometheusCR:
+      enabled: true
+      serviceMonitorSelector:
+        matchLabels:
+          otel-collector: kubelet-metrics
+      #podMonitorSelector: {}
+
+
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+      prometheus:
+        config:
+          ## <1>
+          scrape_configs:
+            - job_name: 'kubectl-metrics-collector-job'
+              scrape_interval: 30s
+              static_configs:
+                - targets: ['0.0.0.0:8888']
+
+    processors:
+      ## <2>
+      filter/metrics:
+        metrics:
+          include:
+            match_type: regexp
+            metric_names:
+              - "^container_cpu.*"
+              - "^container_memory_.*"
+#            expressions:
+#              - 'attributes["container"] == "react-o11y-app"'
+#              - 'attributes["container"] == "otel-spring-example"'
+#              - 'resource.container == "react-o11y-app"'
+#              - 'resource.container == "otel-spring-example"'
+      ## <3>
+      filter/containers:
+        error_mode: propagate
+        metrics:
+          datapoint:
+            - |
+              not ( attributes["container"] == "react-o11y-app"
+                or attributes["container"] == "otel-spring-example"
+                or attributes["container"] == "cassandra")
+#            - 'Not HasAttrOnDatapoint("container", "react-o11y-app") or HasAttrOnDatapoint("container", "otel-spring-example")' # Filter by container attribute
+#            - 'not (resource.attributes["container"] == "react-o11y-app")' # Exclude kubelet metrics
+#            - 'resource.attributes["namespace"] =="kube-system"' # Filter by namespace
+#            - 'resource.attributes["namespace"] =="default"' # Filter by namespace
+#            - 'resource.attributes["namespace"] =="monitoring"' # Filter by namespace
+#            - 'resource.attributes["namespace"] =="cert-manager"'
+#            - 'resource.attributes["namespace"] =="keycloak"' # Filter by namespace
+#            - 'resource.attributes["namespace"] =="kube-public"' # Filter by namespace
+#            - 'resource.attributes["namespace"] =="kube-node-lease"' # Filter by namespace
+#            - 'resource.attributes["namespace"] =="opentelemetry-operator-system"' # Filter by namespace
+#            - 'resource.attributes["namespace"] =="service-foundry"'
+#            - 'resource.attributes["namespace"] =="traefik"'# Filter by namespace and container
+
+#          include:
+#            match_type: expr
+#            expressions:
+#              - 'Label("container") == "react-o11y-app"' # Use OR within a single expression
+#              - 'attributes["container"] == "react-o11y-app" or attributes["container"] == "otel-spring-example"' # Use OR within a single expression
+
+    #              - 'resource.container == "kubelet"'
+#              - 'resource.container == "kube-proxy"'
+
+    exporters:
+      debug:
+        verbosity: detailed
+
+      prometheus:
+        endpoint: "0.0.0.0:8889"
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: [filter/metrics, filter/containers]
+          exporters: [debug, prometheus]
+
+
+
 ----
 <1> Scrapes cAdvisor metrics via Prometheus receiver.
 <2> Applies filtering to reduce data volume.
@@ -241,7 +341,34 @@ Create a ServiceMonitor to instruct the OpenTelemetry Target Allocator:
 .kubelet-cadvisor-servicemonitor.yaml
 [source,yaml]
 ----
-include::kubelet-cadvisor-servicemonitor.yaml[]
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kubelet-cadvisor
+  namespace: kube-system
+  labels:
+    otel-collector: kubelet-metrics
+    metrics-unit: monitoring
+    release: otel                    # should match your OTEL Target Allocator or Prometheus selector
+spec:
+  jobLabel: k8s-app
+  selector:
+    matchLabels:
+      k8s-app: kubelet               # must match the label of the kubelet service
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  endpoints:
+    ## <1>
+    - port: https-metrics
+      scheme: https
+      interval: 30s
+      ## <2>
+      path: /metrics/cadvisor
+      tlsConfig:
+        insecureSkipVerify: true
+      ## <3>
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
 ----
 
 <1> The https-metrics port is used for secure scraping of Kubelet metrics, while the http-metrics port is used for insecure scraping. The cadvisor port is specifically for cAdvisor metrics.
@@ -262,7 +389,24 @@ To forward these metrics to Prometheus:
 .kubelet-metrics-scrape-config.yaml
 [source,yaml]
 ----
-include::kubelet-metrics-scrape-config.yaml[]
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: kubelet-metrics-scrape-config
+  namespace: o11y
+#  namespace: monitoring
+  labels:
+    ## <1>
+    prometheus: o11y-prometheus
+
+spec:
+  staticConfigs:
+    - labels:
+        job: kubelet-metrics-scrape-job
+      targets:
+#        - kubelet-metrics-collector:8889
+        ## <2>
+        - kubelet-metrics-collector.monitoring.svc:8889
 ----
 <1> This label selector is used to identify the ScrapeConfig that can be used by Prometheus to scrape metrics from the Kubelet cAdvisor endpoint.
 <2> The endpoint is the Prometheus exporter endpoint of the OpenTelemetry Collector that is scraping Kubelet cAdvisor metrics.
