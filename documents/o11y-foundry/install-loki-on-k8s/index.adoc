@@ -1,0 +1,428 @@
+---
+layout: documents
+title: "Deploying Grafana Loki on Kubernetes"
+summary: "This guide covers how to set up Grafana Loki using Helm, configure it with filesystem or MinIO storage, and prepare for production using S3. It also explains how to integrate Loki with the OpenTelemetry Collector and Grafana, enabling log-trace correlation with Tempo for full observability."
+tags: #Kubernetes #Grafana #Loki #Observability #HelmCharts #OpenTelemetry #DevOps #CloudNative #Logging #ServiceFoundry
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+
+// docs/grafana-lab/loki/install-loki-on-k8s/index.adoc
+
+= Deploying Grafana Loki on Kubernetes
+
+:imagesdir: images
+
+[.img-wide]
+image::lgtm-loki-for-logs.png[]
+
+== Introduction
+
+This guide provides a comprehensive walkthrough for deploying Grafana Loki on a Kubernetes cluster using Helm. Loki is a horizontally scalable, highly available log aggregation system designed for efficiency, simplicity, and tight integration with Grafana.
+
+== What is Loki?
+
+Loki is a multi-tenant log aggregation system inspired by Prometheus. It indexes logs by labels, offering a cost-effective alternative to traditional full-text indexing solutions.
+
+
+=== Key Advantages
+
+* *Scalable*: Designed to handle high log volume with horizontal scaling support.
+* *Multi-Tenant*: Allows logical isolation of logs across teams or services.
+* *Cost-Efficient*: Lightweight indexing reduces storage and compute costs.
+* *Grafana Integration*: Seamlessly integrates into Grafana for unified observability with metrics and traces.
+* *Simplicity*: Loki’s architecture is simple to deploy and operate.
+* *Flexible Storage*: Supports local file systems, S3, GCS, and other object stores.
+* *Powerful Query Language*: Enables advanced filtering and searching via LogQL.
+* *Optimized Indexing*: Uses a minimal indexing strategy for fast queries.
+* *CNCF Project*: Backed by a strong community as a CNCF project.
+* *OpenTelemetry Support*: Easily ingests logs through the OpenTelemetry Collector.
+
+
+
+== Pre-requisites
+
+=== Add Loki Helm Repository
+
+[source,shell]
+----
+$ helm repo add grafana https://grafana.github.io/helm-charts
+$ helm repo update
+----
+
+=== Verify Chart Availability
+
+
+[source,shell]
+----
+$ helm search repo grafana/loki
+----
+
+Example output:
+[source,console]
+----
+grafana/loki                    6.30.1          3.5.0           Helm chart for Grafana Loki and Grafana Enterpr...
+grafana/loki-canary             0.14.0          2.9.1           Helm chart for Grafana Loki Canary
+grafana/loki-distributed        0.80.5          2.9.13          Helm chart for Grafana Loki in microservices mode
+grafana/loki-simple-scalable    1.8.11          2.6.1           Helm chart for Grafana Loki in simple, scalable...
+grafana/loki-stack              2.10.2          v2.9.3          Loki: like Prometheus, but for logs.
+----
+
+This guide uses the *grafana/loki* chart.
+
+
+=== Download the Loki Helm Chart
+
+
+[source,shell]
+----
+$ helm pull grafana/loki --version 6.30.1
+----
+
+This downloads loki-6.30.1.tgz into the current directory.
+
+=== Inspect Default Values
+
+
+[source,shell]
+----
+$ helm show values grafana/loki --version 6.30.1 > loki-values-6.30.1.yaml
+----
+
+This file contains default values which can be customized based on your deployment needs.
+
+// === Prepare S3 Bucket for Loki
+//
+// Create an S3 bucket to store Loki logs. You can use the AWS CLI or the AWS Management Console to create the bucket.
+//
+// Make sure to note the bucket name, as you will need it in the next steps.
+//
+// [source,shell]
+// ----
+// $ S3_BUCKET_NAME="nsa2-sf-o11y-bucket"
+//
+// $ aws s3 ls s3://$BUCKET_NAME --region $AWS_REGION &> /dev/null || aws s3 mb s3://$S3_BUCKET_NAME --region $AWS_REGION
+// ----
+
+== Deploying Loki with Filesystem Storage
+
+For development purposes, Loki can be configured to use MinIO as a local object store.
+
+=== Example: loki-filesystem-values.yaml
+
+You can find a base configuration from the official Loki GitHub repository:
+
+* https://github.com/grafana/loki/blob/main/production/helm/loki/simple-scalable-values.yaml
+
+Here’s a simplified version for testing:
+
+.loki-filesystem-values.yaml
+[source,yaml]
+----
+loki:
+  auth_enabled: false
+  schemaConfig:
+    configs:
+      - from: 2024-04-01
+        store: tsdb
+        object_store: s3
+        schema: v13
+        index:
+          prefix: loki_index_
+          period: 24h
+  ingester:
+    chunk_encoding: snappy
+  tracing:
+    enabled: true
+  querier:
+    # Default is 4, if you have enough memory and CPU you can increase, reduce if OOMing
+    max_concurrent: 4
+
+## <1>
+deploymentMode: SimpleScalable
+
+backend:
+  replicas: 3
+read:
+  replicas: 3
+write:
+  replicas: 3
+
+# Enable minio for storage
+## <2>
+minio:
+  enabled: true
+
+# Zero out replica counts of other deployment modes
+singleBinary:
+  replicas: 0
+
+ingester:
+  replicas: 0
+querier:
+  replicas: 0
+queryFrontend:
+  replicas: 0
+queryScheduler:
+  replicas: 0
+distributor:
+  replicas: 0
+compactor:
+  replicas: 0
+indexGateway:
+  replicas: 0
+bloomCompactor:
+  replicas: 0
+bloomGateway:
+  replicas: 0
+
+----
+<1> This configuration sets Loki to run in SimpleScalable mode, which is suitable for development and testing. It uses a single binary deployment with multiple replicas for the backend, read, and write components.
+<2> This configuration enables MinIO as the storage backend for Loki. If you want to use S3 instead, you can remove the `minio` section and configure the S3 settings in the `loki` section.
+
+
+=== Install Loki
+
+Create the namespace if it doesn’t already exist:
+[source,shell]
+----
+$ kubectl get namespace o11y &> /dev/null || kubectl create namespace o11y
+----
+
+Install the Loki release:
+
+[source,shell]
+----
+$ helm install loki grafana/loki \
+  --namespace o11y \
+  --version 6.30.1 \
+  --values loki-filesystem-values.yaml
+----
+
+// === Update Helm Chart
+//
+//
+// To upgrade Loki to a newer version, you can use the following command:
+//
+// [source,shell]
+// ----
+// $ helm upgrade --install loki grafana/loki \
+//   --namespace o11y \
+//   --version 6.30.1 \
+//   --values loki-filesystem-values.yaml
+// ----
+//
+// === Uninstall Loki
+//
+// To uninstall Loki, you can use the following command:
+//
+// [source,shell]
+// ----
+// $ helm uninstall loki --namespace o11y
+// ----
+
+=== Validate Deployment
+
+Verify pods and services:
+
+[source,shell]
+----
+$ kubectl -n o11y get pods,services -l app.kubernetes.io/name=loki
+----
+This confirms successful deployment.
+
+Example output:
+[source,console]
+----
+NAME                                READY   STATUS    RESTARTS   AGE
+pod/loki-backend-0                  2/2     Running   0          31m
+pod/loki-backend-1                  2/2     Running   0          31m
+pod/loki-backend-2                  2/2     Running   0          31m
+pod/loki-canary-m7hz6               1/1     Running   0          31m
+pod/loki-canary-r957h               1/1     Running   0          30m
+pod/loki-canary-zn7qd               1/1     Running   0          31m
+pod/loki-chunks-cache-0             2/2     Running   0          31m
+pod/loki-gateway-5ffbb7f958-gxnfg   1/1     Running   0          31m
+pod/loki-read-6ffdcc89dc-2ntlx      1/1     Running   0          31m
+pod/loki-read-6ffdcc89dc-5zzfn      1/1     Running   0          31m
+pod/loki-read-6ffdcc89dc-jnhps      1/1     Running   0          31m
+pod/loki-results-cache-0            2/2     Running   0          31m
+pod/loki-write-0                    1/1     Running   0          31m
+pod/loki-write-1                    1/1     Running   0          31m
+pod/loki-write-2                    1/1     Running   0          31m
+
+NAME                                     TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)              AGE
+service/loki-backend                     ClusterIP   10.100.214.56    <none>        3100/TCP,9095/TCP    31m
+service/loki-backend-headless            ClusterIP   None             <none>        3100/TCP,9095/TCP    31m
+service/loki-canary                      ClusterIP   10.100.61.157    <none>        3500/TCP             31m
+service/loki-chunks-cache                ClusterIP   None             <none>        11211/TCP,9150/TCP   31m
+service/loki-gateway                     ClusterIP   10.100.218.190   <none>        80/TCP               31m
+service/loki-memberlist                  ClusterIP   None             <none>        7946/TCP             31m
+service/loki-query-scheduler-discovery   ClusterIP   None             <none>        3100/TCP,9095/TCP    31m
+service/loki-read                        ClusterIP   10.100.73.20     <none>        3100/TCP,9095/TCP    31m
+service/loki-read-headless               ClusterIP   None             <none>        3100/TCP,9095/TCP    31m
+service/loki-results-cache               ClusterIP   None             <none>        11211/TCP,9150/TCP   31m
+service/loki-write                       ClusterIP   10.100.237.223   <none>        3100/TCP,9095/TCP    31m
+service/loki-write-headless              ClusterIP   None             <none>        3100/TCP,9095/TCP    31m
+----
+
+=== Accessing Loki Gateway
+
+The loki-gateway service acts as the primary entry point for Grafana and OpenTelemetry.
+
+Access it within the cluster:
+
+* http://loki-gateway.80 (in the same namespace)
+* http://loki-gateway.o11y.svc.cluster.local:80 (using the service name and namespace)
+* http://loki-gateway.o11y.svc:80 (using the service name and namespace)
+
+To view its configuration:
+
+[source,shell]
+----
+$ kubectl -n o11y get service loki-gateway -o yaml
+----
+
+
+
+// == Deploying Loki with S3 Storage
+//
+// NOTE:: Work In Progress
+
+== Configuring OpenTelemetry Collector
+
+Example configuration for Loki exporter:
+
+.otel-collector.yaml
+[source,yaml]
+----
+    exporters:
+      # Other exporters...
+      ## <1>
+      loki:
+        endpoint: http://loki-gateway:80/loki/api/v1/push
+        tls:
+          insecure: true
+
+
+    service:
+      pipelines:
+        ## <2>
+        logs/to_opensearch:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [otlp/data-prepper-logs]
+        ## <3>
+        logs/to_loki:
+          receivers: [otlp]
+          processors: [batch, memory_limiter]
+          exporters: [loki]
+
+----
+<1> This configuration sets up the Loki exporter in the OpenTelemetry Collector to send logs to the Loki gateway service. The `endpoint` specifies the URL of the Loki gateway service, and `tls.insecure: true` allows insecure connections (useful for local development).
+<2> This pipeline processes logs received from the OTLP receiver and sends them to OpenSearch using the Data Prepper exporter. It uses the `batch` processor to batch logs before sending them.
+<3> This pipeline processes logs received from the OTLP receiver and sends them to Loki using the Loki exporter. It also uses the `batch` processor to batch logs before sending them, and the `memory_limiter` processor to limit memory usage.
+
+== Configuring Grafana for Loki
+
+To visualize logs in Grafana:
+
+. Go to Connections > Data Sources.
+. Click "Add data source" > Choose "Loki".
+
+Use the following settings:
+
+* *Name*: loki
+* *URL*: http://loki-gateway
+
+=== Grafana Loki Data Source
+
+.Grafana UI - Data Sources - Loki
+[.img-wide]
+image::grafana-datasources-loki.png[]
+
+=== Exploring Logs in Grafana
+
+Use label filters to find logs from a service:
+
+* *Label filters*: service_name
+* *value*: otel-spring-example
+
+.Grafana UI - Explore Logs
+[.img-wide]
+image::grafana-explore-logs.png[]
+
+=== Correlating Logs and Traces
+
+In the previous article, we deployed Tempo and configured it to collect traces from the OpenTelemetry Collector. Now, you can correlate logs with traces in Grafana.
+
+For more information on how to set up Tempo, refer to the article on link:https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/install-tempo-on-k8s/[Installing Tempo on Kubernetes].
+
+Now we have Tempo and Loki configured, we can correlate logs with traces in Grafana.
+
+To correlate logs with traces:
+1.	Ensure Tempo is deployed and configured.
+2.	In Grafana > Data Sources > Tempo, configure:
+
+.Grafana UI - Data Sources - Tempo
+[.img-wide]
+image::grafana-datasources-tempo.png[]
+
+In *Trace to logs* section, configure the following settings:
+
+* *Data source*: loki
+* *Filter by trace ID*: check the box
+* *Filter by span ID*: check the box
+
+.Grafana UI - Tempo Configuration - Trace to Logs
+[.img-wide]
+image::grafana-trace-to-logs.png[]
+
+Click on "Save & test" to save the configuration.
+
+Now you can explore traces and logs together in Grafana. When you view a trace, you will see the logs associated with that trace by clicking on the "Logs" tab in the trace view.
+
+.Grafana UI - Explore Traces
+[.img-wide]
+image::grafana-explore-traces.png[]
+
+Now, when exploring a trace:
+
+•	Click on *Logs for this span* to view the associated logs.
+
+.Grafana UI - Trace Details - Logs
+[.img-wide]
+image::grafana-logs-for-this-span.png[]
+
+Now you can see the logs associated with the trace span. You can filter the logs by the trace ID and span ID to narrow down the results.
+
+.Grafana UI - Trace Details - Logs
+[.img-wide]
+image::grafana-traces-and-logs.png[]
+
+Correlating logs with traces in Grafana allows you to troubleshoot issues more effectively by providing context for the trace data. You can see the logs that were generated during the execution of a trace, which can help you understand the behavior of your application and identify any issues that may have occurred.
+
+This trace-log correlation enhances debugging by giving full context of application events.
+
+== Conclusion
+
+This guide covered the deployment of Grafana Loki on Kubernetes using Helm. We explored both filesystem-based and object storage (MinIO/S3) configurations, integrated Loki with the OpenTelemetry Collector, and configured Grafana to visualize and correlate logs with traces. Loki offers a powerful and scalable approach to centralized logging in cloud-native environments.
+
+
+📘 View the web version:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/install-loki-on-k8s/
+
+== Next Steps
+
+* Configure *S3 as the storage backend* for Loki to support production-grade deployments with scalable and durable log storage.
+
+
+
