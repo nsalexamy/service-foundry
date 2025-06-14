@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Deploying Grafana Loki on Kubernetes</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">
+    Service Foundry
+</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/products/" class="">Products</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+        
+        <a href="/service-foundry/pages/demo/" class="">Demo</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="active">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Deploying Grafana Loki on Kubernetes
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#what-is-loki">What is Loki?</a>
+<ul class="sectlevel2">
+<li><a href="#key-advantages">Key Advantages</a></li>
+</ul>
+</li>
+<li><a href="#pre-requisites">Pre-requisites</a>
+<ul class="sectlevel2">
+<li><a href="#add-loki-helm-repository">Add Loki Helm Repository</a></li>
+<li><a href="#verify-chart-availability">Verify Chart Availability</a></li>
+<li><a href="#download-the-loki-helm-chart">Download the Loki Helm Chart</a></li>
+<li><a href="#inspect-default-values">Inspect Default Values</a></li>
+</ul>
+</li>
+<li><a href="#deploying-loki-with-filesystem-storage">Deploying Loki with Filesystem Storage</a>
+<ul class="sectlevel2">
+<li><a href="#example-loki-filesystem-values-yaml">Example: loki-filesystem-values.yaml</a></li>
+<li><a href="#install-loki">Install Loki</a></li>
+<li><a href="#validate-deployment">Validate Deployment</a></li>
+<li><a href="#accessing-loki-gateway">Accessing Loki Gateway</a></li>
+</ul>
+</li>
+<li><a href="#configuring-opentelemetry-collector">Configuring OpenTelemetry Collector</a></li>
+<li><a href="#configuring-grafana-for-loki">Configuring Grafana for Loki</a>
+<ul class="sectlevel2">
+<li><a href="#grafana-loki-data-source">Grafana Loki Data Source</a></li>
+<li><a href="#exploring-logs-in-grafana">Exploring Logs in Grafana</a></li>
+<li><a href="#correlating-logs-and-traces">Correlating Logs and Traces</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#next-steps">Next Steps</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/lgtm-loki-for-logs.png" alt="lgtm loki for logs">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide provides a comprehensive walkthrough for deploying Grafana Loki on a Kubernetes cluster using Helm. Loki is a horizontally scalable, highly available log aggregation system designed for efficiency, simplicity, and tight integration with Grafana.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-is-loki">What is Loki?</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Loki is a multi-tenant log aggregation system inspired by Prometheus. It indexes logs by labels, offering a cost-effective alternative to traditional full-text indexing solutions.</p>
+</div>
+<div class="sect2">
+<h3 id="key-advantages">Key Advantages</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Scalable</strong>: Designed to handle high log volume with horizontal scaling support.</p>
+</li>
+<li>
+<p><strong>Multi-Tenant</strong>: Allows logical isolation of logs across teams or services.</p>
+</li>
+<li>
+<p><strong>Cost-Efficient</strong>: Lightweight indexing reduces storage and compute costs.</p>
+</li>
+<li>
+<p><strong>Grafana Integration</strong>: Seamlessly integrates into Grafana for unified observability with metrics and traces.</p>
+</li>
+<li>
+<p><strong>Simplicity</strong>: Loki’s architecture is simple to deploy and operate.</p>
+</li>
+<li>
+<p><strong>Flexible Storage</strong>: Supports local file systems, S3, GCS, and other object stores.</p>
+</li>
+<li>
+<p><strong>Powerful Query Language</strong>: Enables advanced filtering and searching via LogQL.</p>
+</li>
+<li>
+<p><strong>Optimized Indexing</strong>: Uses a minimal indexing strategy for fast queries.</p>
+</li>
+<li>
+<p><strong>CNCF Project</strong>: Backed by a strong community as a CNCF project.</p>
+</li>
+<li>
+<p><strong>OpenTelemetry Support</strong>: Easily ingests logs through the OpenTelemetry Collector.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="pre-requisites">Pre-requisites</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="add-loki-helm-repository">Add Loki Helm Repository</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm repo add grafana https://grafana.github.io/helm-charts
+<span class="nv">$ </span>helm repo update</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="verify-chart-availability">Verify Chart Availability</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm search repo grafana/loki</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Example output:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="console"><span class="go">grafana/loki                    6.30.1          3.5.0           Helm chart for Grafana Loki and Grafana Enterpr...
+grafana/loki-canary             0.14.0          2.9.1           Helm chart for Grafana Loki Canary
+grafana/loki-distributed        0.80.5          2.9.13          Helm chart for Grafana Loki in microservices mode
+grafana/loki-simple-scalable    1.8.11          2.6.1           Helm chart for Grafana Loki in simple, scalable...
+grafana/loki-stack              2.10.2          v2.9.3          Loki: like Prometheus, but for logs.</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This guide uses the <strong>grafana/loki</strong> chart.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="download-the-loki-helm-chart">Download the Loki Helm Chart</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm pull grafana/loki <span class="nt">--version</span> 6.30.1</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This downloads loki-6.30.1.tgz into the current directory.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="inspect-default-values">Inspect Default Values</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm show values grafana/loki <span class="nt">--version</span> 6.30.1 <span class="o">&gt;</span> loki-values-6.30.1.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This file contains default values which can be customized based on your deployment needs.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deploying-loki-with-filesystem-storage">Deploying Loki with Filesystem Storage</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>For development purposes, Loki can be configured to use MinIO as a local object store.</p>
+</div>
+<div class="sect2">
+<h3 id="example-loki-filesystem-values-yaml">Example: loki-filesystem-values.yaml</h3>
+<div class="paragraph">
+<p>You can find a base configuration from the official Loki GitHub repository:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/grafana/loki/blob/main/production/helm/loki/simple-scalable-values.yaml" class="bare">https://github.com/grafana/loki/blob/main/production/helm/loki/simple-scalable-values.yaml</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Here’s a simplified version for testing:</p>
+</div>
+<div class="listingblock">
+<div class="title">loki-filesystem-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">loki</span><span class="pi">:</span>
+  <span class="na">auth_enabled</span><span class="pi">:</span> <span class="kc">false</span>
+  <span class="na">schemaConfig</span><span class="pi">:</span>
+    <span class="na">configs</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">from</span><span class="pi">:</span> <span class="s">2024-04-01</span>
+        <span class="na">store</span><span class="pi">:</span> <span class="s">tsdb</span>
+        <span class="na">object_store</span><span class="pi">:</span> <span class="s">s3</span>
+        <span class="na">schema</span><span class="pi">:</span> <span class="s">v13</span>
+        <span class="na">index</span><span class="pi">:</span>
+          <span class="na">prefix</span><span class="pi">:</span> <span class="s">loki_index_</span>
+          <span class="na">period</span><span class="pi">:</span> <span class="s">24h</span>
+  <span class="na">ingester</span><span class="pi">:</span>
+    <span class="na">chunk_encoding</span><span class="pi">:</span> <span class="s">snappy</span>
+  <span class="na">tracing</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="na">querier</span><span class="pi">:</span>
+    <span class="c1"># Default is 4, if you have enough memory and CPU you can increase, reduce if OOMing</span>
+    <span class="na">max_concurrent</span><span class="pi">:</span> <span class="m">4</span>
+
+<span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+<span class="na">deploymentMode</span><span class="pi">:</span> <span class="s">SimpleScalable</span>
+
+<span class="na">backend</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">3</span>
+<span class="na">read</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">3</span>
+<span class="na">write</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">3</span>
+
+<span class="c1"># Enable minio for storage</span>
+<span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+<span class="na">minio</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+
+<span class="c1"># Zero out replica counts of other deployment modes</span>
+<span class="na">singleBinary</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+
+<span class="na">ingester</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+<span class="na">querier</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+<span class="na">queryFrontend</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+<span class="na">queryScheduler</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+<span class="na">distributor</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+<span class="na">compactor</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+<span class="na">indexGateway</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+<span class="na">bloomCompactor</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+<span class="na">bloomGateway</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>This configuration sets Loki to run in SimpleScalable mode, which is suitable for development and testing. It uses a single binary deployment with multiple replicas for the backend, read, and write components.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>This configuration enables MinIO as the storage backend for Loki. If you want to use S3 instead, you can remove the <code>minio</code> section and configure the S3 settings in the <code>loki</code> section.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-loki">Install Loki</h3>
+<div class="paragraph">
+<p>Create the namespace if it doesn’t already exist:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl get namespace o11y &amp;&gt; /dev/null <span class="o">||</span> kubectl create namespace o11y</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Install the Loki release:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nb">install </span>loki grafana/loki <span class="se">\</span>
+  <span class="nt">--namespace</span> o11y <span class="se">\</span>
+  <span class="nt">--version</span> 6.30.1 <span class="se">\</span>
+  <span class="nt">--values</span> loki-filesystem-values.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="validate-deployment">Validate Deployment</h3>
+<div class="paragraph">
+<p>Verify pods and services:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> o11y get pods,services <span class="nt">-l</span> app.kubernetes.io/name<span class="o">=</span>loki</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This confirms successful deployment.</p>
+</div>
+<div class="paragraph">
+<p>Example output:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="console"><span class="go">NAME                                READY   STATUS    RESTARTS   AGE
+pod/loki-backend-0                  2/2     Running   0          31m
+pod/loki-backend-1                  2/2     Running   0          31m
+pod/loki-backend-2                  2/2     Running   0          31m
+pod/loki-canary-m7hz6               1/1     Running   0          31m
+pod/loki-canary-r957h               1/1     Running   0          30m
+pod/loki-canary-zn7qd               1/1     Running   0          31m
+pod/loki-chunks-cache-0             2/2     Running   0          31m
+pod/loki-gateway-5ffbb7f958-gxnfg   1/1     Running   0          31m
+pod/loki-read-6ffdcc89dc-2ntlx      1/1     Running   0          31m
+pod/loki-read-6ffdcc89dc-5zzfn      1/1     Running   0          31m
+pod/loki-read-6ffdcc89dc-jnhps      1/1     Running   0          31m
+pod/loki-results-cache-0            2/2     Running   0          31m
+pod/loki-write-0                    1/1     Running   0          31m
+pod/loki-write-1                    1/1     Running   0          31m
+pod/loki-write-2                    1/1     Running   0          31m
+
+NAME                                     TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)              AGE
+</span><span class="gp">service/loki-backend                     ClusterIP   10.100.214.56    &lt;none&gt;</span><span class="w">        </span>3100/TCP,9095/TCP    31m
+<span class="gp">service/loki-backend-headless            ClusterIP   None             &lt;none&gt;</span><span class="w">        </span>3100/TCP,9095/TCP    31m
+<span class="gp">service/loki-canary                      ClusterIP   10.100.61.157    &lt;none&gt;</span><span class="w">        </span>3500/TCP             31m
+<span class="gp">service/loki-chunks-cache                ClusterIP   None             &lt;none&gt;</span><span class="w">        </span>11211/TCP,9150/TCP   31m
+<span class="gp">service/loki-gateway                     ClusterIP   10.100.218.190   &lt;none&gt;</span><span class="w">        </span>80/TCP               31m
+<span class="gp">service/loki-memberlist                  ClusterIP   None             &lt;none&gt;</span><span class="w">        </span>7946/TCP             31m
+<span class="gp">service/loki-query-scheduler-discovery   ClusterIP   None             &lt;none&gt;</span><span class="w">        </span>3100/TCP,9095/TCP    31m
+<span class="gp">service/loki-read                        ClusterIP   10.100.73.20     &lt;none&gt;</span><span class="w">        </span>3100/TCP,9095/TCP    31m
+<span class="gp">service/loki-read-headless               ClusterIP   None             &lt;none&gt;</span><span class="w">        </span>3100/TCP,9095/TCP    31m
+<span class="gp">service/loki-results-cache               ClusterIP   None             &lt;none&gt;</span><span class="w">        </span>11211/TCP,9150/TCP   31m
+<span class="gp">service/loki-write                       ClusterIP   10.100.237.223   &lt;none&gt;</span><span class="w">        </span>3100/TCP,9095/TCP    31m
+<span class="gp">service/loki-write-headless              ClusterIP   None             &lt;none&gt;</span><span class="w">        </span>3100/TCP,9095/TCP    31m</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="accessing-loki-gateway">Accessing Loki Gateway</h3>
+<div class="paragraph">
+<p>The loki-gateway service acts as the primary entry point for Grafana and OpenTelemetry.</p>
+</div>
+<div class="paragraph">
+<p>Access it within the cluster:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="http://loki-gateway.80" class="bare">http://loki-gateway.80</a> (in the same namespace)</p>
+</li>
+<li>
+<p><a href="http://loki-gateway.o11y.svc.cluster.local:80" class="bare">http://loki-gateway.o11y.svc.cluster.local:80</a> (using the service name and namespace)</p>
+</li>
+<li>
+<p><a href="http://loki-gateway.o11y.svc:80" class="bare">http://loki-gateway.o11y.svc:80</a> (using the service name and namespace)</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>To view its configuration:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> o11y get service loki-gateway <span class="nt">-o</span> yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="configuring-opentelemetry-collector">Configuring OpenTelemetry Collector</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Example configuration for Loki exporter:</p>
+</div>
+<div class="listingblock">
+<div class="title">otel-collector.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">    <span class="na">exporters</span><span class="pi">:</span>
+      <span class="c1"># Other exporters...</span>
+      <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+      <span class="na">loki</span><span class="pi">:</span>
+        <span class="na">endpoint</span><span class="pi">:</span> <span class="s">http://loki-gateway:80/loki/api/v1/push</span>
+        <span class="na">tls</span><span class="pi">:</span>
+          <span class="na">insecure</span><span class="pi">:</span> <span class="kc">true</span>
+
+
+    <span class="na">service</span><span class="pi">:</span>
+      <span class="na">pipelines</span><span class="pi">:</span>
+        <span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+        <span class="na">logs/to_opensearch</span><span class="pi">:</span>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp</span><span class="pi">]</span>
+          <span class="na">processors</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">batch</span><span class="pi">]</span>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp/data-prepper-logs</span><span class="pi">]</span>
+        <span class="c1">#</span><i class="conum" data-value="3"></i><b>(3)</b>
+        <span class="na">logs/to_loki</span><span class="pi">:</span>
+          <span class="na">receivers</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">otlp</span><span class="pi">]</span>
+          <span class="na">processors</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">batch</span><span class="pi">,</span> <span class="nv">memory_limiter</span><span class="pi">]</span>
+          <span class="na">exporters</span><span class="pi">:</span> <span class="pi">[</span><span class="nv">loki</span><span class="pi">]</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>This configuration sets up the Loki exporter in the OpenTelemetry Collector to send logs to the Loki gateway service. The <code>endpoint</code> specifies the URL of the Loki gateway service, and <code>tls.insecure: true</code> allows insecure connections (useful for local development).</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>This pipeline processes logs received from the OTLP receiver and sends them to OpenSearch using the Data Prepper exporter. It uses the <code>batch</code> processor to batch logs before sending them.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>This pipeline processes logs received from the OTLP receiver and sends them to Loki using the Loki exporter. It also uses the <code>batch</code> processor to batch logs before sending them, and the <code>memory_limiter</code> processor to limit memory usage.</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="configuring-grafana-for-loki">Configuring Grafana for Loki</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To visualize logs in Grafana:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Go to Connections &gt; Data Sources.</p>
+</li>
+<li>
+<p>Click "Add data source" &gt; Choose "Loki".</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>Use the following settings:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Name</strong>: loki</p>
+</li>
+<li>
+<p><strong>URL</strong>: <a href="http://loki-gateway" class="bare">http://loki-gateway</a></p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="grafana-loki-data-source">Grafana Loki Data Source</h3>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-datasources-loki.png" alt="grafana datasources loki">
+</div>
+<div class="title">Figure 1. Grafana UI - Data Sources - Loki</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="exploring-logs-in-grafana">Exploring Logs in Grafana</h3>
+<div class="paragraph">
+<p>Use label filters to find logs from a service:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Label filters</strong>: service_name</p>
+</li>
+<li>
+<p><strong>value</strong>: otel-spring-example</p>
+</li>
+</ul>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-explore-logs.png" alt="grafana explore logs">
+</div>
+<div class="title">Figure 2. Grafana UI - Explore Logs</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="correlating-logs-and-traces">Correlating Logs and Traces</h3>
+<div class="paragraph">
+<p>In the previous article, we deployed Tempo and configured it to collect traces from the OpenTelemetry Collector. Now, you can correlate logs with traces in Grafana.</p>
+</div>
+<div class="paragraph">
+<p>For more information on how to set up Tempo, refer to the article on <a href="https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/install-tempo-on-k8s/">Installing Tempo on Kubernetes</a>.</p>
+</div>
+<div class="paragraph">
+<p>Now we have Tempo and Loki configured, we can correlate logs with traces in Grafana.</p>
+</div>
+<div class="paragraph">
+<p>To correlate logs with traces:
+1.	Ensure Tempo is deployed and configured.
+2.	In Grafana &gt; Data Sources &gt; Tempo, configure:</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-datasources-tempo.png" alt="grafana datasources tempo">
+</div>
+<div class="title">Figure 3. Grafana UI - Data Sources - Tempo</div>
+</div>
+<div class="paragraph">
+<p>In <strong>Trace to logs</strong> section, configure the following settings:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Data source</strong>: loki</p>
+</li>
+<li>
+<p><strong>Filter by trace ID</strong>: check the box</p>
+</li>
+<li>
+<p><strong>Filter by span ID</strong>: check the box</p>
+</li>
+</ul>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-trace-to-logs.png" alt="grafana trace to logs">
+</div>
+<div class="title">Figure 4. Grafana UI - Tempo Configuration - Trace to Logs</div>
+</div>
+<div class="paragraph">
+<p>Click on "Save &amp; test" to save the configuration.</p>
+</div>
+<div class="paragraph">
+<p>Now you can explore traces and logs together in Grafana. When you view a trace, you will see the logs associated with that trace by clicking on the "Logs" tab in the trace view.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-explore-traces.png" alt="grafana explore traces">
+</div>
+<div class="title">Figure 5. Grafana UI - Explore Traces</div>
+</div>
+<div class="paragraph">
+<p>Now, when exploring a trace:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Click on <strong>Logs for this span</strong> to view the associated logs.</p>
+</li>
+</ul>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-logs-for-this-span.png" alt="grafana logs for this span">
+</div>
+<div class="title">Figure 6. Grafana UI - Trace Details - Logs</div>
+</div>
+<div class="paragraph">
+<p>Now you can see the logs associated with the trace span. You can filter the logs by the trace ID and span ID to narrow down the results.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-traces-and-logs.png" alt="grafana traces and logs">
+</div>
+<div class="title">Figure 7. Grafana UI - Trace Details - Logs</div>
+</div>
+<div class="paragraph">
+<p>Correlating logs with traces in Grafana allows you to troubleshoot issues more effectively by providing context for the trace data. You can see the logs that were generated during the execution of a trace, which can help you understand the behavior of your application and identify any issues that may have occurred.</p>
+</div>
+<div class="paragraph">
+<p>This trace-log correlation enhances debugging by giving full context of application events.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide covered the deployment of Grafana Loki on Kubernetes using Helm. We explored both filesystem-based and object storage (MinIO/S3) configurations, integrated Loki with the OpenTelemetry Collector, and configured Grafana to visualize and correlate logs with traces. Loki offers a powerful and scalable approach to centralized logging in cloud-native environments.</p>
+</div>
+<div class="paragraph">
+<p>📘 View the web version:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/install-loki-on-k8s/" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/install-loki-on-k8s/</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="next-steps">Next Steps</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p>Configure <strong>S3 as the storage backend</strong> for Loki to support production-grade deployments with scalable and durable log storage.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>
