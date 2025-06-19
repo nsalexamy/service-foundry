@@ -1,0 +1,775 @@
+---
+layout: documents
+title: "Automated Loki Installationon Kubernetes with S3 Storage"
+summary: "Looking to streamline your observability stack on Kubernetes? In this article, I walk through a fully automated approach to deploy Grafana Loki using Amazon S3 as the storage backend. The guide covers everything from IAM role setup using IRSA, bucket provisioning via AWS CLI or Terraform, to deploying Loki in different modes (Single Binary, Simple Scalable, Distributed). Whether you’re setting up a dev or prod environment, this guide offers practical and scalable observability with secure, cost-effective storage."
+tags: #Observability #GrafanaLoki #Kubernetes #AWS #S3Storage #InfrastructureAsCode #Terraform #DevOps #CloudNative #OpenTelemetry #IRSA #Helm
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+
+// docs/grafana-lab/loki/install-loki-s3-on-k8s/index.adoc
+
+
+
+= Automated Loki Installationon Kubernetes with S3 Storage
+
+:imagesdir: images
+
+[.img-wide]
+image::install-loki-with-s3.png[]
+
+== Overview
+
+For production-grade deployments, Grafana Loki can be configured to use cloud-based object storage such as Amazon S3, Google Cloud Storage, or Azure Blob Storage. This guide provides a comprehensive walkthrough to deploy Loki on Kubernetes using Amazon S3 as the storage backend.
+
+=== S3 Buckets Referenced
+
+S3 bucket names must be globally unique. This guide assumes the following naming convention:
+
+* Chunks bucket: ${unique-prefix}-${k8s-namespace}-loki-chunks
+* Ruler bucket: ${unique-prefix}-${k8s-namespace}-loki-ruler
+
+Where:
+
+* *unique-prefix* refers to your project or organization name
+* *k8s-namespace* is the Kubernetes namespace where Loki is deployed (e.g., o11y)
+
+
+=== Topics Covered
+
+* Understanding IAM Roles for Service Accounts (IRSA)
+* Creating and configuring S3 buckets
+* Manual setup via AWS CLI
+* Automating IAM policies and roles with Terraform
+* Overview of Loki deployment modes
+* Installing Loki in Single Binary Mode with S3
+
+== IAM Roles for Service Accounts (IRSA)
+
+Amazon EKS supports IRSA, allowing Kubernetes service accounts to assume IAM roles without storing AWS credentials in pods. This setup is ideal for granting secure and scoped access to AWS services like S3.
+
+In this guide, Loki will assume an IAM role via a Kubernetes service account to access the S3 buckets.
+
+* *IAM Role*: LokiServiceAccountRole
+* *IAM Policy*: LokiS3AccessPolicy
+* *Kubernetes Service Account*: loki
+
+Refer to the official documentation for more details: https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html
+
+== Configuring S3 Buckets and IAM Roles
+
+
+=== Manual Setup with AWS CLI
+
+Prepare your environment:
+
+[source,terminal]
+----
+$ export LOKI_CHUNKS_BUCKET_NAME=your-loki-chunks
+$ export LOKI_RULER_BUCKET_NAME=your-loki-ruler
+----
+
+Create the S3 buckets:
+
+[source,terminal]
+----
+$ aws s3 mb s3://$LOKI_CHUNKS_BUCKET_NAME --region $AWS_REGION
+$ aws s3 mb s3://$LOKI_RULER_BUCKET_NAME --region $AWS_REGION
+----
+
+=== Define IAM Policy and Role
+
+This section is written based on the official documentation: https://grafana.com/docs/loki/latest/setup/install/helm/deployment-guides/aws/#defining-iam-roles-and-policies
+
+
+1. Create a policy document *loki-s3-policy.json*
+
+
+.aws/loki-s3-policy.json
+[source,json]
+----
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "LokiStorage",
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListBucket",
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:DeleteObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::< CHUNK BUCKET NAME >",
+                "arn:aws:s3:::< CHUNK BUCKET NAME >/*",
+                "arn:aws:s3:::< RULER BUCKET NAME >",
+                "arn:aws:s3:::< RULER BUCKET NAME >/*"
+            ]
+        }
+    ]
+}
+----
+
+Run the following command to create the IAM policy using the AWS CLI. Make sure to replace `< CHUNK BUCKET NAME >` and `< RULER BUCKET NAME >` with your actual S3 bucket names.
+
+2. Create the policy:
+
+[source,terminal]
+----
+$ aws iam create-policy --policy-name LokiS3AccessPolicy --policy-document file://aws/loki-s3-policy.json
+----
+
+
+3. Create a trust policy *trust-policy.json* for OIDC-based IRSA:
+
+
+Create a JSON file named `trust-policy.json` with the following content. This policy will allow the Loki service account to assume the IAM role using OIDC.
+
+.aws/trust-policy.json
+[source,json]
+----
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "Federated": "arn:aws:iam::< ACCOUNT ID >:oidc-provider/oidc.eks.<INSERT REGION>.amazonaws.com/id/< OIDC ID >"
+            },
+            "Action": "sts:AssumeRoleWithWebIdentity",
+            "Condition": {
+                "StringEquals": {
+                    "oidc.eks.<INSERT REGION>.amazonaws.com/id/< OIDC ID >:sub": "system:serviceaccount:<INSERT K8S NAMESPACE>:loki",
+                    "oidc.eks.<INSERT REGION>.amazonaws.com/id/< OIDC ID >:aud": "sts.amazonaws.com"
+                }
+            }
+        }
+    ]
+}
+----
+
+To get the OIDC ID, you can run the following command:
+[source,terminal]
+----
+$ aws eks describe-cluster --name $EKS_CLUSTER_NAME \
+    --query "cluster.identity.oidc.issuer" --output text
+----
+
+4. Create the IAM role using the AWS CLI:
+
+[source,terminal]
+----
+$ aws iam create-role --role-name LokiServiceAccountRole --assume-role-policy-document file://aws/trust-policy.json
+----
+
+5. Attach the policy to the role:
+
+[source,terminal]
+----
+$ aws iam attach-role-policy --role-name LokiServiceAccountRole --policy-arn arn:aws:iam::${AWS_ACCOUNT_ID}:policy/LokiS3AccessPolicy
+----
+
+The Role and Policy should now be created and attached. You can verify this by navigating to the AWS IAM console and checking the roles and policies.
+
+.AWS Console - IAM Role created manually
+[.img-wide]
+image::aws-role-manual.png[]
+
+=== loki service account
+
+The service account 'loki' will be created in the Kubernetes namespace where Loki is deployed (e.g., `o11y`). This service account will be associated with the IAM role created in the previous step.
+
+The annotation "eks.amazonaws.com/role-arn" must be set to the ARN of the IAM role you created. This allows the Kubernetes service account to assume the IAM role and access the S3 buckets.
+
+.custom-values.yaml
+[source,yaml]
+----
+serviceAccount:
+  create: true
+  annotations:
+    "eks.amazonaws.com/role-arn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/LokiServiceAccountRole" # The service role you created
+----
+
+== Automating with Terraform
+
+Terraform simplifies IAM and S3 provisioning across environments.
+
+
+Terraform will handle following tasks during the deployment:
+
+* Creating S3 buckets for Loki chunks and ruler data
+* Creating an IAM policy for S3 access
+* Creating an IAM role for the Loki service account
+* Attaching the IAM policy to the role
+
+It also deletes the S3 buckets and IAM roles when you destroy the Terraform resources.
+
+=== Terraform Structure
+
+The Terraform code is structured as follows:
+
+[source,plaintext]
+----
+terraform
+├── main.tf
+├── modules
+│   ├── iam-s3-access
+│   │   ├── main.tf
+│   │   ├── outputs.tf
+│   │   └── variables.tf
+│   └── s3-buckets
+│       ├── main.tf
+│       ├── outputs.tf
+│       └── variables.tf
+├── terraform.tfvars
+└── variables.tf
+
+----
+
+Terraform modules:
+
+* *s3-buckets*: Creates Loki-specific S3 buckets
+* *iam-s3-access*: Creates IAM role and policy for Loki access
+
+=== Main Terraform Files
+
+==== variables.tf
+
+Variables defined in the `variables.tf`:
+
+* `eks_cluster_name`: Name of the EKS cluster where Loki is deployed.
+* `aws_region`: AWS region where the EKS cluster is deployed.
+* `s3_bucket_prefix`: Prefix for the S3 bucket names.
+* `loki_namespace`: Namespace for Loki (default is `o11y`).
+* `loki_serviceaccount`: Service account for Loki (default is `loki`).
+* `s3_bucket_suffixes`: List of suffixes for S3 buckets (default is `-chunks` and `-ruler`).
+
+
+.variables.tf
+[source,hcl]
+----
+variable "eks_cluster_name" {
+  description = "Name of the Kubernetes cluster"
+  type        = string
+}
+
+variable "aws_region" {
+  description = "AWS region where the EKS cluster is deployed"
+  type        = string
+}
+
+variable "s3_bucket_prefix" {
+  description = "Prefix for S3 bucket names"
+  type        = string
+}
+
+variable "loki_namespace" {
+  description = "Namespace for Loki"
+  type        = string
+  default     = "o11y"
+}
+
+variable "loki_serviceaccount" {
+  description = "Service account for Loki"
+  type        = string
+  default     = "loki"
+}
+
+variable "s3_bucket_suffixes" {
+  description = "List of suffixes for S3 buckets"
+  type = list(string)
+  default = [
+    "-chunks",
+    "-ruler",
+  ]
+}
+----
+
+==== main.tf
+
+The `main.tf` file is the entry point for the Terraform configuration. It defines the local variables, modules, and data sources required to create the S3 buckets and IAM roles.
+
+.main.tf
+[source,hcl]
+----
+locals {
+  ## <1>
+  s3_bucket_names = [
+    for suffix in var.s3_bucket_suffixes : "${var.s3_bucket_prefix}${var.loki_namespace}${suffix}"
+  ]
+}
+
+## <2>
+module "s3_buckets" {
+  source = "./modules/s3-buckets"
+
+  s3_bucket_names = local.s3_bucket_names
+  enable_versioning = true
+}
+
+data "aws_eks_cluster" "this" {
+  name = var.eks_cluster_name
+}
+
+data "aws_iam_openid_connect_provider" "this" {
+  url = data.aws_eks_cluster.this.identity[0].oidc[0].issuer
+}
+
+locals {
+  oidc_url = data.aws_eks_cluster.this.identity[0].oidc[0].issuer
+  oidc_arn = data.aws_iam_openid_connect_provider.this.arn
+  # remove https:// from the URL
+  oidc_url_path = regex("://(.*)", local.oidc_url)[0]
+
+  ## <3>
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Principal = {
+          Federated = local.oidc_arn
+        },
+        Action = "sts:AssumeRoleWithWebIdentity",
+        Condition = {
+          StringEquals = {
+            "${local.oidc_url_path}:sub" = "system:serviceaccount:${var.loki_namespace}:${var.loki_serviceaccount}",
+            "${local.oidc_url_path}:aud" = "sts.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+}
+
+## <4>
+# iam_s3_access
+module "iam_access_loki_s3" {
+  source = "./modules/iam-s3-access"
+
+  role_name = "${var.loki_namespace}LokiServiceAccountRole"
+  policy_name = "${var.loki_namespace}LokiS3AccessPolicy"
+  s3_bucket_names = local.s3_bucket_names
+  assume_role_policy_json = local.assume_role_policy
+}
+
+## <5>
+# print IAM role and policy details
+output "loki_iam_role_name" {
+  value = module.iam_access_loki_s3.role_name
+}
+output "loki_iam_role_arn" {
+  value = module.iam_access_loki_s3.role_arn
+}
+output "loki_iam_policy_name" {
+  value = module.iam_access_loki_s3.policy_name
+}
+output "loki_iam_policy_arn" {
+  value = module.iam_access_loki_s3.policy_arn
+}
+----
+<1> This creates a list of S3 bucket names based on the prefix and suffixes defined in the variables.
+<2> This module creates the S3 buckets using the names defined in the `locals` block.
+<3> This block defines the assume role policy for the IAM role that allows the Loki service account to assume the role using OIDC.
+<4> This module creates the IAM role and policy for Loki to access S3.
+<5> These outputs provide the IAM role and policy details that can be used in the Loki Helm chart.
+
+=== Module s3-buckets
+
+==== variables.tf
+
+Variables defined in the `variables.tf`:
+
+* *s3_bucket_names*: List of S3 bucket names to be created.
+* *enable_versioning*: A boolean variable to enable versioning for the S3 buckets (default is true).
+
+.variables.tf
+[source,hcl]
+----
+variable "s3_bucket_names" {
+    description = "List of S3 bucket names for Loki"
+    type        = list(string)
+}
+
+variable "enable_versioning" {
+    description = "Enable versioning for S3 buckets"
+    type        = bool
+    default     = true
+}
+----
+
+==== main.tf
+
+The main.tf file in the `s3-buckets` module defines the S3 buckets and their versioning configuration. It uses the `aws_s3_bucket` and `aws_s3_bucket_versioning` resources to create the S3 buckets and enable versioning if specified.
+
+.main.tf
+[source,hcl]
+----
+## <1>
+resource "aws_s3_bucket" "this" {
+  for_each = toset(var.s3_bucket_names)
+
+  bucket   = each.value
+  force_destroy = true
+
+  tags = {
+    ManagedBy = "Terraform"
+  }
+}
+
+## <2>
+resource "aws_s3_bucket_versioning" "this" {
+  for_each = var.enable_versioning ? aws_s3_bucket.this : {}
+
+  bucket = each.value.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+----
+
+<1> This resource creates S3 buckets for each name in the `s3_bucket_names` list. It also enables versioning if specified.
+<2> This resource enables versioning for the S3 buckets if the `enable_versioning` variable is set to true.
+
+
+
+=== Module iam-s3-access
+
+Variables defined in the `variables.tf`:
+
+* *role_name*: Name of the IAM role for S3 access.
+* *policy_name*: Name of the IAM policy for S3 access.
+* *s3_bucket_names*: List of S3 bucket names for Loki.
+* *assume_role_policy_json*: JSON policy document that defines who can assume the IAM role (default is an empty string).
+
+==== variables.tf
+
+.variables.tf
+[source,hcl]
+----
+variable "role_name" {
+  description = "IAM role name for S3 access"
+  type        = string
+}
+
+variable "policy_name" {
+    description = "Name of the IAM policy for S3 access"
+    type        = string
+}
+
+variable "s3_bucket_names" {
+    description = "List of S3 bucket names for Loki"
+    type        = list(string)
+}
+
+variable "assume_role_policy_json" {
+    description = "JSON policy document that defines who can assume the IAM role"
+    type        = string
+    default     = ""
+}
+----
+
+==== main.tf
+
+The main.tf file in the `iam-s3-access` module defines the IAM role and policy for Loki to access S3. It uses the `aws_iam_role`, `aws_iam_policy_document`, `aws_iam_policy`, and `aws_iam_role_policy_attachment` resources to create the necessary IAM resources.
+
+.main.tf
+[source,hcl]
+----
+## <1>
+resource "aws_iam_role" "this" {
+  name = var.role_name
+  assume_role_policy = var.assume_role_policy_json
+}
+
+data "aws_iam_policy_document" "this" {
+  dynamic "statement" {
+    for_each = var.s3_bucket_names
+    content {
+      actions = [
+        "s3:ListBucket",
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ]
+      resources = [
+        "arn:aws:s3:::${statement.value}",
+        "arn:aws:s3:::${statement.value}/*"
+      ]
+    }
+  }
+}
+
+## <2>
+resource "aws_iam_policy" "this" {
+  name   = var.policy_name
+  policy = data.aws_iam_policy_document.this.json
+}
+
+## <3>
+resource "aws_iam_role_policy_attachment" "this" {
+  role       = aws_iam_role.this.name
+  policy_arn = aws_iam_policy.this.arn
+}
+----
+<1> This resource creates an IAM role with the specified name and assume role policy.
+<2> This data source generates the IAM policy document that allows access to the specified S3 buckets.
+<3> This resource attaches the IAM policy to the IAM role created in the previous step.
+
+
+=== Verify the IAM Role and Policy
+
+.AWS Console - IAM Role Created by Terraform
+[.img-wide]
+image::aws-role-terraform.png[]
+
+
+== Loki Deployment Modes
+
+Refer to the official documentation for more details: https://grafana.com/docs/loki/latest/get-started/deployment-modes/
+
+There are several deployment modes for Loki, including:
+
+* Single Binary: A single binary that runs all components of Loki.
+* Simple Scalable: A simple scalable deployment that uses a single binary for the ingester and querier, but separates the distributor and storage.
+* Distributed: A distributed deployment that separates all components of Loki into different pods.
+
+=== Single Binary Mode
+
+In single binary mode, all components of Loki are run in a single pod. This is suitable for small deployments or development environments.
+
+
+.Loki Single Binary Mode - image source: grafana.com
+[.img-medium]
+image::loki-singlebinary-mode.png[]
+
+
+This mode is the simplest to set up and requires the least amount of resources. It is not recommended for production use, but it is useful for testing and development.
+
+.Example resources created in Single Binary Mode
+[source,terminal]
+----
+$ kubectl -n o11y get deployments,statefulsets,daemonsets
+NAME                           READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/loki-gateway   1/1     1            1           52m
+
+NAME                                  READY   AGE
+statefulset.apps/loki                 1/1     52m
+statefulset.apps/loki-chunks-cache    1/1     52m
+statefulset.apps/loki-results-cache   1/1     52m
+
+NAME                         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE
+daemonset.apps/loki-canary   2         2         2       2            2           <none>          52m
+----
+
+=== Simple Scalable Mode
+This is the default mode for Loki. It separates the ingester and querier into different pods, but uses a single pod for the distributor and storage. This mode is suitable for small to medium deployments.
+
+.Loki Simple Scalable Mode - image source: grafana.come
+[.img-medium]
+image::loki-simplescalable-mode.png[]
+
+This mode requires more resources than the single binary mode, but it provides better scalability and reliability. It is suitable for small to medium deployments.
+
+.Example resources created in Simple Scalable Mode
+[source,terminal]
+----
+$ kubectl -n o11y get deployments,statefulsets,daemonsets
+NAME                           READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/loki-gateway   1/1     1            1           50s
+deployment.apps/loki-read      0/3     3            0           50s
+
+NAME                                  READY   AGE
+statefulset.apps/loki-backend         3/3     51s
+statefulset.apps/loki-chunks-cache    1/1     51s
+statefulset.apps/loki-results-cache   1/1     51s
+statefulset.apps/loki-write           0/3     51s
+
+NAME                         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE
+daemonset.apps/loki-canary   3         3         3       3            3           <none>          51s
+----
+
+=== Distributed Mode
+
+In distributed mode, all components of Loki are separated into different pods. This mode is suitable for large deployments and provides better scalability and reliability.
+
+.Loki Distributed Mode - image source: grafana.com
+[.img-medium]
+image::loki-distributed-mode.png[]
+
+This mode requires the most resources, but it provides the best scalability and reliability. It is suitable for large deployments and production use.
+
+.Example resources created in Distributed Mode
+[source,terminal]
+----
+$ kubectl -n o11y get deployments,statefulsets,daemonsets
+NAME                                   READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/loki-distributor       3/3     3            3           2m37s
+deployment.apps/loki-gateway           1/1     1            1           2m37s
+deployment.apps/loki-querier           3/3     3            3           2m37s
+deployment.apps/loki-query-frontend    2/2     2            2           2m37s
+deployment.apps/loki-query-scheduler   2/2     2            2           2m37s
+
+NAME                                  READY   AGE
+statefulset.apps/loki-chunks-cache    1/1     2m37s
+statefulset.apps/loki-compactor       1/1     2m37s
+statefulset.apps/loki-index-gateway   2/2     2m37s
+statefulset.apps/loki-ingester        3/3     2m37s
+statefulset.apps/loki-results-cache   1/1     2m37s
+statefulset.apps/loki-ruler           1/1     2m37s
+
+NAME                         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE
+daemonset.apps/loki-canary   3         3         3       3            3           <none>          2m37s
+----
+
+
+== Installing Loki in Single Binary Mode with S3
+
+Use the following values.yaml with Helm to deploy Loki in Single Binary mode using S3:
+
+.loki-singlebinary-values.yaml
+[source,yaml]
+----
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false
+  ## <1>
+  storage:
+    type: s3
+    bucketNames:
+      chunks: {your-bucket-prefix}-loki-chunks
+      ruler: {your-bucket-prefix}-loki-ruler
+    s3:
+      region: ca-west-1 # for example, ca-west-1
+
+  ## <2>
+  storage_config:
+    aws:
+      region: ca-west-1 # for example, eu-west-2
+      s3forcepathstyle: false
+
+  ## <3>
+  schemaConfig:
+    configs:
+      - from: "2025-06-01"
+        store: tsdb
+        object_store: s3
+        schema: v13
+        index:
+          prefix: loki_index_
+          period: 24h
+
+  compactor:
+    retention_enabled: true
+    delete_request_store: s3
+
+  ruler:
+    replicas: 1
+    enable_api: true
+    storage:
+      type: s3
+
+      s3:
+        region: ca-west-1
+        bucketnames: {your-bucket-prefix}-loki-ruler
+        s3forcepathstyle: false
+
+    alertmanager_url: http://mimir-alertmanager/alertmanager
+
+  limits_config:
+    allow_structured_metadata: true
+    retention_period: 672h # 28 days
+
+singleBinary:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1
+      memory: 2Gi
+
+## <4>
+serviceAccount:
+  # use the default service account
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::{aws-account-id}:role/o11yLokiServiceAccountRole
+
+gateway:
+  enabled: true
+
+# Disable other deployment modes
+backend:
+  replicas: 0
+read:
+  replicas: 0
+write:
+  replicas: 0
+
+distributor:
+  replicas: 0
+ingester:
+  replicas: 0
+querier:
+  replicas: 0
+queryFrontend:
+  replicas: 0
+queryScheduler:
+  replicas: 0
+ruler:
+  replicas: 0
+compactor:
+  replicas: 0
+indexGateway:
+  replicas: 0
+----
+<1> Replace `{your-bucket-prefix}` with the actual prefix you want to use for your S3 buckets.
+<2> Set the AWS region where your S3 buckets are located.
+<3> The schema configuration defines the storage schema for Loki. The `from` date should be set to a date in the future to ensure that Loki uses the new schema.
+<4> Replace `{aws-account-id}` with your actual AWS account ID. This is the IAM role that allows Loki to access the S3 buckets.
+
+Run the following command to install Loki using Helm with the above values file:
+[,terminal]
+----
+$ helm install loki grafana/loki \
+  --namespace o11y --create-namespace \
+  -f loki-singlebinary-values.yaml
+----
+
+=== Verify the Installation on Grafana
+
+Configure Grafana to connect to the Loki data source at http://loki:3000. Logs should appear under the Explore section.
+
+.Grafana Data Source Configuration for Loki
+[.img-wide]
+image::grafana-datasources-loki.png[]
+
+Logs can be viewed in Grafana by navigating to the Explore section and selecting the Loki data source.
+
+.Grafana Loki Logs
+[.img-wide]
+image::grafana-loki-search.png[]
+
+You can find some files in the S3 bucket that Loki has created. You can verify this by navigating to the AWS S3 console and checking the contents of the S3 buckets.
+
+.AWS Console - S3 Buckets created by Loki
+[.img-wide]
+image::aws-s3-bucket.png[]
+
+== Conclusion
+
+This guide demonstrated how to automate the deployment of Grafana Loki on Kubernetes with Amazon S3 as the storage backend using both manual and Terraform-based approaches. By leveraging IRSA, your deployment is secure and production-ready.
+
+📘 View the web version:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/install-loki-s3-on-k8s/
