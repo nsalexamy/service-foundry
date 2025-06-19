@@ -1,0 +1,1250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Automated Loki Installationon Kubernetes with S3 Storage</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">
+    Service Foundry
+</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/products/" class="">Products</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+        
+        <a href="/service-foundry/pages/demo/" class="">Demo</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="active">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Automated Loki Installationon Kubernetes with S3 Storage
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a>
+<ul class="sectlevel2">
+<li><a href="#s3-buckets-referenced">S3 Buckets Referenced</a></li>
+<li><a href="#topics-covered">Topics Covered</a></li>
+</ul>
+</li>
+<li><a href="#iam-roles-for-service-accounts-irsa">IAM Roles for Service Accounts (IRSA)</a></li>
+<li><a href="#configuring-s3-buckets-and-iam-roles">Configuring S3 Buckets and IAM Roles</a>
+<ul class="sectlevel2">
+<li><a href="#manual-setup-with-aws-cli">Manual Setup with AWS CLI</a></li>
+<li><a href="#define-iam-policy-and-role">Define IAM Policy and Role</a></li>
+<li><a href="#loki-service-account">loki service account</a></li>
+</ul>
+</li>
+<li><a href="#automating-with-terraform">Automating with Terraform</a>
+<ul class="sectlevel2">
+<li><a href="#terraform-structure">Terraform Structure</a></li>
+<li><a href="#main-terraform-files">Main Terraform Files</a></li>
+<li><a href="#module-s3-buckets">Module s3-buckets</a></li>
+<li><a href="#module-iam-s3-access">Module iam-s3-access</a></li>
+<li><a href="#verify-the-iam-role-and-policy">Verify the IAM Role and Policy</a></li>
+</ul>
+</li>
+<li><a href="#loki-deployment-modes">Loki Deployment Modes</a>
+<ul class="sectlevel2">
+<li><a href="#single-binary-mode">Single Binary Mode</a></li>
+<li><a href="#simple-scalable-mode">Simple Scalable Mode</a></li>
+<li><a href="#distributed-mode">Distributed Mode</a></li>
+</ul>
+</li>
+<li><a href="#installing-loki-in-single-binary-mode-with-s3">Installing Loki in Single Binary Mode with S3</a>
+<ul class="sectlevel2">
+<li><a href="#verify-the-installation-on-grafana">Verify the Installation on Grafana</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/install-loki-with-s3.png" alt="install loki with s3">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>For production-grade deployments, Grafana Loki can be configured to use cloud-based object storage such as Amazon S3, Google Cloud Storage, or Azure Blob Storage. This guide provides a comprehensive walkthrough to deploy Loki on Kubernetes using Amazon S3 as the storage backend.</p>
+</div>
+<div class="sect2">
+<h3 id="s3-buckets-referenced">S3 Buckets Referenced</h3>
+<div class="paragraph">
+<p>S3 bucket names must be globally unique. This guide assumes the following naming convention:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Chunks bucket: ${unique-prefix}-${k8s-namespace}-loki-chunks</p>
+</li>
+<li>
+<p>Ruler bucket: ${unique-prefix}-${k8s-namespace}-loki-ruler</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Where:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>unique-prefix</strong> refers to your project or organization name</p>
+</li>
+<li>
+<p><strong>k8s-namespace</strong> is the Kubernetes namespace where Loki is deployed (e.g., o11y)</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="topics-covered">Topics Covered</h3>
+<div class="ulist">
+<ul>
+<li>
+<p>Understanding IAM Roles for Service Accounts (IRSA)</p>
+</li>
+<li>
+<p>Creating and configuring S3 buckets</p>
+</li>
+<li>
+<p>Manual setup via AWS CLI</p>
+</li>
+<li>
+<p>Automating IAM policies and roles with Terraform</p>
+</li>
+<li>
+<p>Overview of Loki deployment modes</p>
+</li>
+<li>
+<p>Installing Loki in Single Binary Mode with S3</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="iam-roles-for-service-accounts-irsa">IAM Roles for Service Accounts (IRSA)</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Amazon EKS supports IRSA, allowing Kubernetes service accounts to assume IAM roles without storing AWS credentials in pods. This setup is ideal for granting secure and scoped access to AWS services like S3.</p>
+</div>
+<div class="paragraph">
+<p>In this guide, Loki will assume an IAM role via a Kubernetes service account to access the S3 buckets.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>IAM Role</strong>: LokiServiceAccountRole</p>
+</li>
+<li>
+<p><strong>IAM Policy</strong>: LokiS3AccessPolicy</p>
+</li>
+<li>
+<p><strong>Kubernetes Service Account</strong>: loki</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Refer to the official documentation for more details: <a href="https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html" class="bare">https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html</a></p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="configuring-s3-buckets-and-iam-roles">Configuring S3 Buckets and IAM Roles</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="manual-setup-with-aws-cli">Manual Setup with AWS CLI</h3>
+<div class="paragraph">
+<p>Prepare your environment:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="nb">export </span><span class="nv">LOKI_CHUNKS_BUCKET_NAME</span><span class="o">=</span>your-loki-chunks
+<span class="gp">$</span><span class="w"> </span><span class="nb">export </span><span class="nv">LOKI_RULER_BUCKET_NAME</span><span class="o">=</span>your-loki-ruler</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Create the S3 buckets:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>aws s3 mb s3://<span class="nv">$LOKI_CHUNKS_BUCKET_NAME</span> <span class="nt">--region</span> <span class="nv">$AWS_REGION</span>
+<span class="gp">$</span><span class="w"> </span>aws s3 mb s3://<span class="nv">$LOKI_RULER_BUCKET_NAME</span> <span class="nt">--region</span> <span class="nv">$AWS_REGION</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="define-iam-policy-and-role">Define IAM Policy and Role</h3>
+<div class="paragraph">
+<p>This section is written based on the official documentation: <a href="https://grafana.com/docs/loki/latest/setup/install/helm/deployment-guides/aws/#defining-iam-roles-and-policies" class="bare">https://grafana.com/docs/loki/latest/setup/install/helm/deployment-guides/aws/#defining-iam-roles-and-policies</a></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Create a policy document <strong>loki-s3-policy.json</strong></p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="title">aws/loki-s3-policy.json</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+    </span><span class="nl">"Version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2012-10-17"</span><span class="p">,</span><span class="w">
+    </span><span class="nl">"Statement"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+        </span><span class="p">{</span><span class="w">
+            </span><span class="nl">"Sid"</span><span class="p">:</span><span class="w"> </span><span class="s2">"LokiStorage"</span><span class="p">,</span><span class="w">
+            </span><span class="nl">"Effect"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Allow"</span><span class="p">,</span><span class="w">
+            </span><span class="nl">"Action"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+                </span><span class="s2">"s3:ListBucket"</span><span class="p">,</span><span class="w">
+                </span><span class="s2">"s3:PutObject"</span><span class="p">,</span><span class="w">
+                </span><span class="s2">"s3:GetObject"</span><span class="p">,</span><span class="w">
+                </span><span class="s2">"s3:DeleteObject"</span><span class="w">
+            </span><span class="p">],</span><span class="w">
+            </span><span class="nl">"Resource"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+                </span><span class="s2">"arn:aws:s3:::&lt; CHUNK BUCKET NAME &gt;"</span><span class="p">,</span><span class="w">
+                </span><span class="s2">"arn:aws:s3:::&lt; CHUNK BUCKET NAME &gt;/*"</span><span class="p">,</span><span class="w">
+                </span><span class="s2">"arn:aws:s3:::&lt; RULER BUCKET NAME &gt;"</span><span class="p">,</span><span class="w">
+                </span><span class="s2">"arn:aws:s3:::&lt; RULER BUCKET NAME &gt;/*"</span><span class="w">
+            </span><span class="p">]</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">]</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Run the following command to create the IAM policy using the AWS CLI. Make sure to replace <code>&lt; CHUNK BUCKET NAME &gt;</code> and <code>&lt; RULER BUCKET NAME &gt;</code> with your actual S3 bucket names.</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Create the policy:</p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>aws iam create-policy <span class="nt">--policy-name</span> LokiS3AccessPolicy <span class="nt">--policy-document</span> file://aws/loki-s3-policy.json</code></pre>
+</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Create a trust policy <strong>trust-policy.json</strong> for OIDC-based IRSA:</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>Create a JSON file named <code>trust-policy.json</code> with the following content. This policy will allow the Loki service account to assume the IAM role using OIDC.</p>
+</div>
+<div class="listingblock">
+<div class="title">aws/trust-policy.json</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+    </span><span class="nl">"Version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2012-10-17"</span><span class="p">,</span><span class="w">
+    </span><span class="nl">"Statement"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+        </span><span class="p">{</span><span class="w">
+            </span><span class="nl">"Effect"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Allow"</span><span class="p">,</span><span class="w">
+            </span><span class="nl">"Principal"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="nl">"Federated"</span><span class="p">:</span><span class="w"> </span><span class="s2">"arn:aws:iam::&lt; ACCOUNT ID &gt;:oidc-provider/oidc.eks.&lt;INSERT REGION&gt;.amazonaws.com/id/&lt; OIDC ID &gt;"</span><span class="w">
+            </span><span class="p">},</span><span class="w">
+            </span><span class="nl">"Action"</span><span class="p">:</span><span class="w"> </span><span class="s2">"sts:AssumeRoleWithWebIdentity"</span><span class="p">,</span><span class="w">
+            </span><span class="nl">"Condition"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="nl">"StringEquals"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                    </span><span class="nl">"oidc.eks.&lt;INSERT REGION&gt;.amazonaws.com/id/&lt; OIDC ID &gt;:sub"</span><span class="p">:</span><span class="w"> </span><span class="s2">"system:serviceaccount:&lt;INSERT K8S NAMESPACE&gt;:loki"</span><span class="p">,</span><span class="w">
+                    </span><span class="nl">"oidc.eks.&lt;INSERT REGION&gt;.amazonaws.com/id/&lt; OIDC ID &gt;:aud"</span><span class="p">:</span><span class="w"> </span><span class="s2">"sts.amazonaws.com"</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">]</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To get the OIDC ID, you can run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>aws eks describe-cluster <span class="nt">--name</span> <span class="nv">$EKS_CLUSTER_NAME</span> <span class="se">\</span>
+<span class="go">    --query "cluster.identity.oidc.issuer" --output text</span></code></pre>
+</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Create the IAM role using the AWS CLI:</p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>aws iam create-role <span class="nt">--role-name</span> LokiServiceAccountRole <span class="nt">--assume-role-policy-document</span> file://aws/trust-policy.json</code></pre>
+</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Attach the policy to the role:</p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>aws iam attach-role-policy <span class="nt">--role-name</span> LokiServiceAccountRole <span class="nt">--policy-arn</span> arn:aws:iam::<span class="k">${</span><span class="nv">AWS_ACCOUNT_ID</span><span class="k">}</span>:policy/LokiS3AccessPolicy</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The Role and Policy should now be created and attached. You can verify this by navigating to the AWS IAM console and checking the roles and policies.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/aws-role-manual.png" alt="aws role manual">
+</div>
+<div class="title">Figure 1. AWS Console - IAM Role created manually</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="loki-service-account">loki service account</h3>
+<div class="paragraph">
+<p>The service account 'loki' will be created in the Kubernetes namespace where Loki is deployed (e.g., <code>o11y</code>). This service account will be associated with the IAM role created in the previous step.</p>
+</div>
+<div class="paragraph">
+<p>The annotation "eks.amazonaws.com/role-arn" must be set to the ARN of the IAM role you created. This allows the Kubernetes service account to assume the IAM role and access the S3 buckets.</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">serviceAccount</span><span class="pi">:</span>
+  <span class="na">create</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="s2">"</span><span class="s">eks.amazonaws.com/role-arn"</span><span class="err">:</span> <span class="s2">"</span><span class="s">arn:aws:iam::&lt;AWS_ACCOUNT_ID&gt;:role/LokiServiceAccountRole"</span> <span class="c1"># The service role you created</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="automating-with-terraform">Automating with Terraform</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Terraform simplifies IAM and S3 provisioning across environments.</p>
+</div>
+<div class="paragraph">
+<p>Terraform will handle following tasks during the deployment:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Creating S3 buckets for Loki chunks and ruler data</p>
+</li>
+<li>
+<p>Creating an IAM policy for S3 access</p>
+</li>
+<li>
+<p>Creating an IAM role for the Loki service account</p>
+</li>
+<li>
+<p>Attaching the IAM policy to the role</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>It also deletes the S3 buckets and IAM roles when you destroy the Terraform resources.</p>
+</div>
+<div class="sect2">
+<h3 id="terraform-structure">Terraform Structure</h3>
+<div class="paragraph">
+<p>The Terraform code is structured as follows:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="plaintext">terraform
+├── main.tf
+├── modules
+│   ├── iam-s3-access
+│   │   ├── main.tf
+│   │   ├── outputs.tf
+│   │   └── variables.tf
+│   └── s3-buckets
+│       ├── main.tf
+│       ├── outputs.tf
+│       └── variables.tf
+├── terraform.tfvars
+└── variables.tf</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Terraform modules:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>s3-buckets</strong>: Creates Loki-specific S3 buckets</p>
+</li>
+<li>
+<p><strong>iam-s3-access</strong>: Creates IAM role and policy for Loki access</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="main-terraform-files">Main Terraform Files</h3>
+<div class="sect3">
+<h4 id="variables-tf">variables.tf</h4>
+<div class="paragraph">
+<p>Variables defined in the <code>variables.tf</code>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>eks_cluster_name</code>: Name of the EKS cluster where Loki is deployed.</p>
+</li>
+<li>
+<p><code>aws_region</code>: AWS region where the EKS cluster is deployed.</p>
+</li>
+<li>
+<p><code>s3_bucket_prefix</code>: Prefix for the S3 bucket names.</p>
+</li>
+<li>
+<p><code>loki_namespace</code>: Namespace for Loki (default is <code>o11y</code>).</p>
+</li>
+<li>
+<p><code>loki_serviceaccount</code>: Service account for Loki (default is <code>loki</code>).</p>
+</li>
+<li>
+<p><code>s3_bucket_suffixes</code>: List of suffixes for S3 buckets (default is <code>-chunks</code> and <code>-ruler</code>).</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">variables.tf</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="hcl"><span class="nx">variable</span> <span class="s2">"eks_cluster_name"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Name of the Kubernetes cluster"</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+<span class="p">}</span>
+
+<span class="nx">variable</span> <span class="s2">"aws_region"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"AWS region where the EKS cluster is deployed"</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+<span class="p">}</span>
+
+<span class="nx">variable</span> <span class="s2">"s3_bucket_prefix"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Prefix for S3 bucket names"</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+<span class="p">}</span>
+
+<span class="nx">variable</span> <span class="s2">"loki_namespace"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Namespace for Loki"</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+  <span class="nx">default</span>     <span class="o">=</span> <span class="s2">"o11y"</span>
+<span class="p">}</span>
+
+<span class="nx">variable</span> <span class="s2">"loki_serviceaccount"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Service account for Loki"</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+  <span class="nx">default</span>     <span class="o">=</span> <span class="s2">"loki"</span>
+<span class="p">}</span>
+
+<span class="nx">variable</span> <span class="s2">"s3_bucket_suffixes"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"List of suffixes for S3 buckets"</span>
+  <span class="nx">type</span> <span class="o">=</span> <span class="nx">list</span><span class="p">(</span><span class="nx">string</span><span class="p">)</span>
+  <span class="nx">default</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">"-chunks"</span><span class="p">,</span>
+    <span class="s2">"-ruler"</span><span class="p">,</span>
+  <span class="p">]</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="main-tf">main.tf</h4>
+<div class="paragraph">
+<p>The <code>main.tf</code> file is the entry point for the Terraform configuration. It defines the local variables, modules, and data sources required to create the S3 buckets and IAM roles.</p>
+</div>
+<div class="listingblock">
+<div class="title">main.tf</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="hcl"><span class="nx">locals</span> <span class="p">{</span>
+  <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="nx">s3_bucket_names</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="nx">for</span> <span class="nx">suffix</span> <span class="nx">in</span> <span class="nx">var</span><span class="p">.</span><span class="nx">s3_bucket_suffixes</span> <span class="o">:</span> <span class="s2">"${var.s3_bucket_prefix}${var.loki_namespace}${suffix}"</span>
+  <span class="p">]</span>
+<span class="p">}</span>
+
+<span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+<span class="nx">module</span> <span class="s2">"s3_buckets"</span> <span class="p">{</span>
+  <span class="nx">source</span> <span class="o">=</span> <span class="s2">"./modules/s3-buckets"</span>
+
+  <span class="nx">s3_bucket_names</span> <span class="o">=</span> <span class="nx">local</span><span class="p">.</span><span class="nx">s3_bucket_names</span>
+  <span class="nx">enable_versioning</span> <span class="o">=</span> <span class="kc">true</span>
+<span class="p">}</span>
+
+<span class="nx">data</span> <span class="s2">"aws_eks_cluster"</span> <span class="s2">"this"</span> <span class="p">{</span>
+  <span class="nx">name</span> <span class="o">=</span> <span class="nx">var</span><span class="p">.</span><span class="nx">eks_cluster_name</span>
+<span class="p">}</span>
+
+<span class="nx">data</span> <span class="s2">"aws_iam_openid_connect_provider"</span> <span class="s2">"this"</span> <span class="p">{</span>
+  <span class="nx">url</span> <span class="o">=</span> <span class="nx">data</span><span class="p">.</span><span class="nx">aws_eks_cluster</span><span class="p">.</span><span class="nx">this</span><span class="p">.</span><span class="nx">identity</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="nx">oidc</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="nx">issuer</span>
+<span class="p">}</span>
+
+<span class="nx">locals</span> <span class="p">{</span>
+  <span class="nx">oidc_url</span> <span class="o">=</span> <span class="nx">data</span><span class="p">.</span><span class="nx">aws_eks_cluster</span><span class="p">.</span><span class="nx">this</span><span class="p">.</span><span class="nx">identity</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="nx">oidc</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="nx">issuer</span>
+  <span class="nx">oidc_arn</span> <span class="o">=</span> <span class="nx">data</span><span class="p">.</span><span class="nx">aws_iam_openid_connect_provider</span><span class="p">.</span><span class="nx">this</span><span class="p">.</span><span class="nx">arn</span>
+  <span class="c1"># remove https:// from the URL</span>
+  <span class="nx">oidc_url_path</span> <span class="o">=</span> <span class="nx">regex</span><span class="p">(</span><span class="s2">"://(.*)"</span><span class="p">,</span> <span class="nx">local</span><span class="p">.</span><span class="nx">oidc_url</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+
+  <span class="c1">#</span><i class="conum" data-value="3"></i><b>(3)</b>
+  <span class="nx">assume_role_policy</span> <span class="o">=</span> <span class="nx">jsonencode</span><span class="p">({</span>
+    <span class="nx">Version</span> <span class="o">=</span> <span class="s2">"2012-10-17"</span><span class="p">,</span>
+    <span class="nx">Statement</span> <span class="o">=</span> <span class="p">[</span>
+      <span class="p">{</span>
+        <span class="nx">Effect</span> <span class="o">=</span> <span class="s2">"Allow"</span><span class="p">,</span>
+        <span class="nx">Principal</span> <span class="o">=</span> <span class="p">{</span>
+          <span class="nx">Federated</span> <span class="o">=</span> <span class="nx">local</span><span class="p">.</span><span class="nx">oidc_arn</span>
+        <span class="p">},</span>
+        <span class="nx">Action</span> <span class="o">=</span> <span class="s2">"sts:AssumeRoleWithWebIdentity"</span><span class="p">,</span>
+        <span class="nx">Condition</span> <span class="o">=</span> <span class="p">{</span>
+          <span class="nx">StringEquals</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">"${local.oidc_url_path}:sub"</span> <span class="p">=</span> <span class="s2">"system:serviceaccount:${var.loki_namespace}:${var.loki_serviceaccount}"</span><span class="p">,</span>
+            <span class="s2">"${local.oidc_url_path}:aud"</span> <span class="p">=</span> <span class="s2">"sts.amazonaws.com"</span>
+          <span class="p">}</span>
+        <span class="p">}</span>
+      <span class="p">}</span>
+    <span class="p">]</span>
+  <span class="p">})</span>
+<span class="p">}</span>
+
+<span class="c1">#</span><i class="conum" data-value="4"></i><b>(4)</b>
+<span class="c1"># iam_s3_access</span>
+<span class="nx">module</span> <span class="s2">"iam_access_loki_s3"</span> <span class="p">{</span>
+  <span class="nx">source</span> <span class="o">=</span> <span class="s2">"./modules/iam-s3-access"</span>
+
+  <span class="nx">role_name</span> <span class="o">=</span> <span class="s2">"${var.loki_namespace}LokiServiceAccountRole"</span>
+  <span class="nx">policy_name</span> <span class="o">=</span> <span class="s2">"${var.loki_namespace}LokiS3AccessPolicy"</span>
+  <span class="nx">s3_bucket_names</span> <span class="o">=</span> <span class="nx">local</span><span class="p">.</span><span class="nx">s3_bucket_names</span>
+  <span class="nx">assume_role_policy_json</span> <span class="o">=</span> <span class="nx">local</span><span class="p">.</span><span class="nx">assume_role_policy</span>
+<span class="p">}</span>
+
+<span class="c1">#</span><i class="conum" data-value="5"></i><b>(5)</b>
+<span class="c1"># print IAM role and policy details</span>
+<span class="nx">output</span> <span class="s2">"loki_iam_role_name"</span> <span class="p">{</span>
+  <span class="nx">value</span> <span class="o">=</span> <span class="nx">module</span><span class="p">.</span><span class="nx">iam_access_loki_s3</span><span class="p">.</span><span class="nx">role_name</span>
+<span class="p">}</span>
+<span class="nx">output</span> <span class="s2">"loki_iam_role_arn"</span> <span class="p">{</span>
+  <span class="nx">value</span> <span class="o">=</span> <span class="nx">module</span><span class="p">.</span><span class="nx">iam_access_loki_s3</span><span class="p">.</span><span class="nx">role_arn</span>
+<span class="p">}</span>
+<span class="nx">output</span> <span class="s2">"loki_iam_policy_name"</span> <span class="p">{</span>
+  <span class="nx">value</span> <span class="o">=</span> <span class="nx">module</span><span class="p">.</span><span class="nx">iam_access_loki_s3</span><span class="p">.</span><span class="nx">policy_name</span>
+<span class="p">}</span>
+<span class="nx">output</span> <span class="s2">"loki_iam_policy_arn"</span> <span class="p">{</span>
+  <span class="nx">value</span> <span class="o">=</span> <span class="nx">module</span><span class="p">.</span><span class="nx">iam_access_loki_s3</span><span class="p">.</span><span class="nx">policy_arn</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>This creates a list of S3 bucket names based on the prefix and suffixes defined in the variables.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>This module creates the S3 buckets using the names defined in the <code>locals</code> block.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>This block defines the assume role policy for the IAM role that allows the Loki service account to assume the role using OIDC.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>This module creates the IAM role and policy for Loki to access S3.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td>These outputs provide the IAM role and policy details that can be used in the Loki Helm chart.</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="module-s3-buckets">Module s3-buckets</h3>
+<div class="sect3">
+<h4 id="variables-tf-2">variables.tf</h4>
+<div class="paragraph">
+<p>Variables defined in the <code>variables.tf</code>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>s3_bucket_names</strong>: List of S3 bucket names to be created.</p>
+</li>
+<li>
+<p><strong>enable_versioning</strong>: A boolean variable to enable versioning for the S3 buckets (default is true).</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">variables.tf</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="hcl"><span class="nx">variable</span> <span class="s2">"s3_bucket_names"</span> <span class="p">{</span>
+    <span class="nx">description</span> <span class="o">=</span> <span class="s2">"List of S3 bucket names for Loki"</span>
+    <span class="nx">type</span>        <span class="o">=</span> <span class="nx">list</span><span class="p">(</span><span class="nx">string</span><span class="p">)</span>
+<span class="p">}</span>
+
+<span class="nx">variable</span> <span class="s2">"enable_versioning"</span> <span class="p">{</span>
+    <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Enable versioning for S3 buckets"</span>
+    <span class="nx">type</span>        <span class="o">=</span> <span class="nx">bool</span>
+    <span class="nx">default</span>     <span class="o">=</span> <span class="kc">true</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="main-tf-2">main.tf</h4>
+<div class="paragraph">
+<p>The main.tf file in the <code>s3-buckets</code> module defines the S3 buckets and their versioning configuration. It uses the <code>aws_s3_bucket</code> and <code>aws_s3_bucket_versioning</code> resources to create the S3 buckets and enable versioning if specified.</p>
+</div>
+<div class="listingblock">
+<div class="title">main.tf</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="hcl"><span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+<span class="nx">resource</span> <span class="s2">"aws_s3_bucket"</span> <span class="s2">"this"</span> <span class="p">{</span>
+  <span class="nx">for_each</span> <span class="o">=</span> <span class="nx">toset</span><span class="p">(</span><span class="nx">var</span><span class="p">.</span><span class="nx">s3_bucket_names</span><span class="p">)</span>
+
+  <span class="nx">bucket</span>   <span class="o">=</span> <span class="nx">each</span><span class="p">.</span><span class="nx">value</span>
+  <span class="nx">force_destroy</span> <span class="o">=</span> <span class="kc">true</span>
+
+  <span class="nx">tags</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="nx">ManagedBy</span> <span class="o">=</span> <span class="s2">"Terraform"</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+<span class="nx">resource</span> <span class="s2">"aws_s3_bucket_versioning"</span> <span class="s2">"this"</span> <span class="p">{</span>
+  <span class="nx">for_each</span> <span class="o">=</span> <span class="nx">var</span><span class="p">.</span><span class="nx">enable_versioning</span> <span class="o">?</span> <span class="nx">aws_s3_bucket</span><span class="p">.</span><span class="nx">this</span> <span class="o">:</span> <span class="p">{}</span>
+
+  <span class="nx">bucket</span> <span class="o">=</span> <span class="nx">each</span><span class="p">.</span><span class="nx">value</span><span class="p">.</span><span class="nx">id</span>
+  <span class="nx">versioning_configuration</span> <span class="p">{</span>
+    <span class="nx">status</span> <span class="o">=</span> <span class="s2">"Enabled"</span>
+  <span class="p">}</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>This resource creates S3 buckets for each name in the <code>s3_bucket_names</code> list. It also enables versioning if specified.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>This resource enables versioning for the S3 buckets if the <code>enable_versioning</code> variable is set to true.</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="module-iam-s3-access">Module iam-s3-access</h3>
+<div class="paragraph">
+<p>Variables defined in the <code>variables.tf</code>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>role_name</strong>: Name of the IAM role for S3 access.</p>
+</li>
+<li>
+<p><strong>policy_name</strong>: Name of the IAM policy for S3 access.</p>
+</li>
+<li>
+<p><strong>s3_bucket_names</strong>: List of S3 bucket names for Loki.</p>
+</li>
+<li>
+<p><strong>assume_role_policy_json</strong>: JSON policy document that defines who can assume the IAM role (default is an empty string).</p>
+</li>
+</ul>
+</div>
+<div class="sect3">
+<h4 id="variables-tf-3">variables.tf</h4>
+<div class="listingblock">
+<div class="title">variables.tf</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="hcl"><span class="nx">variable</span> <span class="s2">"role_name"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"IAM role name for S3 access"</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+<span class="p">}</span>
+
+<span class="nx">variable</span> <span class="s2">"policy_name"</span> <span class="p">{</span>
+    <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Name of the IAM policy for S3 access"</span>
+    <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+<span class="p">}</span>
+
+<span class="nx">variable</span> <span class="s2">"s3_bucket_names"</span> <span class="p">{</span>
+    <span class="nx">description</span> <span class="o">=</span> <span class="s2">"List of S3 bucket names for Loki"</span>
+    <span class="nx">type</span>        <span class="o">=</span> <span class="nx">list</span><span class="p">(</span><span class="nx">string</span><span class="p">)</span>
+<span class="p">}</span>
+
+<span class="nx">variable</span> <span class="s2">"assume_role_policy_json"</span> <span class="p">{</span>
+    <span class="nx">description</span> <span class="o">=</span> <span class="s2">"JSON policy document that defines who can assume the IAM role"</span>
+    <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+    <span class="nx">default</span>     <span class="o">=</span> <span class="s2">""</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="main-tf-3">main.tf</h4>
+<div class="paragraph">
+<p>The main.tf file in the <code>iam-s3-access</code> module defines the IAM role and policy for Loki to access S3. It uses the <code>aws_iam_role</code>, <code>aws_iam_policy_document</code>, <code>aws_iam_policy</code>, and <code>aws_iam_role_policy_attachment</code> resources to create the necessary IAM resources.</p>
+</div>
+<div class="listingblock">
+<div class="title">main.tf</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="hcl"><span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+<span class="nx">resource</span> <span class="s2">"aws_iam_role"</span> <span class="s2">"this"</span> <span class="p">{</span>
+  <span class="nx">name</span> <span class="o">=</span> <span class="nx">var</span><span class="p">.</span><span class="nx">role_name</span>
+  <span class="nx">assume_role_policy</span> <span class="o">=</span> <span class="nx">var</span><span class="p">.</span><span class="nx">assume_role_policy_json</span>
+<span class="p">}</span>
+
+<span class="nx">data</span> <span class="s2">"aws_iam_policy_document"</span> <span class="s2">"this"</span> <span class="p">{</span>
+  <span class="nx">dynamic</span> <span class="s2">"statement"</span> <span class="p">{</span>
+    <span class="nx">for_each</span> <span class="o">=</span> <span class="nx">var</span><span class="p">.</span><span class="nx">s3_bucket_names</span>
+    <span class="nx">content</span> <span class="p">{</span>
+      <span class="nx">actions</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="s2">"s3:ListBucket"</span><span class="p">,</span>
+        <span class="s2">"s3:GetObject"</span><span class="p">,</span>
+        <span class="s2">"s3:PutObject"</span><span class="p">,</span>
+        <span class="s2">"s3:DeleteObject"</span>
+      <span class="p">]</span>
+      <span class="nx">resources</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="s2">"arn:aws:s3:::${statement.value}"</span><span class="p">,</span>
+        <span class="s2">"arn:aws:s3:::${statement.value}/*"</span>
+      <span class="p">]</span>
+    <span class="p">}</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+<span class="nx">resource</span> <span class="s2">"aws_iam_policy"</span> <span class="s2">"this"</span> <span class="p">{</span>
+  <span class="nx">name</span>   <span class="o">=</span> <span class="nx">var</span><span class="p">.</span><span class="nx">policy_name</span>
+  <span class="nx">policy</span> <span class="o">=</span> <span class="nx">data</span><span class="p">.</span><span class="nx">aws_iam_policy_document</span><span class="p">.</span><span class="nx">this</span><span class="p">.</span><span class="nx">json</span>
+<span class="p">}</span>
+
+<span class="c1">#</span><i class="conum" data-value="3"></i><b>(3)</b>
+<span class="nx">resource</span> <span class="s2">"aws_iam_role_policy_attachment"</span> <span class="s2">"this"</span> <span class="p">{</span>
+  <span class="nx">role</span>       <span class="o">=</span> <span class="nx">aws_iam_role</span><span class="p">.</span><span class="nx">this</span><span class="p">.</span><span class="nx">name</span>
+  <span class="nx">policy_arn</span> <span class="o">=</span> <span class="nx">aws_iam_policy</span><span class="p">.</span><span class="nx">this</span><span class="p">.</span><span class="nx">arn</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>This resource creates an IAM role with the specified name and assume role policy.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>This data source generates the IAM policy document that allows access to the specified S3 buckets.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>This resource attaches the IAM policy to the IAM role created in the previous step.</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="verify-the-iam-role-and-policy">Verify the IAM Role and Policy</h3>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/aws-role-terraform.png" alt="aws role terraform">
+</div>
+<div class="title">Figure 2. AWS Console - IAM Role Created by Terraform</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="loki-deployment-modes">Loki Deployment Modes</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Refer to the official documentation for more details: <a href="https://grafana.com/docs/loki/latest/get-started/deployment-modes/" class="bare">https://grafana.com/docs/loki/latest/get-started/deployment-modes/</a></p>
+</div>
+<div class="paragraph">
+<p>There are several deployment modes for Loki, including:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Single Binary: A single binary that runs all components of Loki.</p>
+</li>
+<li>
+<p>Simple Scalable: A simple scalable deployment that uses a single binary for the ingester and querier, but separates the distributor and storage.</p>
+</li>
+<li>
+<p>Distributed: A distributed deployment that separates all components of Loki into different pods.</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="single-binary-mode">Single Binary Mode</h3>
+<div class="paragraph">
+<p>In single binary mode, all components of Loki are run in a single pod. This is suitable for small deployments or development environments.</p>
+</div>
+<div class="imageblock img-medium">
+<div class="content">
+<img src="images/loki-singlebinary-mode.png" alt="loki singlebinary mode">
+</div>
+<div class="title">Figure 3. Loki Single Binary Mode - image source: grafana.com</div>
+</div>
+<div class="paragraph">
+<p>This mode is the simplest to set up and requires the least amount of resources. It is not recommended for production use, but it is useful for testing and development.</p>
+</div>
+<div class="listingblock">
+<div class="title">Example resources created in Single Binary Mode</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> o11y get deployments,statefulsets,daemonsets
+<span class="go">NAME                           READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/loki-gateway   1/1     1            1           52m
+
+NAME                                  READY   AGE
+statefulset.apps/loki                 1/1     52m
+statefulset.apps/loki-chunks-cache    1/1     52m
+statefulset.apps/loki-results-cache   1/1     52m
+
+NAME                         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE
+</span><span class="gp">daemonset.apps/loki-canary   2         2         2       2            2           &lt;none&gt;</span><span class="w">          </span>52m</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="simple-scalable-mode">Simple Scalable Mode</h3>
+<div class="paragraph">
+<p>This is the default mode for Loki. It separates the ingester and querier into different pods, but uses a single pod for the distributor and storage. This mode is suitable for small to medium deployments.</p>
+</div>
+<div class="imageblock img-medium">
+<div class="content">
+<img src="images/loki-simplescalable-mode.png" alt="loki simplescalable mode">
+</div>
+<div class="title">Figure 4. Loki Simple Scalable Mode - image source: grafana.come</div>
+</div>
+<div class="paragraph">
+<p>This mode requires more resources than the single binary mode, but it provides better scalability and reliability. It is suitable for small to medium deployments.</p>
+</div>
+<div class="listingblock">
+<div class="title">Example resources created in Simple Scalable Mode</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> o11y get deployments,statefulsets,daemonsets
+<span class="go">NAME                           READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/loki-gateway   1/1     1            1           50s
+deployment.apps/loki-read      0/3     3            0           50s
+
+NAME                                  READY   AGE
+statefulset.apps/loki-backend         3/3     51s
+statefulset.apps/loki-chunks-cache    1/1     51s
+statefulset.apps/loki-results-cache   1/1     51s
+statefulset.apps/loki-write           0/3     51s
+
+NAME                         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE
+</span><span class="gp">daemonset.apps/loki-canary   3         3         3       3            3           &lt;none&gt;</span><span class="w">          </span>51s</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="distributed-mode">Distributed Mode</h3>
+<div class="paragraph">
+<p>In distributed mode, all components of Loki are separated into different pods. This mode is suitable for large deployments and provides better scalability and reliability.</p>
+</div>
+<div class="imageblock img-medium">
+<div class="content">
+<img src="images/loki-distributed-mode.png" alt="loki distributed mode">
+</div>
+<div class="title">Figure 5. Loki Distributed Mode - image source: grafana.com</div>
+</div>
+<div class="paragraph">
+<p>This mode requires the most resources, but it provides the best scalability and reliability. It is suitable for large deployments and production use.</p>
+</div>
+<div class="listingblock">
+<div class="title">Example resources created in Distributed Mode</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> o11y get deployments,statefulsets,daemonsets
+<span class="go">NAME                                   READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/loki-distributor       3/3     3            3           2m37s
+deployment.apps/loki-gateway           1/1     1            1           2m37s
+deployment.apps/loki-querier           3/3     3            3           2m37s
+deployment.apps/loki-query-frontend    2/2     2            2           2m37s
+deployment.apps/loki-query-scheduler   2/2     2            2           2m37s
+
+NAME                                  READY   AGE
+statefulset.apps/loki-chunks-cache    1/1     2m37s
+statefulset.apps/loki-compactor       1/1     2m37s
+statefulset.apps/loki-index-gateway   2/2     2m37s
+statefulset.apps/loki-ingester        3/3     2m37s
+statefulset.apps/loki-results-cache   1/1     2m37s
+statefulset.apps/loki-ruler           1/1     2m37s
+
+NAME                         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE
+</span><span class="gp">daemonset.apps/loki-canary   3         3         3       3            3           &lt;none&gt;</span><span class="w">          </span>2m37s</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-loki-in-single-binary-mode-with-s3">Installing Loki in Single Binary Mode with S3</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Use the following values.yaml with Helm to deploy Loki in Single Binary mode using S3:</p>
+</div>
+<div class="listingblock">
+<div class="title">loki-singlebinary-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">deploymentMode</span><span class="pi">:</span> <span class="s">SingleBinary</span>
+
+<span class="na">loki</span><span class="pi">:</span>
+  <span class="na">auth_enabled</span><span class="pi">:</span> <span class="kc">false</span>
+  <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="na">storage</span><span class="pi">:</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">s3</span>
+    <span class="na">bucketNames</span><span class="pi">:</span>
+      <span class="na">chunks</span><span class="pi">:</span> <span class="pi">{</span><span class="nv">your-bucket-prefix</span><span class="pi">}</span><span class="s">-loki-chunks</span>
+      <span class="na">ruler</span><span class="pi">:</span> <span class="pi">{</span><span class="nv">your-bucket-prefix</span><span class="pi">}</span><span class="s">-loki-ruler</span>
+    <span class="na">s3</span><span class="pi">:</span>
+      <span class="na">region</span><span class="pi">:</span> <span class="s">ca-west-1</span> <span class="c1"># for example, ca-west-1</span>
+
+  <span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+  <span class="na">storage_config</span><span class="pi">:</span>
+    <span class="na">aws</span><span class="pi">:</span>
+      <span class="na">region</span><span class="pi">:</span> <span class="s">ca-west-1</span> <span class="c1"># for example, eu-west-2</span>
+      <span class="na">s3forcepathstyle</span><span class="pi">:</span> <span class="kc">false</span>
+
+  <span class="c1">#</span><i class="conum" data-value="3"></i><b>(3)</b>
+  <span class="na">schemaConfig</span><span class="pi">:</span>
+    <span class="na">configs</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">from</span><span class="pi">:</span> <span class="s2">"</span><span class="s">2025-06-01"</span>
+        <span class="na">store</span><span class="pi">:</span> <span class="s">tsdb</span>
+        <span class="na">object_store</span><span class="pi">:</span> <span class="s">s3</span>
+        <span class="na">schema</span><span class="pi">:</span> <span class="s">v13</span>
+        <span class="na">index</span><span class="pi">:</span>
+          <span class="na">prefix</span><span class="pi">:</span> <span class="s">loki_index_</span>
+          <span class="na">period</span><span class="pi">:</span> <span class="s">24h</span>
+
+  <span class="na">compactor</span><span class="pi">:</span>
+    <span class="na">retention_enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">delete_request_store</span><span class="pi">:</span> <span class="s">s3</span>
+
+  <span class="na">ruler</span><span class="pi">:</span>
+    <span class="na">replicas</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="na">enable_api</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">storage</span><span class="pi">:</span>
+      <span class="na">type</span><span class="pi">:</span> <span class="s">s3</span>
+
+      <span class="na">s3</span><span class="pi">:</span>
+        <span class="na">region</span><span class="pi">:</span> <span class="s">ca-west-1</span>
+        <span class="na">bucketnames</span><span class="pi">:</span> <span class="pi">{</span><span class="nv">your-bucket-prefix</span><span class="pi">}</span><span class="s">-loki-ruler</span>
+        <span class="na">s3forcepathstyle</span><span class="pi">:</span> <span class="kc">false</span>
+
+    <span class="na">alertmanager_url</span><span class="pi">:</span> <span class="s">http://mimir-alertmanager/alertmanager</span>
+
+  <span class="na">limits_config</span><span class="pi">:</span>
+    <span class="na">allow_structured_metadata</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">retention_period</span><span class="pi">:</span> <span class="s">672h</span> <span class="c1"># 28 days</span>
+
+<span class="na">singleBinary</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">1</span>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">500m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">1Gi</span>
+    <span class="na">limits</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="m">1</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">2Gi</span>
+
+<span class="c1">#</span><i class="conum" data-value="4"></i><b>(4)</b>
+<span class="na">serviceAccount</span><span class="pi">:</span>
+  <span class="c1"># use the default service account</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="na">eks.amazonaws.com/role-arn</span><span class="pi">:</span> <span class="s">arn:aws:iam::{aws-account-id}:role/o11yLokiServiceAccountRole</span>
+
+<span class="na">gateway</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+
+<span class="c1"># Disable other deployment modes</span>
+<span class="na">backend</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+<span class="na">read</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+<span class="na">write</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+
+<span class="na">distributor</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+<span class="na">ingester</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+<span class="na">querier</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+<span class="na">queryFrontend</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+<span class="na">queryScheduler</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+<span class="na">ruler</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+<span class="na">compactor</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">0</span>
+<span class="na">indexGateway</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="s">0</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Replace <code>{your-bucket-prefix}</code> with the actual prefix you want to use for your S3 buckets.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Set the AWS region where your S3 buckets are located.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>The schema configuration defines the storage schema for Loki. The <code>from</code> date should be set to a date in the future to ensure that Loki uses the new schema.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>Replace <code>{aws-account-id}</code> with your actual AWS account ID. This is the IAM role that allows Loki to access the S3 buckets.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Run the following command to install Loki using Helm with the above values file:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm <span class="nb">install </span>loki grafana/loki <span class="se">\</span>
+<span class="go">  --namespace o11y --create-namespace \
+  -f loki-singlebinary-values.yaml</span></code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="verify-the-installation-on-grafana">Verify the Installation on Grafana</h3>
+<div class="paragraph">
+<p>Configure Grafana to connect to the Loki data source at <a href="http://loki:3000" class="bare">http://loki:3000</a>. Logs should appear under the Explore section.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-datasources-loki.png" alt="grafana datasources loki">
+</div>
+<div class="title">Figure 6. Grafana Data Source Configuration for Loki</div>
+</div>
+<div class="paragraph">
+<p>Logs can be viewed in Grafana by navigating to the Explore section and selecting the Loki data source.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-loki-search.png" alt="grafana loki search">
+</div>
+<div class="title">Figure 7. Grafana Loki Logs</div>
+</div>
+<div class="paragraph">
+<p>You can find some files in the S3 bucket that Loki has created. You can verify this by navigating to the AWS S3 console and checking the contents of the S3 buckets.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/aws-s3-bucket.png" alt="aws s3 bucket">
+</div>
+<div class="title">Figure 8. AWS Console - S3 Buckets created by Loki</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide demonstrated how to automate the deployment of Grafana Loki on Kubernetes with Amazon S3 as the storage backend using both manual and Terraform-based approaches. By leveraging IRSA, your deployment is secure and production-ready.</p>
+</div>
+<div class="paragraph">
+<p>📘 View the web version:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/install-loki-s3-on-k8s/" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/install-loki-s3-on-k8s/</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>
