@@ -1,0 +1,282 @@
+---
+layout: documents
+title: "Deploying Observability Stack in Development Environment"
+summary: "Observability Foundry now makes it easier than ever to set up a full-stack observability environment tailored for development teams. In this article, I walk through how developers can deploy a lightweight, cost-effective observability stack on their Kubernetes clusters using Service Foundry. It includes essential tools like OpenTelemetry Collector, Prometheus, Grafana, Loki, and Tempo—fully integrated with authentication via Keycloak."
+tags: #Observability #Kubernetes #DevOps #OpenTelemetry #Grafana #Prometheus #Loki #Tempo #Keycloak #DeveloperExperience #ServiceFoundry #CloudNative #Monitoring #InfrastructureAsCode
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Blog
+    url: /documents/blog/
+---
+
+= Deploying Observability Stack in Development Environment
+
+:imagesdir: images
+
+[.img-wide]
+image::observability-in-development.png[]
+
+== Introduction
+
+This guide outlines how to set up observability in development environments using *Observability Foundry*—a lightweight, Kubernetes-native observability platform. Built as part of the Service Foundry ecosystem, it enables developers to deploy essential monitoring tools—including metrics, logs, and traces—on their own Kubernetes clusters with support for cloud-native storage.
+
+Optimized for resource efficiency, the development deployment profile is ideal for local clusters and low-cost cloud setups, offering full-stack observability without the complexity of production systems.
+
+=== What’s New in This Release
+
+We’re excited to announce a new version of Observability Foundry, bringing several key updates and enhancements:
+
+* **OpenTelemetry Operator**: Upgraded to version 0.127.0 of opentelemetry-collector-contrib, offering improved compatibility and stability.
+* **Grafana**: Updated to version 12.0.1, which introduces enhanced visualization features and more powerful alerting capabilities.
+* **LGTM Stack**: Now includes native support for Loki, Grafana, Tempo, and Mimir, enabling a fully integrated observability pipeline.
+* *Kubelet cAdvisor Collector*: Improved metrics collection for Kubernetes nodes, offering deeper visibility into container resource usage.
+
+=== Deployment Profiles of Observability Foundry
+
+The Observability Foundry supports multiple deployment profiles tailored for specific environments:
+
+.Deployment Profiles of Observability Foundry
+[.img-wide]
+image::sf-deployment-profiles.png[]
+
+
+* *Development*: A resource-efficient configuration for local or cloud-based development environments. Provides metrics, logs, and traces with minimal overhead.
+* *Staging*: A pre-production configuration that mirrors production settings, allowing feature validation and integration testing.
+* *Production*: A highly available, scalable deployment profile designed to handle large volumes of telemetry with advanced features such as long-term retention, alerting, and custom dashboards.
+
+== Core Components in Development Profile
+
+The development deployment of Observability Foundry includes the following components:
+
+
+* *OpenTelemetry Collector* (2 replicas): Collects and exports telemetry data.
+* *Kubelet cAdvisor Collector* (1 replica): Collects Kubernetes container metrics.
+* *Grafana* (1 replica): Visualization layer for logs, metrics, and traces.
+* *Prometheus* (1 replica): Time-series metrics store. (Storage: Filesystem)
+* *Tempo* (2 replicas): Distributed tracing backend. (Storage: S3)
+* *Loki* (2 replicas): Log aggregation system. (Storage: S3)
+* *OpenTelementry Spring Application* (2 replicas): Spring Boot application instrumented with OpenTelemetry for backend observability.
+* *OpenTelemetry React Application* (1 replica): React application instrumented with OpenTelemetry for frontend observability.
+* *Keycloak* (1 replica): Provides Single Sign-On (SSO) capabilities for secure access to the observability tools.
+* *Keycloak Postgres* (1 replica): Provides OIDC-based authentication and SSO.
+* *Traefik* (1 replica): Ingress controller routing traffic to observability services.
+
+
+=== Namespaces
+
+The deployment utilizes the following Kubernetes namespaces:
+
+* *cert-manager*: TLS certificate management
+* *default*: Core components like Prometheus Operator
+* *keycloak*: Keycloak authentication server
+* *o11y*: Observability components (Grafana, Loki, etc.)
+* *opentelemetry-operator-system*: OpenTelemetry Operator
+* *traefik*: Ingress controller components
+
+
+== All Pods in the Development Environment
+
+You can view all running pods across relevant namespaces with:
+
+[,terminal]
+----
+$ kubectl get pods --all-namespaces | grep -E '^(cert-manager|default|keycloak|o11y|opentelemetry-operator-system|traefik)\s'
+----
+
+*Sample Output:*
+[,terminal]
+----
+Namespace                       Pod Name
+cert-manager                    cert-manager-cainjector-686546c9f7-lshwf
+cert-manager                    cert-manager-d6746cf45-rcdz9
+cert-manager                    cert-manager-webhook-5f79cd6f4b-tnngh
+default                         prometheus-operator-55b5c96cf8-fcg79
+keycloak                        keycloak-0
+keycloak                        keycloak-postgresql-0
+o11y                            grafana-fdf6b548c-jrtvm
+o11y                            kubelet-cadvisor-collector-0
+o11y                            kubelet-cadvisor-targetallocator-786d574896-9wz4q
+o11y                            loki-0
+o11y                            loki-1
+o11y                            loki-canary-7rbpg
+o11y                            loki-canary-wq5kf
+o11y                            loki-chunks-cache-0
+o11y                            loki-gateway-d8c77f9b4-clxjj
+o11y                            loki-results-cache-0
+o11y                            oauth2-proxy-6c58576b75-bzmt4
+o11y                            otel-collector-0
+o11y                            otel-collector-1
+o11y                            otel-spring-example-57d5cc6b88-2dtnl
+o11y                            otel-spring-example-57d5cc6b88-d762n
+o11y                            otel-spring-example-kaniko-executor
+o11y                            otel-targetallocator-784c95db5-qgzth
+o11y                            prometheus-prometheus-0
+o11y                            react-o11y-app-54ffccdcbf-bv64g
+o11y                            tempo-0
+o11y                            tempo-1
+opentelemetry-operator-system   opentelemetry-operator-controller-manager-6856674db7-4zg29
+traefik                         traefik-6697dc88f8-9xzqh
+----
+
+== Cluster Specifications
+
+This guide assumes you are running on Amazon EKS with:
+
+* *Instance type*: r6i.xlarge(4 vCPUs, 32 GiB memory)
+* *Node count*: 2
+* *Kubernetes version*: 1.32.3
+
+== Configuration via .o11y-foundry-config.yaml
+
+All components are managed through a centralized configuration file:
+
+.o11y-foundry-config.yaml
+[source,yaml]
+----
+cassandra:
+  enabled: false
+  # configuration for Cassandra
+jaeger:
+  enabled: false
+  # configuration for Jaeger
+prometheus:
+  enabled: true
+  # configuration for Prometheus
+grafana:
+  enabled: true
+  # configuration for Grafana
+opensearch:
+  enabled: false
+  # configuration for OpenSearch, Data Prepper, and OpenSearch Dashboards
+otel-spring-example:
+  enabled: true
+  # configuration for OpenTelemetry Spring Example application
+otel-collector:
+  enabled: true
+  # configuration for OpenTelemetry Collector
+oauth2-proxy:
+  enabled: true
+  # configuration for OAuth2 Proxy
+react-o11y-app:
+  enabled: true
+  # configuration for React OpenTelemetry application
+kubelet-cadvisor-collector:
+  enabled: true
+  # configuration for kubelet cAdvisor collector
+tempo:
+  enabled: true
+  # configuration for Tempo
+loki:
+  enabled: true
+  # configuration for Loki
+mimir:
+  enabled: false
+  # configuration for Mimir
+----
+
+== Grafana Integration
+
+=== Provisioned Data Sources
+
+Grafana includes pre-provisioned connectors for Loki, Tempo, and Prometheus.
+
+.Grafana UI - Provisioned Data Sources
+[.img-wide]
+image::grafana-datasources.png[]
+
+
+=== Provisioned Dashboards for Applications
+
+Service Foundry comes with pre-configured Grafana dashboards for both the OpenTelemetry Spring application and the React application.
+
+.Grafana UI - Provisioned Dashboards
+[.img-wide]
+image::grafana-dashboards.png[]
+
+=== Provisioned Alert Rules
+
+Observability Foundry comes with pre-configured alert rules in Grafana to monitor the health of the applications and infrastructure. These alerts can notify users of issues such as high error rates, latency spikes, or resource exhaustion.
+
+
+.Grafana UI - Provisioned Alert Rules
+[.img-wide]
+image::grafana-alert-rules.png[]
+
+=== Provisioned Contact Points
+
+Alert notifications are supported via pre-configured contact points, including email (SMTP configurable in .o11y-foundry-config.yaml).
+
+.Grafana UI - Provisioned Contact Points
+[.img-wide]
+image::grafana-contact-points.png[]
+
+
+
+
+=== Infrastructure Metrics Dashboard in Grafana
+
+All metrics collected from the Kubernetes cluster are visualized in Grafana. The infrastructure metrics dashboard provides insights into the health and performance of the Kubernetes nodes.
+
+.Grafana UI - Infrastructure Metrics Dashboard
+[.img-wide]
+image::grafana-infrastructure-metrics.png[]
+
+=== Explore Traces in Grafana
+
+The traces collected by Tempo can be explored in Grafana. This allows users to analyze the performance of their applications and identify bottlenecks.
+
+.Grafana UI - Explore Traces
+[.img-wide]
+image::grafana-traces.png[]
+
+=== Explore Logs in Grafana
+
+The logs collected by Loki can be explored in Grafana. This provides a powerful way to search and analyze logs from applications and infrastructure.
+
+.Grafana UI - Explore Logs
+[.img-wide]
+image::grafana-logs.png[]
+
+=== Explore Traces and Logs in one Place
+
+The Grafana Explore feature allows users to search and analyze both traces and logs in a unified interface. This makes it easier to correlate events and troubleshoot issues across different telemetry data types.
+
+.Grafana UI - Explore Traces and Logs
+[.img-wide]
+image::grafana-traces-logs.png[]
+
+== Authentication with Keycloak
+
+Keycloak is integrated as the identity provider for secure access. It includes:
+
+* OIDC Server
+* Predefined OAuth2 Clients
+* Users, roles, and groups for access control
+
+.Keycloak OIDC Server Provisioned
+[.img-wide]
+image::keycloak-clients.png[]
+
+
+SSO is fully supported across the observability stack through Keycloak and OAuth2 Proxy.
+
+== Learn More
+
+Interested in deploying Observability Foundry in your development cluster?
+
+* link:https://nsalexamy.github.io/service-foundry/pages/products/observability-foundry/[Explore Documentation]
+* link:https://nsalexamy.github.io/service-foundry/pages/developers/young-kim/[Contact Us]
+
+== Conclusion
+
+Observability Foundry offers a robust yet lightweight solution for development teams looking to implement full-stack observability. With minimal setup, it provides visibility into both application behavior and infrastructure performance using modern, cloud-native tools like OpenTelemetry, Grafana, Tempo, and Loki.
+
+📘 View the web version:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/blog/observability-in-dev-env/
+
