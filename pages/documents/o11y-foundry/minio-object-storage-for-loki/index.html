@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Using MinIO as Object Storage for Loki in Development Environments</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">
+    Service Foundry
+</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/products/" class="">Products</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+        
+        <a href="/service-foundry/pages/demo/" class="">Demo</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="active">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Using MinIO as Object Storage for Loki in Development Environments
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a></li>
+<li><a href="#what-is-minio">What is MinIO?</a></li>
+<li><a href="#advantages-of-using-minio-over-s3">Advantages of Using MinIO Over S3</a></li>
+<li><a href="#installing-minio-with-helm">Installing MinIO with Helm</a>
+<ul class="sectlevel2">
+<li><a href="#add-minio-helm-repository">Add MinIO Helm Repository</a></li>
+<li><a href="#pull-minio-chart">Pull Minio chart</a></li>
+<li><a href="#download-and-inspect-the-chart">Download and Inspect the Chart</a></li>
+<li><a href="#custom-helm-values-for-development">Custom Helm Values for Development</a></li>
+<li><a href="#install-minio">Install MinIO</a></li>
+</ul>
+</li>
+<li><a href="#bucket-creation-for-loki">Bucket Creation for Loki</a>
+<ul class="sectlevel2">
+<li><a href="#install-minio-client-mc">Install MinIO Client (mc)</a></li>
+</ul>
+</li>
+<li><a href="#accessing-minio-locally">Accessing MinIO Locally</a></li>
+<li><a href="#list-buckets">List Buckets</a></li>
+<li><a href="#persistence-considerations">Persistence Considerations</a>
+<ul class="sectlevel2">
+<li><a href="#choosing-a-storage-class">Choosing a Storage Class</a></li>
+</ul>
+</li>
+<li><a href="#configuring-loki-to-use-minio">Configuring Loki to Use MinIO</a></li>
+<li><a href="#verifying-the-logs-in-minio">Verifying the Logs in MinIO</a></li>
+<li><a href="#uninstalling-minio">Uninstalling MinIO</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#references">References</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/minio-in-dev-env.png" alt="minio in dev env">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To eliminate the dependency on Amazon S3 in development environments, MinIO serves as an efficient, fully compatible object storage alternative for Loki.</p>
+</div>
+<div class="paragraph">
+<p>This guide provides step-by-step instructions for installing MinIO on a Kubernetes cluster and configuring it to work seamlessly with Grafana Loki.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-is-minio">What is MinIO?</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>MinIO is a high-performance, distributed object storage system offering full compatibility with the S3 API. It can act as a drop-in replacement for Amazon S3 in Kubernetes-based workloads.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="advantages-of-using-minio-over-s3">Advantages of Using MinIO Over S3</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Cost-Effective</strong> – Operates in your environment, reducing cloud storage expenses.</p>
+</li>
+<li>
+<p><strong>High Performance</strong> – Optimized for low-latency and high-throughput workloads.</p>
+</li>
+<li>
+<p><strong>Full Control</strong> – Enables complete ownership of data and infrastructure.</p>
+</li>
+<li>
+<p><strong>S3 Compatibility</strong> – Seamless integration with tools and services designed for Amazon S3.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-minio-with-helm">Installing MinIO with Helm</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="add-minio-helm-repository">Add MinIO Helm Repository</h3>
+<div class="paragraph">
+<p>Add the MinIO Helm repository to your local Helm client:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm repo add minio https://charts.min.io/
+<span class="gp">$</span><span class="w"> </span>helm repo update minio</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="pull-minio-chart">Pull Minio chart</h3>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+<div class="paragraph">
+<p>This section is not essential for installing MinIO, but it is useful when you want to use the chart for your own purposes, to keep a certain version, or to inspect the chart values.</p>
+</div>
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>To see the current version of MinIO, run the command below:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm search repo minio
+<span class="go">
+minio/minio             5.4.0           RELEASE.2024-12-18T13-15-44Z    High Performance Object Storage</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The command below will pull the MinIO Helm chart to your local machine:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm pull minio/minio</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The minio-5.4.0.tgz file will be downloaded to your current directory.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="download-and-inspect-the-chart">Download and Inspect the Chart</h3>
+<div class="paragraph">
+<p>To get the default values for the MinIO Helm chart, you can run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm show values minio/minio <span class="nt">--version</span> 5.4.0 <span class="o">&gt;</span> minio-values-5.4.0.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="custom-helm-values-for-development">Custom Helm Values for Development</h3>
+<div class="listingblock">
+<div class="title">custom-minio-values-5.4.0.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+<span class="na">rootUser</span><span class="pi">:</span> <span class="s">minioroot</span>
+<span class="na">rootPassword</span><span class="pi">:</span> <span class="s">minioroot</span>
+
+<span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+<span class="na">replicas</span><span class="pi">:</span> <span class="m">2</span>   <span class="c1"># 16 by default, but set to 2 for development</span>
+
+<span class="c1">#</span><i class="conum" data-value="3"></i><b>(3)</b>
+<span class="na">persistence</span><span class="pi">:</span>
+  <span class="na">size</span><span class="pi">:</span> <span class="s">10Gi</span>  <span class="c1"># 500Gi by default, but set to 10Gi for development</span>
+
+<span class="na">users</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">accessKey</span><span class="pi">:</span> <span class="s">accessKey</span>
+    <span class="na">secretKey</span><span class="pi">:</span> <span class="s">secretKey</span>
+    <span class="na">policy</span><span class="pi">:</span> <span class="s">none</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Set the root user and password for MinIO.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Configure the number of replicas and persistence size for MinIO. The value of replicas in the default values file is set to 16 which is not suitable for development environments. We set it to 2 for a development environment.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Set the persistence size to 10Gi for development. The default value is 500Gi which is not suitable for development environments.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-minio">Install MinIO</h3>
+<div class="paragraph">
+<p>To install MinIO in your Kubernetes cluster, you can use the following Helm command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm <span class="nb">install </span>minio minio/minio <span class="se">\</span>
+<span class="go">  -n o11y --create-namespace \
+  --version 5.4.0 \
+  -f custom-minio-values-5.4.0.yaml</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="bucket-creation-for-loki">Bucket Creation for Loki</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Unlike S3, bucket names in MinIO are not globally unique, so you can create buckets with the same name in different namespaces. However, it is a good practice to use unique names for your buckets to avoid confusion.</p>
+</div>
+<div class="paragraph">
+<p>The following buckets are needed for Loki:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>loki-chunks: This bucket is used to store Loki&#8217;s chunked log data.</p>
+</li>
+<li>
+<p>loki-ruler: This bucket is used to store Loki&#8217;s ruler data.</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="install-minio-client-mc">Install MinIO Client (mc)</h3>
+<div class="paragraph">
+<p>To manage MinIO, you can use the MinIO client (mc). Download the MinIO client from the official website or use the following command to install it:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>brew <span class="nb">install </span>minio/stable/mc
+<span class="go">
+</span><span class="gp">$</span><span class="w"> </span>mc <span class="nt">--version</span>
+<span class="gp">$</span><span class="w"> </span>mc <span class="nt">--help</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="accessing-minio-locally">Accessing MinIO Locally</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Port Forward the MinIO service to your local machine to access it via a web browser or the MinIO client (mc).</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> o11y port-forward svc/minio 9000:9000</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Create an alias for the MinIO instance using the MinIO client (mc).</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>mc <span class="nb">alias set </span>minio-local http://localhost:9000 minioroot minioroot</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>'minio-local' is the alias for your MinIO instance. You can change it to any name you prefer.</p>
+</div>
+<div class="paragraph">
+<p>Before deploying Loki, you need to create the required buckets in MinIO. The following commands will create the <code>loki-chunks</code> and <code>loki-ruler</code> buckets:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>mc mb minio-local/loki-chunks
+<span class="gp">$</span><span class="w"> </span>mc mb minio-local/loki-ruler</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="list-buckets">List Buckets</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Verify that the buckets have been created successfully by listing the buckets in your MinIO instance.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>mc <span class="nb">ls </span>minio-local
+<span class="go">
+</span><span class="gp">#</span><span class="w"> </span>Sample Output:
+<span class="go">[2025-06-23 18:36:47 UTC]     0B loki-chunks/
+[2025-06-23 18:36:47 UTC]     0B loki-ruler/</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="persistence-considerations">Persistence Considerations</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>MinIO ensures that log data remains persistent even if the Loki service is restarted. This persistence is achieved through the use of persistent volumes, which retain stored data unless the MinIO deployment itself is deleted.</p>
+</div>
+<div class="paragraph">
+<p>In the example configuration for development environments, the persistence size is set to 10Gi in the custom values file. This can be adjusted based on your storage needs.</p>
+</div>
+<div class="sect2">
+<h3 id="choosing-a-storage-class">Choosing a Storage Class</h3>
+<div class="paragraph">
+<p>Selecting the right storage class is critical for managing persistent volumes effectively. In this setup:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>ebs-sc (EBS – Elastic Block Store)</strong>: Suitable for development. It allows a single pod in a specific Availability Zone (AZ) to access a volume.</p>
+</li>
+<li>
+<p><strong>efs-sc (EFS – Elastic File System)</strong>: Recommended for production. Multiple pods across different AZs can access the same volume.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>To inspect the persistent volume claims (PVCs) created by MinIO, use the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> o11y get pvc <span class="nt">-l</span> <span class="nv">app</span><span class="o">=</span>minio <span class="se">\</span>
+<span class="go">  -o custom-columns="NAME:.metadata.name,STATUS:.status.phase,CAPACITY:.status.capacity.storage,ACCESS MODES:.status.accessModes[*],STORAGECLASS:.spec.storageClassName"</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Sample Output:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="go">NAME             STATUS   CAPACITY   ACCESS MODES    STORAGECLASS
+export-minio-0   Bound    10Gi       ReadWriteOnce   ebs-sc
+export-minio-1   Bound    10Gi       ReadWriteOnce   ebs-sc</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>If you need to retain data even after deleting the MinIO Helm release, consider using a PVC with the efs-sc storage class.</p>
+</div>
+<div class="paragraph">
+<p>For more on EFS setup, refer to:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/bigdata-foundry/airflow-eks/">Deploying Apache Airflow on Amazon EKS with Amazon EFS (GitHub)</a></p>
+</li>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/bigdata-foundry/airflow-eks/">Deploying Apache Airflow on Amazon EKS with Amazon EFS (LinkedIn)</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="configuring-loki-to-use-minio">Configuring Loki to Use MinIO</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Below is a sample Loki configuration for using MinIO as the object store in SingleBinary deployment mode:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>deploymentMode: SingleBinary
+# https://grafana.com/docs/loki/latest/configure/storage/
+loki:
+  auth_enabled: false
+
+  storage:
+    type: s3
+    bucketNames:
+      chunks: loki-chunks
+      ruler: loki-ruler
+
+    s3:
+      s3forcepathstyle: true
+      #<i class="conum" data-value="1"></i><b>(1)</b>
+      # http&lt;s&gt;://&lt;username&gt;:&lt;secret&gt;@&lt;fqdn&gt;:&lt;port&gt;
+      endpoint: http://minioroot:minioroot@minio.o11y.svc:9000
+
+  storage_config:
+
+    aws:
+      s3: http://minioroot:minioroot@minio.o11y.svc:9000
+      s3forcepathstyle: true
+
+    tsdb_shipper:
+      active_index_directory: /var/loki/index
+      cache_location: /var/loki/cache
+      cache_ttl: 24h
+
+  schemaConfig:
+    configs:
+      - from: "2025-06-01"
+        store: tsdb
+        object_store: s3
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+
+  compactor:
+    retention_enabled: true
+    delete_request_store: s3
+
+  ruler:
+    replicas: 1
+    enable_api: true
+    storage:
+      type: s3
+
+      s3:
+        region: null
+        bucketnames: loki-ruler
+        s3forcepathstyle: true
+
+    alertmanager_url: http://mimir-alertmanager/alertmanager
+
+  limits_config:
+    allow_structured_metadata: true
+    retention_period: 672h # 28 days
+
+  ingester:
+    chunk_idle_period: 30s #5m
+    max_chunk_age: 1m #1h
+    wal:
+      flush_on_shutdown: true
+
+sidecar:
+  rules:
+    enabled: false
+
+singleBinary:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1
+      memory: 2Gi
+  # extraArgs: ["-log.level=info", "-config.expand-env=true"]
+
+gateway:
+  enabled: true
+
+# Disable other deployment modes
+backend:
+  replicas: 0
+read:
+  replicas: 0
+write:
+  replicas: 0
+
+distributor:
+  replicas: 0
+ingester:
+  replicas: 0
+querier:
+  replicas: 0
+queryFrontend:
+  replicas: 0
+queryScheduler:
+  replicas: 0
+ruler:
+  replicas: 0
+compactor:
+  replicas: 0
+indexGateway:
+  replicas: 0
+
+#<i class="conum" data-value="2"></i><b>(2)</b>
+# serviceAccount:
+  # use the default service account
+  # annotations:
+    # eks.amazonaws.com/role-arn: arn:aws:iam::445567090745:role/o11yLokiServiceAccountRole</pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Set the endpoint for MinIO. The format is <code>http&lt;s&gt;://&lt;username&gt;:&lt;password&gt;@&lt;fqdn&gt;:&lt;port&gt;</code>. In this case, we are using the MinIO root user and password.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The <code>serviceAccount</code> section is commented out. This annotation will try to handle <strong>IAM Roles for Service Accounts</strong>(IRSA) for the Loki service account, but it is not necessary because this does not use AWS S3. You can uncomment it if you want to use IRSA in production environments.</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="verifying-the-logs-in-minio">Verifying the Logs in MinIO</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To view the contents of the <code>loki-chunks</code> bucket, you can use the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ mc tree minio-local/loki-chunks</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Sample Output:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="go">minio-local/loki-chunks
+├─ fake
+│  ├─ 119c2702828b8784
+│  ├─ 47ac913c27d367ca
+│  ├─ 55798da2ca41e488
+│  └─ 6574b9754e51e6c9
+└─ index
+   ├─ delete_requests
+   └─ index_20264</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="uninstalling-minio">Uninstalling MinIO</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To uninstall MinIO from your cluster:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm uninstall minio <span class="nt">-n</span> o11y</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>MinIO provides a robust and cost-effective alternative to Amazon S3 for development environments. It enables persistent, S3-compatible object storage within your Kubernetes cluster, making it ideal for local or cloud-native observability setups.</p>
+</div>
+<div class="paragraph">
+<p>📘 View the web version:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/minio-object-storage-for-loki/" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/minio-object-storage-for-loki/</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="references">References</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://grafana.com/docs/loki/latest/configure/storage/" class="bare">https://grafana.com/docs/loki/latest/configure/storage/</a></p>
+</li>
+<li>
+<p><a href="https://github.com/minio/minio/tree/master/helm/minio" class="bare">https://github.com/minio/minio/tree/master/helm/minio</a></p>
+</li>
+<li>
+<p><a href="https://grafana.com/docs/loki/latest/setup/install/helm/deployment-guides/aws/" class="bare">https://grafana.com/docs/loki/latest/setup/install/helm/deployment-guides/aws/</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>

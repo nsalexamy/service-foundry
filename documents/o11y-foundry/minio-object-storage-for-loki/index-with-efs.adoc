@@ -1,0 +1,329 @@
+= MinIO - Object Storage for Loki in Development Environment
+
+:imagesdir: images
+
+== Overview
+
+To remove the dependency on Amazon S3 for Loki in the development environment, we can use MinIO as an alternative object storage solution.
+
+This guide will walk you through the process of installing MinIO in your Kubernetes cluster and configuring it for use with Loki.
+
+== What is MinIO
+
+MinIO is a high-performance, distributed object storage system that is compatible with the S3 API. It can be used as a drop-in replacement for S3 in Kubernetes environments.
+
+== Why Replace S3 with MinIO
+
+Replacing S3 with MinIO can provide several benefits:
+
+- **Cost Savings**: MinIO can be run on-premises or in your own cloud environment, potentially reducing costs compared to using S3.
+- **Performance**: MinIO is designed for high performance and can handle large volumes of data with low latency.
+- **Control**: Running MinIO gives you full control over your data and storage infrastructure, which can be important for compliance and security.
+- **Compatibility**: MinIO is fully compatible with the S3 API, making it easy to switch from S3 to MinIO without changing your application code.
+
+== Installing MinIO
+
+To install MinIO in your Kubernetes cluster, you can use the following Helm chart:
+
+=== Add MinIO Helm Repository
+
+Add the MinIO Helm repository to your local Helm client:
+
+[,terminal]
+----
+$ helm repo add minio https://charts.min.io/
+$ helm repo update minio
+----
+
+== Pull Minio chart
+
+To see the current version of MinIO, run the command below:
+
+[source,terminal]
+----
+$ helm search repo minio
+
+minio/minio             5.4.0           RELEASE.2024-12-18T13-15-44Z    High Performance Object Storage
+----
+
+The command below will pull the MinIO Helm chart to your local machine:
+
+[source,terminal]
+----
+$ helm pull minio/minio
+----
+
+The minio-5.4.0.tgz file will be downloaded to your current directory.
+
+=== Get MinIO Chart Values
+
+To get the default values for the MinIO Helm chart, you can run the following command:
+[source,terminal]
+----
+$ helm show values minio/minio --version 5.4.0 > minio-values-5.4.0.yaml
+----
+
+=== Custom MinIO Values
+
+.custom-minio-values-5.4.0.yaml
+[source,yaml]
+----
+## <1>
+rootUser: minioroot
+rootPassword: minioroot
+
+## <2>
+replicas: 2   # 16 by default, but set to 2 for development
+
+## <3>
+persistence:
+  size: 10Gi  # 500Gi by default, but set to 10Gi for development
+
+users:
+  - accessKey: accessKey
+    secretKey: secretKey
+    policy: none
+----
+<1> Set the root user and password for MinIO.
+<2> Configure the number of replicas and persistence size for MinIO. The value of replicas in the default values file is set to 16 which is not suitable for development environments. We set it to 2 for a development environment.
+<3> Set the persistence size to 10Gi for development. The default value is 500Gi which is not suitable for development environments.
+
+
+=== Install MinIO using Helm
+
+To install MinIO in your Kubernetes cluster, you can use the following Helm command:
+
+[,terminal]
+----
+$ helm install minio minio/minio \
+  -n o11y --create-namespace \
+  --version 5.4.0 \
+  -f custom-minio-values-5.4.0.yaml
+----
+
+// Sample Output:
+// [,terminal]
+// ----
+// NAME: minio
+// LAST DEPLOYED: Mon Jun 23 18:36:47 2025
+// NAMESPACE: o11y
+// STATUS: deployed
+// REVISION: 1
+// TEST SUITE: None
+// NOTES:
+// MinIO can be accessed via port 9000 on the following DNS name from within your cluster:
+// minio.o11y.cluster.local
+//
+// To access MinIO from localhost, run the below commands:
+//
+//   1. export POD_NAME=$(kubectl get pods --namespace o11y -l "release=minio" -o jsonpath="{.items[0].metadata.name}")
+//
+//   2. kubectl port-forward $POD_NAME 9000 --namespace o11y
+//
+// Read more about port forwarding here: http://kubernetes.io/docs/user-guide/kubectl/kubectl_port-forward/
+//
+// You can now access MinIO server on http://localhost:9000. Follow the below steps to connect to MinIO server with mc client:
+//
+//   1. Download the MinIO mc client - https://min.io/docs/minio/linux/reference/minio-mc.html#quickstart
+//
+//   2. export MC_HOST_minio-local=http://$(kubectl get secret --namespace o11y minio -o jsonpath="{.data.rootUser}" | base64 --decode):$(kubectl get secret --namespace o11y minio -o jsonpath="{.data.rootPassword}" | base64 --decode)@localhost:9000
+//
+//   3. mc ls minio-local
+//
+// ----
+
+== Create MinIO Bucket
+
+Unlike S3, bucket names in MinIO are not globally unique, so you can create buckets with the same name in different namespaces. However, it is a good practice to use unique names for your buckets to avoid confusion.
+
+The following buckets are created for Loki:
+
+* loki-chunks: This bucket is used to store Loki's chunked log data.
+* loki-ruler: This bucket is used to store Loki's ruler data.
+
+=== Install MinIO Client (mc)
+
+To manage MinIO, you can use the MinIO client (mc). Download the MinIO client from the official website or use the following command to install it:
+
+[source,terminal]
+----
+$ brew install minio/stable/mc
+
+$ mc --version
+$ mc --help
+----
+
+== Access MinIO
+
+To access MinIO, you can use the `kubectl port-forward` command to forward the MinIO service port to your local machine. This allows you to access MinIO from your local browser or command line.
+
+[source,terminal]
+----
+$ kubectl -n o11y port-forward svc/minio 9000:9000
+----
+
+Create an alias for the MinIO instance using the MinIO client (mc). This allows you to easily manage your MinIO instance from the command line.
+
+[source,terminal]
+----
+$ mc alias set minio-local http://localhost:9000 minioroot minioroot
+----
+
+'minio-local' is the alias for your MinIO instance. You can change it to any name you prefer.
+
+Before deploying Loki, you need to create the required buckets in MinIO. The following commands will create the `loki-chunks` and `loki-ruler` buckets:
+
+[,terminal]
+----
+$ mc mb minio-local/loki-chunks
+$ mc mb minio-local/loki-ruler
+----
+
+== List Buckets
+
+Verify that the buckets have been created successfully by listing the buckets in your MinIO instance.
+
+[source,terminal]
+----
+$ mc ls minio-local
+
+# Sample Output:
+[2025-06-23 18:36:47 UTC]     0B loki-chunks/
+[2025-06-23 18:36:47 UTC]     0B loki-ruler/
+----
+
+To view the contents of the `loki-chunks` bucket, you can use the following command:
+----
+$ mc tree minio-local/loki-chunks
+----
+
+Sample Output:
+[source,terminal]
+----
+minio-local/loki-chunks
+├─ fake
+│  ├─ 119c2702828b8784
+│  ├─ 47ac913c27d367ca
+│  ├─ 55798da2ca41e488
+│  └─ 6574b9754e51e6c9
+└─ index
+   ├─ delete_requests
+   └─ index_20264
+----
+
+== Persistence
+
+Logs data is persistent even when Loki is restarted unless you delete the MinIO deployment. This is because MinIO uses persistent volumes to store data.
+
+// MinIO uses persistent storage to store data. In the custom values file, we have set the persistence size to 10Gi for development purposes. You can adjust this value based on your requirements.
+
+Storage Class matters when using persistent volumes. In this example, we are using the `ebs-sc` storage class, which is suitable for AWS EBS volumes.
+
+* *ebs-sc*: AWS Elastic Block Store (EBS) storage class. Only one PVC can be bound to this storage class at a time, which is suitable for development environments. Pods in the same availability zone can access PVCs created with this storage class.
+* *efs-sc*: AWS Elastic File System (EFS) storage class. Multiple PVCs can be bound to this storage class, which is suitable for production environments. Pods in different availability zones can access PVCs created with this storage class.
+
+[source,terminal]
+----
+$ kubectl -n o11y get pvc -l app=minio \
+  -o custom-columns="NAME:.metadata.name,STATUS:.status.phase,CAPACITY:.status.capacity.storage,ACCESS MODES:.status.accessModes[*],STORAGECLASS:.spec.storageClassName"
+----
+
+Sample Output:
+[source,terminal]
+----
+NAME             STATUS   CAPACITY   ACCESS MODES    STORAGECLASS
+export-minio-0   Bound    10Gi       ReadWriteOnce   ebs-sc
+export-minio-1   Bound    10Gi       ReadWriteOnce   ebs-sc
+----
+
+If you want to keep the data persistent even after deleting the MinIO deployment, you can create a Persistent Volume Claim (PVC) with a `efs-sc` storage class.
+
+
+== Set up MinIO for Loki
+
+// === Create a Secret for MinIO Credentials
+//
+// [,terminal]
+// ----
+// $ kubectl create secret generic loki-minio-credentials \
+//   --from-literal=AWS_ACCESS_KEY_ID=minioroot \
+//   --from-literal=AWS_SECRET_ACCESS_KEY=minioroot \
+//   -n o11y
+// ----
+//
+// ----
+// $ kubectl delete secret loki-minio-credentials -n o11y
+//
+// $ kubectl create secret generic loki-minio-credentials \
+//   --from-literal=AWS_ACCESS_KEY_ID=accessKey \
+//   --from-literal=AWS_SECRET_ACCESS_KEY=secretKey \
+//   -n o11y
+// ----
+// ----
+// $ kubectl delete secret loki-minio-credentials -n o11y
+//
+// $ kubectl create secret generic loki-minio-credentials \
+//   --from-literal=AWS_ACCESS_KEY_ID=logs-user \
+//   --from-literal=AWS_SECRET_ACCESS_KEY=supersecretpassword \
+//   -n o11y
+// ----
+//
+== Create PV and PVC for Loki
+
+[,terminal]
+----
+$ EFS_ID=$(aws efs describe-file-systems | yq '.FileSystems[] | select(.Tags[].Value == "young-eks-efs") | .FileSystemId')
+
+$ echo $EFS_ID
+----
+
+Create Access Point for Loki
+
+UID: 10001
+GID: 10001
+[,terminal]
+----
+$ aws efs create-access-point --file-system-id $EFS_ID \
+  --region $AWS_REGION \
+  --root-directory "Path=/,CreationInfo={OwnerUid=10001,OwnerGid=10001,Permissions=0770}" \
+  --tags Key=Name,Value=o11y-loki
+
+----
+
+Output:
+[source,terminal]
+----
+AccessPointArn: arn:aws:elasticfilesystem:ca-west-1:445567090745:access-point/fsap-049400a5d876270be
+AccessPointId: fsap-049400a5d876270be
+ClientToken: b61fdb18-4329-4bb2-97de-cf9e73b65787
+FileSystemId: fs-048c05ec65d5ddba6
+LifeCycleState: creating
+Name: o11y-loki
+OwnerId: '445567090745'
+RootDirectory:
+  CreationInfo:
+    OwnerGid: 10001
+    OwnerUid: 10001
+    Permissions: '0770'
+  Path: /o11y-loki
+Tags:
+- Key: Name
+  Value: o11y-loki
+----
+
+
+== Uninstall MinIO
+
+[,terminal]
+----
+$ helm install minio minio/minio \
+  -n o11y --create-namespace \
+  --version 5.4.0 \
+  -f custom-minio-values-5.4.0.yaml
+
+$ helm uninstall minio -n o11y
+----
+
+== References
+
+* https://github.com/minio/minio/tree/master/helm/minio
