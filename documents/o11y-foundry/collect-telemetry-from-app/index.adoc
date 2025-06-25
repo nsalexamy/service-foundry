@@ -1,0 +1,251 @@
+---
+layout: documents
+title: "Collecting Telemetry from On-Premises and Cloud-Based Applications"
+summary: "In this article, I walk through how to collect telemetry data—including logs, metrics, and traces—from applications running outside of Kubernetes, such as on-premises servers or cloud-hosted environments. Using OpenTelemetry, Docker Compose, and the OpenTelemetry Java Agent, I demonstrate how to set up the collector, instrument a Java application, and view telemetry data locally. This guide extends Kubernetes-native observability practices to external workloads, offering a consistent approach across hybrid environments."
+tags: #OpenTelemetry #Observability #DevOps #Java #Telemetry #DistributedTracing #OnPrem #CloudComputing #DockerCompose #Grafana
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+
+= Collecting Telemetry from On-Premises and Cloud-Based Applications
+
+:imagesdir: images
+
+[.img-wide]
+image::collect-telemetry-from-app.png[]
+
+== Overview
+
+This guide demonstrates how to collect telemetry—logs, metrics, and traces—from applications running in both on-premises environments and cloud-based infrastructure using OpenTelemetry. It covers setup instructions for the OpenTelemetry Collector outside Kubernetes using Docker Compose and shows how to instrument applications for observability.
+
+For Kubernetes-native workloads, refer to the articles below:
+
+* link:https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/otel-collector-spring/[Distributed Tracing - Spring Boot Application with OpenTelemetry Collector]
+* link:https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/jaeger-otel-collector/[Distributed Tracing - Jaeger and OpenTelemetry Collector]
+* link:https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/log-opensearch-stack/[Centralized Logging with OpenTelemetry and OpenSearch stack on Kubernetes]
+* link:https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/metrics-otel-collector/[Collecting Metrics using OpenTelemetry Collector and Visualizing them using Prometheus and Grafana on Kubernetes]
+
+This guide extends those approaches to applications deployed outside Kubernetes environments.
+
+
+== OpenTelemetry Components
+
+The primary OpenTelemetry components used in this guide are:
+
+* *OpenTelemetry Collector*: A service for receiving, processing, and exporting telemetry data.
+* *OpenTelemetry SDKs and Agents*: Language-specific libraries and instrumentation agents for generating telemetry from applications.
+
+== Deploying the OpenTelemetry Collector via Docker Compose
+
+To simplify the setup, Docker Compose is used to deploy the OpenTelemetry Collector and its dependencies locally without requiring a Kubernetes cluster.
+
+
+If you’re deploying a full observability stack on Kubernetes, refer to:
+
+* link:https://nsalexamy.github.io/service-foundry/pages/products/observability-foundry/[Observability Foundry]
+* link:https://nsalexamy.github.io/service-foundry/pages/documents/blog/observability-in-dev-env/[Deploying Observability Stack in Development Environment]
+
+=== Docker Compose Setup
+
+Create a docker-compose.yaml file with the following content:
+
+.docker-compose.yaml
+[source,yaml]
+----
+version: '3'
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib
+    ## <1>
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml
+    ports:
+      - 1888:1888 # pprof extension
+      - 8888:8888 # Prometheus metrics exposed by the Collector
+      - 8889:8889 # Prometheus exporter metrics
+      - 13133:13133 # health_check extension
+      - 4317:4317 # OTLP gRPC receiver
+      - 4318:4318 # OTLP http receiver
+      - 55679:55679 # zpages extension
+
+----
+<1> This mounts the OpenTelemetry Collector configuration file into the container.
+
+=== OpenTelemetry Collector Configuration
+
+This configuration uses a debug exporter to print collected telemetry to the console.
+
+.otel-collector-config.yaml
+[source,yaml]
+----
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+processors:
+  batch:
+    send_batch_size: 10000
+    timeout: 10s
+
+exporters:
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+----
+
+=== Start OpenTelemetry Collector
+
+To start the Collector:
+
+[source,terminal]
+----
+$ docker-compose up
+----
+
+Telemetry data will be printed in the terminal when received.
+
+
+== Instrumenting Applications with OpenTelemetry SDKs
+
+=== Java Application
+
+You can use the following example repository:
+
+https://github.com/nsalexamy/otel-spring-example
+
+=== Java Agent
+
+Download the latest version of the OpenTelemetry Java agent from:
+
+* link:https://opentelemetry.io/docs/zero-code/java/agent/getting-started/[Java Agent Getting Started]
+
+You can find the *opentelemetry-javaagent.jar* file in the `otel-spring-example` repository under the *javaagent* directory.
+
+To enable the agent, you can use -javaagent option or JAVA_TOOL_OPTIONS environment variable like below.
+
+[source,terminal]
+----
+$ export JAVA_TOOL_OPTIONS="-javaagent:javaagent/opentelemetry-javaagent.jar"
+----
+
+
+=== Configuring Environment Variables
+
+To instrument the Java application with OpenTelemetry, you need to set the following environment variables:
+
+* *OTEL_SERVICE_NAME*: The name of the service that will be reported in the telemetry data.
+* *OTEL_EXPORTER_OTLP_ENDPOINT*: The endpoint of the OpenTelemetry Collector to which the telemetry data will be sent.
+* *OTEL_TRACES_EXPORTER*: The exporter to use for traces. Default is `otlp`.
+* *OTEL_LOGS_EXPORTER*: The exporter to use for logs. Default is `otlp`.
+* *OTEL_METRICS_EXPORTER*: The exporter to use for metrics. Default is `otlp`.
+* *OTEL_METRIC_EXPORT_INTERVAL*: The interval at which metrics will be exported. Default is `60000` milliseconds.
+* *OTEL_EXPORTER_PROMETHEUS_PORT*: The port on which the Prometheus exporter will expose metrics. Default is `9464`.
+
+Set the following environment variables to configure the agent:
+[source,terminal]
+----
+$ export OTEL_SERVICE_NAME=otel-spring-example
+$ export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+----
+
+=== Running the Application
+
+To run the Java application with OpenTelemetry instrumentation, use the following command:
+
+[source,terminal]
+----
+$ ./gradlew clean bootRun
+$ java -javaagent:javaagent/opentelemetry-javaagent.jar -jar build/libs/otel-spring-example-0.0.1-SNAPSHOT.jar --server.port=8080
+----
+
+=== Generating Telemetry Data
+
+* Metrics are automatically exported at intervals using the Java agent.
+* Logs are emitted via application logging.
+* Traces are generated by sending HTTP requests to the application.
+
+Example:
+
+[source,terminal]
+----
+$ curl http://localhost:8080/error/cause/0.3
+----
+
+This triggers a trace and logs an error (30% chance of HTTP 500).
+
+== Metrics Exporter Considerations
+
+Use one of the following exporters:
+
+* otlp: Best suited for external or local development environments.
+* prometheus: Exposes metrics at /metrics, ideal for use in Kubernetes.
+
+To use the Prometheus exporter:
+[source,terminal]
+----
+$ export OTEL_METRICS_EXPORTER=prometheus
+$ export OTEL_EXPORTER_PROMETHEUS_PORT=9464
+----
+
+If you restart the application, you can see the metrics being collected by the OpenTelemetry Collector in the console where it is running.
+
+http://localhost:9464/metrics
+
+The port 9464 is the default port for the OpenTelemetry Collector to expose the Prometheus metrics.
+
+
+=== OpenTelemetry Environment Variable Specification
+
+Refer to the link below for the complete list of OpenTelemetry environment variables that can be used to configure the OpenTelemetry Java agent:
+
+https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/
+
+== Collecting Container Metrics
+
+For container-level metrics, use the OpenTelemetry Collector with the cadvisor receiver. Details:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/metrics-kubelet-cadvisor/[Scraping Container Metrics via Kubelet cAdvisor in Kubernetes]
+
+== Real-World Deployment
+
+In production:
+* Deploy the OpenTelemetry Collector in Kubernetes.
+* For external applications, expose the Collector using an Ingress or LoadBalancer.
+* Set OTEL_EXPORTER_OTLP_ENDPOINT accordingly for external clients.
+
+== Visualizing Telemetry Data in Grafana
+
+Use Grafana to visualize metrics, traces, and logs collected via the OpenTelemetry Collector. This can be integrated with Prometheus, Jaeger, and OpenSearch as telemetry backends.
+
+== Conclusion
+
+This guide provided a practical approach for collecting telemetry from applications deployed outside Kubernetes environments using OpenTelemetry. You learned how to deploy the Collector with Docker Compose, configure a Java application with the OpenTelemetry Java agent, and generate and inspect telemetry data.
+
+📘 View the web version:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/collect-telemetry-from-app/
