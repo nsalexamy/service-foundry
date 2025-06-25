@@ -1,0 +1,413 @@
+---
+layout: documents
+title: "Using MinIO as Object Storage for Loki in Development Environments"
+summary: "This article explores how to configure MinIO as a drop-in replacement for Amazon S3 when setting up Grafana Loki in a Kubernetes-based development environment. By using MinIO, developers can achieve full log persistence and observability without relying on external cloud services—making it ideal for local or cost-conscious development clusters. The guide walks through the Helm-based installation of MinIO, creating required object storage buckets, configuring Loki in SingleBinary mode to use the MinIO endpoint, and applying persistent storage settings suited for development use cases. It also highlights key considerations around storage classes and cluster configurations to ensure data durability and ease of access throughout the lifecycle of the observability stack."
+tags: #Kubernetes #MinIO #GrafanaLoki #Observability #DevOps #CloudNative #HelmCharts #OpenSource #K8sLogging #DeveloperExperience #ServiceFoundry #S3CompatibleStorage #Monitoring
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Observability Foundry
+    url: /documents/o11y-foundry/
+---
+
+= Using MinIO as Object Storage for Loki in Development Environments
+
+:imagesdir: images
+
+[.img-wide]
+image::minio-in-dev-env.png[]
+
+== Overview
+
+To eliminate the dependency on Amazon S3 in development environments, MinIO serves as an efficient, fully compatible object storage alternative for Loki.
+
+This guide provides step-by-step instructions for installing MinIO on a Kubernetes cluster and configuring it to work seamlessly with Grafana Loki.
+
+== What is MinIO?
+
+MinIO is a high-performance, distributed object storage system offering full compatibility with the S3 API. It can act as a drop-in replacement for Amazon S3 in Kubernetes-based workloads.
+
+
+== Advantages of Using MinIO Over S3
+
+* *Cost-Effective* – Operates in your environment, reducing cloud storage expenses.
+* *High Performance* – Optimized for low-latency and high-throughput workloads.
+* *Full Control* – Enables complete ownership of data and infrastructure.
+* *S3 Compatibility* – Seamless integration with tools and services designed for Amazon S3.
+
+== Installing MinIO with Helm
+
+
+=== Add MinIO Helm Repository
+
+Add the MinIO Helm repository to your local Helm client:
+
+[,terminal]
+----
+$ helm repo add minio https://charts.min.io/
+$ helm repo update minio
+----
+
+=== Pull Minio chart
+
+[NOTE]
+====
+This section is not essential for installing MinIO, but it is useful when you want to use the chart for your own purposes, to keep a certain version, or to inspect the chart values.
+====
+
+To see the current version of MinIO, run the command below:
+
+[source,terminal]
+----
+$ helm search repo minio
+
+minio/minio             5.4.0           RELEASE.2024-12-18T13-15-44Z    High Performance Object Storage
+----
+
+The command below will pull the MinIO Helm chart to your local machine:
+
+[source,terminal]
+----
+$ helm pull minio/minio
+----
+The minio-5.4.0.tgz file will be downloaded to your current directory.
+
+=== Download and Inspect the Chart
+
+To get the default values for the MinIO Helm chart, you can run the following command:
+[source,terminal]
+----
+$ helm show values minio/minio --version 5.4.0 > minio-values-5.4.0.yaml
+----
+
+=== Custom Helm Values for Development
+
+.custom-minio-values-5.4.0.yaml
+[source,yaml]
+----
+## <1>
+rootUser: minioroot
+rootPassword: minioroot
+
+## <2>
+replicas: 2   # 16 by default, but set to 2 for development
+
+## <3>
+persistence:
+  size: 10Gi  # 500Gi by default, but set to 10Gi for development
+
+users:
+  - accessKey: accessKey
+    secretKey: secretKey
+    policy: none
+----
+<1> Set the root user and password for MinIO.
+<2> Configure the number of replicas and persistence size for MinIO. The value of replicas in the default values file is set to 16 which is not suitable for development environments. We set it to 2 for a development environment.
+<3> Set the persistence size to 10Gi for development. The default value is 500Gi which is not suitable for development environments.
+
+
+=== Install MinIO
+
+To install MinIO in your Kubernetes cluster, you can use the following Helm command:
+
+[,terminal]
+----
+$ helm install minio minio/minio \
+  -n o11y --create-namespace \
+  --version 5.4.0 \
+  -f custom-minio-values-5.4.0.yaml
+----
+
+// Sample Output:
+// [,terminal]
+// ----
+// NAME: minio
+// LAST DEPLOYED: Mon Jun 23 18:36:47 2025
+// NAMESPACE: o11y
+// STATUS: deployed
+// REVISION: 1
+// TEST SUITE: None
+// NOTES:
+// MinIO can be accessed via port 9000 on the following DNS name from within your cluster:
+// minio.o11y.cluster.local
+//
+// To access MinIO from localhost, run the below commands:
+//
+//   1. export POD_NAME=$(kubectl get pods --namespace o11y -l "release=minio" -o jsonpath="{.items[0].metadata.name}")
+//
+//   2. kubectl port-forward $POD_NAME 9000 --namespace o11y
+//
+// Read more about port forwarding here: http://kubernetes.io/docs/user-guide/kubectl/kubectl_port-forward/
+//
+// You can now access MinIO server on http://localhost:9000. Follow the below steps to connect to MinIO server with mc client:
+//
+//   1. Download the MinIO mc client - https://min.io/docs/minio/linux/reference/minio-mc.html#quickstart
+//
+//   2. export MC_HOST_minio-local=http://$(kubectl get secret --namespace o11y minio -o jsonpath="{.data.rootUser}" | base64 --decode):$(kubectl get secret --namespace o11y minio -o jsonpath="{.data.rootPassword}" | base64 --decode)@localhost:9000
+//
+//   3. mc ls minio-local
+//
+// ----
+
+== Bucket Creation for Loki
+
+Unlike S3, bucket names in MinIO are not globally unique, so you can create buckets with the same name in different namespaces. However, it is a good practice to use unique names for your buckets to avoid confusion.
+
+The following buckets are needed for Loki:
+
+* loki-chunks: This bucket is used to store Loki's chunked log data.
+* loki-ruler: This bucket is used to store Loki's ruler data.
+
+=== Install MinIO Client (mc)
+
+To manage MinIO, you can use the MinIO client (mc). Download the MinIO client from the official website or use the following command to install it:
+
+[source,terminal]
+----
+$ brew install minio/stable/mc
+
+$ mc --version
+$ mc --help
+----
+
+== Accessing MinIO Locally
+
+Port Forward the MinIO service to your local machine to access it via a web browser or the MinIO client (mc).
+[source,terminal]
+----
+$ kubectl -n o11y port-forward svc/minio 9000:9000
+----
+
+Create an alias for the MinIO instance using the MinIO client (mc).
+[source,terminal]
+----
+$ mc alias set minio-local http://localhost:9000 minioroot minioroot
+----
+
+'minio-local' is the alias for your MinIO instance. You can change it to any name you prefer.
+
+Before deploying Loki, you need to create the required buckets in MinIO. The following commands will create the `loki-chunks` and `loki-ruler` buckets:
+
+[,terminal]
+----
+$ mc mb minio-local/loki-chunks
+$ mc mb minio-local/loki-ruler
+----
+
+== List Buckets
+
+Verify that the buckets have been created successfully by listing the buckets in your MinIO instance.
+
+[source,terminal]
+----
+$ mc ls minio-local
+
+# Sample Output:
+[2025-06-23 18:36:47 UTC]     0B loki-chunks/
+[2025-06-23 18:36:47 UTC]     0B loki-ruler/
+----
+
+== Persistence Considerations
+
+MinIO ensures that log data remains persistent even if the Loki service is restarted. This persistence is achieved through the use of persistent volumes, which retain stored data unless the MinIO deployment itself is deleted.
+
+In the example configuration for development environments, the persistence size is set to 10Gi in the custom values file. This can be adjusted based on your storage needs.
+
+=== Choosing a Storage Class
+
+Selecting the right storage class is critical for managing persistent volumes effectively. In this setup:
+
+* *ebs-sc (EBS – Elastic Block Store)*: Suitable for development. It allows a single pod in a specific Availability Zone (AZ) to access a volume.
+* *efs-sc (EFS – Elastic File System)*: Recommended for production. Multiple pods across different AZs can access the same volume.
+
+To inspect the persistent volume claims (PVCs) created by MinIO, use the following command:
+[source,terminal]
+----
+$ kubectl -n o11y get pvc -l app=minio \
+  -o custom-columns="NAME:.metadata.name,STATUS:.status.phase,CAPACITY:.status.capacity.storage,ACCESS MODES:.status.accessModes[*],STORAGECLASS:.spec.storageClassName"
+----
+
+Sample Output:
+[source,terminal]
+----
+NAME             STATUS   CAPACITY   ACCESS MODES    STORAGECLASS
+export-minio-0   Bound    10Gi       ReadWriteOnce   ebs-sc
+export-minio-1   Bound    10Gi       ReadWriteOnce   ebs-sc
+----
+
+If you need to retain data even after deleting the MinIO Helm release, consider using a PVC with the efs-sc storage class.
+
+For more on EFS setup, refer to:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/bigdata-foundry/airflow-eks/[Deploying Apache Airflow on Amazon EKS with Amazon EFS (GitHub)]
+* https://nsalexamy.github.io/service-foundry/pages/documents/bigdata-foundry/airflow-eks/[Deploying Apache Airflow on Amazon EKS with Amazon EFS (LinkedIn)]
+
+== Configuring Loki to Use MinIO
+
+Below is a sample Loki configuration for using MinIO as the object store in SingleBinary deployment mode:
+----
+deploymentMode: SingleBinary
+# https://grafana.com/docs/loki/latest/configure/storage/
+loki:
+  auth_enabled: false
+
+  storage:
+    type: s3
+    bucketNames:
+      chunks: loki-chunks
+      ruler: loki-ruler
+
+    s3:
+      s3forcepathstyle: true
+      ## <1>
+      # http<s>://<username>:<secret>@<fqdn>:<port>
+      endpoint: http://minioroot:minioroot@minio.o11y.svc:9000
+
+  storage_config:
+
+    aws:
+      s3: http://minioroot:minioroot@minio.o11y.svc:9000
+      s3forcepathstyle: true
+
+    tsdb_shipper:
+      active_index_directory: /var/loki/index
+      cache_location: /var/loki/cache
+      cache_ttl: 24h
+
+  schemaConfig:
+    configs:
+      - from: "2025-06-01"
+        store: tsdb
+        object_store: s3
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+
+  compactor:
+    retention_enabled: true
+    delete_request_store: s3
+
+  ruler:
+    replicas: 1
+    enable_api: true
+    storage:
+      type: s3
+
+      s3:
+        region: null
+        bucketnames: loki-ruler
+        s3forcepathstyle: true
+
+    alertmanager_url: http://mimir-alertmanager/alertmanager
+
+  limits_config:
+    allow_structured_metadata: true
+    retention_period: 672h # 28 days
+
+  ingester:
+    chunk_idle_period: 30s #5m
+    max_chunk_age: 1m #1h
+    wal:
+      flush_on_shutdown: true
+
+sidecar:
+  rules:
+    enabled: false
+
+singleBinary:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1
+      memory: 2Gi
+  # extraArgs: ["-log.level=info", "-config.expand-env=true"]
+
+gateway:
+  enabled: true
+
+# Disable other deployment modes
+backend:
+  replicas: 0
+read:
+  replicas: 0
+write:
+  replicas: 0
+
+distributor:
+  replicas: 0
+ingester:
+  replicas: 0
+querier:
+  replicas: 0
+queryFrontend:
+  replicas: 0
+queryScheduler:
+  replicas: 0
+ruler:
+  replicas: 0
+compactor:
+  replicas: 0
+indexGateway:
+  replicas: 0
+
+## <2>
+# serviceAccount:
+  # use the default service account
+  # annotations:
+    # eks.amazonaws.com/role-arn: arn:aws:iam::445567090745:role/o11yLokiServiceAccountRole
+----
+<1> Set the endpoint for MinIO. The format is `http<s>://<username>:<password>@<fqdn>:<port>`. In this case, we are using the MinIO root user and password.
+<2> The `serviceAccount` section is commented out. This annotation will try to handle *IAM Roles for Service Accounts*(IRSA) for the Loki service account, but it is not necessary because this does not use AWS S3. You can uncomment it if you want to use IRSA in production environments.
+
+== Verifying the Logs in MinIO
+
+To view the contents of the `loki-chunks` bucket, you can use the following command:
+----
+$ mc tree minio-local/loki-chunks
+----
+
+Sample Output:
+[source,terminal]
+----
+minio-local/loki-chunks
+├─ fake
+│  ├─ 119c2702828b8784
+│  ├─ 47ac913c27d367ca
+│  ├─ 55798da2ca41e488
+│  └─ 6574b9754e51e6c9
+└─ index
+   ├─ delete_requests
+   └─ index_20264
+----
+
+
+== Uninstalling MinIO
+
+To uninstall MinIO from your cluster:
+
+[,terminal]
+----
+$ helm uninstall minio -n o11y
+----
+
+== Conclusion
+
+MinIO provides a robust and cost-effective alternative to Amazon S3 for development environments. It enables persistent, S3-compatible object storage within your Kubernetes cluster, making it ideal for local or cloud-native observability setups.
+
+📘 View the web version:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/minio-object-storage-for-loki/
+
+== References
+
+* https://grafana.com/docs/loki/latest/configure/storage/
+* https://github.com/minio/minio/tree/master/helm/minio
+* https://grafana.com/docs/loki/latest/setup/install/helm/deployment-guides/aws/
