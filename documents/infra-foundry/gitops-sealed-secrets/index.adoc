@@ -1,0 +1,218 @@
+---
+layout: documents
+title:  Securing Sensitive Data in GitOps with Sealed Secrets
+summary: "In modern GitOps workflows, managing sensitive data securely is a critical concern. This article introduces Sealed Secrets, a powerful Kubernetes-native tool that allows teams to encrypt secrets and store them safely in Git repositories without exposing plaintext credentials. It provides a hands-on guide to installing the Sealed Secrets controller and CLI, creating encrypted secrets, and applying them through Argo CD for automated and secure delivery. With Sealed Secrets, organizations can confidently adopt GitOps while maintaining strict security practices."
+tags: #GitOps #KubernetesSecurity #DevSecOps #SealedSecrets #ArgoCD #CloudNative #SecureCI_CD #Kubernetes #InfrastructureAsCode #OpenSourceTools
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Infra Foundry
+    url: /documents/infra-foundry/
+---
+
+// docs/argoproj/argo-cd/sealed-secrets/index.adoc
+
+
+= Securing Sensitive Data in GitOps with Sealed Secrets
+
+:imagesdir: images
+
+[.img-wide]
+image::github-sealed-secret.png[]
+
+== Overview
+
+GitOps empowers teams to manage Kubernetes resources declaratively with Git as the single source of truth. However, managing sensitive data such as passwords, API keys, and tokens poses significant security challenges when stored directly in version control.
+
+*Sealed Secrets*, developed by Bitnami, addresses this challenge by allowing users to encrypt Kubernetes secrets into a format that can be safely committed to Git. These secrets can only be decrypted by the Sealed Secrets controller running inside the Kubernetes cluster, ensuring data security while maintaining GitOps workflows.
+
+This guide walks you through installing the Sealed Secrets controller and CLI, creating encrypted secrets, and automating their deployment using Argo CD.
+
+== Installing Sealed Secrets Controller
+
+Install the controller by applying the release manifest:
+
+[,terminal]
+----
+$ kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.30.0/controller.yaml
+----
+
+Alternatively, download and apply manually:
+[,terminal]
+----
+$ curl -L https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.30.0/controller.yaml -o sealed-secrets-controller-0.30.0.yaml
+$ kubectl apply -f sealed-secrets-controller-0.30.0.yaml
+----
+
+Refer to the latest releases: https://github.com/bitnami-labs/sealed-secrets/releases
+
+
+Sample output:
+[,terminal]
+----
+role.rbac.authorization.k8s.io/sealed-secrets-key-admin created
+serviceaccount/sealed-secrets-controller created
+rolebinding.rbac.authorization.k8s.io/sealed-secrets-service-proxier created
+role.rbac.authorization.k8s.io/sealed-secrets-service-proxier created
+service/sealed-secrets-controller-metrics created
+rolebinding.rbac.authorization.k8s.io/sealed-secrets-controller created
+deployment.apps/sealed-secrets-controller created
+customresourcedefinition.apiextensions.k8s.io/sealedsecrets.bitnami.com created
+service/sealed-secrets-controller created
+clusterrolebinding.rbac.authorization.k8s.io/sealed-secrets-controller created
+clusterrole.rbac.authorization.k8s.io/secrets-unsealer created
+----
+
+Verify Installation:
+
+[,terminal]
+----
+$ kubectl -n kube-system get pods -l name=sealed-secrets-controller
+----
+
+== Installing the Sealed Secrets CLI
+
+Install the CLI using Homebrew:
+
+[,terminal]
+----
+$ brew install kubeseal
+
+$ kubeseal --version
+----
+
+== Creating a Sealed Secret
+
+=== Step 1: Fetch the Public Certificate
+
+This public certificate will be used to encrypt secrets.
+
+[,terminal]
+----
+$ kubeseal --fetch-cert \
+    --controller-name=sealed-secrets-controller \
+    --controller-namespace=kube-system \
+    > pub-cert.pem
+----
+
+=== Step 2: Define a Kubernetes Secret
+
+Keycloak requires two secrets below:
+
+* keycloak-credentials
+* keycloak-postgresql-credentials
+
+.keycloak-credentials-secret.yaml
+[source,yaml]
+----
+apiVersion: v1
+data:
+  admin-password: eW91ci1wYXNzd29yZCAtbgo=
+kind: Secret
+metadata:
+  name: keycloak-credentials
+  namespace: keycloak
+----
+
+=== Step 3: Generate a Sealed Secret
+
+[,terminal]
+----
+$ kubeseal --format=yaml --cert=pub-cert.pem \
+    < keycloak-credentials-secret.yaml > keycloak-credentials-sealed-secret.yaml
+----
+
+The result:
+
+.keycloak-credentials-sealed-secret.yaml
+[source,yaml]
+----
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  creationTimestamp: null
+  name: keycloak-credentials
+  namespace: keycloak
+spec:
+  encryptedData:
+    admin-password: AgCJ5mZppPrj493ASGPtz/mRWKuEeqqTpz0A5AVdvkCr+40vnbf/dH3VL/91tI1QY2bXqZlGUgPdGEuw6+AijvfWcNMGS52TqxOc+pAU2X5wny4WR2lJl3e5Do1KxWSk2JiprqSNdZodYnoRIwNb1XqZrVbJDLrnIgqrjfmweXyI03kxY3VL5P75+4wep0UZifXl2cMSmFni9Wkm+LDTEu9PicUCWx2iSWqDzK70HAUURJh1iyiuHtKzHemfeOLOEf8LmKanhJet5oMU2Atv1Lb7dqO+RqTRR203CBfaGQIlESqfNu7cdJq5RGSJXsByOb64tEvsUrkZt/pKPqlhgIYNvl3yGC+TsBS/zCXU1anQQ9B/iQ3M/nJqziPR+mY7E6GEMwpYjxL3o+RVBi/Y0bQJQzGWhrV7+/39t8f2XGpOnJ2qrzl627C5ptZbRWcDNDeRHPrHgebees4fWD5GnfmZ8x9iDARaZVklxPfOktuGeErPwGicnGZiXi613otEmHJZ2HTG6PybSHyWsg8dir5iFzRqwHhnL7uY7SeEVwOoEuQWxsRttJ3ImlyYoth8GNLjJ0reHRKoWAEFS+WK5DGvhc04bYAg8/zk50AhAfhnb04eEL2uxgwdPkwFOlyH6qXx2+NQIrmZPCz0+dV5pBAZpVnk/Gtz+syAgylMyOvfbF676H59LLRb++C74A9RYdzhSTywSyFayQ==
+  template:
+    metadata:
+      creationTimestamp: null
+      name: keycloak-credentials
+      namespace: keycloak
+----
+
+You can also overwrite the original file inline:
+
+[,terminal]
+----
+$ kubeseal --format=yaml --cert=pub-cert.pem \
+    < keycloak-credentials-secret.yaml > tmp.yaml && \
+    mv tmp.yaml keycloak-credentials-secret.yaml
+
+
+$ kubeseal --format=yaml --cert=pub-cert.pem \
+    < keycloak-postgresql-credentials-secret.yaml > tmp.yaml && \
+    mv tmp.yaml keycloak-postgresql-credentials-secret.yaml
+----
+
+== Applying the Sealed Secret via GitOps
+
+With Argo CD in place, simply commit your Sealed Secret to your Git repository:
+
+
+[,terminal]
+----
+$ git add *
+$ git commit -m “Add sealed secret for Keycloak”
+$ git push origin main
+----
+
+The encrypted Sealed Secret is stored in the Git repository, and it is much more secure than a regular Kubernetes Secret.
+
+[.img-wide]
+image::github-sealed-secret.png[]
+
+Argo CD will detect the changes and apply them automatically, thanks to its continuous sync capabilities.
+
+
+.Sealed Secrets and Secrets in ArgoCD
+[.img-wide]
+image::argocd-auto-sync.png[]
+
+Secrets created by Sealed Secrets will be automatically decrypted and applied to the cluster by the Sealed Secrets controller. You can view the decrypted secrets in the ArgoCD UI or by using `kubectl` commands.
+
+=== Verifying Decryption and Secret Availability
+
+List the SealedSecrets in the namespace:
+
+[,terminal]
+----
+kubectl get sealedsecrets -n keycloak
+NAME                              AGE
+keycloak-credentials              17m
+keycloak-postgresql-credentials   28m
+----
+
+List the unsealed, usable Kubernetes Secrets:
+
+[,terminal]
+----
+kubectl get secrets -n keycloak
+NAME                              TYPE     DATA   AGE
+keycloak-credentials              Opaque   1      17m
+keycloak-postgresql-credentials   Opaque   2      28m
+----
+
+== Conclusion
+
+Sealed Secrets enables secure secret management for GitOps-based workflows by encrypting sensitive information before it is committed to Git. Combined with Argo CD, you can automate and securely manage the lifecycle of Kubernetes secrets while adhering to GitOps best practices. This approach ensures both auditability and compliance without compromising security.
+
+📘 View the web version:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/infra-foundry/gitops-sealed-secrets/
