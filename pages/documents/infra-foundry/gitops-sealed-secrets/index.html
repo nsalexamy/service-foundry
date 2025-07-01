@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Securing Sensitive Data in GitOps with Sealed Secrets</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">
+    Service Foundry
+</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/products/" class="">Products</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+        
+        <a href="/service-foundry/pages/demo/" class="">Demo</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="active">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/infra-foundry/">Infra Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Securing Sensitive Data in GitOps with Sealed Secrets
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a></li>
+<li><a href="#installing-sealed-secrets-controller">Installing Sealed Secrets Controller</a></li>
+<li><a href="#installing-the-sealed-secrets-cli">Installing the Sealed Secrets CLI</a></li>
+<li><a href="#creating-a-sealed-secret">Creating a Sealed Secret</a>
+<ul class="sectlevel2">
+<li><a href="#step-1-fetch-the-public-certificate">Step 1: Fetch the Public Certificate</a></li>
+<li><a href="#step-2-define-a-kubernetes-secret">Step 2: Define a Kubernetes Secret</a></li>
+<li><a href="#step-3-generate-a-sealed-secret">Step 3: Generate a Sealed Secret</a></li>
+</ul>
+</li>
+<li><a href="#applying-the-sealed-secret-via-gitops">Applying the Sealed Secret via GitOps</a>
+<ul class="sectlevel2">
+<li><a href="#verifying-decryption-and-secret-availability">Verifying Decryption and Secret Availability</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/github-sealed-secret.png" alt="github sealed secret">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>GitOps empowers teams to manage Kubernetes resources declaratively with Git as the single source of truth. However, managing sensitive data such as passwords, API keys, and tokens poses significant security challenges when stored directly in version control.</p>
+</div>
+<div class="paragraph">
+<p><strong>Sealed Secrets</strong>, developed by Bitnami, addresses this challenge by allowing users to encrypt Kubernetes secrets into a format that can be safely committed to Git. These secrets can only be decrypted by the Sealed Secrets controller running inside the Kubernetes cluster, ensuring data security while maintaining GitOps workflows.</p>
+</div>
+<div class="paragraph">
+<p>This guide walks you through installing the Sealed Secrets controller and CLI, creating encrypted secrets, and automating their deployment using Argo CD.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-sealed-secrets-controller">Installing Sealed Secrets Controller</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Install the controller by applying the release manifest:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl apply <span class="nt">-f</span> https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.30.0/controller.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Alternatively, download and apply manually:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>curl <span class="nt">-L</span> https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.30.0/controller.yaml <span class="nt">-o</span> sealed-secrets-controller-0.30.0.yaml
+<span class="gp">$</span><span class="w"> </span>kubectl apply <span class="nt">-f</span> sealed-secrets-controller-0.30.0.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Refer to the latest releases: <a href="https://github.com/bitnami-labs/sealed-secrets/releases" class="bare">https://github.com/bitnami-labs/sealed-secrets/releases</a></p>
+</div>
+<div class="paragraph">
+<p>Sample output:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="go">role.rbac.authorization.k8s.io/sealed-secrets-key-admin created
+serviceaccount/sealed-secrets-controller created
+rolebinding.rbac.authorization.k8s.io/sealed-secrets-service-proxier created
+role.rbac.authorization.k8s.io/sealed-secrets-service-proxier created
+service/sealed-secrets-controller-metrics created
+rolebinding.rbac.authorization.k8s.io/sealed-secrets-controller created
+deployment.apps/sealed-secrets-controller created
+customresourcedefinition.apiextensions.k8s.io/sealedsecrets.bitnami.com created
+service/sealed-secrets-controller created
+clusterrolebinding.rbac.authorization.k8s.io/sealed-secrets-controller created
+clusterrole.rbac.authorization.k8s.io/secrets-unsealer created</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Verify Installation:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> kube-system get pods <span class="nt">-l</span> <span class="nv">name</span><span class="o">=</span>sealed-secrets-controller</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-the-sealed-secrets-cli">Installing the Sealed Secrets CLI</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Install the CLI using Homebrew:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>brew <span class="nb">install </span>kubeseal
+<span class="go">
+</span><span class="gp">$</span><span class="w"> </span>kubeseal <span class="nt">--version</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="creating-a-sealed-secret">Creating a Sealed Secret</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="step-1-fetch-the-public-certificate">Step 1: Fetch the Public Certificate</h3>
+<div class="paragraph">
+<p>This public certificate will be used to encrypt secrets.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubeseal <span class="nt">--fetch-cert</span> <span class="se">\</span>
+<span class="go">    --controller-name=sealed-secrets-controller \
+    --controller-namespace=kube-system \
+</span><span class="gp">    &gt;</span><span class="w"> </span>pub-cert.pem</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="step-2-define-a-kubernetes-secret">Step 2: Define a Kubernetes Secret</h3>
+<div class="paragraph">
+<p>Keycloak requires two secrets below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>keycloak-credentials</p>
+</li>
+<li>
+<p>keycloak-postgresql-credentials</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">keycloak-credentials-secret.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">data</span><span class="pi">:</span>
+  <span class="na">admin-password</span><span class="pi">:</span> <span class="s">eW91ci1wYXNzd29yZCAtbgo=</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Secret</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">keycloak-credentials</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">keycloak</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="step-3-generate-a-sealed-secret">Step 3: Generate a Sealed Secret</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubeseal <span class="nt">--format</span><span class="o">=</span>yaml <span class="nt">--cert</span><span class="o">=</span>pub-cert.pem <span class="se">\</span>
+<span class="gp">    &lt; keycloak-credentials-secret.yaml &gt;</span><span class="w"> </span>keycloak-credentials-sealed-secret.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The result:</p>
+</div>
+<div class="listingblock">
+<div class="title">keycloak-credentials-sealed-secret.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">bitnami.com/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">SealedSecret</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">creationTimestamp</span><span class="pi">:</span> <span class="kc">null</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">keycloak-credentials</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">keycloak</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">encryptedData</span><span class="pi">:</span>
+    <span class="na">admin-password</span><span class="pi">:</span> <span class="s">AgCJ5mZppPrj493ASGPtz/mRWKuEeqqTpz0A5AVdvkCr+40vnbf/dH3VL/91tI1QY2bXqZlGUgPdGEuw6+AijvfWcNMGS52TqxOc+pAU2X5wny4WR2lJl3e5Do1KxWSk2JiprqSNdZodYnoRIwNb1XqZrVbJDLrnIgqrjfmweXyI03kxY3VL5P75+4wep0UZifXl2cMSmFni9Wkm+LDTEu9PicUCWx2iSWqDzK70HAUURJh1iyiuHtKzHemfeOLOEf8LmKanhJet5oMU2Atv1Lb7dqO+RqTRR203CBfaGQIlESqfNu7cdJq5RGSJXsByOb64tEvsUrkZt/pKPqlhgIYNvl3yGC+TsBS/zCXU1anQQ9B/iQ3M/nJqziPR+mY7E6GEMwpYjxL3o+RVBi/Y0bQJQzGWhrV7+/39t8f2XGpOnJ2qrzl627C5ptZbRWcDNDeRHPrHgebees4fWD5GnfmZ8x9iDARaZVklxPfOktuGeErPwGicnGZiXi613otEmHJZ2HTG6PybSHyWsg8dir5iFzRqwHhnL7uY7SeEVwOoEuQWxsRttJ3ImlyYoth8GNLjJ0reHRKoWAEFS+WK5DGvhc04bYAg8/zk50AhAfhnb04eEL2uxgwdPkwFOlyH6qXx2+NQIrmZPCz0+dV5pBAZpVnk/Gtz+syAgylMyOvfbF676H59LLRb++C74A9RYdzhSTywSyFayQ==</span>
+  <span class="na">template</span><span class="pi">:</span>
+    <span class="na">metadata</span><span class="pi">:</span>
+      <span class="na">creationTimestamp</span><span class="pi">:</span> <span class="kc">null</span>
+      <span class="na">name</span><span class="pi">:</span> <span class="s">keycloak-credentials</span>
+      <span class="na">namespace</span><span class="pi">:</span> <span class="s">keycloak</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>You can also overwrite the original file inline:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubeseal <span class="nt">--format</span><span class="o">=</span>yaml <span class="nt">--cert</span><span class="o">=</span>pub-cert.pem <span class="se">\</span>
+<span class="gp">    &lt; keycloak-credentials-secret.yaml &gt;</span><span class="w"> </span>tmp.yaml <span class="o">&amp;&amp;</span> <span class="se">\</span>
+<span class="go">    mv tmp.yaml keycloak-credentials-secret.yaml
+
+
+</span><span class="gp">$</span><span class="w"> </span>kubeseal <span class="nt">--format</span><span class="o">=</span>yaml <span class="nt">--cert</span><span class="o">=</span>pub-cert.pem <span class="se">\</span>
+<span class="gp">    &lt; keycloak-postgresql-credentials-secret.yaml &gt;</span><span class="w"> </span>tmp.yaml <span class="o">&amp;&amp;</span> <span class="se">\</span>
+<span class="go">    mv tmp.yaml keycloak-postgresql-credentials-secret.yaml</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="applying-the-sealed-secret-via-gitops">Applying the Sealed Secret via GitOps</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>With Argo CD in place, simply commit your Sealed Secret to your Git repository:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>git add <span class="k">*</span>
+<span class="gp">$</span><span class="w"> </span>git commit <span class="nt">-m</span> “Add sealed secret <span class="k">for </span>Keycloak”
+<span class="gp">$</span><span class="w"> </span>git push origin main</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The encrypted Sealed Secret is stored in the Git repository, and it is much more secure than a regular Kubernetes Secret.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/github-sealed-secret.png" alt="github sealed secret">
+</div>
+</div>
+<div class="paragraph">
+<p>Argo CD will detect the changes and apply them automatically, thanks to its continuous sync capabilities.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/argocd-auto-sync.png" alt="argocd auto sync">
+</div>
+<div class="title">Figure 1. Sealed Secrets and Secrets in ArgoCD</div>
+</div>
+<div class="paragraph">
+<p>Secrets created by Sealed Secrets will be automatically decrypted and applied to the cluster by the Sealed Secrets controller. You can view the decrypted secrets in the ArgoCD UI or by using <code>kubectl</code> commands.</p>
+</div>
+<div class="sect2">
+<h3 id="verifying-decryption-and-secret-availability">Verifying Decryption and Secret Availability</h3>
+<div class="paragraph">
+<p>List the SealedSecrets in the namespace:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="go">kubectl get sealedsecrets -n keycloak
+NAME                              AGE
+keycloak-credentials              17m
+keycloak-postgresql-credentials   28m</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>List the unsealed, usable Kubernetes Secrets:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="go">kubectl get secrets -n keycloak
+NAME                              TYPE     DATA   AGE
+keycloak-credentials              Opaque   1      17m
+keycloak-postgresql-credentials   Opaque   2      28m</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Sealed Secrets enables secure secret management for GitOps-based workflows by encrypting sensitive information before it is committed to Git. Combined with Argo CD, you can automate and securely manage the lifecycle of Kubernetes secrets while adhering to GitOps best practices. This approach ensures both auditability and compliance without compromising security.</p>
+</div>
+<div class="paragraph">
+<p>📘 View the web version:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/infra-foundry/gitops-sealed-secrets/" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/infra-foundry/gitops-sealed-secrets/</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>
