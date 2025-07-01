@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Implementing GitOps with Argo CD on Kubernetes</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">
+    Service Foundry
+</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/products/" class="">Products</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+        
+        <a href="/service-foundry/pages/demo/" class="">Demo</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="active">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/infra-foundry/">Infra Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Implementing GitOps with Argo CD on Kubernetes
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#what-is-argo-cd">What is Argo CD?</a></li>
+<li><a href="#key-benefits">Key Benefits</a></li>
+<li><a href="#installing-argo-cd-using-helm">Installing Argo CD using Helm</a>
+<ul class="sectlevel2">
+<li><a href="#add-the-argo-cd-helm-repository">Add the Argo CD Helm Repository</a></li>
+<li><a href="#search-available-chart-versions">Search Available Chart Versions</a></li>
+<li><a href="#pull-the-helm-chart">Pull the Helm Chart</a></li>
+<li><a href="#get-default-values">Get Default Values</a></li>
+<li><a href="#define-custom-values">Define Custom Values</a></li>
+<li><a href="#install-with-custom-values">Install with Custom Values</a></li>
+<li><a href="#accessing-argo-cd">Accessing Argo CD</a></li>
+</ul>
+</li>
+<li><a href="#argo-cd-cli">Argo CD CLI</a>
+<ul class="sectlevel2">
+<li><a href="#login-to-argo-cd">Login to Argo CD</a></li>
+<li><a href="#argo-cd-logout">Argo CD Logout</a></li>
+</ul>
+</li>
+<li><a href="#creating-applications">Creating Applications</a>
+<ul class="sectlevel2">
+<li><a href="#example-directory-structures">Example Directory Structures</a></li>
+</ul>
+</li>
+<li><a href="#defining-argo-cd-applications">Defining Argo CD Applications</a>
+<ul class="sectlevel2">
+<li><a href="#kustomize-example">Kustomize Example</a></li>
+<li><a href="#helm-git-repository-example">Helm (Git Repository) Example</a></li>
+<li><a href="#helm-helm-repository-example">Helm (Helm Repository) Example</a></li>
+<li><a href="#creating-applications-via-cli-or-kubectl">Creating Applications via CLI or kubectl</a></li>
+</ul>
+</li>
+<li><a href="#viewing-application-specs">Viewing Application Specs</a></li>
+<li><a href="#register-git-repository">Register Git Repository</a>
+<ul class="sectlevel2">
+<li><a href="#add-the-public-key-to-github">Add the public key to GitHub</a></li>
+</ul>
+</li>
+<li><a href="#argo-cd-ui">Argo CD UI</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/gitops-using-argo-cd.png" alt="gitops using argo cd">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide walks through the process of installing Argo CD on a Kubernetes cluster using Helm. It covers installation, basic configuration, and how to define and manage Argo CD applications using both Kustomize and Helm charts. Argo CD is a powerful, Kubernetes-native GitOps tool that enables declarative, version-controlled, and automated deployment of applications by continuously syncing Kubernetes clusters to the desired state defined in a Git repository.</p>
+</div>
+<div class="paragraph">
+<p>While this tutorial uses Docker Desktop with Kubernetes enabled for demonstration, the same approach can be applied to any Kubernetes environment.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-is-argo-cd">What is Argo CD?</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Argo CD is a declarative continuous delivery tool purpose-built for Kubernetes. It follows the GitOps model, where the desired state of applications is stored in Git and automatically applied to Kubernetes clusters. It provides a rich UI, CLI, and API for managing and monitoring deployments.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="key-benefits">Key Benefits</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Declarative GitOps</strong>: Use Git to define and manage application state with version control.</p>
+</li>
+<li>
+<p><strong>Automated Synchronization</strong>: Continuously sync your cluster to reflect the latest Git commit.</p>
+</li>
+<li>
+<p><strong>Rollback Support</strong>: Roll back to a previous working version using Git history.</p>
+</li>
+<li>
+<p><strong>Multi-Cluster Management</strong>: Control multiple clusters from a single Argo CD installation.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-argo-cd-using-helm">Installing Argo CD using Helm</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="add-the-argo-cd-helm-repository">Add the Argo CD Helm Repository</h3>
+<div class="paragraph">
+<p>Add the Argo CD Helm repository to your local Helm client:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm repo add argo https://argoproj.github.io/argo-helm
+<span class="gp">$</span><span class="w"> </span>helm repo update</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="search-available-chart-versions">Search Available Chart Versions</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm search repo argo-cd</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Sample output:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>NAME            CHART VERSION   APP VERSION     DESCRIPTION
+argo/argo-cd    8.1.2           v3.0.6          A Helm chart for Argo CD, a declarative, GitOps...</pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="pull-the-helm-chart">Pull the Helm Chart</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm pull argo/argo-cd</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This downloads argo-cd-8.1.2.tgz to your current directory.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="get-default-values">Get Default Values</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm show values argo/argo-cd <span class="o">&gt;</span> argo-cd-values-8.1.2.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="define-custom-values">Define Custom Values</h3>
+<div class="listingblock">
+<div class="title">custom-argo-cd-values-8.1.2.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># To access the Argo CD UI, you can use NodePort or Ingress.</span>
+<span class="na">server</span><span class="pi">:</span>
+  <span class="na">service</span><span class="pi">:</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">NodePort</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-with-custom-values">Install with Custom Values</h3>
+<div class="paragraph">
+<p>Run the following command to install Argo CD using the custom values file. This command will create a new namespace called <code>argocd</code> and install Argo CD in that namespace.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>helm <span class="nb">install </span>argocd argo/argo-cd <span class="se">\</span>
+<span class="go">  --namespace argocd --create-namespace \
+  --version 8.1.2 \
+  -f custom-argo-cd-values-8.1.2.yaml</span></code></pre>
+</div>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+<div class="paragraph">
+<p>Use argocd as the release name to avoid long service name prefixes.</p>
+</div>
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Release name is overridden by the <code>nameOverride</code> value in the <code>values.yaml</code> file. The default value is <code>argocd</code>, but you can change it to <code>argo-cd</code> or any other name.
+.values.yaml</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># -- Provide a name in place of `argocd`</span>
+<span class="na">nameOverride</span><span class="pi">:</span> <span class="s">argocd</span></code></pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>when using 'argocd': argocd- prefix is used for the service name.</p>
+</li>
+<li>
+<p>when using 'argo-cd': argo-cd-argocd- prefix is used for the service name.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="accessing-argo-cd">Accessing Argo CD</h3>
+<div class="paragraph">
+<p>Use NodePort or Ingress. If Ingress is not enabled, use port-forwarding or visit the NodePort directly.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl <span class="nt">-n</span> argocd get service argocd-server
+<span class="go">
+</span><span class="gp">#</span><span class="w"> </span>Sample output:
+<span class="go">NAME            TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)                      AGE
+</span><span class="gp">argocd-server   NodePort   10.98.159.55   &lt;none&gt;</span><span class="w">        </span>80:30080/TCP,443:30443/TCP   24h</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Navigate to:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="http://localhost:30080" class="bare">http://localhost:30080</a></p>
+</li>
+</ul>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/argocd-login.png" alt="argocd login">
+</div>
+<div class="title">Figure 1. Argo CD Login Page</div>
+</div>
+<div class="paragraph">
+<p>Login Credentials:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Username</strong>: <code>admin</code></p>
+</li>
+<li>
+<p><strong>Password</strong>: Retrieve it using:</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="nv">ARGOCD_PASSWORD</span><span class="o">=</span><span class="si">$(</span>kubectl <span class="nt">-n</span> argocd get secret argocd-initial-admin-secret <span class="nt">-o</span> <span class="nv">jsonpath</span><span class="o">=</span><span class="s2">"{.data.password}"</span> | <span class="nb">base64</span> <span class="nt">-d</span><span class="si">)</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="argo-cd-cli">Argo CD CLI</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Install using Homebrew:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>brew <span class="nb">install </span>argocd</code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="login-to-argo-cd">Login to Argo CD</h3>
+<div class="paragraph">
+<p>To log in to Argo CD using the CLI, you need the initial admin password and the NodePort or LoadBalancer IP address. If you are using a LoadBalancer, you can retrieve the hostname or IP address of the Argo CD server service.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span><span class="nv">ARGOCD_PASSWORD</span><span class="o">=</span><span class="si">$(</span>kubectl <span class="nt">-n</span> argocd get secret argocd-initial-admin-secret <span class="nt">-o</span> <span class="nv">jsonpath</span><span class="o">=</span><span class="s2">"{.data.password}"</span> | <span class="nb">base64</span> <span class="nt">-d</span><span class="si">)</span>
+<span class="gp">$</span><span class="w"> </span><span class="nv">ARGOCD_NODE_PORT</span><span class="o">=</span><span class="si">$(</span>kubectl <span class="nt">-n</span> argocd get service argocd-server <span class="nt">-o</span> <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.spec.ports[?(@.name=="http")].nodePort}'</span><span class="si">)</span>
+<span class="gp">$</span><span class="w">  </span>argocd login localhost:<span class="nv">$ARGOCD_NODE_PORT</span> <span class="nt">--username</span> admin <span class="nt">--password</span> <span class="nv">$ARGOCD_PASSWORD</span> <span class="nt">--insecure</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Sample output:</p>
+</div>
+<div class="listingblock terminal">
+<div class="content">
+<pre>'admin:login' logged in successfully
+Context 'localhost:32724' updated</pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="argo-cd-logout">Argo CD Logout</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>argocd <span class="nb">logout</span> <span class="nv">$ARGOCD_IP</span>:<span class="nv">$ARGOCD_NODE_PORT</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="creating-applications">Creating Applications</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Argo CD supports both Kustomize and Helm-based deployments. The Service Foundry Generator outputs ready-to-deploy manifests and charts.</p>
+</div>
+<div class="sect2">
+<h3 id="example-directory-structures">Example Directory Structures</h3>
+<div class="paragraph">
+<p><strong>Kustomize</strong>:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>tree k8s
+<span class="go">
+k8s
+├── keycloak
+│   ├── keycloak-credentials-secret.yaml
+│   ├── keycloak-namespace.yaml
+│   ├── keycloak-postgresql-credentials-secret.yaml
+│   └── kustomization.yaml
+├── otel-operator
+│   ├── kustomization.yaml
+│   ├── opentelemetry-operator-0.127.0.yaml
+│   └── opentelemetry-operator.yaml
+└── prometheus-operator
+    ├── bundle.yaml
+    ├── kustomization.yaml
+    ├── prometheus-operator-bundle-v0.81.0.yaml
+    ├── prometheus-operator-bundle-v0.82.0.yaml
+    └── prometheus-operator-bundle-v0.83.0.yaml</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Helm Charts</strong>:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>tree helm-charts
+<span class="go">
+helm-charts
+├── argo-workflows
+│   ├── argo-workflows-0.45.19.tgz
+│   └── custom-values-0.45.19.yaml
+├── argocd
+│   ├── argo-cd-8.1.2.tgz
+│   └── custom-values-8.1.2.yaml
+├── cert-manager
+│   ├── cert-manager-v1.17.1.tgz
+│   ├── cert-manager-v1.17.2.tgz
+│   ├── custom-values-v1.17.1.yaml
+│   └── custom-values-v1.17.2.yaml
+├── keycloak
+│   ├── custom-values-24.4.13.yaml
+│   ├── custom-values.yaml
+│   └── keycloak-24.4.13.tgz
+└── traefik
+    ├── custom-values-34.4.1.yaml
+    ├── custom-values.yaml
+    └── traefik-34.4.1.tgz</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>All these files generated by the Service Foundry Generator are used to create Argo CD applications. I restructured the directory structure to make it easier to manage the Kubernetes manifests files and Helm charts.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>tree <span class="nt">-d</span> <span class="nt">-L</span> 4 argocd
+<span class="go">
+argocd
+└── apps
+    ├── cert-manager
+    │   └── helm
+    │       └── cert-manager
+    ├── keycloak
+    │   ├── helm
+    │   │   └── keycloak
+    │   └── kustomize
+    ├── otel-operator
+    │   └── kustomize
+    ├── prometheus-operator
+    │   └── kustomize
+    └── traefik
+        └── helm
+            └── traefik</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The <strong>apps</strong> directory will be saved in a Git repository, and you can use it to create Argo CD applications.</p>
+</div>
+<div class="paragraph">
+<p>In the apps directory, you can find the following subdirectories:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>cert-manager</strong>: need helm chart to install cert-manager.</p>
+</li>
+<li>
+<p><strong>keycloak</strong>: need both kustomize and helm chart to install keycloak.</p>
+</li>
+<li>
+<p><strong>otel-operator</strong>: need kustomize to install OpenTelemetry Operator.</p>
+</li>
+<li>
+<p><strong>prometheus-operator</strong>: need kustomize to install Prometheus Operator.</p>
+</li>
+<li>
+<p><strong>traefik</strong>: need helm chart to install Traefik.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Subdirectories under each application:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>kustomize</strong>: contains the kustomization files to deploy the application using Kustomize.</p>
+</li>
+<li>
+<p><strong>helm/{release-name}</strong>: contains the Helm chart files and custom values to deploy the application using Helm.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="defining-argo-cd-applications">Defining Argo CD Applications</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="kustomize-example">Kustomize Example</h3>
+<div class="listingblock">
+<div class="title">apps/otel-operator/otel-operator-kustomize-app.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">argoproj.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Application</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">otel-operator-kustomize-app</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">argocd</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="na">destination</span><span class="pi">:</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="s">opentelemetry-operator-system</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">in-cluster</span>
+  <span class="na">syncPolicy</span><span class="pi">:</span>
+    <span class="na">automated</span><span class="pi">:</span> <span class="pi">{}</span>
+    <span class="na">syncOptions</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">CreateNamespace=true</span>
+
+  <span class="na">project</span><span class="pi">:</span> <span class="s">service-foundry</span>
+
+  <span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+  <span class="na">source</span><span class="pi">:</span>
+    <span class="na">repoURL</span><span class="pi">:</span> <span class="s">git@github.com:nsalexamy/argo-cd-example.git</span>
+    <span class="na">path</span><span class="pi">:</span> <span class="s">apps/otel-operator/kustomize/</span>
+    <span class="na">targetRevision</span><span class="pi">:</span> <span class="s">HEAD</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Specify the destination namespace and cluster where the application will be deployed.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Specify the Git repository and path where the kustomization files are located.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="helm-git-repository-example">Helm (Git Repository) Example</h3>
+<div class="paragraph">
+<p>For Helm chart applications, you can create an Argo CD application that uses a Helm chart stored in a Git repository.</p>
+</div>
+<div class="paragraph">
+<p>With this approach, the values file is managed in the Git repository, and all changes to the values file will be tracked in Git. This is useful for managing different environments or configurations.</p>
+</div>
+<div class="listingblock">
+<div class="title">apps/cert-manager/cert-manager-helm-chart-app.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">argoproj.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Application</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">keycloak-helm-app</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">argocd</span>
+
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">destination</span><span class="pi">:</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="s">cert-manager</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">in-cluster</span>
+  <span class="na">project</span><span class="pi">:</span> <span class="s">service-foundry</span>
+  <span class="na">source</span><span class="pi">:</span>
+    <span class="na">repoURL</span><span class="pi">:</span> <span class="s">git@github.com:nsalexamy/argo-cd-example.git</span>
+    <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="na">targetRevision</span><span class="pi">:</span> <span class="s">HEAD</span>
+    <span class="na">path</span><span class="pi">:</span> <span class="s">apps/cert-manager/helm/cert-manager</span>
+    <span class="na">helm</span><span class="pi">:</span>
+      <span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+      <span class="na">releaseName</span><span class="pi">:</span> <span class="s">cert-manager</span>
+      <span class="c1">#</span><i class="conum" data-value="3"></i><b>(3)</b>
+      <span class="na">valueFiles</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="s">custom-values-v1.17.2.yaml</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>This revision can be a branch of the Git repository, such as <code>HEAD</code>, <code>main</code>, or a specific commit SHA.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Specify the Helm release name. Without this, Argo CD name is used as the release name.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Specify the custom values file to use with the Helm chart. The location of the custom values file is relative to the path specified in the <code>source.path</code>.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="helm-helm-repository-example">Helm (Helm Repository) Example</h3>
+<div class="paragraph">
+<p>For Helm chart applications, you can also create an Argo CD application that uses a Helm chart stored in a Helm repository.</p>
+</div>
+<div class="paragraph">
+<p>With this approach, the contents of values is saved in the Argo CD application spec, which is NOT part of the Git repository. To update the values, you need to update the Argo CD application spec directly.</p>
+</div>
+<div class="listingblock">
+<div class="title">apps/cert-manager/cert-manager-helm-chart-app.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">argoproj.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Application</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">cert-manager-chart-app</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">argocd</span>
+
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">destination</span><span class="pi">:</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="s">cert-manager</span>
+    <span class="c1">#server: https://kubernetes.default.svc</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">in-cluster</span>
+  <span class="na">project</span><span class="pi">:</span> <span class="s">service-foundry</span>
+  <span class="na">source</span><span class="pi">:</span>
+    <span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="na">repoURL</span><span class="pi">:</span> <span class="s">https://charts.jetstack.io</span>
+    <span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="na">chart</span><span class="pi">:</span> <span class="s">cert-manager</span>
+    <span class="c1">#</span><i class="conum" data-value="3"></i><b>(3)</b>
+    <span class="na">targetRevision</span><span class="pi">:</span> <span class="s">v1.17.2</span>
+
+    <span class="na">helm</span><span class="pi">:</span>
+      <span class="c1">#</span><i class="conum" data-value="4"></i><b>(4)</b>
+      <span class="na">values</span><span class="pi">:</span> <span class="pi">|</span>
+        <span class="s">crds:</span>
+          <span class="s">enabled: true</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Specify the Helm repository URL.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Specify the Helm chart name.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Specify the Helm chart version. This can be a specific version or a branch name.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>Specify the custom values for the Helm chart. This is a YAML block that contains the values to be used with the Helm chart.</td>
+</tr>
+</table>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+<div class="paragraph">
+<p>For better version control, prefer Git-based Helm deployments over inlined values.</p>
+</div>
+</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="creating-applications-via-cli-or-kubectl">Creating Applications via CLI or kubectl</h3>
+<div class="paragraph">
+<p><strong>Using Argo CD CLI:</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>argocd app create <span class="nt">-f</span> cert-manager/apps/cert-manager-config-prep-app.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Using kubectl:</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>kubectl apply <span class="nt">-f</span> cert-manager/apps/cert-manager-helm-chart-app.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="viewing-application-specs">Viewing Application Specs</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>After creating an application, you can get the application spec using the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="go">
+</span><span class="gp">$</span><span class="w"> </span>argocd app get argocd/traefik-chart-app <span class="nt">-o</span> yaml | yq e <span class="s1">'{"spec": .spec, "metadata": {"name": .metadata.name, "namespace": .metadata.namespace}}'</span> <span class="nt">-P</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="register-git-repository">Register Git Repository</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>You can add a GitHub repository to Argo CD to manage your applications. This allows you to use GitOps practices to manage your Kubernetes applications.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>argocd repo add git@github.com:your-org/your-repo.git <span class="se">\</span>
+  <span class="nt">--ssh-private-key-path</span> ~/.ssh/argo_cd_key <span class="se">\</span>
+  <span class="nt">--project</span> project-name <span class="se">\</span>
+  <span class="nt">--name</span> my-github-repo</code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="add-the-public-key-to-github">Add the public key to GitHub</h3>
+<div class="paragraph">
+<p>Then add the SSH public key as a Deploy Key in your GitHub repository.</p>
+</div>
+<div class="paragraph">
+<p>Go to GitHub:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Repo → Settings → Deploy keys → Add deploy key</p>
+</li>
+<li>
+<p>Title: argo-cd</p>
+</li>
+<li>
+<p>Paste the public key</p>
+</li>
+<li>
+<p>Check <strong>Allow write access</strong> if needed</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="argo-cd-ui">Argo CD UI</h2>
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/argocd-applications.png" alt="argocd applications">
+</div>
+<div class="title">Figure 2. ArgoCD UI - Applications</div>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/argocd-application-details-tree.png" alt="argocd application details tree">
+</div>
+<div class="title">Figure 3. ArgoCD UI - Application Details Tree</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Argo CD provides a robust and scalable GitOps solution for Kubernetes. In this guide, we installed Argo CD using Helm, configured access, and demonstrated how to create applications with both Kustomize and Helm. We also covered best practices for organizing repositories and automating deployments using the Argo CD CLI and UI.</p>
+</div>
+<div class="paragraph">
+<p>📘 View the web version:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/infra-foundry/gitops-using-argocd/" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/infra-foundry/gitops-using-argocd/</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>

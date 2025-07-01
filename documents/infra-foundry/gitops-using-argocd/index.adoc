@@ -1,0 +1,462 @@
+---
+layout: documents
+title:  Implementing GitOps with Argo CD on Kubernetes
+summary: "Discover how to implement GitOps practices on Kubernetes using Argo CD. This comprehensive guide walks you through installing Argo CD with Helm, configuring access via CLI and UI, and managing applications with Kustomize and Helm. You’ll learn how to structure your manifests and Helm charts, automate deployments, and streamline version-controlled infrastructure across multiple clusters—all through a Git-driven workflow. Ideal for teams embracing modern DevOps and platform engineering practices on Kubernetes."
+tags: #GitOps #Kubernetes #ArgoCD #DevOps #PlatformEngineering #InfrastructureAsCode #Helm #Kustomize #CloudNative #ContinuousDelivery #CICD #ServiceFoundry
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Infra Foundry
+    url: /documents/infra-foundry/
+---
+
+// docs/argoproj/argo-cd/install-argo-cd-on-k8s/index.adoc
+
+= Implementing GitOps with Argo CD on Kubernetes
+
+:imagesdir: images
+
+[.img-wide]
+image::gitops-using-argo-cd.png[]
+
+== Introduction
+
+This guide walks through the process of installing Argo CD on a Kubernetes cluster using Helm. It covers installation, basic configuration, and how to define and manage Argo CD applications using both Kustomize and Helm charts. Argo CD is a powerful, Kubernetes-native GitOps tool that enables declarative, version-controlled, and automated deployment of applications by continuously syncing Kubernetes clusters to the desired state defined in a Git repository.
+
+While this tutorial uses Docker Desktop with Kubernetes enabled for demonstration, the same approach can be applied to any Kubernetes environment.
+
+== What is Argo CD?
+
+Argo CD is a declarative continuous delivery tool purpose-built for Kubernetes. It follows the GitOps model, where the desired state of applications is stored in Git and automatically applied to Kubernetes clusters. It provides a rich UI, CLI, and API for managing and monitoring deployments.
+
+== Key Benefits
+
+* *Declarative GitOps*: Use Git to define and manage application state with version control.
+* *Automated Synchronization*: Continuously sync your cluster to reflect the latest Git commit.
+* *Rollback Support*: Roll back to a previous working version using Git history.
+* *Multi-Cluster Management*: Control multiple clusters from a single Argo CD installation.
+
+
+== Installing Argo CD using Helm
+
+=== Add the Argo CD Helm Repository
+
+Add the Argo CD Helm repository to your local Helm client:
+[,terminal]
+----
+$ helm repo add argo https://argoproj.github.io/argo-helm
+$ helm repo update
+----
+
+=== Search Available Chart Versions
+
+[,terminal]
+----
+$ helm search repo argo-cd
+----
+
+Sample output:
+----
+NAME            CHART VERSION   APP VERSION     DESCRIPTION
+argo/argo-cd    8.1.2           v3.0.6          A Helm chart for Argo CD, a declarative, GitOps...
+----
+
+=== Pull the Helm Chart
+
+[,terminal]
+----
+$ helm pull argo/argo-cd
+----
+
+This downloads argo-cd-8.1.2.tgz to your current directory.
+
+=== Get Default Values
+
+[,terminal]
+----
+$ helm show values argo/argo-cd > argo-cd-values-8.1.2.yaml
+----
+
+=== Define Custom Values
+
+.custom-argo-cd-values-8.1.2.yaml
+[source,yaml]
+----
+# To access the Argo CD UI, you can use NodePort or Ingress.
+server:
+  service:
+    type: NodePort
+----
+
+=== Install with Custom Values
+
+Run the following command to install Argo CD using the custom values file. This command will create a new namespace called `argocd` and install Argo CD in that namespace.
+
+[,terminal]
+----
+$ helm install argocd argo/argo-cd \
+  --namespace argocd --create-namespace \
+  --version 8.1.2 \
+  -f custom-argo-cd-values-8.1.2.yaml
+----
+
+[NOTE]
+====
+Use argocd as the release name to avoid long service name prefixes.
+====
+
+Release name is overridden by the `nameOverride` value in the `values.yaml` file. The default value is `argocd`, but you can change it to `argo-cd` or any other name.
+.values.yaml
+[source,yaml]
+----
+# -- Provide a name in place of `argocd`
+nameOverride: argocd
+----
+
+* when using 'argocd': argocd- prefix is used for the service name.
+* when using 'argo-cd': argo-cd-argocd- prefix is used for the service name.
+
+=== Accessing Argo CD
+
+Use NodePort or Ingress. If Ingress is not enabled, use port-forwarding or visit the NodePort directly.
+
+[,terminal]
+----
+$ kubectl -n argocd get service argocd-server
+
+# Sample output:
+NAME            TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)                      AGE
+argocd-server   NodePort   10.98.159.55   <none>        80:30080/TCP,443:30443/TCP   24h
+----
+
+Navigate to:
+
+* http://localhost:30080
+
+.Argo CD Login Page
+[.img-wide]
+image::argocd-login.png[]
+
+Login Credentials:
+
+* *Username*: `admin`
+* *Password*: Retrieve it using:
+
+[,terminal]
+----
+$ ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
+----
+
+== Argo CD CLI
+
+Install using Homebrew:
+
+[,terminal]
+----
+$ brew install argocd
+----
+
+=== Login to Argo CD
+
+To log in to Argo CD using the CLI, you need the initial admin password and the NodePort or LoadBalancer IP address. If you are using a LoadBalancer, you can retrieve the hostname or IP address of the Argo CD server service.
+
+[,terminal]
+----
+$ ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
+$ ARGOCD_NODE_PORT=$(kubectl -n argocd get service argocd-server -o jsonpath='{.spec.ports[?(@.name=="http")].nodePort}')
+$  argocd login localhost:$ARGOCD_NODE_PORT --username admin --password $ARGOCD_PASSWORD --insecure
+----
+
+Sample output:
+[.terminal]
+----
+'admin:login' logged in successfully
+Context 'localhost:32724' updated
+----
+
+=== Argo CD Logout
+
+[,terminal]
+----
+$ argocd logout $ARGOCD_IP:$ARGOCD_NODE_PORT
+----
+
+== Creating Applications
+
+Argo CD supports both Kustomize and Helm-based deployments. The Service Foundry Generator outputs ready-to-deploy manifests and charts.
+
+=== Example Directory Structures
+
+
+*Kustomize*:
+[,terminal]
+----
+$ tree k8s
+
+k8s
+├── keycloak
+│   ├── keycloak-credentials-secret.yaml
+│   ├── keycloak-namespace.yaml
+│   ├── keycloak-postgresql-credentials-secret.yaml
+│   └── kustomization.yaml
+├── otel-operator
+│   ├── kustomization.yaml
+│   ├── opentelemetry-operator-0.127.0.yaml
+│   └── opentelemetry-operator.yaml
+└── prometheus-operator
+    ├── bundle.yaml
+    ├── kustomization.yaml
+    ├── prometheus-operator-bundle-v0.81.0.yaml
+    ├── prometheus-operator-bundle-v0.82.0.yaml
+    └── prometheus-operator-bundle-v0.83.0.yaml
+----
+
+
+*Helm Charts*:
+[,terminal]
+----
+$ tree helm-charts
+
+helm-charts
+├── argo-workflows
+│   ├── argo-workflows-0.45.19.tgz
+│   └── custom-values-0.45.19.yaml
+├── argocd
+│   ├── argo-cd-8.1.2.tgz
+│   └── custom-values-8.1.2.yaml
+├── cert-manager
+│   ├── cert-manager-v1.17.1.tgz
+│   ├── cert-manager-v1.17.2.tgz
+│   ├── custom-values-v1.17.1.yaml
+│   └── custom-values-v1.17.2.yaml
+├── keycloak
+│   ├── custom-values-24.4.13.yaml
+│   ├── custom-values.yaml
+│   └── keycloak-24.4.13.tgz
+└── traefik
+    ├── custom-values-34.4.1.yaml
+    ├── custom-values.yaml
+    └── traefik-34.4.1.tgz
+----
+
+All these files generated by the Service Foundry Generator are used to create Argo CD applications. I restructured the directory structure to make it easier to manage the Kubernetes manifests files and Helm charts.
+
+[,terminal]
+----
+$ tree -d -L 4 argocd
+
+argocd
+└── apps
+    ├── cert-manager
+    │   └── helm
+    │       └── cert-manager
+    ├── keycloak
+    │   ├── helm
+    │   │   └── keycloak
+    │   └── kustomize
+    ├── otel-operator
+    │   └── kustomize
+    ├── prometheus-operator
+    │   └── kustomize
+    └── traefik
+        └── helm
+            └── traefik
+----
+
+The *apps* directory will be saved in a Git repository, and you can use it to create Argo CD applications.
+
+In the apps directory, you can find the following subdirectories:
+
+* *cert-manager*: need helm chart to install cert-manager.
+* *keycloak*: need both kustomize and helm chart to install keycloak.
+* *otel-operator*: need kustomize to install OpenTelemetry Operator.
+* *prometheus-operator*: need kustomize to install Prometheus Operator.
+* *traefik*: need helm chart to install Traefik.
+
+Subdirectories under each application:
+
+* *kustomize*: contains the kustomization files to deploy the application using Kustomize.
+* *helm/{release-name}*: contains the Helm chart files and custom values to deploy the application using Helm.
+
+
+== Defining Argo CD Applications
+=== Kustomize Example
+
+.apps/otel-operator/otel-operator-kustomize-app.yaml
+[source,yaml]
+----
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-operator-kustomize-app
+  namespace: argocd
+spec:
+  ## <1>
+  destination:
+    namespace: opentelemetry-operator-system
+    name: in-cluster
+  syncPolicy:
+    automated: {}
+    syncOptions:
+      - CreateNamespace=true
+
+  project: service-foundry
+
+  ## <2>
+  source:
+    repoURL: git@github.com:nsalexamy/argo-cd-example.git
+    path: apps/otel-operator/kustomize/
+    targetRevision: HEAD
+----
+<1> Specify the destination namespace and cluster where the application will be deployed.
+<2> Specify the Git repository and path where the kustomization files are located.
+
+=== Helm (Git Repository) Example
+
+For Helm chart applications, you can create an Argo CD application that uses a Helm chart stored in a Git repository.
+
+With this approach, the values file is managed in the Git repository, and all changes to the values file will be tracked in Git. This is useful for managing different environments or configurations.
+
+.apps/cert-manager/cert-manager-helm-chart-app.yaml
+[source,yaml]
+----
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: keycloak-helm-app
+  namespace: argocd
+
+spec:
+  destination:
+    namespace: cert-manager
+    name: in-cluster
+  project: service-foundry
+  source:
+    repoURL: git@github.com:nsalexamy/argo-cd-example.git
+    ## <1>
+    targetRevision: HEAD
+    path: apps/cert-manager/helm/cert-manager
+    helm:
+      ## <2>
+      releaseName: cert-manager
+      ## <3>
+      valueFiles:
+        - custom-values-v1.17.2.yaml
+----
+<1> This revision can be a branch of the Git repository, such as `HEAD`, `main`, or a specific commit SHA.
+<2> Specify the Helm release name. Without this, Argo CD name is used as the release name.
+<3> Specify the custom values file to use with the Helm chart. The location of the custom values file is relative to the path specified in the `source.path`.
+
+=== Helm (Helm Repository) Example
+
+For Helm chart applications, you can also create an Argo CD application that uses a Helm chart stored in a Helm repository.
+
+With this approach, the contents of values is saved in the Argo CD application spec, which is NOT part of the Git repository. To update the values, you need to update the Argo CD application spec directly.
+
+.apps/cert-manager/cert-manager-helm-chart-app.yaml
+[source,yaml]
+----
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-chart-app
+  namespace: argocd
+
+spec:
+  destination:
+    namespace: cert-manager
+    #server: https://kubernetes.default.svc
+    name: in-cluster
+  project: service-foundry
+  source:
+    ## <1>
+    repoURL: https://charts.jetstack.io
+    ## <2>
+    chart: cert-manager
+    ## <3>
+    targetRevision: v1.17.2
+
+    helm:
+      ## <4>
+      values: |
+        crds:
+          enabled: true
+----
+<1> Specify the Helm repository URL.
+<2> Specify the Helm chart name.
+<3> Specify the Helm chart version. This can be a specific version or a branch name.
+<4> Specify the custom values for the Helm chart. This is a YAML block that contains the values to be used with the Helm chart.
+
+[NOTE]
+====
+For better version control, prefer Git-based Helm deployments over inlined values.
+====
+
+=== Creating Applications via CLI or kubectl
+
+*Using Argo CD CLI:*
+[,terminal]
+----
+$ argocd app create -f cert-manager/apps/cert-manager-config-prep-app.yaml
+----
+
+*Using kubectl:*
+[,terminal]
+----
+$ kubectl apply -f cert-manager/apps/cert-manager-helm-chart-app.yaml
+----
+
+== Viewing Application Specs
+
+After creating an application, you can get the application spec using the following command:
+
+[,terminal]
+----
+
+$ argocd app get argocd/traefik-chart-app -o yaml | yq e '{"spec": .spec, "metadata": {"name": .metadata.name, "namespace": .metadata.namespace}}' -P
+----
+
+== Register Git Repository
+
+You can add a GitHub repository to Argo CD to manage your applications. This allows you to use GitOps practices to manage your Kubernetes applications.
+
+[source,shell]
+----
+$ argocd repo add git@github.com:your-org/your-repo.git \
+  --ssh-private-key-path ~/.ssh/argo_cd_key \
+  --project project-name \
+  --name my-github-repo
+----
+
+=== Add the public key to GitHub
+
+Then add the SSH public key as a Deploy Key in your GitHub repository.
+
+Go to GitHub:
+
+. Repo → Settings → Deploy keys → Add deploy key
+. Title: argo-cd
+. Paste the public key
+. Check *Allow write access* if needed
+
+== Argo CD UI
+
+.ArgoCD UI - Applications
+[.img-wide]
+image::argocd-applications.png[]
+
+.ArgoCD UI - Application Details Tree
+[.img-wide]
+image::argocd-application-details-tree.png[]
+
+== Conclusion
+
+Argo CD provides a robust and scalable GitOps solution for Kubernetes. In this guide, we installed Argo CD using Helm, configured access, and demonstrated how to create applications with both Kustomize and Helm. We also covered best practices for organizing repositories and automating deployments using the Argo CD CLI and UI.
+
+📘 View the web version:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/infra-foundry/gitops-using-argocd/
