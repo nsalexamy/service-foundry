@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Automated Provisioning and GitOps Management of Kubernetes Workloads</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a></li>
+<li><a href="#software-requirements">Software Requirements</a></li>
+<li><a href="#enhancements">Enhancements</a></li>
+<li><a href="#layered-architecture-and-module-dependencies-in-service-foundry">Layered Architecture and Module Dependencies in Service Foundry</a>
+<ul class="sectlevel2">
+<li><a href="#argo-foundry-top-layer">Argo Foundry (Top Layer)</a></li>
+<li><a href="#2-infra-foundry">2. Infra Foundry</a></li>
+<li><a href="#3-domain-specific-foundries">3. Domain-Specific Foundries</a></li>
+<li><a href="#dependency-hierarchy-summary">Dependency Hierarchy Summary</a></li>
+</ul>
+</li>
+<li><a href="#argo-foundry-module">argo-foundry Module</a>
+<ul class="sectlevel2">
+<li><a href="#argo-foundry-config-yaml">argo-foundry-config.yaml</a></li>
+<li><a href="#deploy-argocd-sh">deploy-argocd.sh</a></li>
+</ul>
+</li>
+<li><a href="#build-phase-to-apply-sealed-secrets-and-push-to-git-repository">Build phase to apply sealed secrets and push to Git repository</a>
+<ul class="sectlevel2">
+<li><a href="#apply-sealed-secrets-sh">apply-sealed-secrets.sh</a></li>
+<li><a href="#push-argocd-apps-sh">push-argocd-apps.sh</a></li>
+</ul>
+</li>
+<li><a href="#automated-provisioning-and-gitops-management">Automated Provisioning and GitOps Management</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/provisioning-and-managing-k8s.png" alt="provisioning and managing k8s">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This document shares our team’s experience with automating the provisioning and GitOps-based management of Kubernetes workloads using Argo CD and Service Foundry. It outlines how we set up a GitOps workflow, including the use of Sealed Secrets for managing sensitive data, and how we integrated Argo CD with Service Foundry to enable continuous deployment.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="software-requirements">Software Requirements</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>As a provisioning tool for Kubernetes, Service Foundry generates the necessary YAML files along with script files to automate the deployment of applications using a Helm chart. Once the deployment job is completed, the generated YAML files used to created and saved in the container which make it difficult to manage the YAML files. To address this, we use Argo CD to manage the YAML files in a Git repository, enabling us to track changes and maintain a history of our deployments.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/provisioning-using-scripts.png" alt="provisioning using scripts">
+</div>
+<div class="title">Figure 1. Previous version of Service Foundry Builder Environment</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="enhancements">Enhancements</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We have made several enhancements to the Service Foundry Builder environment to improve its functionality and usability:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Argo CD integration for GitOps-based management of Kubernetes workloads.</p>
+</li>
+<li>
+<p>Sealed Secrets for secure management of sensitive data.</p>
+</li>
+<li>
+<p>Automated provisioning of Argo CD applications and Kubernetes manifests.</p>
+</li>
+<li>
+<p>GitOps-based deployment of applications using Service Foundry.</p>
+</li>
+</ul>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/provisioning-using-argocd.png" alt="provisioning using argocd">
+</div>
+<div class="title">Figure 2. Enhanced Service Foundry Builder Environment</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="layered-architecture-and-module-dependencies-in-service-foundry">Layered Architecture and Module Dependencies in Service Foundry</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Service Foundry adopts a layered module architecture to enable scalable, consistent, and reusable platform provisioning. Each module encapsulates a set of components and declares its dependencies explicitly, allowing for hierarchical composition and clear separation of concerns.</p>
+</div>
+<div class="paragraph">
+<p>The layers are structured as follows:</p>
+</div>
+<div class="sect2">
+<h3 id="argo-foundry-top-layer">Argo Foundry (Top Layer)</h3>
+<div class="paragraph">
+<p>At the top of the hierarchy is argo-foundry, which provides the foundation for GitOps-based automation. This module installs and configures:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Argo CD</strong>: for declarative application delivery and lifecycle management.</p>
+</li>
+<li>
+<p><strong>Sealed Secrets</strong>: for secure management of sensitive configuration data.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>This layer is self-contained and does not depend on any other module.</p>
+</div>
+<div class="paragraph">
+<p>In all other modules, the components defined in argo-foundry are implicitly available, allowing them to leverage GitOps practices and secure secret management.</p>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+<div class="paragraph">
+<p>ArgoCD itself is not able to be managed by ArgoCD</p>
+</div>
+</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="2-infra-foundry">2. Infra Foundry</h3>
+<div class="paragraph">
+<p>Directly dependent on argo-foundry, the infra-foundry module builds on top of GitOps infrastructure and introduces essential platform services:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>cert-manager</strong>: for certificate automation.</p>
+</li>
+<li>
+<p><strong>prometheus-operato</strong>r: for monitoring stack management.</p>
+</li>
+<li>
+<p><strong>otel-operato</strong>r: for OpenTelemetry instrumentation.</p>
+</li>
+<li>
+<p><strong>traefik</strong>: for ingress and traffic routing.</p>
+</li>
+<li>
+<p><strong>keycloak</strong>: for authentication and authorization.</p>
+</li>
+<li>
+<p><strong>spark-operator</strong>: for distributed data processing.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Because it depends on argo-foundry, all components defined in argo-foundry are implicitly available in infra-foundry.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="3-domain-specific-foundries">3. Domain-Specific Foundries</h3>
+<div class="paragraph">
+<p>The following modules depend on infra-foundry and, by transitive inheritance, also on argo-foundry:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>o11y-foundry</strong>: Sets up observability components such as Loki, Grafana, and Jaeger using resources provisioned in lower layers.</p>
+</li>
+<li>
+<p><strong>bigdata-foundry</strong>: Provides big data processing capabilities, such as Spark, Kafka, and Airflow.</p>
+</li>
+<li>
+<p><strong>backend-foundry</strong>: Defines runtime environments and platform features needed for microservices and APIs, including Spring Gateway, configuration management, and OAuth2 integration.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>These modules consume services from the infrastructure layer and may introduce additional resources specific to their domains.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="dependency-hierarchy-summary">Dependency Hierarchy Summary</h3>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/layered-architecture.png" alt="layered architecture">
+</div>
+<div class="title">Figure 3. Layered Architecture of Service Foundry</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Each module has access to all components defined in its upstream layers.</p>
+</li>
+<li>
+<p>This enables a clear layered dependency model, ensuring that shared services are provisioned only once and reused consistently across all modules.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="argo-foundry-module">argo-foundry Module</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Like other modules, argo-foundry is a self-contained module that can be deployed independently. It provides the foundational components for GitOps-based automation and secure secret management.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>init: create argo-foundry-config.yaml file</p>
+</li>
+<li>
+<p>generate: create the YAML files for the argo-foundry module</p>
+</li>
+<li>
+<p>build: push the generated YAML files to the Git repository</p>
+</li>
+<li>
+<p>deploy: deploy Argo CD using the generated YAML files and deploy scripts and create the Argo CD application for the sealed secrets module</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="argo-foundry-config-yaml">argo-foundry-config.yaml</h3>
+<div class="paragraph">
+<p>This file is used to configure the argo-foundry module. It contains settings for Argo CD, Sealed Secrets, and other related components. The configuration is structured in a way that allows for easy customization and extension.</p>
+</div>
+<div class="listingblock">
+<div class="title">argo-foundry-config.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">use-argocd</span><span class="pi">:</span> <span class="kc">true</span>
+<span class="na">argocd-app-prefix</span><span class="pi">:</span> <span class="s2">"</span><span class="s">argo-"</span>
+
+<span class="c1">#</span><i class="conum" data-value="1"></i><b>(1)</b>
+<span class="na">argocd</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="na">release-name</span><span class="pi">:</span> <span class="s">argocd</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">argocd</span>
+  <span class="na">replica-count</span><span class="pi">:</span> <span class="m">2</span>
+  <span class="na">version</span><span class="pi">:</span> <span class="s2">"</span><span class="s">8.1.2"</span>
+  <span class="na">repo-url</span><span class="pi">:</span> <span class="s2">"</span><span class="s">https://argoproj.github.io/argo-helm"</span>
+
+  <span class="na">project</span><span class="pi">:</span> <span class="s">service-foundry</span>
+  <span class="na">git-ops-repo-url</span><span class="pi">:</span> <span class="s2">"</span><span class="s">git@github.com:nsalexamy/service-foundry-argocd.git"</span>
+  <span class="na">git-ops-repo-name</span><span class="pi">:</span> <span class="s">service-foundry-argocd</span>
+  <span class="na">git-ops-ssh-key-path</span><span class="pi">:</span> <span class="s">/Users/young/.ssh/argocd_id_rsa</span>
+  <span class="na">git-ops-user-name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">nsa2-argocd"</span>
+  <span class="na">git-ops-user-email</span><span class="pi">:</span> <span class="s2">"</span><span class="s">devops@company.com"</span>
+  <span class="na">need-to-wait</span><span class="pi">:</span> <span class="kc">true</span>
+
+<span class="c1">#</span><i class="conum" data-value="2"></i><b>(2)</b>
+<span class="na">sealed-secrets</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">kube-system</span>
+  <span class="na">version</span><span class="pi">:</span> <span class="s2">"</span><span class="s">0.30.0"</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>This section configures Argo CD, including the repository URL, project name, and GitOps settings. It also specifies the SSH key to be used for accessing the Git repository.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>This section configures Sealed Secrets, including the namespace and version to be used.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Service Foundry uses this configuration file to generate the necessary YAML files for deploying Argo CD and Sealed Secrets.</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml of argocd Helm chart</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># 169</span>
+<span class="na">configs</span><span class="pi">:</span>
+
+  <span class="na">credentialTemplates</span><span class="pi">:</span>
+    <span class="na">ssh-creds</span><span class="pi">:</span>
+      <span class="na">url</span><span class="pi">:</span> <span class="s">git@github.com:nsalexamy/service-foundry-argocd.git</span>
+      <span class="na">sshPrivateKey</span><span class="pi">:</span> <span class="pi">|</span>
+        <span class="s">-----BEGIN OPENSSH PRIVATE KEY-----</span>
+        <span class="s">your-private-key-content-here</span>
+        <span class="s">-----END OPENSSH PRIVATE KEY-----</span>
+
+  <span class="na">repositories</span><span class="pi">:</span>
+    <span class="na">service-foundry-argocd</span><span class="pi">:</span>
+      <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-argocd</span>
+      <span class="na">url</span><span class="pi">:</span> <span class="s">git@github.com:nsalexamy/service-foundry-argocd.git</span>
+
+<span class="na">server</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">2</span>
+  <span class="na">podLabels</span><span class="pi">:</span>
+    <span class="na">sf-component</span><span class="pi">:</span> <span class="s2">"</span><span class="s">argocd.server"</span>
+
+  <span class="na">service</span><span class="pi">:</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">ClusterIP</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This custom values file is used to configure the Argo CD Helm chart. It includes settings for SSH credentials, repository configuration, and server settings. The SSH private key is provided in a secure manner, allowing Argo CD to access the Git repository.</p>
+</div>
+<div class="paragraph">
+<p>The argo-foundry-config.yaml file is used to generate the manifest files to create Argo CD project below.</p>
+</div>
+<div class="listingblock">
+<div class="title">argocd-app-project.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">argoproj.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">AppProject</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">argocd</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">description</span><span class="pi">:</span> <span class="s">Argo CD project using SSH-based Git repo</span>
+
+  <span class="c1"># Important: use the SSH-formatted Git URL</span>
+  <span class="na">sourceRepos</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">git@github.com:nsalexamy/service-foundry-argocd.git</span>
+
+  <span class="na">destinations</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">namespace</span><span class="pi">:</span> <span class="s1">'</span><span class="s">*'</span>
+      <span class="na">server</span><span class="pi">:</span> <span class="s">https://kubernetes.default.svc</span>
+
+  <span class="na">clusterResourceWhitelist</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">group</span><span class="pi">:</span> <span class="s1">'</span><span class="s">*'</span>
+      <span class="na">kind</span><span class="pi">:</span> <span class="s1">'</span><span class="s">*'</span>
+
+  <span class="na">namespaceResourceWhitelist</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">group</span><span class="pi">:</span> <span class="s1">'</span><span class="s">*'</span>
+      <span class="na">kind</span><span class="pi">:</span> <span class="s1">'</span><span class="s">*'</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>These manifest files are used to install Argo CD and then create the Argo CD project for the Service Foundry GitOps repository. The project is configured to allow access to the specified Git repository and Kubernetes cluster resources.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="deploy-argocd-sh">deploy-argocd.sh</h3>
+<div class="paragraph">
+<p>Service Foundry generates and uses the deploy-argocd.sh script. In the script, it waits for the Argo CD server to be ready before applying the post-deployment configurations. The script performs the following steps:</p>
+</div>
+<div class="listingblock">
+<div class="title">deploy-argocd.sh</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c">#!/bin/bash</span>
+
+<span class="nb">echo</span> <span class="s2">"Deploying Argocd... "</span>
+
+<span class="nv">K8S_NAMESPACE</span><span class="o">=</span><span class="s2">"argocd"</span>
+<span class="nv">HELM_RELEASE_NAME</span><span class="o">=</span><span class="s2">"argocd"</span>
+<span class="nv">CHART_VERSION</span><span class="o">=</span><span class="s2">"8.1.2"</span>
+<span class="nv">HELM_REPOSITORY</span><span class="o">=</span><span class="s2">"helm-charts/argocd/argo-cd-</span><span class="k">${</span><span class="nv">CHART_VERSION</span><span class="k">}</span><span class="s2">.tgz"</span>
+<span class="nv">CUSTOM_VALUES_FILE</span><span class="o">=</span><span class="s2">"helm-charts/argocd/custom-values-</span><span class="k">${</span><span class="nv">CHART_VERSION</span><span class="k">}</span><span class="s2">.yaml"</span>
+
+
+<span class="nb">echo</span> <span class="s2">"K8S_NAMESPACE: </span><span class="nv">$K8S_NAMESPACE</span><span class="s2">"</span>
+<span class="nb">echo</span> <span class="s2">"HELM_RELEASE_NAME: </span><span class="nv">$HELM_RELEASE_NAME</span><span class="s2">"</span>
+<span class="nb">echo</span> <span class="s2">"CHART_VERSION: </span><span class="nv">$CHART_VERSION</span><span class="s2">"</span>
+<span class="nb">echo</span> <span class="s2">"HELM_REPOSITORY: </span><span class="nv">$HELM_REPOSITORY</span><span class="s2">"</span>
+<span class="nb">echo</span> <span class="s2">"CUSTOM_VALUES_FILE: </span><span class="nv">$CUSTOM_VALUES_FILE</span><span class="s2">"</span>
+
+<span class="nb">echo</span> <span class="s2">"Creating namespace </span><span class="nv">$K8S_NAMESPACE</span><span class="s2"> if it does not exist"</span>
+kubectl get namespace <span class="nv">$K8S_NAMESPACE</span> &amp;&gt; /dev/null <span class="o">||</span> <span class="se">\</span>
+  kubectl create namespace <span class="nv">$K8S_NAMESPACE</span>
+
+
+<span class="nb">echo</span> <span class="s2">"Installing </span><span class="nv">$HELM_RELEASE_NAME</span><span class="s2"> in </span><span class="nv">$K8S_NAMESPACE</span><span class="s2"> namespace"</span>
+
+helm <span class="nt">-n</span> <span class="nv">$K8S_NAMESPACE</span> status <span class="nv">$HELM_RELEASE_NAME</span> &amp;&gt; /dev/null <span class="o">||</span> <span class="se">\</span>
+helm <span class="nb">install</span> <span class="nv">$HELM_RELEASE_NAME</span> <span class="nv">$HELM_REPOSITORY</span> <span class="nt">--version</span> <span class="nv">$CHART_VERSION</span> <span class="se">\</span>
+  <span class="nt">--namespace</span>  <span class="nv">$K8S_NAMESPACE</span> <span class="nt">--create-namespace</span> <span class="nt">-f</span> <span class="nv">$CUSTOM_VALUES_FILE</span>
+
+<span class="nv">WAIT_TIMEOUT</span><span class="o">=</span><span class="k">${</span><span class="nv">WAIT_TIMEOUT</span><span class="k">:-</span><span class="nv">300</span><span class="k">}</span> <span class="c"># default: 300 seconds</span>
+<span class="nv">WAIT_INTERVAL</span><span class="o">=</span><span class="k">${</span><span class="nv">WAIT_INTERVAL</span><span class="k">:-</span><span class="nv">10</span><span class="k">}</span> <span class="c"># default: 10 seconds</span>
+<span class="nv">WAIT_SPENT</span><span class="o">=</span>0
+
+<span class="nb">echo</span> <span class="s2">"Waiting for argocd to be ready for maximum </span><span class="k">${</span><span class="nv">WAIT_TIMEOUT</span><span class="k">}</span><span class="s2"> seconds..."</span>
+
+<span class="k">while</span> <span class="o">!</span> kubectl <span class="nt">-n</span> <span class="s2">"argocd"</span> <span class="nb">wait</span> <span class="nt">--for</span><span class="o">=</span><span class="nv">condition</span><span class="o">=</span>Ready pod <span class="nt">-l</span> sf-component<span class="o">=</span>argocd.server <span class="nt">--timeout</span><span class="o">=</span><span class="k">${</span><span class="nv">WAIT_TIMEOUT</span><span class="k">}</span>s <span class="p">;</span> <span class="k">do
+    </span><span class="nb">echo</span> <span class="s2">"Waiting for argocd to be created..."</span>
+    <span class="nb">sleep</span> <span class="nv">$WAIT_INTERVAL</span>
+
+    <span class="nv">WAIT_SPENT</span><span class="o">=</span><span class="k">$((</span>WAIT_SPENT <span class="o">+</span> WAIT_INTERVAL<span class="k">))</span>
+
+    <span class="k">if</span> <span class="o">[</span> <span class="nv">$WAIT_SPENT</span> <span class="nt">-ge</span> <span class="nv">$WAIT_TIMEOUT</span> <span class="o">]</span><span class="p">;</span> <span class="k">then
+        </span><span class="nb">echo</span> <span class="s2">"Timeout waiting for Argocd to be ready after </span><span class="k">${</span><span class="nv">WAIT_TIMEOUT</span><span class="k">}</span><span class="s2">s"</span>
+        <span class="nb">exit </span>1
+    <span class="k">fi
+done
+
+</span>kubectl apply <span class="nt">-k</span> k8s/argocd/post/</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="build-phase-to-apply-sealed-secrets-and-push-to-git-repository">Build phase to apply sealed secrets and push to Git repository</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Other modules are supposed to be built after the argo-foundry module is built. The build phase is running after the 'generate' phase, and before the 'deploy' phase. The build phase performs the following steps:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>apply the Sealed Secrets for Secret manifests</p>
+</li>
+<li>
+<p>push the generated YAML files to the Git repository for GitOps-based management</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">directory structure of argocd directory</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terminal"><span class="gp">$</span><span class="w"> </span>tree <span class="nt">-d</span> argocd <span class="nt">-L</span> 4
+<span class="go">argocd
+└── infra-apps
+    ├── cert-manager
+    │   └── helm
+    │       └── cert-manager
+    ├── keycloak
+    │   ├── helm
+    │   │   └── keycloak
+    │   └── kustomize
+    ├── otel-operator
+    │   └── kustomize
+    ├── prometheus-operator
+    │   └── kustomize
+    └── traefik
+        └── helm
+            └── traefik</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>All manifests and Helm charts for the infra-foundry module are stored in the <code>argocd/infra-apps</code> directory. The directory structure is organized by application type, such as Helm charts and Kustomize configurations.</p>
+</div>
+<div class="listingblock">
+<div class="title">build-infra-foundry.sh</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c">#!/bin/bash</span>
+
+<span class="nb">echo</span> <span class="s2">"Building infra-foundry resources... "</span>
+
+<span class="nb">source</span> ./apply-sealed-secrets.sh
+<span class="nb">source</span> ./push-argocd-apps.sh</code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="apply-sealed-secrets-sh">apply-sealed-secrets.sh</h3>
+<div class="paragraph">
+<p>This script applies the Sealed Secrets for the infra-foundry module. It uses <code>kubeseal</code> to encrypt the secrets and then applies them to the Kubernetes cluster.</p>
+</div>
+<div class="paragraph">
+<p>This Secret manifest is created by the Service Founder Generator, and it contains sensitive information such as the Keycloak admin password. The password is base64 encoded in the Secret manifest. In GitOps practices, we do not want to store sensitive information in plain text in the Git repository. Instead, we use Sealed Secrets to encrypt the sensitive data before committing it to Git.</p>
+</div>
+<div class="listingblock">
+<div class="title">keycloak-credentials-secret.yaml - before sealing</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">data</span><span class="pi">:</span>
+  <span class="c1"># changeme</span>
+  <span class="na">admin-password</span><span class="pi">:</span> <span class="s">aGVsbG93b3JsZA==</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Secret</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">keycloak-credentials</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">keycloak</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>After running the 'apply-sealed-secrets.sh' script, all Secret manifests in the <code>argocd/infra-apps</code> directory are processed, and the Sealed Secrets are created. The script uses the public certificate fetched earlier to encrypt the secrets.</p>
+</div>
+<div class="paragraph">
+<p>Here is an example of the Sealed Secret generated from the <code>keycloak-credentials-secret.yaml</code> file:</p>
+</div>
+<div class="listingblock">
+<div class="title">keycloak-credentials-secret.yaml - after sealing</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="pi">{</span>
+  <span class="s2">"</span><span class="s">kind"</span><span class="pi">:</span> <span class="s2">"</span><span class="s">SealedSecret"</span><span class="pi">,</span>
+  <span class="s2">"</span><span class="s">apiVersion"</span><span class="pi">:</span> <span class="s2">"</span><span class="s">bitnami.com/v1alpha1"</span><span class="pi">,</span>
+  <span class="s2">"</span><span class="s">metadata"</span><span class="pi">:</span> <span class="pi">{</span>
+    <span class="s2">"</span><span class="s">name"</span><span class="pi">:</span> <span class="s2">"</span><span class="s">keycloak-credentials"</span><span class="pi">,</span>
+    <span class="s2">"</span><span class="s">namespace"</span><span class="pi">:</span> <span class="s2">"</span><span class="s">keycloak"</span><span class="pi">,</span>
+    <span class="s2">"</span><span class="s">creationTimestamp"</span><span class="pi">:</span> <span class="nv">null</span>
+  <span class="pi">},</span>
+  <span class="s2">"</span><span class="s">spec"</span><span class="pi">:</span> <span class="pi">{</span>
+    <span class="s2">"</span><span class="s">template"</span><span class="pi">:</span> <span class="pi">{</span>
+      <span class="s2">"</span><span class="s">metadata"</span><span class="pi">:</span> <span class="pi">{</span>
+        <span class="s2">"</span><span class="s">name"</span><span class="pi">:</span> <span class="s2">"</span><span class="s">keycloak-credentials"</span><span class="pi">,</span>
+        <span class="s2">"</span><span class="s">namespace"</span><span class="pi">:</span> <span class="s2">"</span><span class="s">keycloak"</span><span class="pi">,</span>
+        <span class="s2">"</span><span class="s">creationTimestamp"</span><span class="pi">:</span> <span class="nv">null</span>
+      <span class="pi">}</span>
+    <span class="pi">},</span>
+    <span class="s2">"</span><span class="s">encryptedData"</span><span class="pi">:</span> <span class="pi">{</span>
+      <span class="s2">"</span><span class="s">admin-password"</span><span class="pi">:</span> <span class="s2">"</span><span class="s">AgAseiJb...zR65TA=="</span>
+    <span class="pi">}</span>
+  <span class="pi">}</span>
+<span class="pi">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="push-argocd-apps-sh">push-argocd-apps.sh</h3>
+<div class="paragraph">
+<p>This script pushes the generated YAML files in argocd/infra-apps directory to the Git repository. It uses the <code>git</code> command to commit and push the changes to the specified branch in the GitOps repository.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/github-infra-apps.png" alt="github infra apps">
+</div>
+<div class="title">Figure 4. GitHub - infra-apps directory</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="automated-provisioning-and-gitops-management">Automated Provisioning and GitOps Management</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>By implementing the argo-foundry module, we have automated the provisioning and GitOps management of Kubernetes workloads. The following steps summarize the process:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Generate YAML Files</strong>: The Service Foundry generator creates the necessary YAML files for the argo-foundry module, including the Argo CD and Sealed Secrets configurations.</p>
+</li>
+<li>
+<p><strong>Build Phase</strong>: The build phase applies the Sealed Secrets and pushes the generated YAML files to the GitOps repository.</p>
+</li>
+<li>
+<p><strong>Deploy Phase</strong>: The deploy phase creates the Argo CD applications using the generated manifest files stored in the Git repository.</p>
+</li>
+<li>
+<p><strong>Continuous Deployment</strong>: Argo CD continuously monitors the Git repository for changes and automatically applies them to the Kubernetes cluster, ensuring that the deployed applications are always in sync with the desired state defined in the Git repository.</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>By leveraging Service Foundry and Argo CD, we have established a robust GitOps workflow for managing Kubernetes workloads. This approach not only enhances the security of sensitive data through Sealed Secrets but also simplifies the deployment and management of applications in a cloud-native environment. The modular architecture of Service Foundry allows for easy extension and customization, making it a powerful tool for building and deploying applications at scale.</p>
+</div>
+</div>
+</div>
+</body>
+</html>
