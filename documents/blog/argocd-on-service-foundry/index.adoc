@@ -1,0 +1,373 @@
+---
+layout: documents
+title: Automating Kubernetes Provisioning and GitOps Workflows with Service Foundry
+summary: "In this article, I share our experience building a GitOps-based Kubernetes provisioning workflow using Service Foundry and Argo CD. We designed a layered module architecture where core components like Argo CD and Sealed Secrets are provisioned first, followed by infrastructure services and domain-specific workloads. This structure allows for reusable configurations, secure secret management, and automated deployment through Git. By combining Helm, Kustomize, and GitOps principles, Service Foundry enables a scalable and maintainable approach to managing cloud-native environments."
+tags: "#Kubernetes #GitOps #ArgoCD #DevOps #Helm #Kustomize #SealedSecrets #CloudNative #PlatformEngineering #InfrastructureAsCode"
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Blog
+    url: /documents/blog/
+---
+
+= Automating Kubernetes Provisioning and GitOps Workflows with Service Foundry
+
+:imagesdir: images
+
+[.img-wide]
+image::provisioning-and-managing-k8s.png[]
+
+
+== Overview
+
+This document highlights our team’s experience in automating Kubernetes workload provisioning and enabling GitOps workflows using Argo CD and Service Foundry. It explains how we set up a secure, repeatable deployment pipeline using Argo CD, managed sensitive data through Sealed Secrets, and integrated everything into a modular platform architecture.
+
+== Software Requirements
+
+Service Foundry acts as a provisioning tool for Kubernetes, generating Helm-based YAML manifests and helper scripts for deploying platform and application resources. Previously, these generated YAML files were created and stored only within the container during deployment, making them hard to track or maintain.
+
+To improve visibility and maintainability, we adopted Argo CD to manage these manifests as code. By committing them to a Git repository, we enabled change tracking, version control, and history across our deployments.
+
+.Previous Approach Using Script-Based Provisioning
+[.img-wide]
+image::provisioning-using-scripts.png[]
+
+== Enhancements
+
+We’ve introduced several improvements to the Service Foundry builder environment to better support GitOps workflows and secure operations:
+
+* Integration with Argo CD for GitOps-based deployment management.
+* Use of Sealed Secrets to securely store sensitive data in Git.
+* Automated generation and deployment of Argo CD applications and Kubernetes manifests.
+* Streamlined end-to-end GitOps pipeline through Service Foundry.
+
+.Enhanced Workflow with Argo CD Integration
+[.img-wide]
+image::provisioning-using-argocd.png[]
+
+== Layered Architecture and Module Dependencies in Service Foundry
+
+Service Foundry is designed with a layered modular architecture that allows for reusable, scalable, and consistent provisioning across environments. Each module encapsulates a specific layer of the platform stack and declares its dependencies explicitly, enabling hierarchical composition and separation of concerns.
+
+=== Argo Foundry (Top Layer)
+
+At the top of the hierarchy is the argo-foundry module. It sets the foundation for GitOps by installing:
+
+* *Argo CD* – for declarative application delivery and lifecycle management.
+* *Sealed Secrets* – for secure management of secrets stored in Git.
+
+This module can be deployed independently and is required by all other modules in order to support GitOps workflows and secret encryption.
+
+[NOTE]
+====
+Since Argo CD manages other applications, it cannot manage itself through GitOps.
+====
+
+=== Infra Foundry
+
+The infra-foundry module depends on argo-foundry and provides core platform services:
+
+* *cert-manager*: for certificate automation.
+* **prometheus-operato**r: for managing Prometheus, Alertmanager, and related resources.
+* **otel-operato**r: for collecting telemetry data via OpenTelemetry.
+* *traefik*: for ingress and routing.
+* *keycloak*: for identity and access management.
+* *spark-operator*: for distributed data processing workloads.
+
+Components defined in argo-foundry are implicitly available in infra-foundry.
+
+=== Domain-Specific Foundries
+
+Modules in this layer depend on infra-foundry (and transitively on argo-foundry):
+
+* *o11y-foundry*: deploys observability tools like Loki, Grafana, and Jaeger.
+* *bigdata-foundry*: provisions data platforms such as Spark, Kafka, and Airflow.
+* *backend-foundry*: sets up application runtimes, API gateways, and service configurations.
+
+Each module builds on its upstream dependencies and introduces features specific to its domain.
+
+.Layered Architecture of Service Foundry
+[.img-wide]
+image::layered-architecture.png[]
+
+== The argo-foundry Module
+
+The argo-foundry module is responsible for provisioning Argo CD and Sealed Secrets. It follows a four-phase process:
+
+* *init*: generates argo-foundry-config.yaml file
+* *generate*: creates Kubernetes manifests.
+* *build*:  commits manifests to Git.
+* *deploy*: installs Argo CD and its initial applications (e.g., Sealed Secrets).
+
+=== argo-foundry-config.yaml
+
+This configuration file defines how Argo CD and Sealed Secrets should be deployed.
+
+.argo-foundry-config.yaml
+[source,yaml]
+----
+use-argocd: true
+argocd-app-prefix: "argo-"
+
+## <1>
+argocd:
+  enabled: true
+  release-name: argocd
+  namespace: argocd
+  replica-count: 2
+  version: "8.1.2"
+  repo-url: "https://argoproj.github.io/argo-helm"
+
+  project: service-foundry
+  git-ops-repo-url: "git@github.com:nsalexamy/service-foundry-argocd.git"
+  git-ops-repo-name: service-foundry-argocd
+  git-ops-ssh-key-path: /Users/young/.ssh/argocd_id_rsa
+  git-ops-user-name: "nsa2-argocd"
+  git-ops-user-email: "devops@company.com"
+  need-to-wait: true
+
+## <2>
+sealed-secrets:
+  enabled: true
+  namespace: kube-system
+  version: "0.30.0"
+
+----
+<1> This section configures Argo CD, including the repository URL, project name, and GitOps settings. It also specifies the SSH key to be used for accessing the Git repository.
+<2> This section configures Sealed Secrets, including the namespace and version to be used.
+
+Service Foundry uses this configuration file to generate the necessary YAML files for deploying Argo CD and Sealed Secrets.
+
+=== custom-values.yaml for Argo CD Helm Chart
+
+This custom values file configures Argo CD for GitOps, including SSH credentials and Git repository access.
+
+.custom-values.yaml of argocd Helm chart
+[source,yaml]
+----
+# 169
+configs:
+
+  credentialTemplates:
+    ssh-creds:
+      url: git@github.com:nsalexamy/service-foundry-argocd.git
+      sshPrivateKey: |
+        -----BEGIN OPENSSH PRIVATE KEY-----
+        your-private-key-content-here
+        -----END OPENSSH PRIVATE KEY-----
+
+  repositories:
+    service-foundry-argocd:
+      name: service-foundry-argocd
+      url: git@github.com:nsalexamy/service-foundry-argocd.git
+
+server:
+  replicas: 2
+  podLabels:
+    sf-component: "argocd.server"
+
+  service:
+    type: ClusterIP
+----
+
+This custom values file is used to configure the Argo CD Helm chart. It includes settings for SSH credentials, repository configuration, and server settings. The SSH private key is provided in a secure manner, allowing Argo CD to access the Git repository.
+
+=== Argo CD Project Configuration
+
+The following manifest defines the Argo CD project for managing Service Foundry:
+
+.argocd-app-project.yaml
+[source,yaml]
+----
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: service-foundry
+  namespace: argocd
+spec:
+  description: Argo CD project using SSH-based Git repo
+
+  # Important: use the SSH-formatted Git URL
+  sourceRepos:
+    - git@github.com:nsalexamy/service-foundry-argocd.git
+
+  destinations:
+    - namespace: '*'
+      server: https://kubernetes.default.svc
+
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+----
+
+These manifest files are used to install Argo CD and then create the Argo CD project for the Service Foundry GitOps repository. The project is configured to allow access to the specified Git repository and Kubernetes cluster resources.
+
+=== deploy-argocd.sh
+
+This script installs Argo CD and waits for the server to be ready before applying post-deployment resources.
+
+.deploy-argocd.sh
+[source,bash]
+----
+#!/bin/bash
+
+echo "Deploying Argocd... "
+
+K8S_NAMESPACE="argocd"
+HELM_RELEASE_NAME="argocd"
+CHART_VERSION="8.1.2"
+HELM_REPOSITORY="helm-charts/argocd/argo-cd-${CHART_VERSION}.tgz"
+CUSTOM_VALUES_FILE="helm-charts/argocd/custom-values-${CHART_VERSION}.yaml"
+
+
+echo "K8S_NAMESPACE: $K8S_NAMESPACE"
+echo "HELM_RELEASE_NAME: $HELM_RELEASE_NAME"
+echo "CHART_VERSION: $CHART_VERSION"
+echo "HELM_REPOSITORY: $HELM_REPOSITORY"
+echo "CUSTOM_VALUES_FILE: $CUSTOM_VALUES_FILE"
+
+echo "Creating namespace $K8S_NAMESPACE if it does not exist"
+kubectl get namespace $K8S_NAMESPACE &> /dev/null || \
+  kubectl create namespace $K8S_NAMESPACE
+
+
+echo "Installing $HELM_RELEASE_NAME in $K8S_NAMESPACE namespace"
+
+helm -n $K8S_NAMESPACE status $HELM_RELEASE_NAME &> /dev/null || \
+helm install $HELM_RELEASE_NAME $HELM_REPOSITORY --version $CHART_VERSION \
+  --namespace  $K8S_NAMESPACE --create-namespace -f $CUSTOM_VALUES_FILE
+
+WAIT_TIMEOUT=${WAIT_TIMEOUT:-300} # default: 300 seconds
+WAIT_INTERVAL=${WAIT_INTERVAL:-10} # default: 10 seconds
+WAIT_SPENT=0
+
+echo "Waiting for argocd to be ready for maximum ${WAIT_TIMEOUT} seconds..."
+
+while ! kubectl -n "argocd" wait --for=condition=Ready pod -l sf-component=argocd.server --timeout=${WAIT_TIMEOUT}s ; do
+    echo "Waiting for argocd to be created..."
+    sleep $WAIT_INTERVAL
+
+    WAIT_SPENT=$((WAIT_SPENT + WAIT_INTERVAL))
+
+    if [ $WAIT_SPENT -ge $WAIT_TIMEOUT ]; then
+        echo "Timeout waiting for Argocd to be ready after ${WAIT_TIMEOUT}s"
+        exit 1
+    fi
+done
+
+kubectl apply -k k8s/argocd/post/
+----
+
+== Build Phase: Sealing Secrets and GitOps Commit
+
+The build phase of Service Foundry applies Sealed Secrets and pushes manifests to Git. This phase occurs after generate and before deploy.
+
+.directory layout of argocd/infra-apps
+[.img-wide]
+[source,terminal]
+----
+$ tree -d argocd -L 4
+argocd
+└── infra-apps
+    ├── cert-manager
+    │   └── helm
+    │       └── cert-manager
+    ├── keycloak
+    │   ├── helm
+    │   │   └── keycloak
+    │   └── kustomize
+    ├── otel-operator
+    │   └── kustomize
+    ├── prometheus-operator
+    │   └── kustomize
+    └── traefik
+        └── helm
+            └── traefik
+----
+
+
+.build-infra-foundry.sh
+[source,bash]
+----
+#!/bin/bash
+
+echo "Building infra-foundry resources... "
+
+source ./apply-sealed-secrets.sh
+source ./push-argocd-apps.sh
+----
+
+=== Sealing Secrets
+
+The apply-sealed-secrets.sh script scans Secret manifests and encrypts them using kubeseal. The resulting Sealed Secrets can be safely stored in Git.
+
+.Before sealing
+[source,yaml]
+----
+apiVersion: v1
+data:
+  # changeme
+  admin-password: aGVsbG93b3JsZA==
+kind: Secret
+metadata:
+  name: keycloak-credentials
+  namespace: keycloak
+----
+
+.After sealing
+[source,yaml]
+----
+{
+  "kind": "SealedSecret",
+  "apiVersion": "bitnami.com/v1alpha1",
+  "metadata": {
+    "name": "keycloak-credentials",
+    "namespace": "keycloak",
+    "creationTimestamp": null
+  },
+  "spec": {
+    "template": {
+      "metadata": {
+        "name": "keycloak-credentials",
+        "namespace": "keycloak",
+        "creationTimestamp": null
+      }
+    },
+    "encryptedData": {
+      "admin-password": "AgAseiJb...zR65TA=="
+    }
+  }
+}
+
+----
+
+=== Pushing to Git
+
+The push-argocd-apps.sh script commits the sealed and generated manifests to the GitOps repository.
+
+
+.GitOps Repository - infra-apps Folder
+[.img-wide]
+image::github-infra-apps.png[]
+
+== Summary: GitOps-Based Automation Workflow
+
+The end-to-end provisioning process using Service Foundry and Argo CD includes:
+
+1. **Generate Manifest Files**: The Service Foundry generator creates the necessary manifest files for each module.
+2. **Seal Secrets**: Encrypt all sensitive data before committing to Git.
+3. **Push to Git**: Store manifests in GitOps repo for version tracking.
+4. **Deploy via Argo CD**: Let Argo CD apply and manage the desired state continuously.
+
+== Conclusion
+
+By adopting Service Foundry with Argo CD, we’ve established a modular and secure GitOps platform for Kubernetes. The layered architecture simplifies reuse, while Sealed Secrets ensures security. This approach streamlines application delivery, enhances traceability, and supports scalable, cloud-native infrastructure management.
+
