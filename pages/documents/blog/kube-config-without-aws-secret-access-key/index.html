@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>How to create a kube-config file without AWS Secret Access Key</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a></li>
+<li><a href="#the-core-idea">The Core Idea</a>
+<ul class="sectlevel2">
+<li><a href="#step-1-create-an-iam-role-for-the-service-account">Step 1: Create an IAM Role for the Service Account</a></li>
+<li><a href="#step-2-associate-this-iam-role-with-a-kubernetes-service-account">Step 2: Associate this IAM Role with a Kubernetes Service Account</a></li>
+</ul>
+</li>
+<li><a href="#kubeconfig-file">.kube/config file</a></li>
+<li><a href="#aws-auth-configmap-in-kube-system-namespace">aws-auth ConfigMap in kube-system namespace</a></li>
+<li><a href="#verify-the-kubeconfig">Verify the kubeconfig</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide explains how to create a kube-config file in a Pod of an EKS cluster for accessing an Amazon EKS cluster without including the AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in a Secret.
+This is a common and correct approach for secure EKS cluster management from within the cluster itself, especially when using tools like <code>kubectl</code> or <code>eksctl</code>.</p>
+</div>
+<div class="paragraph">
+<p>The primary and recommneded method for achieving this is by leveraging IAM roles for service accounts (IRSA) for the pod that needs to generate or use the kubeconfig.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="the-core-idea">The Core Idea</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The 'aws eks update-kubeconfig' command (which generates your ~/.kube/config) needs AWS credentials to communicate with the EKS control plane and fetch cluster details. Instead of static keys, you can use IRSA to provide temporary , role-based credentials to the pod.</p>
+</div>
+<div class="paragraph">
+<p>Steps:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Create an IAM Role for your Service Account(with the necessary EKS permissions).</p>
+</li>
+<li>
+<p>Associate this IAM Role with a Kubernetes Service Account in your EKS cluster.</p>
+</li>
+<li>
+<p>Run 'aws eks update-kubeconfig' inside the Pod.</p>
+</li>
+<li>
+<p>RUN 'kubectl get namespaces' in the pod to verify the kubeconfig works.</p>
+</li>
+</ol>
+</div>
+<div class="sect2">
+<h3 id="step-1-create-an-iam-role-for-the-service-account">Step 1: Create an IAM Role for the Service Account</h3>
+<div class="paragraph">
+<p>This IAM role needs permissions to describe EKS clusters and potentially other AWS resources your pod might interact with.</p>
+</div>
+<div class="sect3">
+<h4 id="policy-permissions">Policy Permissions</h4>
+<div class="paragraph">
+<p>The minimum permissions required for 'aws eks update-kubeconfig' are usually:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>eks:DescribeCluster</code></p>
+</li>
+<li>
+<p><code>eks:ListClusters</code> (If you don&#8217;t specify a cluster name)</p>
+</li>
+<li>
+<p><code>sts:GetServiceBearerToken</code> (For newer 'aws-iam-authenticator' versions used by aws eks update-kubeconfig)</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">eks-update-kubeconfig-policy.json</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"Version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2012-10-17"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"Statement"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="nl">"Effect"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Allow"</span><span class="p">,</span><span class="w">
+      </span><span class="nl">"Action"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+        </span><span class="s2">"eks:DescribeCluster"</span><span class="p">,</span><span class="w">
+        </span><span class="s2">"eks:ListClusters"</span><span class="p">,</span><span class="w">
+        </span><span class="s2">"sts:GetServiceBearerToken"</span><span class="w">
+      </span><span class="p">],</span><span class="w">
+      </span><span class="nl">"Resource"</span><span class="p">:</span><span class="w"> </span><span class="s2">"*"</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="p">]</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Create the IAM role using the AWS CLI:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">aws iam get-policy <span class="nt">--policy-arn</span> arn:aws:iam::<span class="k">${</span><span class="nv">AWS_ACCOUNT_ID</span><span class="k">}</span>:policy/eks-update-kubeconfig-policy &amp;&gt; /dev/null <span class="o">||</span> <span class="se">\</span>
+aws iam create-policy <span class="se">\</span>
+  <span class="nt">--policy-name</span> eks-update-kubeconfig-policy <span class="se">\</span>
+  <span class="nt">--policy-document</span> file://eks-update-kubeconfig-policy.json</code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="trust-policy">Trust Policy</h4>
+<div class="paragraph">
+<p>The trust policy for this IAM role must allow your EKS cluster&#8217;s OIDC provider to assume it.</p>
+</div>
+<div class="paragraph">
+<p>Run the following command to get the OIDC provider URL for your EKS cluster:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">OIDC_PROVIDER</span><span class="o">=</span><span class="si">$(</span>aws eks describe-cluster <span class="nt">--name</span> <span class="nv">$EKS_CLUSTER_NAME</span> <span class="se">\</span>
+  <span class="nt">--region</span> <span class="nv">$AWS_REGION</span> <span class="nt">--query</span> <span class="s2">"cluster.identity.oidc.issuer"</span> <span class="nt">--output</span> text <span class="se">\</span>
+  | <span class="nb">sed</span> <span class="nt">-e</span> <span class="s2">"s/^https:</span><span class="se">\/\/</span><span class="s2">//"</span><span class="si">)</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Run the command below to create the trust policy JSON file:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>cat &lt;&lt;EOF  &gt; trust-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::$AWS_ACCOUNT_ID:oidc-provider/$OIDC_PROVIDER"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "${OIDC_PROVIDER}:sub": "system:serviceaccount:service-foundry:service-foundry-builder"
+        }
+      }
+    }
+  ]
+}
+
+EOF</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This shell script below checks if the IAM role already exists, and if not, creates it with the trust policy defined above:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="k">if</span> <span class="o">!</span> aws iam get-role <span class="nt">--role-name</span> service-foundry-builder-role &amp;&gt; /dev/null <span class="p">;</span> <span class="k">then
+
+  </span>aws iam create-role <span class="se">\</span>
+    <span class="nt">--role-name</span> service-foundry-builder-role <span class="se">\</span>
+    <span class="nt">--assume-role-policy-document</span> file://trust-policy.json
+
+
+  aws iam attach-role-policy <span class="se">\</span>
+    <span class="nt">--role-name</span> service-foundry-builder-role <span class="se">\</span>
+    <span class="nt">--policy-arn</span> arn:aws:iam::<span class="k">${</span><span class="nv">AWS_ACCOUNT_ID</span><span class="k">}</span>:policy/eks-update-kubeconfig-policy
+<span class="k">else
+  </span><span class="nb">echo</span> <span class="s2">"service-foundry-builder-role already exists. Skipping creation."</span>
+<span class="k">fi</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="step-2-associate-this-iam-role-with-a-kubernetes-service-account">Step 2: Associate this IAM Role with a Kubernetes Service Account</h3>
+<div class="paragraph">
+<p>In my case, the service account is named <code>service-foundry-builder</code> in the <code>service-foundry</code> namespace. It is created during the Helm chart installation of the Service Foundry Builder.</p>
+</div>
+<div class="sect3">
+<h4 id="option-1-using-annotations-in-the-service-account">Option 1: Using annotations in the Service Account</h4>
+<div class="paragraph">
+<p>This is the simple and recommended way to associate the IAM role with the Kubernetes Service Account.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nb">install </span>service-foundry-builder service-foundry/service-foundry-builder <span class="se">\</span>
+  <span class="nt">--set</span> <span class="nb">command</span><span class="o">=</span>bootstrap <span class="se">\</span>
+  <span class="nt">--set</span> serviceAccount.annotations.<span class="s2">"eks</span><span class="se">\.</span><span class="s2">amazonaws</span><span class="se">\.</span><span class="s2">com/role-arn"</span><span class="o">=</span>arn:aws:iam::<span class="k">${</span><span class="nv">AWS_ACCOUNT_ID</span><span class="k">}</span>:role/service-foundry-builder-role <span class="se">\</span>
+  <span class="nt">-n</span> service-foundry <span class="nt">--create-namespace</span> <span class="nt">--version</span> <span class="nv">$SF_BUILDER_CHART_VERSION</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Verify the Service Account has the correct IAM role associated:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> service-foundry get sa service-foundry-builder <span class="nt">-o</span> yaml | yq .metadata.annotations
+
+eks.amazonaws.com/role-arn: arn:aws:iam::<span class="o">{</span>your-aws-account-id<span class="o">}</span>:role/service-foundry-builder-role
+meta.helm.sh/release-name: service-foundry-builder
+meta.helm.sh/release-namespace: service-foundry</code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="option-2-using-eksctl">Option 2: Using eksctl</h4>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nb">echo</span> <span class="s2">"Creating IAM service account for Service Foundry Builder..."</span>
+eksctl create iamserviceaccount <span class="se">\</span>
+  <span class="nt">--cluster</span> <span class="nv">$EKS_CLUSTER_NAME</span> <span class="se">\</span>
+  <span class="nt">--name</span> service-foundry-builder <span class="se">\</span>
+  <span class="nt">--namespace</span> service-foundry <span class="se">\</span>
+  <span class="nt">--attach-policy-arn</span> arn:aws:iam::<span class="k">${</span><span class="nv">AWS_ACCOUNT_ID</span><span class="k">}</span>:policy/eks-update-kubeconfig-policy <span class="se">\</span>
+  <span class="nt">--approve</span> <span class="nt">--override-existing-serviceaccounts</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="kubeconfig-file">.kube/config file</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>If following command is run inside the pod, it will generate a kubeconfig file in the pod&#8217;s filesystem:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>aws eks update-kubeconfig <span class="nt">--region</span> <span class="s2">"</span><span class="nv">$AWS_REGION</span><span class="s2">"</span> <span class="nt">--name</span> <span class="s2">"</span><span class="nv">$EKS_CLUSTER_NAME</span><span class="s2">"</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The kubeconfig file will be created at <code>/home/$(whoami)/.kube/config</code> inside the pod.</p>
+</div>
+<div class="listingblock">
+<div class="title">~/.kube/config</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="c1"># omitted for brevity</span>
+
+<span class="na">users</span><span class="pi">:</span>
+<span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">arn:aws:eks:{your-aws-region}-1:{your-aws-account-id}:cluster/{your-eks-cluster-name}</span>
+  <span class="na">user</span><span class="pi">:</span>
+    <span class="na">exec</span><span class="pi">:</span>
+      <span class="na">apiVersion</span><span class="pi">:</span> <span class="s">client.authentication.k8s.io/v1beta1</span>
+      <span class="na">args</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">--region</span>
+      <span class="pi">-</span> <span class="pi">{</span><span class="nv">your-aws-region</span><span class="pi">}</span>
+      <span class="pi">-</span> <span class="s">eks</span>
+      <span class="pi">-</span> <span class="s">get-token</span>
+      <span class="pi">-</span> <span class="s">--cluster-name</span>
+      <span class="pi">-</span> <span class="pi">{</span><span class="nv">your-eks-cluster-name</span><span class="pi">}</span>
+      <span class="pi">-</span> <span class="s">--output</span>
+      <span class="pi">-</span> <span class="s">json</span>
+      <span class="na">command</span><span class="pi">:</span> <span class="s">aws</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Note that tht user name in the kubecofnig file looks like:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>arn:aws:eks:{your-aws-region}-1:{your-aws-account-id}:cluster/{your-eks-cluster-name}</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="aws-auth-configmap-in-kube-system-namespace">aws-auth ConfigMap in kube-system namespace</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The <code>aws-auth</code> ConfigMap in the <code>kube-system</code> namespace is used to map IAM roles to Kubernetes users and groups. This is essential for allowing the pod to authenticate with the EKS cluster using the IAM role associated with the Service Account.</p>
+</div>
+<div class="paragraph">
+<p>You can check the <code>aws-auth</code> ConfigMap to ensure that the IAM role is correctly mapped to the Kubernetes user and groups.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> kube-system get configmap aws-auth <span class="nt">-o</span> yaml
+
+<span class="c"># sample output</span>
+apiVersion: v1
+data:
+  mapRoles: |
+    - rolearn: arn:aws:iam::YOUR_AWS_ACCOUNT_ID:role/eksctl-your-cluster-name-addon-iamserviceaccount-kubeconfig-generator-sa
+      username: system:node:<span class="o">{{</span>EC2PrivateDNSName<span class="o">}}</span>
+      <span class="nb">groups</span>:
+        - system:bootstrappers
+        - system:nodes
+kind: ConfigMap
+metadata:
+  name: aws-auth
+  namespace: kube-system</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Add the code snippet below to the <code>mapRoles</code> section of the <code>aws-auth</code> ConfigMap to map the IAM role to a Kubernetes user:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">    <span class="pi">-</span> <span class="na">rolearn</span><span class="pi">:</span> <span class="s">arn:aws:iam::YOUR_AWS_ACCOUNT_ID:role/YOUR_IRSA_ROLE_NAME</span> <span class="c1"># This is the role assumed by your pod's SA</span>
+      <span class="na">username</span><span class="pi">:</span> <span class="s">your-pod-username-in-k8s</span> <span class="c1"># This can be anything, but often reflects the SA name</span>
+      <span class="na">groups</span><span class="pi">:</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="verify-the-kubeconfig">Verify the kubeconfig</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Run the following command inside the pod to verify that the kubeconfig is working correctly:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl get namespaces</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>By following the steps outlined in this guide, you can securely generate a kubeconfig file within a pod in your EKS cluster without hardcoding AWS credentials. This approach leverages IAM roles for service accounts (IRSA) to provide temporary, role-based access to the EKS control plane, ensuring that your cluster management remains secure and compliant with best practices.</p>
+</div>
+</div>
+</div>
+</body>
+</html>
