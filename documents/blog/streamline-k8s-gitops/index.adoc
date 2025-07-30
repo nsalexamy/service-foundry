@@ -1,4 +1,22 @@
-= Streamlining Kubernetes GitOps with Service Foundry Console
+---
+layout: documents
+title: Streamlining Kubernetes GitOps with the Service Foundry Console
+summary: "Service Foundry Console is a web-based interface that simplifies GitOps and Kubernetes management. It automates the provisioning of ArgoCD, Sealed Secrets, Keycloak, and Traefik using a single configuration file. Users can deploy and manage infrastructure components directly from the UI, with all changes tracked in Git and automatically synced via ArgoCD.
+
+The platform supports secure EKS access using IRSA and offers seamless SSO integration through Keycloak and OAuth2 Proxy. It provides a unified way to manage cloud-native applications with less complexity and greater visibility."
+tags: "#Kubernetes #GitOps #ArgoCD #DevOps #CloudNative #InfrastructureAsCode #SSO #Observability #EKS #ServiceFoundry"
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Blog
+    url: /documents/blog/
+---
+
+= Streamlining Kubernetes GitOps with the Service Foundry Console
 
 :imagesdir: images
 
@@ -7,55 +25,659 @@ image::streamline-k8s-gitops.png[]
 
 == Introduction
 
-Service Foundry Console is a web-based interface designed to simplify the management of Kubernetes resources and GitOps workflows. It provides an intuitive way to visualize, manage, and deploy applications in a Kubernetes environment, enhancing productivity and collaboration among development teams.
+The Service Foundry Console is a web-based interface designed to simplify the management of Kubernetes resources and GitOps workflows. It offers an intuitive and unified experience for deploying, monitoring, and managing applications in cloud-native environments.
 
-Service Foundry Console is the dedicated user interface for the Service Foundry Builder environment, which is a comprehensive platform for building, deploying, and managing applications in a cloud-native way. It integrates seamlessly with various submodules such as infrastructure management, observability, and single sign-on, providing a unified experience for developers and operators.
+As the dedicated frontend for the Service Foundry Builder platform, the Console integrates seamlessly with modules for infrastructure provisioning, observability, single sign-on (SSO), and more. This integration enables development and operations teams to collaborate more effectively through a visual and configuration-driven interface.
 
-Service Foundry Console is built on top of the Service Foundry Builder environment, which includes various submodules for infrastructure management, git-ops, observability, single sign-on, and more.
+Built on a React frontend and a Go-based backend, the Console interacts directly with Kubernetes clusters and Git repositories—making GitOps adoption smooth, reliable, and scalable.
+
 
 == Architecture Overview
 
-The architecture of Service Foundry Console is designed to provide a seamless user experience while managing Kubernetes resources and GitOps workflows. It consists of the following key components:
+The Service Foundry Console architecture is designed for a seamless GitOps and Kubernetes resource management experience. It is composed of the following core components:
 
-* **Frontend**: A web-based interface built with React.js that allows users to interact with Kubernetes clusters and Git repositories. It provides features for provisioning, managing, and deploying applications, as well as visualizing the state of resources.
-* **Backend**: A RESTful API that interacts with Kubernetes clusters and Git repositories, handling requests from the frontend and performing necessary operations. This module is written in Go and provides endpoints for managing resources, triggering deployments, and retrieving status information.
+ * *Frontend*: A modern web interface built with React.js, providing users with intuitive controls for provisioning, deploying, and visualizing Kubernetes resources. It also displays the live state of applications synced through GitOps.
+ * *Backend*: A Go-based REST API that serves as the bridge between the frontend, Kubernetes cluster, and Git repositories. It processes user actions, handles deployment logic, and manages configuration state.
+
+Together, these components deliver a smooth and responsive platform for managing complex Kubernetes workflows across environments.
 
 == Bootstrapping GitOps with Service Foundry Builder
 
-Bootstrap command of Service Foundry Builder is designed to set up the initial configuration for GitOps workflows. It automates the creation of necessary resources and configurations in Kubernetes, enabling a smooth start for managing applications using GitOps principles.
-The bootstrap command performs the following tasks:
+The *bootstrap command* provided by Service Foundry Builder sets up the foundation for your GitOps workflow. It automates the installation and configuration of all necessary components to manage Kubernetes infrastructure and application delivery using GitOps principles.
 
-* Installs Argo CD and configures it for managing Kubernetes resources.
-* Installs Sealed Secrets controller and CLI for secure management of sensitive data.
-* Installs Keycloak for single sign-on and identity management and configures it for integration with Kubernetes.
-* Installs Traefik as the middleware for routing and load balancing traffic to applications and Single Sign-On (SSO) services.
-* Installs Service Foundry Console for managing Kubernetes resources and GitOps workflows.
-* Install Service Foundry Console Backend for managing the backend services and providing APIs for the frontend.
+=== Key Bootstrap Tasks
+
+ * Installs *Argo CD* and configures it for managing Kubernetes applications.
+ * Installs *Sealed Secrets* to securely store and manage sensitive data.
+ * Installs *Keycloak* for centralized identity and access management (SSO).
+ * Installs *Traefik* for ingress routing and traffic control.
+ * Deploys the Service Foundry Console (Frontend) and its Backend APIs.
+
+These steps eliminate manual setup and ensure that all services are integrated out of the box for a smooth GitOps experience.
 
 === Prerequisites
 
-* Git Repository: A Git repository to store the configuration files and manage the GitOps workflows.
-* Kubernetes Cluster: A running Kubernetes cluster where the Service Foundry Builder environment will be deployed.
+To bootstrap the environment, you will need:
+
+ * *A Git repository* (preferably empty) to store configuration and manifest files. The bootstrap process will automatically create a folder structure (e.g., $ARGOCD_APP_PREFIX_apps) and push the necessary YAML files.
+ * *A Kubernetes cluster* where Service Foundry will be installed. AWS EKS is supported today, with AKS and GKE support planned.
+
+Git Repository Setup
+
+We recommend creating a dedicated Git repository for Service Foundry Builder. A Deploy Key with write access must be configured to allow the builder to push manifests and updates.
+
+.GitHub Repository for Service Foundry Builder (empty)
+[.img-wide]
+image::github-empty-repo.png[]
+
+
+.GitHub Deploy Key for Service Foundry Builder
+[.img-wide]
+image::github-deploy-key.png[]
 
 === Environment Variables
 
-Before running the bootstrap command, set the following environment variables:
+Before running the bootstrap command, you must set several environment variables that define GitOps behavior, domain routing, Kubernetes context, and component versions.
 
-* *GIT_OPS_REPO_URL*: The URL of the Git repository where the configuration files will be stored.
-* *GIT_OPS_REPO_NAME*: The name of the Git repository to use for the GitOps workflows."
-* *GIT_OPS_REPO_BRANCH*: main
-* *ARGOCD_PROJECT*: The name of the Argo CD project to use for managing the resources.
-* *SF_ROOT_DOMAIN*: The root domain for the Service Foundry Console and other services. This domain will be used for single sign-on and routing traffic to applications.
-* *AWS_REGION*: The AWS region where the Kubernetes cluster is running.
-* *EKS_CLUSTER_NAME*: The name of the EKS cluster where the Service Foundry Builder environment will be deployed.
+==== Core Configuration:
+
+ * *GIT_OPS_REPO_URL*: Git repository URL for storing Kubernetes manifests.
+ * *GIT_OPS_REPO_NAME*: Name of the Git repository (used in config maps).
+ * *GIT_OPS_REPO_BRANCH*: Target branch for GitOps (usually main).
+ * *ARGOCD_PROJECT*: The Argo CD project name to manage deployed applications.
+ * *SF_ROOT_DOMAIN*: The root domain used to expose the frontend, backend, and SSO (e.g., nsa2.com).
+ * *AWS_REGION*: AWS region where your EKS cluster is located.
+ * *EKS_CLUSTER_NAME*: Name of the EKS cluster to deploy to.
+ * *GIT_OPS_REPO_SSH_KEY_PATH*: Path to the SSH private key for accessing your GitOps repository.
+ * *GENERATOR_NSA2_SSH_KEY_PATH*: SSH key used to access the private Service Foundry Generator repository.
+ * *ARGOCD_APP_PREFIX*: Prefix used for naming Argo CD Applications (default: sf-).
+
+==== Component Versions:
+
+ * GENERATOR_NSA2_GIT_BRANCH: Branch of the generator repository (e.g., main).
+ * SF_APP_FRONTEND_VERSION: Version of the Service Foundry Console frontend.
+ * SF_APP_BACKEND_VERSION: Version of the backend API server.
+
+
+== Avoid storing AWS credentials in Secrets
+
+To securely grant your Kubernetes applications access to AWS resources without hardcoding credentials, use IAM Roles for Service Accounts (IRSA). This method binds a Kubernetes service account to an AWS IAM role with scoped permissions.
+
+*Resources*
+
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/blog/kube-config-without-aws-secret-access-key/[Using IRSA without storing secrets]
+* https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html[AWS Official IRSA Docs]
+
+
+=== Updating aws-auth ConfigMap in kube-system Namespace
+
+To enable the Service Foundry Builder to interact with AWS via IRSA, you must update the aws-auth ConfigMap in the kube-system namespace to associate the IAM role with the appropriate service account.
+
+[source,yaml]
+----
+# This is supposed to be in kube-system namespace.
+apiVersion: v1
+data:
+  mapRoles: |
+    - rolearn: arn:aws:iam::YOUR_AWS_ACCOUNT_ID:role/eksctl-your-cluster-name-addon-iamserviceaccount-kubeconfig-generator-sa
+      username: system:node:{{EC2PrivateDNSName}} # This is typically for worker nodes, but conceptually similar for IRSA roles
+      groups:
+        - system:bootstrappers
+        - system:nodes
+    ## <1>
+    - rolearn: arn:aws:iam::YOUR_AWS_ACCOUNT_ID:role/service-foundry-builder-role  # IRSA role for Service Foundry Builder. Created by the bootstrap command.
+      username: arn:aws:eks:YOUR_AWS_REGION:YOUR_AWS_ACCOUNT_ID:cluster/YOUR_EKS_NAME # Kubernetes user name in ~/.kube/config file.
+      groups:
+        - system:masters
+kind: ConfigMap
+metadata:
+  name: aws-auth
+  namespace: kube-system
+----
+1. Replace placeholders with your actual AWS account ID, region, and cluster name.
 
 
 
+== Bootstrap Command
+
+To install the Service Foundry Builder and all its components, simply run the bootstrap script:
 
 
+[source,terminal]
+----
+$ ./bootstrap-service-foundry-builder.sh
+----
+
+This script automates:
+
+ * Creating necessary Kubernetes namespaces
+ * Configuring secrets and config maps
+ * Setting up IRSA roles for AWS access
+ * Deploying the Service Foundry Builder Helm chart
+ * Initializing Argo CD, Keycloak, Traefik, Sealed Secrets, and the Service Foundry Console
+
+Script Breakdown:
+ * Installs aws-secret, aws-configmap, and required GitHub deploy keys as Kubernetes secrets.
+ * Configures the Service Foundry Console versions and GitOps settings.
+ * Deploys the service-foundry-builder Helm chart using helm install.
+
+A successful installation message is printed upon completion.
+
+.View bootstrap-service-foundry-builder.sh and irsa.sh
+[%collapsible]
+====
+.bootstrap-service-foundry-builder.sh
+[source,bash]
+----
+#!/bin/bash
+
+set -e
+
+CWD=$(pwd)
+
+# set variables that will be saved in the secrets and configmaps
+GENERATOR_NSA2_GIT_BRANCH=${GENERATOR_NSA2_GIT_BRANCH:-"release-0.7.0"}
+CLOUD_PROVIDER=${CLOUD_PROVIDER:-}
+#AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID:-}
+#AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+AWS_REGION=${AWS_REGION:-"us-west-2"}
+EKS_CLUSTER_NAME=${EKS_CLUSTER_NAME:-young-eks}
+GIT_OPS_REPO_URL=${GIT_OPS_REPO_URL:-"git@github.com:nsalexamy/service-foundry-argocd.git"}
+GIT_OPS_REPO_NAME=${GIT_OPS_REPO_NAME:-"service-foundry-argocd"}
+ARGOCD_PROJECT=${ARGOCD_PROJECT:-"service-foundry"}
+SF_ROOT_DOMAIN=${SF_ROOT_DOMAIN:-"nsa2.com"}
+SF_APP_FRONTEND_VERSION=${SF_APP_FRONTEND_VERSION:-"0.1.0"}
+SF_APP_BACKEND_VERSION=${SF_APP_BACKEND_VERSION:-"0.1.0"}
+
+# Set the version of the service-foundry-builder chart
+SF_BUILDER_CHART_VERSION=0.1.9
+
+# SSH Key Path
+GENERATOR_NSA2_SSH_KEY_PATH=${GENERATOR_NSA2_SSH_KEY_PATH:-"./ssh/id_rsa"}
+GIT_OPS_REPO_SSH_KEY_PATH=${GIT_OPS_REPO_SSH_KEY_PATH:-"./argocd-ssh/argocd_id_rsa"}
+
+echo "GENERATOR_NSA2_GIT_BRANCH: $GENERATOR_NSA2_GIT_BRANCH"
+echo "EKS_CLUSTER_NAME: $EKS_CLUSTER_NAME"
 
 
+kubectl get namespace service-foundry &> /dev/null || kubectl create namespace service-foundry
+
+kubectl -n service-foundry get secret aws-secret &> /dev/null || \
+kubectl -n service-foundry create secret generic aws-secret \
+  --from-literal=AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID \
+  --from-literal=AWS_REGION=$AWS_REGION
+
+source ./irsa.sh
+
+kubectl -n service-foundry get configmap aws-configmap &> /dev/null || \
+kubectl -n service-foundry create configmap aws-configmap \
+  --from-literal=EKS_CLUSTER_NAME=$EKS_CLUSTER_NAME
+
+kubectl -n service-foundry get secret service-foundry-github-ssh &> /dev/null || \
+kubectl -n service-foundry create secret generic service-foundry-github-ssh \
+  --from-file=id_rsa=$GENERATOR_NSA2_SSH_KEY_PATH \
+  --from-file=argocd_id_rsa=$GIT_OPS_REPO_SSH_KEY_PATH
 
 
+# create an empty service-foundry-builder-secret
+kubectl -n service-foundry get secret service-foundry-builder-secret &> /dev/null || \
+kubectl -n service-foundry create secret generic service-foundry-builder-secret
 
+kubectl -n service-foundry get configmap service-foundry-builder-configmap &> /dev/null || \
+kubectl -n service-foundry create configmap service-foundry-builder-configmap \
+  --from-literal=GIT_OPS_REPO_URL="$GIT_OPS_REPO_URL" \
+  --from-literal=GIT_OPS_REPO_NAME="$GIT_OPS_REPO_NAME" \
+  --from-literal=ARGOCD_PROJECT="$ARGOCD_PROJECT" \
+  --from-literal=SF_ROOT_DOMAIN="$SF_ROOT_DOMAIN" \
+  --from-literal=SF_APP_FRONTEND_VERSION="$SF_APP_FRONTEND_VERSION" \
+  --from-literal=SF_APP_BACKEND_VERSION="$SF_APP_BACKEND_VERSION" \
+  --from-literal=GENERATOR_NSA2_GIT_BRANCH="$GENERATOR_NSA2_GIT_BRANCH"
+
+
+# if service-foundry-config-files secret exists, delete it
+kubectl -n service-foundry get secret service-foundry-config-files &> /dev/null && \
+  kubectl -n service-foundry delete secret service-foundry-config-files
+
+# create an empty service-foundry-config-files secret
+kubectl create secret generic service-foundry-config-files \
+  -n service-foundry
+
+helm install service-foundry-builder service-foundry/service-foundry-builder \
+  --set command=bootstrap \
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=arn:aws:iam::${AWS_ACCOUNT_ID}:role/service-foundry-builder-role \
+  -n service-foundry --create-namespace --version $SF_BUILDER_CHART_VERSION
+
+echo "Service Foundry Builder installed successfully."
+----
+
+.irsa.sh
+[source,bash]
+----
+#!/bin/bash
+
+echo "Creating eks-update-kubeconfig-policy if it does not exist..."
+aws iam get-policy --policy-arn arn:aws:iam::${AWS_ACCOUNT_ID}:policy/eks-update-kubeconfig-policy &> /dev/null || \
+aws iam create-policy \
+  --policy-name eks-update-kubeconfig-policy \
+  --policy-document file://eks-update-kubeconfig-policy.json
+
+
+OIDC_PROVIDER=$(aws eks describe-cluster --name $EKS_CLUSTER_NAME --region $AWS_REGION --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
+
+cat <<EOF  > trust-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::$AWS_ACCOUNT_ID:oidc-provider/$OIDC_PROVIDER"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "${OIDC_PROVIDER}:sub": "system:serviceaccount:service-foundry:service-foundry-builder"
+        }
+      }
+    }
+  ]
+}
+
+EOF
+
+
+if ! aws iam get-role --role-name service-foundry-builder-role &> /dev/null ; then
+  aws iam create-role \
+    --role-name service-foundry-builder-role \
+    --assume-role-policy-document file://trust-policy.json
+
+
+  aws iam attach-role-policy \
+    --role-name service-foundry-builder-role \
+    --policy-arn arn:aws:iam::${AWS_ACCOUNT_ID}:policy/eks-update-kubeconfig-policy
+else
+  echo "service-foundry-builder-role already exists. Skipping creation."
+fi
+----
+====
+
+== Installed Components
+
+Once the bootstrap process is complete, the following components are deployed to your Kubernetes cluster and configured for GitOps:
+
+* *Kubernetes manifest files* in Git Repository
+* *ArgoCD* for GitOps-based application management
+* *Sealed Secrets* for secure secret management
+* *Keycloak* for single sign-on (SSO) and identity management
+* *Traefik* as the ingress controller
+* *Service Foundry App Frontend*
+* *Service Foundry App Backend*
+* *Oauth2 Proxy* for authentication
+* *Full SSO Integration* across the Console frontend and backend
+
+=== Kubernetes manifest files in Git 
+
+The bootstrap script commits all generated Kubernetes manifests to the Git repository defined in GIT_OPS_REPO_URL. These manifests are stored under the $ARGOCD_APP_PREFIX_apps folder.
+
+Manifests include:
+ * Argo CD Applications
+ * Kustomize-ready base and overlay resources
+ * Sealed Secrets (actual Secrets are not stored for security)
+ * Helm values and release metadata
+
+
+.GitHub Repository with Kubernetes manifest files
+[.img-wide]
+image::github-provisioning.png[]
+
+=== ArgoCD
+
+Argo CD is deployed in the argocd namespace. All services deployed by the bootstrap process are managed as *Argo CD Applications* and grouped under a dedicated Argo CD Project.
+
+ * *Repositories Tab*: Lists connected Git repositories.
+ * *Applications Tab*: Shows deployment status of each application.
+ * *Projects Tab*: Organizes and scopes application access.
+
+GitOps becomes the single source of truth for cluster state.
+
+.ArgoCD UI - Argocd Applications
+[.img-wide]
+image::argocd-applications.png[]
+
+.ArgoCD UI - Argocd Repositories
+[.img-wide]
+image::argocd-repositories.png[]
+
+.ArgoCD UI - Argocd Projects
+[.img-wide]
+image::argocd-projects.png[]
+
+=== Sealed Secrets
+
+*Sealed Secrets Controller* is installed in the kube-system namespace. It ensures that secrets can be stored safely in Git repositories in encrypted form.
+
+You can verify the controller is running:
+
+[source,terminal]
+----
+$ kubectl get pods -n kube-system -l app=sealed-secrets-controller
+
+# Example output:
+NAME                                             READY   STATUS    RESTARTS   AGE
+pod/sealed-secrets-controller-6f44bdc558-pgj6p   1/1     Running   0          28m
+
+NAME                                TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)    AGE
+service/sealed-secrets-controller   ClusterIP   10.100.94.127   <none>        8080/TCP   4h26m
+
+NAME                                        READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/sealed-secrets-controller   1/1     1            1           4h26m
+
+NAME                                                   DESIRED   CURRENT   READY   AGE
+replicaset.apps/sealed-secrets-controller-6f44bdc558   1         1         1       4h26m
+----
+
+A ClusterIP service is exposed for the controller, and only SealedSecrets (not raw Secrets) are stored in Git.
+
+=== Keycloak
+
+Keycloak is deployed in the keycloak namespace and exposed via a LoadBalancer service to support both internal and external authentication.
+
+ * A realm named default is created.
+ * An OAuth2 client named nsa2 is registered.
+ * A default user devops with password password is created and assigned the admin role.
+
+The OIDC issuer URL is available through the Keycloak service’s external IP.
+
+
+[source,shell]
+----
+$ kubectl get svc keycloak -n keycloak
+
+NAME       TYPE           CLUSTER-IP     EXTERNAL-IP                                                                 PORT(S)        AGE
+keycloak   LoadBalancer   10.100.192.3   ac6dee47xxxxxxx-536941030.ca-central-1.elb.amazonaws.com   80:31243/TCP   4h33m
+----
+
+The OIDC ISSUER URL for Keycloak is: `http://ac6dee47xxxxxxx-536941030.ca-central-1.elb.amazonaws.com/realms/default`
+
+.Keycloak Clients
+[.img-wide]
+image::keycloak-clients.png[]
+
+=== Traefik
+
+Traefik is deployed in the traefik namespace and serves as the ingress gateway for all Service Foundry Console components.
+
+[source,terminal]
+----
+$ kubectl get svc traefik -n traefik
+
+# Example output:
+NAME      TYPE           CLUSTER-IP       EXTERNAL-IP                                                                  PORT(S)                      AGE
+traefik   LoadBalancer   10.100.221.209   a037cbea01f4yyyyyyyy-1420357204.ca-central-1.elb.amazonaws.com   80:30929/TCP,443:30565/TCP   4h38m
+
+----
+
+Traefik uses IngressRoute resources to route traffic based on domain names (configured using SF_ROOT_DOMAIN).
+
+=== Service Foundry Console (Frontend)
+
+The frontend UI is built with React.js and provides a visual interface for:
+
+ * Deploying applications
+ * Managing GitOps pipelines
+ * Viewing current resource state
+
+It is deployed in the service-foundry namespace and routed via Traefik and OAuth2 Proxy.
+
+=== Service Foundry Console (Backend)
+
+The backend is a Go-based REST API that powers the frontend UI and manages:
+
+ * Interactions with Kubernetes APIs
+ * Git repository operations
+ * Application state and deployment logic
+
+It runs in the service-foundry namespace and communicates securely with the frontend.
+
+=== Oauth2 Proxy
+
+OAuth2 Proxy is deployed to enforce authentication with Keycloak. It sits in front of the Console and handles login flows, token validation, and session management.
+
+Verify its status with:
+
+[source,terminal]
+----
+$ kubectl -n service-foundry get all -l app.kubernetes.io/name=oauth2-proxy
+
+# Example output:
+NAME                               READY   STATUS    RESTARTS        AGE
+pod/oauth2-proxy-6bbcfcd8f-rsrhd   1/1     Running   5 (8m16s ago)   10m
+
+NAME                   TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)            AGE
+service/oauth2-proxy   ClusterIP   10.100.166.228   <none>        80/TCP,44180/TCP   4h57m
+
+NAME                           READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/oauth2-proxy   1/1     1            1           4h57m
+
+NAME                                     DESIRED   CURRENT   READY   AGE
+replicaset.apps/oauth2-proxy-6bbcfcd8f   1         1         1       4h57m
+----
+
+=== SSO Integration
+
+Both the frontend and backend are integrated with Keycloak through OAuth2 Proxy using a shared session and authorization mechanism.
+
+IngressRoutes for both components include:
+ * cors-headers middleware for cross-origin requests
+ * forward-auth middleware to delegate authentication to Keycloak
+
+.verify IngressRoute for Service Foundry Console Frontend
+[source,shell]
+----
+$ kubectl -n service-foundry get ingressroute service-foundry-sso-ingress-route -o yaml \
+| yq 'pick(["spec"])'
+----
+
+.Example IngressRoute for Service Foundry App Frontend
+[source,yaml]
+----
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: Host(`sfapp.nsa2.com`)
+      middlewares:
+        - name: cors-headers
+        - name: forward-auth
+      services:
+        - name: service-foundry-app-frontend
+          port: http
+    - kind: Rule
+      match: Host(`sfapp-backend.nsa2.com`)
+      middlewares:
+        - name: cors-headers
+        - name: forward-auth
+      services:
+        - name: service-foundry-app-backend
+          port: http
+----
+
+For both frontend and backend, the IngressRoute is configured to use the `cors-headers` middleware for handling CORS headers and the `forward-auth` middleware for forwarding authentication requests to Keycloak.
+
+==== Middlewares for CORS and Forward Auth
+
+There are two middlewares configured for the Service Foundry App Frontend and Backend:
+
+* cors-headers: This middleware adds CORS headers to the responses, allowing cross-origin requests from the frontend to the backend.
+* forward-auth: This middleware forwards authentication requests to Keycloak, enabling single sign-on (SSO) capabilities for the Service Foundry Console.
+
+.Example Middleware for CORS Headers
+[source,shell]
+----
+kubectl -n service-foundry get middleware cors-headers -o yaml | yq 'pick(["kind",  "spec"])'
+----
+
+Example output:
+[source,yaml]
+----
+kind: Middleware
+spec:
+  headers:
+    accessControlAllowCredentials: true
+    accessControlAllowHeaders:
+      - Content-Type
+      - Authorization
+      - X-Requested-With
+      - Accept
+      - Origin
+    accessControlAllowMethods:
+      - GET
+      - OPTIONS
+      - PUT
+      - POST
+      - DELETE
+      - PATCH
+    accessControlAllowOriginList:
+      - http://sfapp.nsa2.com
+      - http://sfapp-backend.nsa2.com
+    accessControlMaxAge: 100
+    addVaryHeader: true
+----
+
+.Example Middleware for Forward Auth
+[source,shell]
+----
+$ kubectl -n service-foundry get middleware forward-auth -o yaml | yq 'pick(["kind", "spec"])'
+
+# Example output:
+kind: Middleware
+spec:
+  forwardAuth:
+    address: http://oauth2-proxy.service-foundry.svc.cluster.local/oauth2/
+    authResponseHeaders:
+      - X-Auth-Request-User
+      - X-Auth-Request-Email
+      - Authorization
+    trustForwardHeader: true
+----
+
+== Accessing Service Foundry Console
+
+Once the bootstrap process completes, you can access the Service Foundry Console via a browser. It offers a user-friendly interface for provisioning applications, managing Kubernetes resources, and tracking GitOps workflows visually.
+
+=== DNS Configuration
+
+To access the Service Foundry Console, you must configure DNS records that map domain names to the external IP of the Traefik LoadBalancer. These domain names are based on the value of SF_ROOT_DOMAIN.
+
+For example, if SF_ROOT_DOMAIN is nsa2.com, your DNS entries should look like:
+
+[source,toml]
+----
+{traefik-lb-public-ip-address}	  oauth2-proxy.nsa2.com	   # Oauth2 Proxy
+{traefik-lb-public-ip-address}	  sfapp.nsa2.com           # Console Frontend
+{traefik-lb-public-ip-address}	  sfapp-backend.nsa2.com   # Console Backend
+----
+
+Visit http://sfapp.nsa2.com to launch the frontend.
+
+=== Logging In
+
+When accessing the Console, your browser is redirected to Keycloak for authentication. Use the default login credentials:
+
+ * Username: devops
+ * Password: password
+
+These credentials were created during the bootstrap process and can be managed within Keycloak.
+
+[.img-wide]
+
+.Login Page provided by Keycloak
+[.img-wide]
+image::sfapp-login.png[]
+
+=== Application Management UI
+
+Once logged in, you’ll land on the Installed Components view. From there, you can monitor existing deployments, check their sync status, or deploy additional components.
+
+Click the “Deploy More Components” button to select new infrastructure modules (like Prometheus Operator) and generate configuration files using the Console UI.
+
+These files are committed to the GitOps repository, and ArgoCD automatically applies the changes in the cluster.
+
+
+.Installed Components
+[.img-wide]
+image::sfapp-installed-components.png[]
+
+
+.Deploy More Components in Dark Mode
+[.img-wide]
+image::sfapp-deploy-dark.png[]
+
+* *Argocd Application Prefix*: infra-
+* *Prometheus Operator*: check
+
+And the click 'Deploy' button to deploy the selected components.
+
+.Git Repository with Prometheus Operator configuration files
+[.img-wide]
+image::github-prometheus-operator.png[]
+
+After a while, you can also see the Prometheus Operator on ArgoCD UI.
+
+.ArgoCD UI - Prometheus Operator Application
+[.img-wide]
+image::argocd-prometheus-operator.png[]
+
+== Auto Sync with ArgoCD
+
+ArgoCD is configured for auto-sync, meaning any changes committed to the GitOps repository are automatically reflected in the Kubernetes cluster.
+
+Here is an example of how to update the Prometheus Operator configuration:
+
+.VS Code Editor - Editing Configuration Files
+[.img-wide]
+image::vscode-edit-custom-values.png[]
+
+. Edit custom-values.yaml to set replicaCount: 2
+. Run:
+[source,shell]
+----
+$ git commit -am "Increase replica count"
+$ git push origin main
+----
+[start=3]
+. ArgoCD detects the update and syncs the application automatically.
+
+You can visually confirm the update via the ArgoCD UI or CLI.
+
+.ArgoCD UI - Auto Sync
+[.img-wide]
+image::argocd-update-resources.png[]
+
+== Future Enhancements
+
+Service Foundry Console will continue to evolve with features focused on user experience, security, and operational insight:
+
+=== Kubernetes Resource Management
+
+View and manage deployments, scale resources, and monitor pod health directly in the UI.
+
+=== Integrated Monitoring and Observability
+
+Deeper integration with Prometheus, Grafana, and Tempo to visualize application performance, logs, and traces.
+
+
+== Conclusion
+
+The *Service Foundry Console*, combined with the *Builder platform*, offers a powerful yet approachable way to manage Kubernetes GitOps workflows. It abstracts complex configurations and provides a seamless interface for deploying, scaling, and observing modern cloud-native applications.
+
+By combining ArgoCD, Keycloak, Traefik, and Sealed Secrets under a single configuration-driven platform, Service Foundry enables teams to shift their focus from infrastructure wiring to application delivery and operational excellence.
+
+
+📘 View the web version:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/blog/streamline-k8s-gitops/
 
