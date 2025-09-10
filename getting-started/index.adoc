@@ -5,29 +5,31 @@ show_toc: false
 show_subnav: false
 ---
 
-= Getting Started
+= Getting Started with Service Foundry Builder using Bootstrap Job
 :toc!:
 
 :imagesdir: ../assets/images
 
-== Introduction
+// == End-to-End GitOps Orchestration for Kubernetes Workloads
+== GitOps Driven Kubernetes Platform
 
-Service Foundry provides automated tools to create and manage Kubernetes resources required for Turnkey applications using Kustomize, Helm, and Terraform in the way of Turnkey solution.
+Service Foundry provides GitOps driven Kubernetes platform to automate the deployment and management of Kubernetes resources using Git as the single source of truth. ArgoCD is used as the GitOps tool to manage the Kubernetes resources.
 
-
-A single configuration file is used to generate the Kubernetes resources required for the Turnkey solution. The configuration file is a YAML file that contains the information about the application, such as the name of the application, the version of the application, and the configuration of the application.
-
-.Single configuration for Turnkey solutions - eg, Observability
+.GitOps driven Kubernetes platform
 [.img-wide]
-image::sf-concept.png[]
+image::gitops-driven-kubernetes-platform.png[]
+
+// .Single configuration for Turnkey solutions - eg, Observability
+// [.img-wide]
+// image::sf-concept.png[]
 // image::sf-single-configuration.png[]
 
 
-Service Foundry provides a set of tools to automate this process with one single configuration file.
-
-=== Definition
-
-*Turnkey solution*:: Turnkey solution is a pre-packaged software solution that is ready to use out of the box. It is a complete solution that includes all the necessary components, such as software, hardware, and documentation, to get the system up and running quickly and easily.
+// Service Foundry provides a set of tools to automate this process with one single configuration file.
+//
+// === Definition
+//
+// *Turnkey solution*:: Turnkey solution is a pre-packaged software solution that is ready to use out of the box. It is a complete solution that includes all the necessary components, such as software, hardware, and documentation, to get the system up and running quickly and easily.
 
 
 
@@ -61,12 +63,11 @@ $ kubectl create namespace service-foundry
 
 === 3. Create aws-secret
 
+WARNING: Make sure that you DO NOT store your AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in plain text. Try to use IRSA or other secure methods to store your AWS credentials.
 [,terminal]
 ----
 $ kubectl -n service-foundry create secret generic aws-secret \
-  --from-literal=AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
   --from-literal=AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID \
-  --from-literal=AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
   --from-literal=AWS_REGION=$AWS_REGION
 ----
 
@@ -80,21 +81,18 @@ $ kubectl -n service-foundry create secret generic service-foundry-github-ssh \
 
 === 5. Create service-foundry-config-files
 
-[,terminal]
-----
-$ kubectl create secret generic service-foundry-config-files \
-  --from-file=infra-foundry-config.yaml \
-  --from-file=o11y-foundry-config.yaml \
-  --from-file=sso-foundry-config.yaml \
-  -n service-foundry
-----
+NOTE:: In Bootstrap mode, the command is not required.
+
 
 === 6. Create service-foundry-builder job using Helm chart
 
 [,terminal]
 ----
-$ helm install service-foundry-builder service-foundry/service-foundry-builder \
-  -n service-foundry --create-namespace
+$ helm install service-foundry-builder \
+  service-foundry/service-foundry-builder \
+  --set command=bootstrap \
+  -n service-foundry --create-namespace \
+  --version $SF_BUILDER_CHART_VERSION
 ----
 
 === 7. Check Kubernetes resources created by Service Foundry Builder
@@ -109,23 +107,25 @@ To clean up the resources created by Service Foundry Builder, you can use the fo
 
 [,terminal]
 ----
-$ kubectl create secret generic service-foundry-config-files \
-  --from-file=infra-foundry-config.yaml \
-  --from-file=o11y-foundry-config.yaml \
-  --from-file=sso-foundry-config.yaml \
-  -n service-foundry --set command=clean
+# Delete all ArgoCD Applications
+$ kubectl delete applications --all -n argocd
+
+$ helm -n argocd uninstall argocd
+$ helm -n service-foundry uninstall service-foundry-builder
+
+$ kubectl delete namespace argocd service-foundry traefik
 ----
 
-Make sure to use the `--set command=clean` option to clean up the resources created by Service Foundry Builder.
 
-== Getting Started with Service Foundry on Local Machine
 
-[.img-wide]
-image::sf-on-local-machine.png[]
-
-For more information about how to get started with Service Foundry on local machine, please refer to the following link:
-
-link:service-foundry-on-local-machine/[Getting Started with Service Foundry on Local Machine, role="custom-link with-icon"]
-
+// == Getting Started with Service Foundry on Local Machine
+//
+// [.img-wide]
+// image::sf-on-local-machine.png[]
+//
+// For more information about how to get started with Service Foundry on local machine, please refer to the following link:
+//
+// link:service-foundry-on-local-machine/[Getting Started with Service Foundry on Local Machine, role="custom-link with-icon"]
+//
 
 
