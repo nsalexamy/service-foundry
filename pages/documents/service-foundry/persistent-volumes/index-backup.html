@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Kubernetes Storage Management with Service Foundry Console</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a>
+<ul class="sectlevel2">
+<li><a href="#use-case-scenario">Use Case Scenario</a></li>
+</ul>
+</li>
+<li><a href="#managing-storage-classes">Managing Storage Classes</a>
+<ul class="sectlevel2">
+<li><a href="#ebs-csi-driver-setup">EBS CSI Driver Setup</a></li>
+<li><a href="#efs-csi-driver-setup">EFS CSI Driver Setup</a></li>
+<li><a href="#creating-storage-classes-in-console">Creating Storage Classes in Console</a></li>
+</ul>
+</li>
+<li><a href="#managing-persistent-volumes">Managing Persistent Volumes</a>
+<ul class="sectlevel2">
+<li><a href="#creating-a-persistent-volume">Creating a Persistent Volume</a></li>
+</ul>
+</li>
+<li><a href="#managing-persistent-volume-claims">Managing Persistent Volume Claims</a>
+<ul class="sectlevel2">
+<li><a href="#creating-a-pvc">Creating a PVC</a></li>
+</ul>
+</li>
+<li><a href="#deploying-postgresql-with-pvc">Deploying PostgreSQL with PVC</a>
+<ul class="sectlevel2">
+<li><a href="#installing-postgresql-pod-with-pvc-using-service-foundry-console">Installing PostgreSQL Pod with PVC using Service Foundry Console</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/managing-storages-and-volumes.png" alt="managing storages and volumes">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This document provides a comprehensive guide on how to manage Storage Classes, Persistent Volumes (PVs), and Persistent Volume Claims (PVCs) in Kubernetes using the Service Foundry Console.</p>
+</div>
+<div class="sect2">
+<h3 id="use-case-scenario">Use Case Scenario</h3>
+<div class="paragraph">
+<p>A typical use case involves deploying a PostgreSQL database in a Kubernetes cluster. To ensure data persists even if the PostgreSQL pod is deleted or rescheduled, the following steps are performed:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Define a StorageClass using AWS Elastic File System (EFS).</p>
+</li>
+<li>
+<p>Create a Persistent Volume (PV) that leverages the EFS-backed StorageClass.</p>
+</li>
+<li>
+<p>Define a Persistent Volume Claim (PVC) to request storage from the PV.</p>
+</li>
+<li>
+<p>Deploy the PostgreSQL pod and mount the PVC to it.</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="managing-storage-classes">Managing Storage Classes</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>A StorageClass defines the storage type and parameters for dynamic provisioning of volumes. Administrators can offer different classes based on performance, availability, or backup policies.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-storage-classes.png" alt="console storage classes">
+</div>
+<div class="title">Figure 1. Service Foundry Console - Storage Classes</div>
+</div>
+<div class="sect2">
+<h3 id="ebs-csi-driver-setup">EBS CSI Driver Setup</h3>
+<div class="paragraph">
+<p>AWS Elastic Block Store (EBS) provides block-level storage suitable for single-node access. To use EBS with Kubernetes, the EBS CSI driver must be enabled:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Create IAM Service Account for EBS CSI Driver</p>
+</li>
+<li>
+<p>Create Addon for EBS CSI Driver</p>
+</li>
+<li>
+<p>Create Storage Class for EBS CSI Driver</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">Create an IAM Service Account</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>eksctl create iamserviceaccount  <span class="nt">--name</span> ebs-csi-controller-sa <span class="nt">--namespace</span> kube-system <span class="se">\</span>
+  <span class="nt">--cluster</span> <span class="nv">$EKS_CLUSTER_NAME</span>  <span class="se">\</span>
+  <span class="nt">--attach-policy-arn</span> arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy <span class="se">\</span>
+  <span class="nt">--approve</span> <span class="se">\</span>
+  <span class="nt">--role-only</span> <span class="se">\</span>
+  <span class="nt">--role-name</span> <span class="nv">$EBS_CSI_ROLE_NAME</span> <span class="se">\</span>
+  <span class="nt">--region</span> <span class="nv">$AWS_REGION</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">Deploy the Addon for EBS CSI Driver</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">eksctl create addon <span class="nt">--name</span> aws-ebs-csi-driver <span class="nt">--cluster</span> <span class="nv">$EKS_CLUSTER_NAME</span> <span class="se">\</span>
+  <span class="nt">--region</span> <span class="nv">$AWS_REGION</span> <span class="se">\</span>
+  <span class="nt">--service-account-role-arn</span> arn:aws:iam::<span class="nv">$AWS_ACCOUNT_ID</span>:role/<span class="nv">$EBS_CSI_ROLE_NAME</span> <span class="se">\</span>
+  <span class="nt">--force</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">ebs-sc.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">storage.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">StorageClass</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">ebs-sc</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="na">storageclass.kubernetes.io/is-default-class</span><span class="pi">:</span> <span class="s2">"</span><span class="s">true"</span>   <span class="c1"># &lt;— makes it default</span>
+<span class="na">provisioner</span><span class="pi">:</span> <span class="s">ebs.csi.aws.com</span>
+<span class="na">volumeBindingMode</span><span class="pi">:</span> <span class="s">WaitForFirstConsumer</span>
+<span class="na">parameters</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s">gp3</span>
+  <span class="na">fsType</span><span class="pi">:</span> <span class="s">ext4</span>
+  <span class="na">encrypted</span><span class="pi">:</span> <span class="s2">"</span><span class="s">true"</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Apply the Storage Class manifest</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> ebs-sc.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="efs-csi-driver-setup">EFS CSI Driver Setup</h3>
+<div class="paragraph">
+<p>AWS Elastic File System (EFS) supports shared access across Availability Zones. To enable EFS in your cluster:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Create the EFS File System.</p>
+</li>
+<li>
+<p>Create Mount Targets in each Availability Zone(AZ).</p>
+</li>
+<li>
+<p>Create an IAM Service Account for EFS CSI Driver</p>
+</li>
+<li>
+<p>Deploy the EFS CSI Driver via Helm</p>
+</li>
+<li>
+<p>Define a StorageClass for EFS</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>In Service Foundry Console, click "Enable EFS CSI Driver" to automate these steps. After completion, a new EFS-backed StorageClass (e.g., efs-sc) will appear.</p>
+</div>
+<div class="paragraph">
+<p>It takes a few minutes to complete the process. Once completed, you will see the EFS Storage Class in the Storage Classes list.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-storage-classes-efs.png" alt="console storage classes efs">
+</div>
+<div class="title">Figure 2. Service Foundry Console - EFS CSI Driver Enabled</div>
+</div>
+<div class="paragraph">
+<p>This creates a File System in EFS and its name looks like '{EKS_CLUSTER_NAME}-efs'.</p>
+</div>
+<div class="sect3">
+<h4 id="efs-file-system">EFS File System</h4>
+<div class="paragraph">
+<p>On AWS Console, you can see the EFS File System created by Service Foundry Console.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/aws-efs.png" alt="aws efs">
+</div>
+<div class="title">Figure 3. AWS - EFS File System</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="mount-targets">Mount Targets</h4>
+<div class="paragraph">
+<p>Mount Targets are created in each Availability Zone where the EKS cluster nodes are running.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/aws-efs-mount-targets.png" alt="aws efs mount targets">
+</div>
+<div class="title">Figure 4. AWS - EFS Mount Targets</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="creating-storage-classes-in-console">Creating Storage Classes in Console</h3>
+<div class="paragraph">
+<p>Once EBS and EFS CSI drivers are enabled, users can add Storage Classes directly via the UI.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-storage-classes-add.png" alt="console storage classes add">
+</div>
+<div class="title">Figure 5. Service Foundry Console - Add Storage Class</div>
+</div>
+<div class="paragraph">
+<p>As for EFS Storage Class, the File System Name will look like '{STORAGE_CLASS_NAME}-efs'.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="managing-persistent-volumes">Managing Persistent Volumes</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Service Foundry Console allows full lifecycle management of Persistent Volumes. By default, it provisions two PVs:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>One for Keycloak (EBS-based)</p>
+</li>
+<li>
+<p>One for Service Foundry&#8217;s internal PostgreSQL (EBS-based)</p>
+</li>
+</ul>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-persistent-volumes.png" alt="console persistent volumes">
+</div>
+<div class="title">Figure 6. Service Foundry Console - Persistent Volumes</div>
+</div>
+<div class="sect2">
+<h3 id="creating-a-persistent-volume">Creating a Persistent Volume</h3>
+<div class="paragraph">
+<p>Click 'Add Persistent Volume' and fill in:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Storage Class (EBS or EFS)</p>
+</li>
+<li>
+<p>Volume Name</p>
+</li>
+<li>
+<p>Size &amp; Access Mode</p>
+</li>
+</ul>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-persistent-volumes-add.png" alt="console persistent volumes add">
+</div>
+<div class="title">Figure 7. Service Foundry Console - Add Persistent Volume</div>
+</div>
+<div class="paragraph">
+<p>For EFS-backed PVs, specify the File System ID and select or create an Access Point. Use the following format for volumeHandler:</p>
+</div>
+<div class="paragraph">
+<p>${fileSystemId}::${accessPointId}</p>
+</div>
+<div class="paragraph">
+<p>Root Directory looks like '/{PERSISTENT_VOLUME_NAME}'.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-persistent-volumes-add-access-point.png" alt="console persistent volumes add access point">
+</div>
+<div class="title">Figure 8. Service Foundry Console - Create Access Point</div>
+</div>
+<div class="paragraph">
+<p>The Access Point can be found in the AWS Console.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/aws-access-point.png" alt="aws access point">
+</div>
+<div class="title">Figure 9. AWS - EFS Access Point</div>
+</div>
+<div class="paragraph">
+<p>Click 'Create' button to create the Persistent Volume.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-persistent-volumes-updated.png" alt="console persistent volumes updated">
+</div>
+<div class="title">Figure 10. Service Foundry Console - Persistent Volume Created</div>
+</div>
+<div class="paragraph">
+<p>A new Persistent Volume is created, and it is in 'Available' status.
+Click the icon in 'Claim Ref' column to create a Persistent Volume Claim.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="managing-persistent-volume-claims">Managing Persistent Volume Claims</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>A PVC defines the user&#8217;s request for storage. In Service Foundry Console, users can manage and bind PVCs visually.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-persistent-volume-claims.png" alt="console persistent volume claims">
+</div>
+<div class="title">Figure 11. Service Foundry Console - PVCs</div>
+</div>
+<div class="sect2">
+<h3 id="creating-a-pvc">Creating a PVC</h3>
+<div class="paragraph">
+<p>Click 'Add Persistent Volume Claim' and provide:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>PVC Name</p>
+</li>
+<li>
+<p>Namespace</p>
+</li>
+<li>
+<p>Select a Persistent Volume (must be 'Available')</p>
+</li>
+</ul>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-persistent-volume-claims-add.png" alt="console persistent volume claims add">
+</div>
+<div class="title">Figure 12. Service Foundry Console - Add Persistent Volume Claim</div>
+</div>
+<div class="paragraph">
+<p>From the example above, a PVC named 'pvc-qc-postgresql' is created in 'qc' namespace, and it is bound to the Persistent Volume named 'pv-qc-postgresql'.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-persistent-volume-claims-updated.png" alt="console persistent volume claims updated">
+</div>
+<div class="title">Figure 13. Service Foundry Console - Persistent Volume Claim Created</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deploying-postgresql-with-pvc">Deploying PostgreSQL with PVC</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To install PostgreSQL via Helm with persistent storage:</p>
+</div>
+<div class="sect2">
+<h3 id="installing-postgresql-pod-with-pvc-using-service-foundry-console">Installing PostgreSQL Pod with PVC using Service Foundry Console</h3>
+<div class="paragraph">
+<p>Select 'OpenSource Software' in the left sidebar, then select 'PostgreSQL' in the list.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-opensource-software.png" alt="console opensource software">
+</div>
+<div class="title">Figure 14. Service Foundry Console - OpenSource Software</div>
+</div>
+<div class="paragraph">
+<p>Click 'Install' button to open the installation form.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-opensource-software-postgresql.png" alt="console opensource software postgresql">
+</div>
+<div class="title">Figure 15. Service Foundry Console - Install PostgreSQL</div>
+</div>
+<div class="paragraph">
+<p>Enter the required information in the form. Make sure to select the correct Namespace and Persistent Volume Claim.</p>
+</div>
+<div class="paragraph">
+<p>Click 'Install Application' button to install the PostgreSQL Helm chart.</p>
+</div>
+<div class="paragraph">
+<p>Wait for a few minutes until the installation is completed.</p>
+</div>
+<div class="paragraph">
+<p>The PostgreSQL pod is created and running in the selected namespace. In Managed Applications page, you can see the PostgreSQL application is installed.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-managed-apps-postgresql.png" alt="console managed apps postgresql">
+</div>
+<div class="title">Figure 16. Service Foundry Console - Managed Applications</div>
+</div>
+<div class="paragraph">
+<p>Unlike EBS, EFS allows pods from different availability zones to access the same volume. This means that you can install and uninstall the PostgreSQL pod in different availability zones without losing the data.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this guide, you have learned how to manage Storage Classes, Persistent Volumes, and Persistent Volume Claims in a Kubernetes environment using Service Foundry Console. You have also learned how to use Persistent Volume Claims in pods to provide persistent storage for applications.</p>
+</div>
+</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,267 @@
+---
+layout: documents
+title: Kubernetes Storage Management with Service Foundry Console
+author: Young Gyu Kim
+email: credemol@gmail.com
+summary: "This article explores how the Service Foundry Console simplifies and automates Kubernetes storage management by offering a visual interface for managing StorageClasses, PersistentVolumes (PVs), and PersistentVolumeClaims (PVCs). It demonstrates a real-world use case where a PostgreSQL database is deployed with persistent storage backed by AWS EBS or EFS. The guide walks through the full lifecycle—from enabling CSI drivers and provisioning cloud storage resources to visually creating volumes, claims, and access points. It also covers how users can bind PVCs to Helm-installed applications directly from the console, abstracting away the complexity of Kubernetes YAMLs and cloud integration. This approach ensures high availability and resilience, especially with EFS, allowing pods across availability zones to access the same persistent storage. The Service Foundry Console offers DevOps teams a powerful toolset to manage cloud-native applications and stateful workloads more efficiently."
+tags: "#Kubernetes #DevOps #CloudNative #ServiceFoundry #EKS #StorageManagement #PersistentVolumes #PostgreSQL #EBS #EFS #Helm #GitOps #PlatformEngineering"
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Service Foundry
+    url: /documents/service-foundry/
+---
+
+
+
+
+= Kubernetes Storage Management with Service Foundry Console
+
+:imagesdir: images
+
+[.img-wide]
+image::managing-storages-and-volumes.png[]
+
+== Overview
+
+This document provides a comprehensive guide on how to manage Storage Classes, Persistent Volumes (PVs), and Persistent Volume Claims (PVCs) in Kubernetes using the Service Foundry Console.
+
+=== Use Case Scenario
+
+A typical use case involves deploying a PostgreSQL database in a Kubernetes cluster. To ensure data persists even if the PostgreSQL pod is deleted or rescheduled, the following steps are performed:
+
+
+1. Define a StorageClass using AWS Elastic File System (EFS).
+2. Create a Persistent Volume (PV) that leverages the EFS-backed StorageClass.
+3. Define a Persistent Volume Claim (PVC) to request storage from the PV.
+4. Deploy the PostgreSQL pod and mount the PVC to it.
+
+
+== Managing Storage Classes
+
+A StorageClass defines the storage type and parameters for dynamic provisioning of volumes. Administrators can offer different classes based on performance, availability, or backup policies.
+
+.Service Foundry Console - Storage Classes
+[.img-wide]
+image::console-storage-classes.png[]
+
+=== EBS CSI Driver Setup
+
+AWS Elastic Block Store (EBS) provides block-level storage suitable for single-node access. To use EBS with Kubernetes, the EBS CSI driver must be enabled:
+
+- Create IAM Service Account for EBS CSI Driver
+- Create Addon for EBS CSI Driver
+- Create Storage Class for EBS CSI Driver
+
+
+.Create an IAM Service Account
+[source,shell]
+----
+$ eksctl create iamserviceaccount  --name ebs-csi-controller-sa --namespace kube-system \
+  --cluster $EKS_CLUSTER_NAME  \
+  --attach-policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy \
+  --approve \
+  --role-only \
+  --role-name $EBS_CSI_ROLE_NAME \
+  --region $AWS_REGION
+----
+
+.Deploy the Addon for EBS CSI Driver
+[source,shell]
+----
+eksctl create addon --name aws-ebs-csi-driver --cluster $EKS_CLUSTER_NAME \
+  --region $AWS_REGION \
+  --service-account-role-arn arn:aws:iam::$AWS_ACCOUNT_ID:role/$EBS_CSI_ROLE_NAME \
+  --force
+----
+
+.ebs-sc.yaml
+[source,yaml]
+----
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ebs-sc
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"   # <— makes it default
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  type: gp3
+  fsType: ext4
+  encrypted: "true"
+----
+
+Apply the Storage Class manifest
+[source,shell]
+----
+$ kubectl apply -f ebs-sc.yaml
+----
+
+
+=== EFS CSI Driver Setup
+
+AWS Elastic File System (EFS) supports shared access across Availability Zones. To enable EFS in your cluster:
+
+- Create the EFS File System.
+- Create Mount Targets in each Availability Zone(AZ).
+- Create an IAM Service Account for EFS CSI Driver
+- Deploy the EFS CSI Driver via Helm
+- Define a StorageClass for EFS
+
+In Service Foundry Console, click "Enable EFS CSI Driver" to automate these steps. After completion, a new EFS-backed StorageClass (e.g., efs-sc) will appear.
+
+It takes a few minutes to complete the process. Once completed, you will see the EFS Storage Class in the Storage Classes list.
+
+.Service Foundry Console - EFS CSI Driver Enabled
+[.img-wide]
+image::console-storage-classes-efs.png[]
+
+This creates a File System in EFS and its name looks like '{EKS_CLUSTER_NAME}-efs'.
+
+==== EFS File System
+
+On AWS Console, you can see the EFS File System created by Service Foundry Console.
+
+.AWS - EFS File System
+[.img-wide]
+image::aws-efs.png[]
+
+==== Mount Targets
+
+Mount Targets are created in each Availability Zone where the EKS cluster nodes are running.
+
+.AWS - EFS Mount Targets
+[.img-wide]
+image::aws-efs-mount-targets.png[]
+
+=== Creating Storage Classes in Console
+
+Once EBS and EFS CSI drivers are enabled, users can add Storage Classes directly via the UI.
+
+.Service Foundry Console - Add Storage Class
+[.img-wide]
+image::console-storage-classes-add.png[]
+
+As for EFS Storage Class, the File System Name will look like '{STORAGE_CLASS_NAME}-efs'.
+
+== Managing Persistent Volumes
+
+Service Foundry Console allows full lifecycle management of Persistent Volumes. By default, it provisions two PVs:
+
+- One for Keycloak (EBS-based)
+- One for Service Foundry's internal PostgreSQL (EBS-based)
+
+
+.Service Foundry Console - Persistent Volumes
+[.img-wide]
+image::console-persistent-volumes.png[]
+
+
+=== Creating a Persistent Volume
+
+Click 'Add Persistent Volume' and fill in:
+
+- Storage Class (EBS or EFS)
+- Volume Name
+- Size & Access Mode
+
+.Service Foundry Console - Add Persistent Volume
+[.img-wide]
+image::console-persistent-volumes-add.png[]
+
+For EFS-backed PVs, specify the File System ID and select or create an Access Point. Use the following format for volumeHandler:
+
+${fileSystemId}::${accessPointId}
+
+Root Directory looks like '/{PERSISTENT_VOLUME_NAME}'.
+
+.Service Foundry Console - Create Access Point
+[.img-wide]
+image::console-persistent-volumes-add-access-point.png[]
+
+
+The Access Point can be found in the AWS Console.
+
+.AWS - EFS Access Point
+[.img-wide]
+image::aws-access-point.png[]
+
+Click 'Create' button to create the Persistent Volume.
+
+.Service Foundry Console - Persistent Volume Created
+[.img-wide]
+image::console-persistent-volumes-updated.png[]
+
+A new Persistent Volume is created, and it is in 'Available' status.
+Click the icon in 'Claim Ref' column to create a Persistent Volume Claim.
+
+== Managing Persistent Volume Claims
+
+A PVC defines the user's request for storage. In Service Foundry Console, users can manage and bind PVCs visually.
+
+
+.Service Foundry Console - PVCs
+[.img-wide]
+image::console-persistent-volume-claims.png[]
+
+=== Creating a PVC
+
+Click 'Add Persistent Volume Claim' and provide:
+
+- PVC Name
+- Namespace
+- Select a Persistent Volume (must be 'Available')
+
+
+.Service Foundry Console - Add Persistent Volume Claim
+[.img-wide]
+image::console-persistent-volume-claims-add.png[]
+
+
+From the example above, a PVC named 'pvc-qc-postgresql' is created in 'qc' namespace, and it is bound to the Persistent Volume named 'pv-qc-postgresql'.
+
+.Service Foundry Console - Persistent Volume Claim Created
+[.img-wide]
+image::console-persistent-volume-claims-updated.png[]
+
+== Deploying PostgreSQL with PVC
+
+To install PostgreSQL via Helm with persistent storage:
+
+. Navigate to OpenSource Software in the sidebar.
+. Select PostgreSQL, then click "Install".
+. Fill in namespace, PVC, and Helm chart parameters.
+. Click "Install Application".
+
+
+
+.Service Foundry Console - OpenSource Software
+[.img-wide]
+image::console-opensource-software.png[]
+
+Click 'Install' button to open the installation form.
+
+.Service Foundry Console - Install PostgreSQL
+[.img-wide]
+image::console-opensource-software-postgresql.png[]
+
+Enter the required information in the form. Make sure to select the correct Namespace and Persistent Volume Claim.
+
+Click 'Install Application' button to install the PostgreSQL Helm chart.
+
+
+The PostgreSQL pod is created and running in the selected namespace. In Managed Applications page, you can see the PostgreSQL application is installed.
+
+.Service Foundry Console - Managed Applications
+[.img-wide]
+image::console-managed-apps-postgresql.png[]
+
+Note: EFS supports multi-AZ pod failover without data loss.
+
+== Conclusion
+
+This guide outlined how to manage Kubernetes storage resources using the Service Foundry Console. It covered configuring EBS and EFS CSI drivers, creating and managing StorageClasses, PVs, and PVCs, and deploying stateful applications like PostgreSQL with persistent storage.
+
