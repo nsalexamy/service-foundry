@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Persistent Volumes</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a></li>
+<li><a href="#create-efs">Create EFS</a></li>
+</ul>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-efs">Create EFS</h2>
+<div class="sectionbody">
+<div class="listingblock">
+<div class="content">
+<pre>EFS_ID=$(aws efs create-file-system --region $AWS_REGION --tags Key=Name,Value=${EKS_CLUSTER_NAME}-efs --query "FileSystemId" --output text)</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>GET EFS_ID</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>EFS_ID=$(aws efs describe-file-systems | yq ".FileSystems[] | select(.Tags[].Value == \"${EKS_CLUSTER_NAME}-efs\") | .FileSystemId")</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>CREATE ACCESS POINT for Postgresql</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ aws efs create-access-point --file-system-id $EFS_ID \
+  --region $AWS_REGION \
+  --root-directory "Path=/keycloak-postgresql,CreationInfo={OwnerUid=1001,OwnerGid=1001,Permissions=0770}" \
+  --tags Key=Name,Value=keycloak-postgresql-ap</pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">Get ACCESS POINT ID</div>
+<div class="content">
+<pre>$ EFS_AP_ID=$(aws efs describe-access-points --file-system-id $EFS_ID --region $AWS_REGION --query "AccessPoints[?Tags[?Value=='keycloak-postgresql-ap']].AccessPointId" --output text)</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>volumeHandle: $EFS_ID::${EFS_AP_ID}</p>
+</div>
+<div class="listingblock">
+<div class="title">keycloak-postgresql-pv.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Namespace</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">keycloak</span>
+
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolume</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pvc-979b47ad-daa2-4029-8884-88f549392299</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">capacity</span><span class="pi">:</span>
+    <span class="na">storage</span><span class="pi">:</span> <span class="s">8Gi</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteOnce</span>
+  <span class="na">persistentVolumeReclaimPolicy</span><span class="pi">:</span> <span class="s">Retain</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">efs-sc</span>
+  <span class="na">csi</span><span class="pi">:</span>
+    <span class="na">driver</span><span class="pi">:</span> <span class="s">efs.csi.aws.com</span>
+    <span class="na">volumeHandle</span><span class="pi">:</span> <span class="s">fs-08eeb428d33d85127::fsap-062473be35720bd3b</span>
+
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolumeClaim</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">data-keycloak-postgresql-0</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">keycloak</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteOnce</span>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">storage</span><span class="pi">:</span> <span class="s">8Gi</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">efs-sc</span>
+  <span class="na">volumeName</span><span class="pi">:</span> <span class="s">pvc-979b47ad-daa2-4029-8884-88f549392299</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</body>
+</html>

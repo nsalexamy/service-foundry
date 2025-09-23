@@ -1,0 +1,71 @@
+= Persistent Volumes
+
+== Overview
+
+== Create EFS
+
+----
+EFS_ID=$(aws efs create-file-system --region $AWS_REGION --tags Key=Name,Value=${EKS_CLUSTER_NAME}-efs --query "FileSystemId" --output text)
+----
+
+GET EFS_ID
+----
+EFS_ID=$(aws efs describe-file-systems | yq ".FileSystems[] | select(.Tags[].Value == \"${EKS_CLUSTER_NAME}-efs\") | .FileSystemId")
+----
+
+CREATE ACCESS POINT for Postgresql
+----
+$ aws efs create-access-point --file-system-id $EFS_ID \
+  --region $AWS_REGION \
+  --root-directory "Path=/keycloak-postgresql,CreationInfo={OwnerUid=1001,OwnerGid=1001,Permissions=0770}" \
+  --tags Key=Name,Value=keycloak-postgresql-ap
+----
+
+.Get ACCESS POINT ID
+----
+$ EFS_AP_ID=$(aws efs describe-access-points --file-system-id $EFS_ID --region $AWS_REGION --query "AccessPoints[?Tags[?Value=='keycloak-postgresql-ap']].AccessPointId" --output text)
+----
+
+
+volumeHandle: $EFS_ID::${EFS_AP_ID}
+
+.keycloak-postgresql-pv.yaml
+[source, yaml]
+----
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keycloak
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pvc-979b47ad-daa2-4029-8884-88f549392299
+spec:
+  capacity:
+    storage: 8Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: efs-sc
+  csi:
+    driver: efs.csi.aws.com
+    volumeHandle: fs-08eeb428d33d85127::fsap-062473be35720bd3b
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-keycloak-postgresql-0
+  namespace: keycloak
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 8Gi
+  storageClassName: efs-sc
+  volumeName: pvc-979b47ad-daa2-4029-8884-88f549392299
+
+----
