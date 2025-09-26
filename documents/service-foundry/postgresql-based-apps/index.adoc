@@ -1,0 +1,525 @@
+---
+layout: documents
+title: Deploying PostgreSQL-Based Applications on Kubernetes with Service Foundry
+author: Young Gyu Kim
+email: credemol@gmail.com
+summary: "This article walks through deploying PostgreSQL-based applications on Kubernetes using the Service Foundry Console. It covers end-to-end workflows from setting up persistent storage with EFS and deploying PostgreSQL, to integrating tools like pgAdmin4 and Metabase for database management and analytics. It also demonstrates how to deploy a custom Spring Boot application using Service Foundry’s Enterprise Applications interface. The result is a complete GitOps-enabled environment for managing and interacting with PostgreSQL workloads on Kubernetes."
+tags: "#Kubernetes #PostgreSQL #GitOps #DevOps #ServiceFoundry #CloudNative #SpringBoot #Metabase #pgAdmin #OpenSource #EKS #DataEngineering #InfrastructureAsCode #Helm #OSS"
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Service Foundry
+    url: /documents/service-foundry/
+---
+
+= Deploying PostgreSQL-Based Applications on Kubernetes with Service Foundry
+
+:imagesdir: images
+
+[.img-wide]
+image::postgresql-based-apps.png[]
+
+== Introduction
+
+This guide walks you through the process of deploying PostgreSQL-based applications on a Kubernetes cluster using the Service Foundry Console. It includes setting up a persistent PostgreSQL database, provisioning storage, and deploying applications that interact with the database.
+
+The following applications will be deployed as part of this example:
+
+	•	*pgAdmin4* – A web-based administration tool for managing PostgreSQL databases.
+	•	*Metabase* – An open-source business intelligence platform that connects to PostgreSQL for data exploration and dashboarding.
+	•	*Spring Boot Application* – A sample Java application that connects to the PostgreSQL database for data persistence.
+
+Both *pgAdmin4* and *Metabase* can be installed from the OpenSource Software Catalog provided by Service Foundry. The Spring Boot application is deployed using the Enterprise Applications section of the console.
+
+== Deploying PostgreSQL on Kubernetes
+
+In the previous article, we configured an EKS cluster with Amazon EFS for persistent storage and deployed a PostgreSQL instance using the Service Foundry Console.
+
+- https://www.linkedin.com/pulse/kubernetes-storage-management-service-foundry-console-young-gyu-kim-heq0c/[Kubernetes Storage Management with Service Foundry Console - LinkedIn Article]
+- https://nsalexamy.github.io/service-foundry/pages/documents/service-foundry/persistent-volumes/[Kubernetes Persistent Volumes with Service Foundry - Service Foundry Documentation]
+
+== Deploying pgAdmin4 and Metabase via the OpenSource Software Catalog
+
+Service Foundry Console simplifies the deployment of well-known open-source applications through its integrated OpenSource Software Catalog (OSS-Catalog). Users can deploy pre-configured tools like pgAdmin4 and Metabase with just a few clicks, making it easier to manage and visualize PostgreSQL data.
+
+
+=== Deploy pgAdmin4
+
+pgAdmin4 is a widely used web-based administration tool for managing PostgreSQL databases. To deploy pgAdmin4 using the OSS-Catalog in Service Foundry Console, follow these steps:
+
+. Log in to the Service Foundry Console.
+. Navigate to the *OpenSource Software* section in the left-hand menu.
+. Search for *pgAdmin4* in the Catalog.
+. Click on *Install* button on *pgAdmin4* application card.
+. Fill out the required fields in the installing form.
+. Click *Install Application* to initiate deployment.
+
+Once deployed, pgAdmin4 will be available in the specified namespace, fully integrated with your PostgreSQL service.
+
+.Service Foundry Console - Deploy pgAdmin4
+[.img-wide]
+image::console-oss-pgadmin4.png[]
+
+Select 'pgAdmin4' from the OSS-Catalog and click 'Install'.
+
+.Service Foundry Console - pgAdmin4 Configuration
+[.img-wide]
+image::console-oss-pgadmin4-install.png[]
+
+Fill out the required fields for pgAdmin4 installation. The YAML configuration is updated automatically based on the input fields.
+
+Here is the sample YAML configuration for pgAdmin4:
+
+.pgadmin4 Installation Configuration
+[source,yaml]
+----
+pgadmin4:
+  chartName: pgadmin4
+  repoUrl: https://helm.runix.net
+  version: 1.50.0
+  namespace: qc
+  releaseName: pgadmin4
+  replicaCount: 1
+  imageRegistry: ""
+  imageRepository: ""
+  imageTag: ""
+  imagePullPolicy: IfNotPresent
+  serviceType: ClusterIP
+  email: admin@nsa2.com
+  password: changeit
+  existingClaim: ""
+  ingressHost: pgadmin4.nsa2.com
+----
+
+During the installation process, you’ll be asked to provide the following configuration details:
+
+- *namespace*: The Kubernetes namespace where pgAdmin4 will be deployed.
+- *email*: The administrator email address used to log in to the pgAdmin4 interface.
+- *password*: The password associated with the admin email for secure access.
+- *ingressHost*: The domain or subdomain through which pgAdmin4 will be accessed via Kubernetes Ingress.
+- *existingClaim*: If you already have a Persistent Volume Claim (PVC) you wish to reuse, specify it here. Otherwise, leave this field blank to let the system create a new PVC automatically.
+
+Since pgAdmin4 is a web-based application, it requires an Ingress resource to enable external access. Before proceeding, ensure that an Ingress controller is properly installed and configured in your Kubernetes cluster.
+
+Once you’ve completed the configuration fields, click the *Install Application* button to begin the deployment.
+
+You can monitor the installation status and view deployment progress in the *Managed Applications* section of the Service Foundry Console.
+
+.Service Foundry Console - Managed Applications - pgAdmin4
+[.img-wide]
+image::console-managed-apps-pgadmin4.png[]
+
+Once the installation is complete, you can access pgAdmin4 through the configured Ingress host (e.g., http://pgadmin4.nsa2.com). Use the email and password you specified during installation to log in.
+
+NOTE: Ensure your DNS records are correctly configured so that the Ingress host resolves to the IP address of your cluster’s Ingress controller. This step is essential for enabling external access to the pgAdmin4 web interface.
+
+.pgAdmin4 Login Page
+[.img-wide]
+image::pgadmin4-login.png[]
+
+Use the email and password you provided during the installation to log in.
+
+==== Registering the PostgreSQL Server in pgAdmin4
+
+After logging in to pgAdmin4, the next step is to register your PostgreSQL server so you can manage and interact with it directly through the pgAdmin4 interface.
+
+.pgAdmin4 - Register PostgreSQL Server
+[.img-wide]
+image::pgadmin4-register-server.png[]
+
+.pgAdmin4 - New Server Registration
+[.img-wide]
+image::pgadmin4-new-connection.png[]
+
+===== PostgreSQL Server Registration Details
+
+To connect pgAdmin4 to your PostgreSQL instance, fill in the following details:
+
+- Host name/address: Enter the service name of your PostgreSQL deployment (e.g., postgresql.{namespace}).
+- Port: The port PostgreSQL is running on, typically 5432.
+- Maintenance database: The initial database to connect to, such as postgres.
+- Username: Your PostgreSQL username (e.g., postgres).
+- Password: The corresponding password for the specified user.
+
+Once all fields are completed, click the *Save* button to register the PostgreSQL server and begin managing it through the pgAdmin4 interface.
+
+.pgAdmin4 - PostgreSQL Server Registered
+[.img-wide]
+image::pgadmin4-dashboard.png[]
+
+==== Summary
+
+In this section, we successfully deployed pgAdmin4 through the OSS-Catalog in the Service Foundry Console and connected it to our PostgreSQL server. With pgAdmin4 now up and running, you can easily manage your PostgreSQL databases, execute SQL queries, monitor performance, and perform routine administrative tasks—all through a user-friendly web interface.
+
+=== Deploying Metabase
+
+Metabase is an open-source business intelligence platform that enables users to explore, visualize, and analyze data stored in PostgreSQL and other databases.
+
+To deploy Metabase using the OSS-Catalog in the Service Foundry Console, follow these steps:
+
+. Log in to the Service Foundry Console.
+. Go to the *OpenSource Software* section.
+. Search for *Metabase* in the OSS-Catalog.
+. Click the *Install* button on *Metabase* card.
+. Complete the installation form with the required configuration.
+. Click *Install Application* to deploy Metabase to your cluster.
+
+.Service Foundry Console - Deploy Metabase
+[.img-wide]
+image::console-oss-metabase.png[]
+
+Select 'Metabase' from the OSS-Catalog and click 'Install'.
+
+.Service Foundry Console - Metabase Configuration
+[.img-wide]
+image::console-oss-metabase-install.png[]
+
+==== Configuring Metabase Installation
+
+To deploy Metabase using the OSS-Catalog in the Service Foundry Console, you’ll need to complete a few key configuration fields. As you enter values in the form, the corresponding YAML configuration is automatically updated to reflect your inputs.
+
+===== Required Configuration Fields
+
+- *namespace*: The Kubernetes namespace where Metabase will be deployed.
+- *existingClaim*: If you already have a Persistent Volume Claim (PVC), specify its name here. If left blank, a new PVC will be created automatically.
+- *ingressHost*: The hostname used to access Metabase via an Ingress controller (e.g., metabase.nsa2.com).
+
+You can leave all other fields at their default values.
+
+===== Sample YAML Configuration
+
+Below is an example of the auto-generated YAML configuration based on user input:
+
+.Metabase Installation Configuration
+[source,yaml]
+----
+metabase:
+  chartName: metabase
+  repoUrl: ""
+  version: v0.56.7
+  namespace: qc
+  releaseName: metabase
+  replicaCount: 1
+  imageRegistry: ""
+  imageRepository: metabase/metabase
+  imageTag: v0.56.7
+  imagePullPolicy: IfNotPresent
+  serviceType: ClusterIP
+  existingClaim: ""
+  ingressHost: metabase.nsa2.com
+----
+
+Once the required fields are filled out, click the *Install Application* button to begin deployment.
+
+You can track the deployment progress from the *Managed Applications* section within the Service Foundry Console. Once the installation completes, Metabase will be available at the specified ingress host.
+
+.Service Foundry Console - Managed Applications - Metabase
+[.img-wide]
+image::console-managed-apps-metabase.png[]
+
+After the installation is complete, you can access Metabase using the Ingress host you configured—for example, http://metabase.nsa2.com. On your first visit, Metabase will prompt you to create an admin account to complete the initial setup.
+
+==== Setting Up Admin Account in Metabase
+
+When you access Metabase for the first time, you’ll be guided through a brief setup process where you’ll define an administrator account. This includes providing your name, email address, and a secure password. Once completed, you’ll gain access to the Metabase dashboard, where you can begin connecting data sources, building dashboards, and exploring insights.
+
+.Metabase - Admin Account Setup
+[.img-wide]
+image::metabase-setup-1.png[]
+
+Click on the *Let's get started* button to proceed.
+
+// .Metabase - Create Admin Account
+// [.img-wide]
+// image::metabase-setup-2.png[]
+
+Select your preferred language and click *Next*.
+
+.Metabase - Admin Account Creation
+[.img-wide]
+image::metabase-setup-3.png[]
+
+Fill in the admin account details and click *Next*.
+
+.Metabase - Admin Account Created
+[.img-wide]
+image::metabase-setup-4.png[]
+
+Answer the questions about your plans with Metabase and click *Next*.
+
+.Metabase - Database Connection Setup
+[.img-wide]
+image::metabase-setup-5.png[]
+
+Select *PostgreSQL* as the database type to connect to your PostgreSQL database.
+
+Key fields to fill in:
+
+- Connection string(optional): JDBC connection string (e.g., `jdbc:postgresql://postgresql.qc:5432/postgres`).
+- Host: The service name of your PostgreSQL deployment (e.g., `postgresql.{namespace}`).
+- Port: The port number on which PostgreSQL is running (default is `5432`).
+- Database name: The name of the database to connect to (e.g., `postgres`).
+- Database username: The PostgreSQL username (e.g., `postgres`).
+- Database password: The password for the PostgreSQL user.
+
+After filling in the details, click on the *Connect database* button to proceed.
+
+.Metabase - Database Connected
+[.img-wide]
+image::metabase-setup-6.png[]
+
+Once the database connection is successful, you can click on the *Finish* button to complete the setup and then Click on the *Take me to Metabase* button to access the Metabase dashboard.
+
+.Metabase - Welcome to Metabase
+[.img-wide]
+image::metabase-welcome.png[]
+
+You have successfully deployed Metabase using OSS-Catalog in Service Foundry Console and connected it to your PostgreSQL database. You can now use Metabase to create dashboards, run queries, and analyze your data.
+
+.Metabase Databases
+[.img-wide]
+image::metabase-databases.png[]
+
+The PostgreSQL database is connected successfully.
+
+.Metabase Visualization
+[.img-wide]
+image::metabase-visualization.png[]
+
+You can create various visualizations and dashboards using Metabase.
+
+==== Summary
+
+In this section, we successfully deployed Metabase using the OSS-Catalog feature in the Service Foundry Console and connected it to our PostgreSQL database. With Metabase up and running, you can now build interactive dashboards, run SQL or no-code queries, and analyze your PostgreSQL data visually—making it easier to extract insights and share them with your team.
+
+== Deploying Spring Boot Application Using Enterprise Applications
+
+Beyond deploying tools like pgAdmin4 and Metabase, you can also deploy custom applications—such as a Spring Boot microservice that connects to a PostgreSQL database—using the Enterprise Applications feature in the Service Foundry Console.
+
+=== Deploy a Sample Spring Boot Application
+
+To deploy a Spring Boot application through the Enterprise Applications section, the container image must first be available in a container registry, such as Docker Hub or Amazon ECR.
+
+In this example, we’ll use a pre-built Spring Boot application image that has already been published to Amazon ECR. This application is configured to connect to the PostgreSQL database and demonstrate basic integration with persistent storage and backend services.
+
+.AWS ECR - Spring Boot Application Image
+[.img-wide]
+image::aws-ecr.png[]
+
+Go to the *Enterprise Applications* section in Service Foundry Console and click on the *Add New Application* button.
+
+.Service Foundry Console - Deploy Enterprise Application
+[.img-wide]
+image::console-enterprise-apps.png[]
+
+=== Configure the Spring Boot Application
+
+To deploy the Spring Boot application, fill in the required fields in the deployment form.
+
+.Service Foundry Console - New Enterprise Application
+[.img-wide]
+image::console-enterprise-apps-new-1.png[]
+
+==== Key configuration fields
+
+- *namespace*: The Kubernetes namespace where the application will be deployed.
+- *applicationName*: A unique name for your Spring Boot application.
+- *containerRegistry*: The registry where your container image is hosted (e.g., aws for Amazon ECR).
+- *repository*: The image repository path (e.g., nsalexamy/spring-boot-postgresql).
+- *tag*: ThThe image tag or version (e.g., v1.0.0).
+- *replicaCount*: The desired number of pod replicas (e.g., 1).
+- *serviceType*: The type of Kubernetes service to expose the application (e.g., `LoadBalancer`).
+- *containerPort*: The port your Spring Boot application listens on (typically 8080).
+- *ingressHost*: The hostname to access your application via Ingress.
+
+==== Customize Kubernetes Manifests
+
+Manifest files are automatically generated based on the form inputs. However, you can further customize them before deployment. In this example, we’ll include a ConfigMap to define application-specific properties for the Spring Boot service.
+
+.Service Foundry Console - New Enterprise Application - Manifest
+[.img-wide]
+image::console-enterprise-apps-new-files.png[]
+
+==== Add manifest files
+
+After specifying the deployment details, the next step is to define the Kubernetes manifest files required for deploying the application. In this example, we’ll include five key resources:
+
+- Deployment
+- Service
+- ConfigMap
+- Secret
+- Ingress
+
+These files will be automatically applied during the application installation.
+
+.Service Foundry Console - New Enterprise Application - Files Added
+[.img-wide]
+image::console-enterprise-apps-files-added.png[]
+
+.deployment.yaml
+[source,yaml]
+----
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql-example
+  labels:
+    provider: service-foundry
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgresql-example
+  template:
+    metadata:
+      labels:
+        app: postgresql-example
+    spec:
+      containers:
+        - name: postgresql-example
+          image: 445567090745.dkr.ecr.ca-central-1.amazonaws.com/postgresql-example:0.1.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: postgresql-example-configmap
+                optional: true
+            - secretRef:
+                name: postgresql-example-secret
+                optional: true
+----
+
+.service.yaml
+[source,yaml]
+----
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql-example
+  labels:
+    provider: service-foundry
+spec:
+  type: ClusterIP  # ClusterIP, NodePort, or LoadBalancer
+  #  type: LoadBalancer
+  ports:
+    - port: 8080
+  selector:
+    app: postgresql-example
+----
+
+.configmap.yaml
+[source,yaml]
+----
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgresql-example-configmap
+  labels:
+    provider: service-foundry
+data:
+  DB_URL: jdbc:postgresql://postgresql.service-foundry:5432/examples
+----
+
+.secret.yaml
+[source,yaml]
+----
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgresql-example-secret
+  labels:
+    provider: service-foundry
+data:
+  DB_USERNAME: bnNhMg==
+  DB_PASSWORD: Y2hhbmdlaXQ=
+----
+
+.ingress.yaml
+[source,yaml]
+----
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: postgresql-example-ingress
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: "postgresql-example.nsa2.com"
+      http:
+        paths:
+          - backend:
+              service:
+                name: postgresql-example
+                port:
+                  number: 8080
+                  #name: http
+                  #cannot set both port name & port number
+            path: /
+            pathType: Prefix
+----
+
+.kustomiation.yaml
+[source,yaml]
+----
+namespace: qc
+resources:
+ - postgresql-example-deployment.yaml
+ - postgresql-example-service.yaml
+ - postgresql-example-configmap.yaml
+ - postgresql-example-secret.yaml
+ - postgresql-example-ingress.yaml
+----
+
+Once all manifest files are added and validated, click the *Install Application* button to complete the deployment. Service Foundry Console will apply the configuration and manage the lifecycle of the application for you.
+
+
+.Service Foundry Console - New Enterprise Application - Added
+[.img-wide]
+image::console-enterprise-apps-installed.png[]
+
+Now you can access the Spring Boot application using the specified ingress host (e.g., http://postgresql-example.nsa2.com).
+
+Here is Swagger UI of the Spring Boot application:
+
+.Spring Boot Application - Swagger UI
+[.img-wide]
+image::swagger-user-controller.png[]
+
+Click 'Execute' button to call the API.
+
+Then you can see the response from the PostgreSQL database.
+
+.Spring Boot Application - API Response
+[.img-wide]
+image::swagger-user-controller-response.png[]
+
+=== Summary: Deploying a Spring Boot Application with PostgreSQL on Service Foundry Console
+
+In this section, we walked through deploying a Spring Boot application that connects to a PostgreSQL database using the Enterprise Applications feature in the Service Foundry Console. The process begins by specifying the necessary configuration details such as namespace, container registry, image repository, port, and ingress hostname. Once these are provided, the Console automatically generates base Kubernetes manifests.
+
+To ensure proper environment setup, additional manifests were manually added, including:
+
+•	A *Deployment* definition with environment variables sourced from a ConfigMap and Secret.
+•	A *Service* to expose the application internally within the cluster.
+•	A *ConfigMap* storing the JDBC connection string to the PostgreSQL database.
+•	A *Secret* containing base64-encoded credentials for database access.
+•	An *Ingress* resource for routing external traffic to the application using a custom domain.
+•	A *Kustomization* file to organize and deploy all the resources under a single namespace.
+
+After assembling these components, the application is ready to be installed through the Console interface. This section demonstrates how the Enterprise Applications module in Service Foundry streamlines deploying production-ready, database-connected microservices with full Kubernetes manifest control.
+
+== Conclusion
+
+In this guide, we demonstrated how to deploy and manage PostgreSQL-based applications on a Kubernetes cluster using the Service Foundry Console. We covered the full process—from provisioning persistent storage with EFS and installing PostgreSQL, to deploying powerful supporting tools like *pgAdmin4* for database administration and *Metabase* for data analytics via the OSS-Catalog. We also showcased how to deploy a custom *Spring Boot application* using the Enterprise Applications module, complete with configuration files and Ingress setup.
+
+Together, these tools offer a complete, Kubernetes-native workflow for managing, visualizing, and integrating with PostgreSQL databases. Whether you’re operating in development or production environments, Service Foundry provides a seamless experience for deploying stateful workloads with GitOps best practices.
+
+You are now equipped to manage PostgreSQL storage, connect business tools, and deploy your own data-driven applications—all from a single, streamlined interface.
+
+📘 View the web version:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/service-foundry/postgresql-based-apps/[Deploying PostgreSQL-Based Applications on Kubernetes with Service Foundry - Service Foundry Documentation]
