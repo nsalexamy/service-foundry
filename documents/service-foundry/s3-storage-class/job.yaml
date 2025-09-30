@@ -1,0 +1,46 @@
+# generate Kubernetes Job to copy files from one S3 bucket to another
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nyc-open-data-loader-job
+  namespace: qc
+
+spec:
+  template:
+    spec:
+#      serviceAccountName: nyc-open-data-loader
+      containers:
+      - name: nyc-open-data-loader
+        image: credemol/nyc-open-data-loader:0.1.0
+        imagePullPolicy: Always
+
+        volumeMounts:
+          - name: nyc-open-data
+            mountPath: /data
+
+        env:
+          - name: SOURCE_DATA_DIR
+            value: /data/yellow-trip-data
+          - name: TARGET_TABLE_NAME
+            value: yellow_taxi_trips
+          - name: SLEEP_TIME
+            value: "0"
+        envFrom:
+          - secretRef:
+              name: nyc-open-data-secret
+              optional: true
+
+      restartPolicy: OnFailure # OnFailure or Never
+
+      volumes:
+        - name: nyc-open-data
+          persistentVolumeClaim:
+            claimName: pvc-nyc-open-data
+
+      # restart counts the number of times the container has been restarted
+      # if the container fails and restarts more than backoffLimit times, the job is marked as failed
+      # backoffLimit is the number of retries before marking the job as failed
+      # default is 6, set to 4 here
+
+
+  backoffLimit: 4

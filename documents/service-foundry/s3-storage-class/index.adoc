@@ -1,0 +1,481 @@
+---
+layout: documents
+title: AWS S3 Storage Class for Data Analytics in Kubernetes
+author: Young Gyu Kim
+email: credemol@gmail.com
+summary: "In this article, I walk through how to configure AWS S3 as a Kubernetes-native storage backend using the S3 CSI driver and manage analytics workloads through the Service Foundry Console. We explore how to set up S3-backed StorageClasses, PersistentVolumes, and PersistentVolumeClaims, and deploy a Python job that loads NYC taxi data stored as Parquet files into PostgreSQL. By leveraging Kubernetes-native storage integration, this approach simplifies data workflows while enabling GitOps-friendly management of cloud-hosted datasets. It’s a powerful foundation for scalable and cloud-native data analytics pipelines running on Kubernetes."
+tags: "#Kubernetes #AWS #S3 #DataEngineering #GitOps #ServiceFoundry #CloudComputing #PostgreSQL #DataAnalytics #OpenSource #CSI #PersistentStorage #DevOps"
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Service Foundry
+    url: /documents/service-foundry/
+
+---
+
+= AWS S3 Storage Class for Data Analytics in Kubernetes
+
+
+:imagesdir: images
+
+[.img-wide]
+image::using-s3-pvc.png[]
+
+== Introduction
+
+*Service Foundry* is a comprehensive Kubernetes-native deployment and management solution that enables users to provision infrastructure, deploy applications, and manage storage and GitOps workflows—all through an intuitive web console, without needing to run any command-line tools.
+
+This guide demonstrates how to integrate Amazon S3 as a persistent storage solution within a Kubernetes environment using the S3 CSI (Container Storage Interface) driver. You’ll learn how to install the S3 CSI driver, create a StorageClass, PersistentVolume (PV), and PersistentVolumeClaim (PVC), and use these to run a Python job that loads Parquet files from S3 into a PostgreSQL database.
+
+
+=== Use Case Scenario
+
+1.	Upload NYC Open Data into an S3 bucket under the nyc-open-data/ prefix.
+2.	Enable the S3 CSI Driver and define an S3-backed StorageClass.
+3.	Create a Persistent Volume referencing the S3 bucket and prefix.
+4.	Create a Persistent Volume Claim to bind to the Persistent Volume.
+5.	Deploy a Python job that extracts data from S3 and loads it into PostgreSQL.
+
+== Why Use S3 with CSI Driver Instead of S3 Client Libraries?
+
+Using the S3 CSI driver offers several advantages over directly using S3 client libraries in your application code:
+
+
+ - *Kubernetes-Native Integration*: Treat S3 as a standard volume using Kubernetes-native constructs like PVCs and PVs.
+ - *Simplified Codebase*: Application code can interact with local file paths, avoiding the need for S3-specific APIs.
+ - *Dynamic Provisioning*: PVCs can request dynamic volumes using a predefined StorageClass.
+ - *Persistent Storage*: Data remains accessible even after pods are deleted or restarted.
+ - *Security & Access Control*: Leverage Kubernetes RBAC and IAM roles for secure access to S3.
+ - *Unified Storage Management*: Manage cloud storage centrally via Kubernetes tooling and dashboards.
+
+
+
+
+== Installing the S3 CSI Driver
+
+You can install the S3 CSI Driver manually or through the Service Foundry Console, which automates the process.
+
+=== Enabling S3 CSI Driver in Service Foundry
+
+Navigate to:
+
+*Service Foundry Console → Storage & Volumes → Storage Classes → Enable S3 CSI Driver*
+
+.Service Foundry Console - Enable S3 CSI Driver
+[.img-wide]
+image::console-storage-classes.png[]
+
+This action performs the following:
+
+•	Creates an S3 bucket if not already present.
+•	Generates an IAM Policy and IAM Role for S3 access.
+•	Assigns the IAM Role to EKS node groups.
+•	Installs the CSI driver and creates a s3-sc StorageClass.
+
+
+Once complete, you should see the s3-sc StorageClass available:
+
+.Service Foundry Console - S3 Storage Class Created
+[.img-wide]
+image::console-storage-classes-s3-sc.png[]
+
+
+
+.StorageClass Manifest (s3-sc.yaml)
+[source,yaml]
+----
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+  name: s3-sc
+parameters:
+  bucketName: your-s3-bucket
+provisioner: s3.csi.aws.com
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+----
+
+== Creating Persistent Volume and Claim
+
+=== 1. Persistent Volume (PV)
+
+Create a PV that uses s3-sc and points to your S3 bucket and a specific prefix.
+
+
+.Service Foundry Console - Add Persistent Volume using S3 Storage Class
+[.img-wide]
+image::console-pv-add.png[]
+
+New Persistent Volume can be seen in the list.
+
+.Service Foundry Console - New Persistent Volume Claim Added
+[.img-wide]
+image::console-pv-added.png[]
+
+To create a Persistent Volume Claim (PVC) to use the Persistent Volume, click Add Icon on the Claim Ref column. This icon is only available if the PV is not yet claimed.
+
+The Persistent Volume manifest looks like below.
+
+.pv-nyc-open-data.yaml
+[source,yaml]
+----
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-nyc-open-data
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: s3-cs
+  csi:
+    driver: s3.csi.aws.com
+    volumeHandle: your-s3-bucket-nyc-open-data # A unique name for the PV - bucket-name + prefix
+    volumeAttributes:
+      bucketName: your-s3-bucket
+  mountOptions:
+    - 'prefix=nyc-open-data/'
+----
+
+Note that the prefix is specified in the mountOptions. This means that only objects under the 'nyc-open-data/' prefix in the S3 bucket will be accessible through this PV.
+
+
+=== 2. Persistent Volume Claim (PVC)
+
+Create a PVC to bind to the PV created above.
+
+.Service Foundry Console - Add Persistent Volume Claim
+[.img-wide]
+image::console-pvc-add.png[]
+
+Fill out the form and click 'Add' button.
+
+* PVC Name: pvc-nyc-open-data
+* Namespace: qc
+
+.Service Foundry Console - New Persistent Volume Claim Added
+[.img-wide]
+image::console-pvc-added.png[]
+
+The Persistent Volume Claim manifest looks like below.
+
+.pvc-nyc-open-data.yaml
+[source,yaml]
+----
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-nyc-open-data
+  namespace: qc
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: s3-sc
+  volumeMode: Filesystem
+  volumeName: pv-nyc-open-data
+----
+
+== S3 Bucket and Data
+
+The S3 bucket created by the S3 CSI Driver can be found in the AWS Console.
+
+.AWS Console - S3 Bucket
+[.img-wide]
+image::aws-s3-bucket.png[]
+
+Create a folder named `nyc-open-data` in the bucket and upload Parquet files from NYC Open Data.
+
+// == S3 Bucket, Storage Class, Persistent Volume, and Persistent Volume Claim
+//
+// * S3 Bucket: Storage Class (Storage Class: s3-sc, Bucket Name: ${ACCOUNT_ID}-${EKS_CLUSTER_NAME}-s3-bucket)
+// * S3 Bucket + Prefix: Persistent Volume ($ACCOUNT_ID}-${EKS_CLUSTER_NAME}-s3-bucket, nyc-open-data/)
+
+== Sample Python Data Loader
+
+The sample app reads Parquet files from the mounted PVC and loads them into PostgreSQL.
+
+
+=== Main Components
+
+
+ - main.py: Reads Parquet and inserts into Postgres.
+ - Dockerfile: Builds the container.
+ - requirements.txt: Lists dependencies.
+
+
+=== main.py
+
+.main.py
+[source,python]
+----
+import os
+import glob
+import pandas as pd
+from sqlalchemy import create_engine
+from dotenv import load_dotenv
+
+print(" 🔍 Initializing data loader...")
+
+# Load environment variables from .env file
+load_dotenv()
+
+# PostgreSQL connection string from .env
+postgres_url = os.getenv("POSTGRES_URL")
+engine = create_engine(postgres_url)
+
+# Path to your parquet files directory
+data_dir = os.getenv("SOURCE_DATA_DIR", "data/")
+table_name = os.getenv("TARGET_TABLE_NAME", "yellow_taxi_trips")
+
+print(" 🚀 Starting data load process...")
+print(" 📂 Source Data directory: ", data_dir)
+print(" 🗄️ Target table name: ", table_name)
+
+
+# Get list of all .parquet files in the data/ directory
+parquet_files = glob.glob(os.path.join(data_dir, "*.parquet"))
+
+if not parquet_files:
+    print("⚠️ No Parquet files found in the {data_dir} directory.")
+    exit(0)
+    # exit(1)
+
+# Load and insert each file
+for i, file_path in enumerate(sorted(parquet_files)):
+    print(f"📦 Loading file {i+1}/{len(parquet_files)}: {file_path}")
+    try:
+        df = pd.read_parquet(file_path)
+        df.to_sql(table_name, engine, if_exists="append" if i > 0 else "replace", index=False)
+        print(f"✅ Loaded {len(df)} rows from {os.path.basename(file_path)}")
+    except Exception as e:
+        print(f"❌ Error loading {file_path}: {e}")
+
+print("🎉 All files processed.")
+----
+
+NOTE: One key benefit of using the PVC is that you don't need to include S3 access logic in your application code. The S3 CSI Driver handles the interaction with S3, allowing your application to work with the data as if it were stored on a local filesystem.
+
+=== requirements.txt
+
+All the Python dependencies required for the application are listed in the requirements.txt file.
+
+.requirements.txt
+[source]
+----
+pandas
+pyarrow
+sqlalchemy
+psycopg2-binary
+python-dotenv
+----
+
+
+=== Dockerfile
+
+This Dockerfile sets up the Python environment and installs the required dependencies.
+
+.Dockerfile
+[source,dockerfile]
+----
+FROM python:3.11.4
+
+WORKDIR /usr/src/app
+
+RUN pip install --upgrade pip
+RUN python -m venv venv
+RUN . venv/bin/activate
+
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY main.py ./
+COPY .env ./
+
+CMD [ "python3", "-u", "main.py" ]
+----
+
+Push the image to a container registry (e.g., credemol/nyc-open-data-loader:0.1.0).
+
+== Deploying the Data Loader to Kubernetes
+
+Use the *Service Foundry Console → Enterprise Applications → Add Application* to deploy.
+
+
+.Service Foundry Console - Add Enterprise Application
+[.img-wide]
+image::console-enterprise-apps-add.png[]
+
+Fill in.
+
+- Application Name: nyc-open-data-loader
+- Namespace: qc
+- Image Registry: docker.io
+- Image Repository: credemol/nyc-open-data-loader
+- Image Tag: 0.1.0
+
+=== Add a Job Resource
+
+Click '*Add Resource*' button to select 'Job' resource type.
+
+.Service Foundry Console - Add Job Resource
+[.img-wide]
+image::console-enterprise-apps-add-job.png[]
+
+Kubernetes Job manifest is provided based on the Application Common Properties. You can modify the manifest as needed.
+
+=== Kubernetes Job Manifest
+
+The following is the Kubernetes Job manifest to deploy the Python application using the PVC.
+
+.job.yaml
+[source,yaml]
+----
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nyc-open-data-loader-job
+  namespace: qc
+
+spec:
+  template:
+    spec:
+      containers:
+      - name: nyc-open-data-loader
+        image: credemol/nyc-open-data-loader:0.1.0
+        imagePullPolicy: Always
+
+        volumeMounts:
+          - name: nyc-open-data
+            mountPath: /data
+
+        env:
+          - name: SOURCE_DATA_DIR
+            value: /data/yellow-trip-data
+          - name: TARGET_TABLE_NAME
+            value: yellow_taxi_trips
+        envFrom:
+          - secretRef:
+              name: nyc-open-data-secret
+              optional: true
+
+      restartPolicy: OnFailure # OnFailure or Never
+
+      volumes:
+        - name: nyc-open-data
+          persistentVolumeClaim:
+            claimName: pvc-nyc-open-data
+
+  backoffLimit: 4
+----
+
+There are two environment variables defined in the manifest:
+
+- *SOURCE_DATA_DIR*: The directory where the Parquet files are located (mounted from the PVC).
+- *TARGET_TABLE_NAME*: The name of the PostgreSQL table to insert the data into.
+
+
+
+=== Create a Secret containing PostgreSQL Connection String
+
+The PostgreSQL connection string is provided via a Kubernetes Secret named `nyc-open-data-secret`. You need to create this secret in the `qc` namespace with the following key-value pair:
+
+- Key: POSTGRES_URL
+- Value: The PostgreSQL connection string in the format `postgresql://username:password@host:port/database`
+
+Click 'Add Resource' button to select 'Secret' resource type.
+
+.secret.yaml
+[source,yaml]
+----
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nyc-open-data-secret
+  namespace: qc
+  labels:
+    provider: service-foundry
+data:
+  POSTGRES_URL: {base64-encoded-postgres-connection-string}
+----
+
+Once the application and resources are added, the kustomization manifest is generated and looks like below.
+
+.kustomization.yaml
+[source,yaml]
+----
+namespace: qc
+resources:
+ - nyc-open-data-loader-job.yaml
+ - nyc-open-data-loader-secret.yaml
+----
+
+Click 'Deploy Application' button to deploy the application.
+
+=== Job Output Example
+
+
+.Sample Logs
+[source,text]
+----
+ 🔍 Initializing data loader...
+ 🚀 Starting data load process...
+ 📂 Source Data directory:  /data/yellow-trip-data
+ 🗄️ Target table name:  yellow_taxi_trips
+📦 Loading file 1/12: /data/yellow-trip-data/yellow_tripdata_2024-01.parquet
+✅ Loaded 2964624 rows from yellow_tripdata_2024-01.parquet
+📦 Loading file 2/12: /data/yellow-trip-data/yellow_tripdata_2024-02.parquet
+✅ Loaded 3007526 rows from yellow_tripdata_2024-02.parquet
+📦 Loading file 3/12: /data/yellow-trip-data/yellow_tripdata_2024-03.parquet
+✅ Loaded 3582628 rows from yellow_tripdata_2024-03.parquet
+📦 Loading file 4/12: /data/yellow-trip-data/yellow_tripdata_2024-04.parquet
+✅ Loaded 3514289 rows from yellow_tripdata_2024-04.parquet
+📦 Loading file 5/12: /data/yellow-trip-data/yellow_tripdata_2024-05.parquet
+✅ Loaded 3723833 rows from yellow_tripdata_2024-05.parquet
+📦 Loading file 6/12: /data/yellow-trip-data/yellow_tripdata_2024-06.parquet
+✅ Loaded 3539193 rows from yellow_tripdata_2024-06.parquet
+📦 Loading file 7/12: /data/yellow-trip-data/yellow_tripdata_2024-07.parquet
+✅ Loaded 3076903 rows from yellow_tripdata_2024-07.parquet
+📦 Loading file 8/12: /data/yellow-trip-data/yellow_tripdata_2024-08.parquet
+✅ Loaded 2979183 rows from yellow_tripdata_2024-08.parquet
+📦 Loading file 9/12: /data/yellow-trip-data/yellow_tripdata_2024-09.parquet
+✅ Loaded 3633030 rows from yellow_tripdata_2024-09.parquet
+📦 Loading file 10/12: /data/yellow-trip-data/yellow_tripdata_2024-10.parquet
+✅ Loaded 3833771 rows from yellow_tripdata_2024-10.parquet
+📦 Loading file 11/12: /data/yellow-trip-data/yellow_tripdata_2024-11.parquet
+✅ Loaded 3646369 rows from yellow_tripdata_2024-11.parquet
+📦 Loading file 12/12: /data/yellow-trip-data/yellow_tripdata_2024-12.parquet
+✅ Loaded 3668371 rows from yellow_tripdata_2024-12.parquet
+🎉 All files processed.
+----
+
+
+
+.Query in PostgreSQL
+[source,sql]
+----
+select count(*) from yellow_taxi_trips;
+----
+Total Rows: 41,169,720
+
+.pgAdmin4 Query Result
+[.img-medium]
+image::pgadmin4-query-count.png[]
+
+== Conclusion
+
+This guide showcased how to configure AWS S3 as a native storage backend in Kubernetes using the S3 CSI driver and how to build and deploy a Python application that loads large-scale analytics data into PostgreSQL. With this setup, you can now manage, process, and analyze cloud-hosted data in a Kubernetes-native and GitOps-friendly way using Service Foundry Console.
+
+
+== Resources
+
+- https://github.com/awslabs/mountpoint-s3-csi-driver/blob/main/docs/INSTALL.md
