@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AWS S3 Storage Class for Service Foundry</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a>
+<ul class="sectlevel2">
+<li><a href="#use-case-scenario">Use Case Scenario</a></li>
+</ul>
+</li>
+<li><a href="#benefits-of-using-s3-for-storage-in-kubernetes-compared-to-s3-client-libraries">Benefits of Using S3 for Storage in Kubernetes compared to S3 client libraries</a></li>
+<li><a href="#install-the-s3-csi-driver">Install the S3 CSI Driver</a>
+<ul class="sectlevel2">
+<li><a href="#install-the-s3-csi-driver-using-service-foundry-console">Install the S3 CSI Driver using Service Foundry Console</a></li>
+</ul>
+</li>
+<li><a href="#create-a-persistent-volume-with-s3-storage-class">Create a Persistent Volume with S3 Storage Class</a></li>
+<li><a href="#create-a-persistent-volume-claim-to-use-the-persistent-volume">Create a Persistent Volume Claim to Use the Persistent Volume</a></li>
+<li><a href="#s3-bucket-and-data">S3 Bucket and Data</a></li>
+<li><a href="#s3-bucket-storage-class-persistent-volume-and-persistent-volume-claim">S3 Bucket, Storage Class, Persistent Volume, and Persistent Volume Claim</a></li>
+<li><a href="#sample-python-application">Sample Python Application</a>
+<ul class="sectlevel2">
+<li><a href="#main-py">main.py</a></li>
+<li><a href="#requirements-txt">requirements.txt</a></li>
+<li><a href="#dockerfile">Dockerfile</a></li>
+</ul>
+</li>
+<li><a href="#deploying-the-python-application-to-kubernetes-using-service-foundry-console">Deploying the Python Application to Kubernetes using Service Foundry Console</a>
+<ul class="sectlevel2">
+<li><a href="#adding-a-job-resource">Adding a Job Resource</a></li>
+<li><a href="#kubernetes-job-manifest">Kubernetes Job Manifest</a></li>
+<li><a href="#creating-a-secret-for-postgresql-connection-string">Creating a Secret for PostgreSQL Connection String</a></li>
+<li><a href="#job-results">Job Results</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#resources">Resources</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/using-s3-pvc.png" alt="using s3 pvc">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this document, we will explore how to use Amazon S3 as a storage backend in Kubernetes through the S3 CSI (Container Storage Interface) driver. We will cover the installation of the S3 CSI driver, creating a storage class, persistent volume, and persistent volume claim, and demonstrate how to use these resources in a sample Python application to load data from S3 into PostgreSQL.</p>
+</div>
+<div class="sect2">
+<h3 id="use-case-scenario">Use Case Scenario</h3>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Upload NYC Open Data to S3 Bucket with under 'nyc-open-data/' folder</p>
+</li>
+<li>
+<p>Enable S3 CSI Driver and Create S3 Storage Class</p>
+</li>
+<li>
+<p>Create Persistent Volume with S3 Storage Class using S3 Bucket and Prefix</p>
+</li>
+<li>
+<p>Create Persistent Volume Claim to use the Persistent Volume</p>
+</li>
+<li>
+<p>Deploy a Python Job to extract data from S3 Bucket and load it to PostgreSQL</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="benefits-of-using-s3-for-storage-in-kubernetes-compared-to-s3-client-libraries">Benefits of Using S3 for Storage in Kubernetes compared to S3 client libraries</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Using S3 as a storage backend in Kubernetes through a CSI (Container Storage Interface) driver offers several benefits compared to using S3 client libraries directly within your applications:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Seamless Integration</strong>: The CSI driver allows Kubernetes to manage S3 storage as if it were a native volume, making it easier to integrate with existing Kubernetes workflows and tools.</p>
+</li>
+<li>
+<p><strong>Standardized Interface</strong>: The CSI driver provides a standardized way to interact with S3 storage, allowing applications to use familiar volume management commands without needing to learn S3-specific APIs.</p>
+</li>
+<li>
+<p><strong>Dynamic Provisioning</strong>: The CSI driver can dynamically provision S3-backed volumes based on StorageClass definitions, simplifying the process of creating and managing storage resources.</p>
+</li>
+<li>
+<p><strong>Persistent Storage</strong>: Volumes created through the CSI driver can be persistent, meaning data remains available even if the pod using it is deleted or rescheduled.</p>
+</li>
+<li>
+<p><strong>Access Control</strong>: The CSI driver can leverage Kubernetes' native access control mechanisms, such as RBAC (Role-Based Access Control), to manage permissions for accessing S3 storage.</p>
+</li>
+<li>
+<p><strong>Simplified Application Code</strong>: By using the CSI driver, application code can remain simpler and more focused on business logic, as it does not need to handle S3 interactions directly.</p>
+</li>
+<li>
+<p><strong>Compatibility with Existing Tools</strong>: The CSI driver can work with existing Kubernetes tools and operators that manage storage, making it easier to adopt S3 storage in a Kubernetes environment.</p>
+</li>
+<li>
+<p><strong>Improved Performance</strong>: Depending on the implementation, using a CSI driver may offer performance optimizations for accessing S3 storage compared to using client libraries directly.</p>
+</li>
+<li>
+<p><strong>Centralized Management</strong>: Storage resources can be managed centrally through Kubernetes, providing a unified view of storage across the cluster.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="install-the-s3-csi-driver">Install the S3 CSI Driver</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To install the S3 CSI Driver, follow these steps:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Create S3 Bucket and Upload Data</p>
+</li>
+<li>
+<p>Create IAM Policy for S3 Access</p>
+</li>
+<li>
+<p>Create IAM Role for S3 CSI Driver</p>
+</li>
+<li>
+<p>Create IAM Service Account for S3 CSI Driver</p>
+</li>
+<li>
+<p>Apply IAM Role to Node Groups</p>
+</li>
+<li>
+<p>Install S3 CSI Driver using Helm</p>
+</li>
+<li>
+<p>Create S3 Storage Class</p>
+</li>
+</ol>
+</div>
+<div class="sect2">
+<h3 id="install-the-s3-csi-driver-using-service-foundry-console">Install the S3 CSI Driver using Service Foundry Console</h3>
+<div class="paragraph">
+<p>Go to Service Foundry Console &#8594; Storages and Volumes &#8594; Storage Classes and click 'Enable S3 CSI Driver' button.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-storage-classes.png" alt="console storage classes">
+</div>
+</div>
+<div class="paragraph">
+<p>The following tasks will be performed:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Create S3 Bucket named '{AWS_ACCOUNT_ID}-${EKS_CLUSTER_NAME}-s3-bucket' if not exists.</p>
+</li>
+<li>
+<p>Create IAM Policy named 'S3AccessPolicy' if not exists.</p>
+</li>
+<li>
+<p>Create IAM Role named 'AmazonEKS_S3_CSI_Driver_Role_${EKS_CLUSTER_NAME}_${AWS_REGION}' if not exists.</p>
+</li>
+<li>
+<p>Apply the IAM Role to Node Groups if not applied.</p>
+</li>
+<li>
+<p>Install the S3 CSI Driver using Helm if not installed.</p>
+</li>
+<li>
+<p>Create S3 Storage Class named 's3-sc' if not exists.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>If there is no error, you will see the S3 Storage Class 's3-sc' created.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-storage-classes-s3-sc.png" alt="console storage classes s3 sc">
+</div>
+</div>
+<div class="paragraph">
+<p>The S3 Storage Class manifest looks like below.</p>
+</div>
+<div class="listingblock">
+<div class="title">s3-sc.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">storage.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">StorageClass</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="na">storageclass.kubernetes.io/is-default-class</span><span class="pi">:</span> <span class="s2">"</span><span class="s">false"</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">s3-sc</span>
+<span class="na">parameters</span><span class="pi">:</span>
+  <span class="na">bucketName</span><span class="pi">:</span> <span class="s">your-s3-bucket</span>
+<span class="na">provisioner</span><span class="pi">:</span> <span class="s">s3.csi.aws.com</span>
+<span class="na">reclaimPolicy</span><span class="pi">:</span> <span class="s">Retain</span>
+<span class="na">volumeBindingMode</span><span class="pi">:</span> <span class="s">Immediate</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-a-persistent-volume-with-s3-storage-class">Create a Persistent Volume with S3 Storage Class</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Create a Persistent Volume (PV) that uses the S3 Storage Class. You can specify the S3 bucket and prefix to use for the PV.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-pv-add.png" alt="console pv add">
+</div>
+<div class="title">Figure 1. Service Foundry Console - Add Persistent Volume using S3 Storage Class</div>
+</div>
+<div class="paragraph">
+<p>New Persistent Volume can be seen in the list.</p>
+</div>
+<div class="paragraph img-wide">
+<div class="title">Service Foundry Console - New Persistent Volume Claim Added</div>
+<p>image::console-pv-added.png</p>
+</div>
+<div class="paragraph">
+<p>To create a Persistent Volume Claim (PVC) to use the Persistent Volume, click Add Icon on the Claim Ref column. This icon is only available if the PV is not yet claimed.</p>
+</div>
+<div class="paragraph">
+<p>The Persistent Volume manifest looks like below.</p>
+</div>
+<div class="listingblock">
+<div class="title">pv-nyc-open-data.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolume</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pv-nyc-open-data</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">capacity</span><span class="pi">:</span>
+    <span class="na">storage</span><span class="pi">:</span> <span class="s">5Gi</span>
+  <span class="na">volumeMode</span><span class="pi">:</span> <span class="s">Filesystem</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+  <span class="na">persistentVolumeReclaimPolicy</span><span class="pi">:</span> <span class="s">Retain</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">s3-cs</span>
+  <span class="na">csi</span><span class="pi">:</span>
+    <span class="na">driver</span><span class="pi">:</span> <span class="s">s3.csi.aws.com</span>
+    <span class="na">volumeHandle</span><span class="pi">:</span> <span class="s">your-s3-bucket-nyc-open-data</span> <span class="c1"># A unique name for the PV - bucket-name + prefix</span>
+    <span class="na">volumeAttributes</span><span class="pi">:</span>
+      <span class="na">bucketName</span><span class="pi">:</span> <span class="s">your-s3-bucket</span>
+  <span class="na">mountOptions</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s1">'</span><span class="s">prefix=nyc-open-data/'</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Note that the prefix is specified in the mountOptions. This means that only objects under the 'nyc-open-data/' prefix in the S3 bucket will be accessible through this PV.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-a-persistent-volume-claim-to-use-the-persistent-volume">Create a Persistent Volume Claim to Use the Persistent Volume</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>After creating the Persistent Volume, create a Persistent Volume Claim (PVC) to request storage from the PV.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-pvc-add.png" alt="console pvc add">
+</div>
+<div class="title">Figure 2. Service Foundry Console - Add Persistent Volume Claim</div>
+</div>
+<div class="paragraph">
+<p>Fill out the form and click 'Add' button.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>PVC Name: pvc-nyc-open-data</p>
+</li>
+<li>
+<p>Namespace: qc</p>
+</li>
+</ul>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-pvc-added.png" alt="console pvc added">
+</div>
+</div>
+<div class="paragraph">
+<p>The Persistent Volume Claim manifest looks like below.</p>
+</div>
+<div class="listingblock">
+<div class="title">pvc-nyc-open-data.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolumeClaim</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">pvc-nyc-open-data</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">qc</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">storage</span><span class="pi">:</span> <span class="s">10Gi</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">s3-sc</span>
+  <span class="na">volumeMode</span><span class="pi">:</span> <span class="s">Filesystem</span>
+  <span class="na">volumeName</span><span class="pi">:</span> <span class="s">pv-nyc-open-data</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="s3-bucket-and-data">S3 Bucket and Data</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The S3 bucket created by the S3 CSI Driver can be found in the AWS Console.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/aws-s3-bucket.png" alt="aws s3 bucket">
+</div>
+<div class="title">Figure 3. AWS Console - S3 Bucket</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="s3-bucket-storage-class-persistent-volume-and-persistent-volume-claim">S3 Bucket, Storage Class, Persistent Volume, and Persistent Volume Claim</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p>S3 Bucket: Storage Class (Storage Class: s3-sc, Bucket Name: ${ACCOUNT_ID}-${EKS_CLUSTER_NAME}-s3-bucket)</p>
+</li>
+<li>
+<p>S3 Bucket + Prefix: Persistent Volume ($ACCOUNT_ID}-${EKS_CLUSTER_NAME}-s3-bucket, nyc-open-data/)</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="sample-python-application">Sample Python Application</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This sample Python application demonstrates how to use the PVC to access data stored in the S3 bucket.</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Load Parquet files from S3 using the PVC.</p>
+</li>
+<li>
+<p>Store the processed data in PostgreSQL.</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>To demonstrate how to use the PVC in a Python application, you can deploy a simple pod that mounts the PVC and uses it to access data stored in the S3 bucket.</p>
+</div>
+<div class="paragraph">
+<p>This project contains:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>main.py: The main Python script that loads Parquet files from the mounted PVC and inserts the data into PostgreSQL.</p>
+</li>
+<li>
+<p>Dockerfile: The Dockerfile to build the Python application image.</p>
+</li>
+<li>
+<p>requirements.txt: The Python dependencies required for the application.</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="main-py">main.py</h3>
+<div class="listingblock">
+<div class="title">main.py</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="python"><span class="kn">import</span> <span class="n">os</span>
+<span class="kn">import</span> <span class="n">glob</span>
+<span class="kn">import</span> <span class="n">pandas</span> <span class="k">as</span> <span class="n">pd</span>
+<span class="kn">from</span> <span class="n">sqlalchemy</span> <span class="kn">import</span> <span class="n">create_engine</span>
+<span class="kn">from</span> <span class="n">dotenv</span> <span class="kn">import</span> <span class="n">load_dotenv</span>
+
+<span class="nf">print</span><span class="p">(</span><span class="sh">"</span><span class="s"> 🔍 Initializing data loader...</span><span class="sh">"</span><span class="p">)</span>
+
+<span class="c1"># Load environment variables from .env file
+</span><span class="nf">load_dotenv</span><span class="p">()</span>
+
+<span class="c1"># PostgreSQL connection string from .env
+</span><span class="n">postgres_url</span> <span class="o">=</span> <span class="n">os</span><span class="p">.</span><span class="nf">getenv</span><span class="p">(</span><span class="sh">"</span><span class="s">POSTGRES_URL</span><span class="sh">"</span><span class="p">)</span>
+<span class="n">engine</span> <span class="o">=</span> <span class="nf">create_engine</span><span class="p">(</span><span class="n">postgres_url</span><span class="p">)</span>
+
+<span class="c1"># Path to your parquet files directory
+</span><span class="n">data_dir</span> <span class="o">=</span> <span class="n">os</span><span class="p">.</span><span class="nf">getenv</span><span class="p">(</span><span class="sh">"</span><span class="s">SOURCE_DATA_DIR</span><span class="sh">"</span><span class="p">,</span> <span class="sh">"</span><span class="s">data/</span><span class="sh">"</span><span class="p">)</span>
+<span class="n">table_name</span> <span class="o">=</span> <span class="n">os</span><span class="p">.</span><span class="nf">getenv</span><span class="p">(</span><span class="sh">"</span><span class="s">TARGET_TABLE_NAME</span><span class="sh">"</span><span class="p">,</span> <span class="sh">"</span><span class="s">yellow_taxi_trips</span><span class="sh">"</span><span class="p">)</span>
+
+<span class="nf">print</span><span class="p">(</span><span class="sh">"</span><span class="s"> 🚀 Starting data load process...</span><span class="sh">"</span><span class="p">)</span>
+<span class="nf">print</span><span class="p">(</span><span class="sh">"</span><span class="s"> 📂 Source Data directory: </span><span class="sh">"</span><span class="p">,</span> <span class="n">data_dir</span><span class="p">)</span>
+<span class="nf">print</span><span class="p">(</span><span class="sh">"</span><span class="s"> 🗄️ Target table name: </span><span class="sh">"</span><span class="p">,</span> <span class="n">table_name</span><span class="p">)</span>
+
+
+<span class="c1"># Get list of all .parquet files in the data/ directory
+</span><span class="n">parquet_files</span> <span class="o">=</span> <span class="n">glob</span><span class="p">.</span><span class="nf">glob</span><span class="p">(</span><span class="n">os</span><span class="p">.</span><span class="n">path</span><span class="p">.</span><span class="nf">join</span><span class="p">(</span><span class="n">data_dir</span><span class="p">,</span> <span class="sh">"</span><span class="s">*.parquet</span><span class="sh">"</span><span class="p">))</span>
+
+<span class="k">if</span> <span class="ow">not</span> <span class="n">parquet_files</span><span class="p">:</span>
+    <span class="nf">print</span><span class="p">(</span><span class="sh">"</span><span class="s">⚠️ No Parquet files found in the {data_dir} directory.</span><span class="sh">"</span><span class="p">)</span>
+    <span class="nf">exit</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+    <span class="c1"># exit(1)
+</span>
+<span class="c1"># Load and insert each file
+</span><span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">file_path</span> <span class="ow">in</span> <span class="nf">enumerate</span><span class="p">(</span><span class="nf">sorted</span><span class="p">(</span><span class="n">parquet_files</span><span class="p">)):</span>
+    <span class="nf">print</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">📦 Loading file </span><span class="si">{</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="si">}</span><span class="s">/</span><span class="si">{</span><span class="nf">len</span><span class="p">(</span><span class="n">parquet_files</span><span class="p">)</span><span class="si">}</span><span class="s">: </span><span class="si">{</span><span class="n">file_path</span><span class="si">}</span><span class="sh">"</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="p">.</span><span class="nf">read_parquet</span><span class="p">(</span><span class="n">file_path</span><span class="p">)</span>
+        <span class="n">df</span><span class="p">.</span><span class="nf">to_sql</span><span class="p">(</span><span class="n">table_name</span><span class="p">,</span> <span class="n">engine</span><span class="p">,</span> <span class="n">if_exists</span><span class="o">=</span><span class="sh">"</span><span class="s">append</span><span class="sh">"</span> <span class="k">if</span> <span class="n">i</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="sh">"</span><span class="s">replace</span><span class="sh">"</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+        <span class="nf">print</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">✅ Loaded </span><span class="si">{</span><span class="nf">len</span><span class="p">(</span><span class="n">df</span><span class="p">)</span><span class="si">}</span><span class="s"> rows from </span><span class="si">{</span><span class="n">os</span><span class="p">.</span><span class="n">path</span><span class="p">.</span><span class="nf">basename</span><span class="p">(</span><span class="n">file_path</span><span class="p">)</span><span class="si">}</span><span class="sh">"</span><span class="p">)</span>
+    <span class="k">except</span> <span class="nb">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="nf">print</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">❌ Error loading </span><span class="si">{</span><span class="n">file_path</span><span class="si">}</span><span class="s">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="sh">"</span><span class="p">)</span>
+
+<span class="nf">print</span><span class="p">(</span><span class="sh">"</span><span class="s">🎉 All files processed.</span><span class="sh">"</span><span class="p">)</span></code></pre>
+</div>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+One key benefit of using the PVC is that you don&#8217;t need to include S3 access logic in your application code. The S3 CSI Driver handles the interaction with S3, allowing your application to work with the data as if it were stored on a local filesystem.
+</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="requirements-txt">requirements.txt</h3>
+<div class="paragraph">
+<p>All the Python dependencies required for the application are listed in the requirements.txt file.</p>
+</div>
+<div class="listingblock">
+<div class="title">requirements.txt</div>
+<div class="content">
+<pre class="rouge highlight"><code>pandas
+pyarrow
+sqlalchemy
+psycopg2-binary
+python-dotenv</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="dockerfile">Dockerfile</h3>
+<div class="paragraph">
+<p>This Dockerfile sets up the Python environment and installs the required dependencies.</p>
+</div>
+<div class="listingblock">
+<div class="title">Dockerfile</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="dockerfile"><span class="k">FROM</span><span class="s"> python:3.11.4</span>
+
+<span class="k">WORKDIR</span><span class="s"> /usr/src/app</span>
+
+<span class="k">RUN </span>pip <span class="nb">install</span> <span class="nt">--upgrade</span> pip
+<span class="k">RUN </span>python <span class="nt">-m</span> venv venv
+<span class="k">RUN </span><span class="nb">.</span> venv/bin/activate
+
+<span class="k">COPY</span><span class="s"> requirements.txt ./</span>
+<span class="k">RUN </span>pip <span class="nb">install</span> <span class="nt">--no-cache-dir</span> <span class="nt">-r</span> requirements.txt
+
+<span class="k">COPY</span><span class="s"> main.py ./</span>
+<span class="k">COPY</span><span class="s"> .env ./</span>
+
+<span class="k">CMD</span><span class="s"> [ "python3", "-u", "main.py" ]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Push the Docker image to Docker Hub or your container registry of choice.</p>
+</div>
+<div class="paragraph">
+<p>I pushed the image to Docker Hub as <code>credemol/nyc-open-data-loader:0.1.0</code> for demonstration purposes.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deploying-the-python-application-to-kubernetes-using-service-foundry-console">Deploying the Python Application to Kubernetes using Service Foundry Console</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Go to Service Foundry Console &#8594; Enterprise Applications and then click 'Add Application' button.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-enterprise-apps-add.png" alt="console enterprise apps add">
+</div>
+<div class="title">Figure 4. Service Foundry Console - Add Enterprise Application</div>
+</div>
+<div class="paragraph">
+<p>Fill out the form and click 'Add Application' button.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Application Name: nyc-open-data-loader</p>
+</li>
+<li>
+<p>Namespace: qc</p>
+</li>
+<li>
+<p>Image Registry: docker.io</p>
+</li>
+<li>
+<p>Image Repository: credemol/nyc-open-data-loader</p>
+</li>
+<li>
+<p>Image Tag: 0.1.0</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="adding-a-job-resource">Adding a Job Resource</h3>
+<div class="paragraph">
+<p>Clck 'Add Resource' button to select 'Job' resource type.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-enterprise-apps-add-job.png" alt="console enterprise apps add job">
+</div>
+<div class="title">Figure 5. Service Foundry Console - Add Job Resource</div>
+</div>
+<div class="paragraph">
+<p>Kubernetes Job manifest is provided based on the Application Common Properties. You can modify the manifest as needed.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="kubernetes-job-manifest">Kubernetes Job Manifest</h3>
+<div class="paragraph">
+<p>The following is the Kubernetes Job manifest to deploy the Python application using the PVC.</p>
+</div>
+<div class="listingblock">
+<div class="title">job.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">batch/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Job</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">nyc-open-data-loader-job</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">qc</span>
+
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">template</span><span class="pi">:</span>
+    <span class="na">spec</span><span class="pi">:</span>
+      <span class="na">containers</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">nyc-open-data-loader</span>
+        <span class="na">image</span><span class="pi">:</span> <span class="s">credemol/nyc-open-data-loader:0.1.0</span>
+        <span class="na">imagePullPolicy</span><span class="pi">:</span> <span class="s">Always</span>
+
+        <span class="na">volumeMounts</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">nyc-open-data</span>
+            <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/data</span>
+
+        <span class="na">env</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">SOURCE_DATA_DIR</span>
+            <span class="na">value</span><span class="pi">:</span> <span class="s">/data/yellow-trip-data</span>
+          <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">TARGET_TABLE_NAME</span>
+            <span class="na">value</span><span class="pi">:</span> <span class="s">yellow_taxi_trips</span>
+        <span class="na">envFrom</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">secretRef</span><span class="pi">:</span>
+              <span class="na">name</span><span class="pi">:</span> <span class="s">nyc-open-data-secret</span>
+              <span class="na">optional</span><span class="pi">:</span> <span class="kc">true</span>
+
+      <span class="na">restartPolicy</span><span class="pi">:</span> <span class="s">OnFailure</span> <span class="c1"># OnFailure or Never</span>
+
+      <span class="na">volumes</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">nyc-open-data</span>
+          <span class="na">persistentVolumeClaim</span><span class="pi">:</span>
+            <span class="na">claimName</span><span class="pi">:</span> <span class="s">pvc-nyc-open-data</span>
+
+  <span class="na">backoffLimit</span><span class="pi">:</span> <span class="s">4</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>There are two environment variables defined in the manifest:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>SOURCE_DATA_DIR: The directory where the Parquet files are located (mounted from the PVC).</p>
+</li>
+<li>
+<p>TARGET_TABLE_NAME: The name of the PostgreSQL table to insert the data into.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>The PostgreSQL connection string is provided via a Kubernetes Secret named <code>nyc-open-data-secret</code>. You need to create this secret in the <code>qc</code> namespace with the following key-value pair:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Key: POSTGRES_URL</p>
+</li>
+<li>
+<p>Value: The PostgreSQL connection string in the format <code>postgresql://username:password@host:port/database</code></p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="creating-a-secret-for-postgresql-connection-string">Creating a Secret for PostgreSQL Connection String</h3>
+<div class="paragraph">
+<p>Click 'Add Resource' button to select 'Secret' resource type.</p>
+</div>
+<div class="listingblock">
+<div class="title">secret.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Secret</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">nyc-open-data-secret</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">qc</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">provider</span><span class="pi">:</span> <span class="s">service-foundry</span>
+<span class="na">data</span><span class="pi">:</span>
+  <span class="na">POSTGRES_URL</span><span class="pi">:</span> <span class="pi">{</span><span class="nv">base64-encoded-postgres-connection-string</span><span class="pi">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Once the application and resources are added, the kustomization manifest is generated and looks like below.</p>
+</div>
+<div class="listingblock">
+<div class="title">kustomization.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">namespace</span><span class="pi">:</span> <span class="s">qc</span>
+<span class="na">resources</span><span class="pi">:</span>
+ <span class="pi">-</span> <span class="s">nyc-open-data-loader-job.yaml</span>
+ <span class="pi">-</span> <span class="s">nyc-open-data-loader-secret.yaml</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Click 'Deploy Application' button to deploy the application.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="job-results">Job Results</h3>
+<div class="paragraph">
+<p>After the Job is completed, you can check the logs to see the results of the data loading process.</p>
+</div>
+<div class="sect3">
+<h4 id="log-message">Log message</h4>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="text"> 🔍 Initializing data loader...
+ 🚀 Starting data load process...
+ 📂 Source Data directory:  /data/yellow-trip-data
+ 🗄️ Target table name:  yellow_taxi_trips
+📦 Loading file 1/12: /data/yellow-trip-data/yellow_tripdata_2024-01.parquet
+✅ Loaded 2964624 rows from yellow_tripdata_2024-01.parquet
+📦 Loading file 2/12: /data/yellow-trip-data/yellow_tripdata_2024-02.parquet
+✅ Loaded 3007526 rows from yellow_tripdata_2024-02.parquet
+📦 Loading file 3/12: /data/yellow-trip-data/yellow_tripdata_2024-03.parquet
+✅ Loaded 3582628 rows from yellow_tripdata_2024-03.parquet
+📦 Loading file 4/12: /data/yellow-trip-data/yellow_tripdata_2024-04.parquet
+✅ Loaded 3514289 rows from yellow_tripdata_2024-04.parquet
+📦 Loading file 5/12: /data/yellow-trip-data/yellow_tripdata_2024-05.parquet
+✅ Loaded 3723833 rows from yellow_tripdata_2024-05.parquet
+📦 Loading file 6/12: /data/yellow-trip-data/yellow_tripdata_2024-06.parquet
+✅ Loaded 3539193 rows from yellow_tripdata_2024-06.parquet
+📦 Loading file 7/12: /data/yellow-trip-data/yellow_tripdata_2024-07.parquet
+✅ Loaded 3076903 rows from yellow_tripdata_2024-07.parquet
+📦 Loading file 8/12: /data/yellow-trip-data/yellow_tripdata_2024-08.parquet
+✅ Loaded 2979183 rows from yellow_tripdata_2024-08.parquet
+📦 Loading file 9/12: /data/yellow-trip-data/yellow_tripdata_2024-09.parquet
+✅ Loaded 3633030 rows from yellow_tripdata_2024-09.parquet
+📦 Loading file 10/12: /data/yellow-trip-data/yellow_tripdata_2024-10.parquet
+✅ Loaded 3833771 rows from yellow_tripdata_2024-10.parquet
+📦 Loading file 11/12: /data/yellow-trip-data/yellow_tripdata_2024-11.parquet
+✅ Loaded 3646369 rows from yellow_tripdata_2024-11.parquet
+📦 Loading file 12/12: /data/yellow-trip-data/yellow_tripdata_2024-12.parquet
+✅ Loaded 3668371 rows from yellow_tripdata_2024-12.parquet
+🎉 All files processed.</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>And you can see the data is loaded into PostgreSQL.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sql"><span class="k">select</span> <span class="k">count</span><span class="p">(</span><span class="o">*</span><span class="p">)</span> <span class="k">from</span> <span class="n">yellow_taxi_trips</span><span class="p">;</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>41,169,720 rows loaded in total.</p>
+</div>
+<div class="imageblock img-medium">
+<div class="content">
+<img src="images/pgadmin4-query-count.png" alt="pgadmin4 query count">
+</div>
+<div class="title">Figure 6. pgAdmin4 Query Result</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this document, we have demonstrated how to use Amazon S3 as a storage backend in Kubernetes through the S3 CSI driver. We covered the installation of the S3 CSI driver, creating a storage class, persistent volume, and persistent volume claim, and showed how to use these resources in a sample Python application to load data from S3 into PostgreSQL.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="resources">Resources</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/awslabs/mountpoint-s3-csi-driver/blob/main/docs/INSTALL.md" class="bare">https://github.com/awslabs/mountpoint-s3-csi-driver/blob/main/docs/INSTALL.md</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</body>
+</html>
