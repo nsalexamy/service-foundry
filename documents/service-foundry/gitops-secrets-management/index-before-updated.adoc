@@ -1,0 +1,167 @@
+= Automated GitOps Secrets Management using Sealed Secrets
+
+:imagesdir: images
+
+[.img-wide]
+image::automated-gitops-secrets-management.png[]
+
+== Introduction
+
+In this document, we will explore how to securely manage sensitive information in a GitOps workflow using Sealed Secrets. We will demonstrate this with a sample Spring Boot application that connects to a PostgreSQL database, requiring secure handling of database credentials. We also cover how to edit Sealed Secrets and best practices for managing them.
+
+Managing secrets in a GitOps workflow can be challenging due to the need for security and automation. This document outlines how to use Sealed Secrets to securely manage sensitive information in a GitOps environment, specifically with Argo CD.
+
+For basic understanding of Sealed Secrets, please refer to the official documentation:
+
+- https://nsalexamy.github.io/service-foundry/pages/documents/infra-foundry/gitops-sealed-secrets/[Securing Sensitive Data in GitOps with Sealed Secrets]
+
+== User Case Story
+
+A user wants to deploy a Spring Boot applications that connects to a PostgreSQL database. The application requires database credentials, which are sensitive information that should not be stored in plain text in the Git repository.
+
+== How to Secure Sensitive Data with Sealed Secrets
+
+Service Foundry Console seals sensitive data into Sealed Secrets before committing to Git. The Sealed Secrets controller in the Kubernetes cluster will then decrypt these secrets and create standard Kubernetes Secrets that the application can use.
+
+.Securing Sensitive Data with Sealed Secrets
+[.img-wide]
+image::securing-sensitive-data.png[]
+
+== Sample Spring Boot Application
+
+In this document, we will use a sample Spring Boot application that connects to a PostgreSQL database. The application is containerized and can be deployed in a Kubernetes cluster.
+
+*Container image*:
+
+- 'docker.io/credemol/postgresql-example:0.1.0'
+
+**Manifest file**s:
+
+- kustomization.yaml
+- postgresql-example-deployment.yaml
+- postgresql-example-service.yaml
+- postgresql-example-configmap.yaml
+- postgresql-example-secret.yaml (to be replaced with Sealed Secret)
+- postgresql-example-ingress.yaml
+
+When installing the application, the user will need to provide the following sensitive information in the 'postgresql-example-secret.yaml' file:
+
+.Console - Add Secret to Kustomization
+[.img-wide]
+image::console-enterprise-app-install.png[]
+
+== Editing Sealed Secrets
+
+It is not possible to edit a Sealed Secret directly because it is encrypted using a public key. To update the data in a Sealed Secret, you need to follow these steps:
+
+1. View the unsealed Secret to see the current data.
+2. Edit the data in the unsealed Secret.
+3. Re-seal the Secret to create a new Sealed Secret.
+
+Service Foundry Console simplifies this process by providing an interface to edit the Sealed Secret directly. When you edit a Sealed Secret in the console, it automatically handles the unsealing, editing, and re-sealing process for you.
+
+.Console - Edit Sealed Secret
+[.img-wide]
+image::console-edit-sealed-secret.png[]
+
+Firstly, click the 'Pencil' icon to start editing the Sealed Secret. Then, click the 'unlock' icon to view the unsealed Secret data. After making the necessary changes, click the 'save' button to change the data. Finally,
+click the 'publish' icon to push the updated manifest to the Git repository. Then, the Backend will automatically re-seal the Secret and update the Sealed Secret in the Git repository.
+
+.Console - Unsealed Secret Data
+[.img-wide]
+image::console-edit-unsealed-secret.png[]
+
+POSTGRES_PASSWORD is added to the Secret data.
+
+.Console - Commit Changes to Git
+[.img-medium]
+image::console-commit-message.png[]
+
+On GitHub, you can see the updated Sealed Secret with the new encrypted data.
+
+.GitHub - Updated Sealed Secret
+[.img-wide]
+image::github-sealed-secret-updated.png[]
+
+=== Summary of Editing Sealed Secrets
+
+In this section, we covered how to edit a Sealed Secret using Service Foundry Console. The console simplifies the process by handling the unsealing, editing, and re-sealing of the Secret automatically. This allows users to securely manage sensitive data in a GitOps workflow without needing to manually handle encryption and decryption.
+
+== How Sealed Secrets Work
+
+- The Sealed Secrets controller uses a public/private key pair to encrypt and decrypt secrets.
+- The public key is used to encrypt the secret data, creating a Sealed Secret that can be safely stored in a Git repository.
+- The private key is used by the Sealed Secrets controller in the Kubernetes cluster to decrypt the Sealed Secret and create a standard Kubernetes Secret.
+
+=== When the Cluster Changes
+
+==== Cluster Upgrades (same etcd & keys preserved)
+
+- Normal Kubernetes version upgrades (e.g, upgrading EKS from v1.31 to v1.32) do not affect the Sealed Secrets, as the etcd database and the keys are preserved during the upgrade process.
+- As long as the Sealed Secrets controller's private key remains unchanged, it can continue to decrypt existing Sealed Secrets without any issues.
+
+==== Cluster Recreation (new etcd & new keys)
+
+- If the Kubernetes cluster is deleted and recreated (e.g., creating a new EKS cluster), the Sealed Secrets controller's private key will be lost unless it was backed up.
+- In this case, any existing Sealed Secrets in the Git repository will no longer be decryptable, and new Sealed Secrets will need to be created using the new controller's public key.
+
+==== Controller Reinstallation (new keys)
+
+- If the Sealed Secrets controller is uninstalled and then reinstalled in the same cluster, it will generate a new private/public key pair.
+- Existing Sealed Secrets will not be decryptable with the new private key, and new Sealed Secrets will need to be created.
+- Effect: Kubernetes will have undecryptable Sealed Secrets, and new Sealed Secrets must be created.
+
+=== Best Practices for Managing Sealed Secrets
+
+To prevent issues with Sealed Secrets, consider the following best practices:
+
+- Always treat the sealed-secrets key as a critical cluster secret (similar to etcd snapshot) and back it up securely.
+- For multi-cluster GitOps setups, you may want a shared public/private keypair across clusters to ensure portability of Sealed Secrets
+- If key rotation is needed, you must re-seal all existing secrets with the new public key.
+- Regularly audit and review access to the sealed-secrets key to ensure it is only accessible
+
+=== How to Back-up and Restore Sealed Secrets Keys
+
+To backup the Sealed Secrets keys, you can export the private key from the Sealed Secrets controller's namespace. Here are the steps to backup and restore the keys:
+
+.Backup Sealed Secrets Key
+.[source,shell]
+----
+$ kubectl get secret -n kube-system sealed-secrets-key -o yaml > sealed-secrets-key-backup.yaml
+----
+
+.Restore Sealed Secrets Key
+[.source,shell]
+----
+$ kubectl apply -f sealed-secrets-key-backup.yaml
+----
+
+=== Bulk Re-Sealing of Secrets in a Repo
+
+If you need to re-seal all existing secrets in a Git repository (for example, after rotating the Sealed Secrets keys), you can use the `kubeseal` CLI tool to automate the process. Here are the bash script steps to bulk re-seal secrets:
+
+.Bulk Re-Seal Secrets
+[.source,bash]
+----
+#!/bin/bash
+PUB_CERT=pub-cert.pem
+NAMESPACE=my-namespace
+
+# List all Secrets you want to reseal
+SECRETS=$(kubectl get secrets -n $NAMESPACE -o name | grep -v 'default-token')
+
+for secret in $SECRETS; do
+  name=$(echo $secret | cut -d'/' -f2)
+  echo "🔄 Resealing $name ..."
+
+  kubectl get $secret -n $NAMESPACE -o yaml \
+    | kubeseal --cert $PUB_CERT --format yaml > ./resealed/${name}-sealed.yaml
+done
+
+echo "✅ All Secrets resealed and saved in ./resealed"
+----
+
+== Conclusion
+
+In this document, we explored how to securely manage sensitive information in a GitOps workflow using Sealed Secrets. We demonstrated this with a sample Spring Boot application that connects to a PostgreSQL database, requiring secure handling of database credentials. We also covered how to edit Sealed Secrets and best practices for managing them.
+
