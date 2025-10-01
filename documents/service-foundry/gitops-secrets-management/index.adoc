@@ -1,0 +1,184 @@
+---
+layout: documents
+title: Managing Secrets Securely in GitOps with Sealed Secrets
+author: Young Gyu Kim
+email: credemol@gmail.com
+summary: "This article explains how to securely manage sensitive information in a GitOps workflow using Sealed Secrets and Service Foundry Console. It walks through a practical example of deploying a Spring Boot application connected to a PostgreSQL database while keeping credentials encrypted and version-controlled in Git. Readers will learn how Service Foundry Console simplifies the process of sealing, editing, and managing Kubernetes secrets without relying on command-line tools. The guide also covers how Sealed Secrets work, what to do during cluster changes, and best practices for backups and key rotation, ensuring secrets remain secure and portable across environments."
+tags: "#GitOps #Kubernetes #SealedSecrets #DevOps #CloudNative #ServiceFoundry #ArgoCD #Security #OpenSource #InfrastructureAsCode"
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Service Foundry
+    url: /documents/service-foundry/
+---
+
+
+
+= Managing Secrets Securely in GitOps with Sealed Secrets
+
+:imagesdir: images
+
+[.img-wide]
+image::automated-gitops-secrets-management.png[]
+
+== Introduction
+
+This guide explores how to manage sensitive information securely in a GitOps workflow using Sealed Secrets, without exposing secrets in plain text. Leveraging the power of Service Foundry Console, we demonstrate a seamless and automated approach to encrypting, editing, and storing Kubernetes secrets in Git repositories.
+
+Using a sample Spring Boot application connected to a PostgreSQL database, we’ll walk through how Service Foundry Console simplifies secrets management with full GitOps integration, eliminating the need for direct command-line operations. For foundational knowledge of Sealed Secrets, refer to my previous article.
+
+
+- https://nsalexamy.github.io/service-foundry/pages/documents/infra-foundry/gitops-sealed-secrets/[Securing Sensitive Data in GitOps with Sealed Secrets]
+
+== User Case
+
+Imagine deploying a Spring Boot application that connects to a PostgreSQL database. The application requires credentials—sensitive information that must be managed securely. Rather than committing plain-text secrets to a Git repository, you can use *Sealed Secrets* to safely encrypt and store them within your GitOps workflow.
+
+== Secure Secrets with Service Foundry Console
+
+Service Foundry Console handles secret encryption automatically. The Sealed Secrets controller in the Kubernetes cluster will then decrypt these secrets and create standard Kubernetes Secrets that the application can use.
+
+.Securing Sensitive Data with Sealed Secrets
+[.img-wide]
+image::securing-sensitive-data.png[]
+
+== Sample Application Overview
+
+This example uses a Spring Boot container image deployed in Kubernetes with the following manifest files:
+
+*Container image*:
+
+- 'docker.io/credemol/postgresql-example:0.1.0'
+
+**Manifest file**s:
+
+- kustomization.yaml
+- postgresql-example-deployment.yaml
+- postgresql-example-service.yaml
+- postgresql-example-configmap.yaml
+- postgresql-example-secret.yaml (to be replaced with Sealed Secret)
+- postgresql-example-ingress.yaml
+
+When installing the application, the user will need to provide the following sensitive information in the 'postgresql-example-secret.yaml' file:
+
+.Console - Add Secret to Kustomization
+[.img-wide]
+image::console-enterprise-app-install.png[]
+
+== Editing Sealed Secrets
+
+Because Sealed Secrets are encrypted, they cannot be edited directly. Traditionally, this involves unsealing, editing, and resealing the secret using the CLI. With Service Foundry Console, this process is automated behind a simple UI:
+
+1. Click the pencil icon to edit.
+2. Unlock to view the unsealed data.
+3. Make changes and save.
+4. Publish to push changes to Git—automatically resealed by the backend.
+
+
+.Console - Edit Sealed Secret
+[.img-wide]
+image::console-edit-sealed-secret.png[]
+
+
+After clicking the unlock icon, you can view and edit the unsealed Secret data.
+
+.Console - Unsealed Secret Data
+[.img-wide]
+image::console-edit-unsealed-secret.png[]
+
+POSTGRES_PASSWORD is added to the Secret data.
+
+.Console - Commit Changes to Git
+[.img-medium]
+image::console-commit-message.png[]
+
+On GitHub, you can see the updated Sealed Secret with the new encrypted data.
+
+.GitHub - Updated Sealed Secret
+[.img-wide]
+image::github-sealed-secret-updated.png[]
+
+=== Summary: Editing Sealed Secrets
+
+Service Foundry Console simplifies editing Sealed Secrets by abstracting the complexity of encryption. You can securely update sensitive data without manually running kubeseal or editing YAML files outside the GitOps workflow.
+
+
+== How Sealed Secrets Work
+
+ - Sealed Secrets are created by encrypting Kubernetes Secret data using a public key.
+ - The sealed resource is stored in Git.
+ - The Kubernetes controller decrypts it with the private key at runtime and creates a Secret.
+
+== What Happens When the Cluster Changes?
+
+=== Cluster Upgrade (Same Keys Retained)
+
+ - Minor/major Kubernetes upgrades (e.g., EKS v1.31 → v1.32) keep the etcd store and keys intact.
+ - Sealed Secrets remain valid.
+
+=== Cluster Recreation (New Keys)
+
+ - If the cluster is recreated, the private key is lost unless backed up.
+ - All Sealed Secrets must be re-created.
+
+=== Controller Reinstallation (new keys)
+
+ - A fresh controller installation generates new keys.
+ - Existing Sealed Secrets can no longer be decrypted.
+ - Backup and restore are essential in this scenario.
+
+=== Best Practices 
+
+ - Back up the Sealed Secrets private key as you would for etcd.
+ - For multi-cluster environments, consider using shared keys.
+ - Rotate keys with caution and reseal all secrets.
+ - Limit access to the private key and audit regularly.
+
+=== Backup and Restore Keys
+
+.Backup Sealed Secrets Key
+.[source,shell]
+----
+$ kubectl get secret -n kube-system sealed-secrets-key -o yaml > sealed-secrets-key-backup.yaml
+----
+
+.Restore Sealed Secrets Key
+[.source,shell]
+----
+$ kubectl apply -f sealed-secrets-key-backup.yaml
+----
+
+=== Bulk Re-Sealing
+
+If rotating keys or migrating clusters, you can bulk reseal secrets using kubeseal.
+
+.Bulk Re-Seal Secrets
+[.source,bash]
+----
+#!/bin/bash
+PUB_CERT=pub-cert.pem
+NAMESPACE=my-namespace
+
+# List all Secrets you want to reseal
+SECRETS=$(kubectl get secrets -n $NAMESPACE -o name | grep -v 'default-token')
+
+for secret in $SECRETS; do
+  name=$(echo $secret | cut -d'/' -f2)
+  echo "🔄 Resealing $name ..."
+
+  kubectl get $secret -n $NAMESPACE -o yaml \
+    | kubeseal --cert $PUB_CERT --format yaml > ./resealed/${name}-sealed.yaml
+done
+
+echo "✅ All Secrets resealed and saved in ./resealed"
+----
+
+== Conclusion
+
+In this guide, we demonstrated how to automate and manage GitOps secrets securely using Sealed Secrets. With the help of Service Foundry Console, you can edit, seal, and commit secrets without touching the command line. By following best practices and ensuring key backups, you can keep your secrets safe and portable across clusters and environments.
+
+📘 View the web version:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/service-foundry/gitops-secrets-management/

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Automated GitOps Secrets Management using Sealed Secrets</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#user-case-story">User Case Story</a></li>
+<li><a href="#how-to-secure-sensitive-data-with-sealed-secrets">How to Secure Sensitive Data with Sealed Secrets</a></li>
+<li><a href="#sample-spring-boot-application">Sample Spring Boot Application</a></li>
+<li><a href="#editing-sealed-secrets">Editing Sealed Secrets</a>
+<ul class="sectlevel2">
+<li><a href="#summary-of-editing-sealed-secrets">Summary of Editing Sealed Secrets</a></li>
+</ul>
+</li>
+<li><a href="#how-sealed-secrets-work">How Sealed Secrets Work</a>
+<ul class="sectlevel2">
+<li><a href="#when-the-cluster-changes">When the Cluster Changes</a></li>
+<li><a href="#best-practices-for-managing-sealed-secrets">Best Practices for Managing Sealed Secrets</a></li>
+<li><a href="#how-to-back-up-and-restore-sealed-secrets-keys">How to Back-up and Restore Sealed Secrets Keys</a></li>
+<li><a href="#bulk-re-sealing-of-secrets-in-a-repo">Bulk Re-Sealing of Secrets in a Repo</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/automated-gitops-secrets-management.png" alt="automated gitops secrets management">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this document, we will explore how to securely manage sensitive information in a GitOps workflow using Sealed Secrets. We will demonstrate this with a sample Spring Boot application that connects to a PostgreSQL database, requiring secure handling of database credentials. We also cover how to edit Sealed Secrets and best practices for managing them.</p>
+</div>
+<div class="paragraph">
+<p>Managing secrets in a GitOps workflow can be challenging due to the need for security and automation. This document outlines how to use Sealed Secrets to securely manage sensitive information in a GitOps environment, specifically with Argo CD.</p>
+</div>
+<div class="paragraph">
+<p>For basic understanding of Sealed Secrets, please refer to the official documentation:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/infra-foundry/gitops-sealed-secrets/">Securing Sensitive Data in GitOps with Sealed Secrets</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="user-case-story">User Case Story</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>A user wants to deploy a Spring Boot applications that connects to a PostgreSQL database. The application requires database credentials, which are sensitive information that should not be stored in plain text in the Git repository.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="how-to-secure-sensitive-data-with-sealed-secrets">How to Secure Sensitive Data with Sealed Secrets</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Service Foundry Console seals sensitive data into Sealed Secrets before committing to Git. The Sealed Secrets controller in the Kubernetes cluster will then decrypt these secrets and create standard Kubernetes Secrets that the application can use.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/securing-sensitive-data.png" alt="securing sensitive data">
+</div>
+<div class="title">Figure 1. Securing Sensitive Data with Sealed Secrets</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="sample-spring-boot-application">Sample Spring Boot Application</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this document, we will use a sample Spring Boot application that connects to a PostgreSQL database. The application is containerized and can be deployed in a Kubernetes cluster.</p>
+</div>
+<div class="paragraph">
+<p><strong>Container image</strong>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>'docker.io/credemol/postgresql-example:0.1.0'</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Manifest file</strong>s:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>kustomization.yaml</p>
+</li>
+<li>
+<p>postgresql-example-deployment.yaml</p>
+</li>
+<li>
+<p>postgresql-example-service.yaml</p>
+</li>
+<li>
+<p>postgresql-example-configmap.yaml</p>
+</li>
+<li>
+<p>postgresql-example-secret.yaml (to be replaced with Sealed Secret)</p>
+</li>
+<li>
+<p>postgresql-example-ingress.yaml</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>When installing the application, the user will need to provide the following sensitive information in the 'postgresql-example-secret.yaml' file:</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-enterprise-app-install.png" alt="console enterprise app install">
+</div>
+<div class="title">Figure 2. Console - Add Secret to Kustomization</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="editing-sealed-secrets">Editing Sealed Secrets</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>It is not possible to edit a Sealed Secret directly because it is encrypted using a public key. To update the data in a Sealed Secret, you need to follow these steps:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>View the unsealed Secret to see the current data.</p>
+</li>
+<li>
+<p>Edit the data in the unsealed Secret.</p>
+</li>
+<li>
+<p>Re-seal the Secret to create a new Sealed Secret.</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>Service Foundry Console simplifies this process by providing an interface to edit the Sealed Secret directly. When you edit a Sealed Secret in the console, it automatically handles the unsealing, editing, and re-sealing process for you.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-edit-sealed-secret.png" alt="console edit sealed secret">
+</div>
+<div class="title">Figure 3. Console - Edit Sealed Secret</div>
+</div>
+<div class="paragraph">
+<p>Firstly, click the 'Pencil' icon to start editing the Sealed Secret. Then, click the 'unlock' icon to view the unsealed Secret data. After making the necessary changes, click the 'save' button to change the data. Finally,
+click the 'publish' icon to push the updated manifest to the Git repository. Then, the Backend will automatically re-seal the Secret and update the Sealed Secret in the Git repository.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-edit-unsealed-secret.png" alt="console edit unsealed secret">
+</div>
+<div class="title">Figure 4. Console - Unsealed Secret Data</div>
+</div>
+<div class="paragraph">
+<p>POSTGRES_PASSWORD is added to the Secret data.</p>
+</div>
+<div class="imageblock img-medium">
+<div class="content">
+<img src="images/console-commit-message.png" alt="console commit message">
+</div>
+<div class="title">Figure 5. Console - Commit Changes to Git</div>
+</div>
+<div class="paragraph">
+<p>On GitHub, you can see the updated Sealed Secret with the new encrypted data.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/github-sealed-secret-updated.png" alt="github sealed secret updated">
+</div>
+<div class="title">Figure 6. GitHub - Updated Sealed Secret</div>
+</div>
+<div class="sect2">
+<h3 id="summary-of-editing-sealed-secrets">Summary of Editing Sealed Secrets</h3>
+<div class="paragraph">
+<p>In this section, we covered how to edit a Sealed Secret using Service Foundry Console. The console simplifies the process by handling the unsealing, editing, and re-sealing of the Secret automatically. This allows users to securely manage sensitive data in a GitOps workflow without needing to manually handle encryption and decryption.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="how-sealed-secrets-work">How Sealed Secrets Work</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p>The Sealed Secrets controller uses a public/private key pair to encrypt and decrypt secrets.</p>
+</li>
+<li>
+<p>The public key is used to encrypt the secret data, creating a Sealed Secret that can be safely stored in a Git repository.</p>
+</li>
+<li>
+<p>The private key is used by the Sealed Secrets controller in the Kubernetes cluster to decrypt the Sealed Secret and create a standard Kubernetes Secret.</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="when-the-cluster-changes">When the Cluster Changes</h3>
+<div class="sect3">
+<h4 id="cluster-upgrades-same-etcd-keys-preserved">Cluster Upgrades (same etcd &amp; keys preserved)</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>Normal Kubernetes version upgrades (e.g, upgrading EKS from v1.31 to v1.32) do not affect the Sealed Secrets, as the etcd database and the keys are preserved during the upgrade process.</p>
+</li>
+<li>
+<p>As long as the Sealed Secrets controller&#8217;s private key remains unchanged, it can continue to decrypt existing Sealed Secrets without any issues.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="cluster-recreation-new-etcd-new-keys">Cluster Recreation (new etcd &amp; new keys)</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>If the Kubernetes cluster is deleted and recreated (e.g., creating a new EKS cluster), the Sealed Secrets controller&#8217;s private key will be lost unless it was backed up.</p>
+</li>
+<li>
+<p>In this case, any existing Sealed Secrets in the Git repository will no longer be decryptable, and new Sealed Secrets will need to be created using the new controller&#8217;s public key.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="controller-reinstallation-new-keys">Controller Reinstallation (new keys)</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>If the Sealed Secrets controller is uninstalled and then reinstalled in the same cluster, it will generate a new private/public key pair.</p>
+</li>
+<li>
+<p>Existing Sealed Secrets will not be decryptable with the new private key, and new Sealed Secrets will need to be created.</p>
+</li>
+<li>
+<p>Effect: Kubernetes will have undecryptable Sealed Secrets, and new Sealed Secrets must be created.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="best-practices-for-managing-sealed-secrets">Best Practices for Managing Sealed Secrets</h3>
+<div class="paragraph">
+<p>To prevent issues with Sealed Secrets, consider the following best practices:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Always treat the sealed-secrets key as a critical cluster secret (similar to etcd snapshot) and back it up securely.</p>
+</li>
+<li>
+<p>For multi-cluster GitOps setups, you may want a shared public/private keypair across clusters to ensure portability of Sealed Secrets</p>
+</li>
+<li>
+<p>If key rotation is needed, you must re-seal all existing secrets with the new public key.</p>
+</li>
+<li>
+<p>Regularly audit and review access to the sealed-secrets key to ensure it is only accessible</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="how-to-back-up-and-restore-sealed-secrets-keys">How to Back-up and Restore Sealed Secrets Keys</h3>
+<div class="paragraph">
+<p>To backup the Sealed Secrets keys, you can export the private key from the Sealed Secrets controller&#8217;s namespace. Here are the steps to backup and restore the keys:</p>
+</div>
+<div class="listingblock">
+<div class="title">[source,shell]</div>
+<div class="content">
+<pre>$ kubectl get secret -n kube-system sealed-secrets-key -o yaml &gt; sealed-secrets-key-backup.yaml</pre>
+</div>
+</div>
+<div class="listingblock source">
+<div class="title">Restore Sealed Secrets Key</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> sealed-secrets-key-backup.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="bulk-re-sealing-of-secrets-in-a-repo">Bulk Re-Sealing of Secrets in a Repo</h3>
+<div class="paragraph">
+<p>If you need to re-seal all existing secrets in a Git repository (for example, after rotating the Sealed Secrets keys), you can use the <code>kubeseal</code> CLI tool to automate the process. Here are the bash script steps to bulk re-seal secrets:</p>
+</div>
+<div class="listingblock source">
+<div class="title">Bulk Re-Seal Secrets</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c">#!/bin/bash</span>
+<span class="nv">PUB_CERT</span><span class="o">=</span>pub-cert.pem
+<span class="nv">NAMESPACE</span><span class="o">=</span>my-namespace
+
+<span class="c"># List all Secrets you want to reseal</span>
+<span class="nv">SECRETS</span><span class="o">=</span><span class="si">$(</span>kubectl get secrets <span class="nt">-n</span> <span class="nv">$NAMESPACE</span> <span class="nt">-o</span> name | <span class="nb">grep</span> <span class="nt">-v</span> <span class="s1">'default-token'</span><span class="si">)</span>
+
+<span class="k">for </span>secret <span class="k">in</span> <span class="nv">$SECRETS</span><span class="p">;</span> <span class="k">do
+  </span><span class="nv">name</span><span class="o">=</span><span class="si">$(</span><span class="nb">echo</span> <span class="nv">$secret</span> | <span class="nb">cut</span> <span class="nt">-d</span><span class="s1">'/'</span> <span class="nt">-f2</span><span class="si">)</span>
+  <span class="nb">echo</span> <span class="s2">"🔄 Resealing </span><span class="nv">$name</span><span class="s2"> ..."</span>
+
+  kubectl get <span class="nv">$secret</span> <span class="nt">-n</span> <span class="nv">$NAMESPACE</span> <span class="nt">-o</span> yaml <span class="se">\</span>
+    | kubeseal <span class="nt">--cert</span> <span class="nv">$PUB_CERT</span> <span class="nt">--format</span> yaml <span class="o">&gt;</span> ./resealed/<span class="k">${</span><span class="nv">name</span><span class="k">}</span><span class="nt">-sealed</span>.yaml
+<span class="k">done
+
+</span><span class="nb">echo</span> <span class="s2">"✅ All Secrets resealed and saved in ./resealed"</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this document, we explored how to securely manage sensitive information in a GitOps workflow using Sealed Secrets. We demonstrated this with a sample Spring Boot application that connects to a PostgreSQL database, requiring secure handling of database credentials. We also covered how to edit Sealed Secrets and best practices for managing them.</p>
+</div>
+</div>
+</div>
+</body>
+</html>
