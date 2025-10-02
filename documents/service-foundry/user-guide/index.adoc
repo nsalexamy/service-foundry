@@ -153,7 +153,8 @@ NOTE: Ensure that your DNS is configured to point to the Traefik load balancer.
 
 .Service Foundry Console
 [.img-wide]
-image::bootstrap-service-foundry-console.png[Service Foundry Console Access]
+// image::bootstrap-service-foundry-console.png[Service Foundry Console Access]
+image::service-foundry-console.png[Service Foundry Console Access]
 
 All components, including the console itself, are deployed as *Argo CD Applications*. Their manifests are stored and versioned in the GitOps repository, ensuring full traceability and reproducibility. Users can operate either via the console or directly using Git workflows.
 
@@ -217,6 +218,10 @@ The *Service Foundry Console* provides a visual control plane for managing, obse
  * *Open Source Software*: Browse and install curated open-source packages (e.g., Redis, Postgres, Kafka) with Helm chart–based GitOps workflows.
  * *Raw GitOps Applications*: Directly edit or remove raw Argo CD Applications stored in the GitOps repository.
 
+=== Storage & Volumes
+ * *Storage Classes*: Inspect and manage StorageClasses available in the cluster.
+ * *Persistent Volumes*: View and manage Persistent Volumes (PVs) provisioned in the cluster.
+ * *Persistent Volume Claims*: Create and manage Persistent Volume Claims (PVCs) bound to PVs for application storage needs.
 
 
 === Kubernetes Stack Orchestration
@@ -233,6 +238,49 @@ The *Service Foundry Console* provides a visual control plane for managing, obse
 
  * *Global Configuration*: Manage environment-wide settings related to GitOps, authentication, UI preferences, and more.
 
+== Dashboard Overview
+
+The Dashboard provides a high-level overview of the Kubernetes cluster and the Service Foundry platform status. It displays key metrics, recent activities, and quick links to various sections of the console.
+
+.Console Dashboard
+[.img-wide]
+image::console-dashboard.png[Dashboard Overview]
+
+=== Features
+
+* *Enable Observability*: Quickly enable or disable the observability stack (OpenTelemetry, Prometheus, Grafana, Loki, Tempo) across the cluster.
+
+* *Quick Links*: Key features for Operation
+ - Install Enterprise Application
+ - Install Open Source Software
+ - Enable EFS / S3 CSI Drivers
+ - Create Persistent Volume
+ - Create Persistent Volume Claim
+ - Install Shared Components
+ - Configure SSO Server
+ - SSO Resource Servers
+
+* Application Status
+ - Healthy Applications: Number of applications in a healthy state.
+ - Synced Applications: Number of applications that are in sync with the Git repository.
+
+* Application Categories Overview
+ - Enterprise Applications: Total number of enterprise applications deployed.
+ - Open Source Applications: Total number of open-source applications installed.
+ - Core Applications: Number of core platform components running.
+ - Shared Applications: Number of shared services and operators deployed.
+ - Observability Applications: Number of observability tools active.
+ - Single Sign-On Applications: Number of SSO-related components.
+
+
+== Git Ops Section
+
+The Git Ops section provides a comprehensive interface for managing all applications and resources defined in the GitOps repository. It is divided into four main subsections:
+
+ * Managed Applications
+ * Enterprise Applications
+ * Open Source Software
+ * GitOps Applications
 
 == Managed Applications
 
@@ -569,6 +617,259 @@ a| image:icons/discard-icon.png[opts=inline, width=24] DELETE APP |  Permanently
 |===
 
 Any edits to the manifest files can be committed directly from the console, triggering Argo CD to sync changes and apply them to the cluster automatically.
+
+== Storage & Volumes Section
+
+The Storage & Volumes section provides a unified interface for managing persistent storage resources in the Kubernetes cluster. Users can inspect, create, and manage StorageClasses, PersistentVolumes (PVs), and PersistentVolumeClaims (PVCs) through a GitOps-driven workflow.
+
+It is divided into three main subsections:
+
+ * Storage Classes
+ * Persistent Volumes
+ * Persistent Volume Claims
+
+== Storage Classes
+
+The Storage Classes section lists all StorageClasses available in the Kubernetes cluster. Users can view details such as provisioner type, parameters, and reclaim policy.
+
+.Storage Classes
+[.img-wide]
+image::console-storage-classes.png[Storage Classes]
+
+=== Enable EFS CSI Driver
+
+To use AWS Elastic File System (EFS) for dynamic volume provisioning, the EFS CSI driver must be enabled in the cluster. Service Foundry provides a guided workflow to set this up.
+
+To enable the EFS CSI driver, click “Enable EFS CSI Driver” and it will perform the following steps automatically:
+
+ * Create an IAM Service Account for the EFS CSI Driver
+ * Install the EFS CSI Driver as a Helm chart
+ * Create an Elastic File System (EFS) in AWS named '${cluster-name}-efs'
+ * Create a StorageClass named 'efs-sc' for EFS using the File System ID
+
+=== Enable S3 CSI Driver
+
+To use AWS S3-compatible object storage for dynamic volume provisioning, the S3 CSI driver must be enabled in the cluster. Service Foundry provides a guided workflow to set this up.
+
+To enable the S3 CSI driver, click “Enable S3 CSI Driver” and it will perform the following steps automatically:
+
+ * Create an IAM Service Account for the S3 CSI Driver
+ * Install the S3 CSI Driver as a Helm chart
+ * Create an S3 Bucket in AWS named '${cluster-name}-s3-bucket'
+ * Create a StorageClass named 's3-sc' for S3 using the Bucket name
+
+=== List Storage Classes after Enabling Drivers
+
+.Console - Storage Classes Enabled
+[.img-wide]
+image::console-storage-classes-enabled.png[]
+
+New StorageClasses named 'efs-sc' and 's3-sc' will appear in the list after enabling the respective CSI drivers.
+
+
+=== Add Storage Class
+
+Following Storage Class Types are supported:
+
+ * EBS (Elastic Block Store) - for block storage, suitable for single-node access
+ * EFS (Elastic File System) - for shared file storage, suitable for multi-node access
+ * S3 (Simple Storage Service) - for object storage, suitable for unstructured data
+
+==== Add EBS Storage Class
+
+.Add EBS Storage Class
+[.img-wide]
+image::console-storage-classes-add-ebs.png[Add EBS Storage Class]
+
+Fill out the form with the following fields:
+
+* Storage Class Type: Select 'EBS' for Elastic Block Store.
+* Storage Class Name: A unique name for the StorageClass.
+* Provisioner: 'ebs.csi.aws.com' for EBS.
+* Volume Binding Mode: 'WaitForFirstConsumer' is recommended for dynamic provisioning.
+* Reclaim Policy: Choose between 'Retain' or 'Delete' based on your data retention needs.
+* Type: Select the EBS volume type (e.g., gp2, gp3, io1).
+* FsType: File system type (e.g., ext4, xfs).
+
+==== Add EFS Storage Class
+
+.Add EFS Storage Class
+[.img-wide]
+image::console-storage-classes-add-efs.png[Add EFS Storage Class]
+
+Fill out the form with the following fields:
+
+* Storage Class Type: Select 'EFS' for Elastic File System.
+* Storage Class Name: A unique name for the StorageClass.
+* Provisioner: 'efs.csi.aws.com' for EFS.
+* Volume Binding Mode: 'Immediate' or 'WaitForFirstConsumer' based on your use case.
+* Reclaim Policy: Choose between 'Retain' or 'Delete' based on your data retention needs.
+* Provisioning Mode: 'efs-ap'
+* File System ID: The ID of the EFS file system to use.
+* Directory Perms: Permissions for the root directory (e.g., 755).
+
+==== Add S3 Storage Class
+
+.Add S3 Storage Class
+[.img-wide]
+image::console-storage-classes-add-s3.png[Add S3 Storage Class]
+
+Fill out the form with the following fields:
+
+* Storage Class Type: Select 'S3' for Simple Storage Service.
+* Storage Class Name: A unique name for the StorageClass.
+* Provisioner: 's3.csi.aws.com' for S3.
+* Volume Binding Mode: 'Immediate' or 'WaitForFirstConsumer' based on your use case.
+* Reclaim Policy: Choose between 'Retain' or 'Delete' based on your data retention needs.
+* S3 Bucket Name: The name of the S3 bucket to use for storage.
+
+== Persistent Volumes
+
+The Persistent Volumes section lists all PersistentVolumes (PVs) provisioned in the Kubernetes cluster. Users can view details such as capacity, access modes, reclaim policy, and status.
+
+.Console - Persistent Volumes
+[.img-wide]
+image::console-persistent-volumes.png[Persistent Volumes]
+
+
+=== View Persistent Volume
+Click the PV name to view detailed information about the volume, including its specifications and current status.
+
+.View Persistent Volume Details
+[.img-wide]
+image::console-persistent-volumes-view.png[View Persistent Volume Details]
+
+To delete a Persistent Volume, click the "DELETE PV" button in the header. This will remove the PV from the cluster and delete its manifest from the Git repository. Bound Persistent Volume Claims (PVCs) must be deleted first before the PV can be removed.
+
+=== Add Persistent Volume
+
+Click "Add Persistent Volume" to create a new PV.
+
+==== Add EBS Persistent Volume
+
+For EBS volumes, dynamic Provisioning is recommended. To use static provisioning with this page, ensure that you have already created an EBS Volume in AWS and have its Volume ID ready.
+
+
+Select a Storage Class name of type 'EBS' from the Toggle button in the top right corner.
+
+
+.Console - Add EBS Persistent Volume
+[.img-wide]
+image::console-persistent-volumes-add-ebs.png[Add Persistent Volume]
+
+
+Fill out the form with the following fields:
+
+* *Volume Name*: A unique name for the Persistent Volume.
+* *Storage Class*: Select an existing StorageClass to associate with the PV.
+* *Storage Capacity*: Specify the size of the volume (e.g., 10Gi).
+* *Access Modes*: Choose one or more access modes. ReadWriteOnce (RWO) is common for EBS.
+* *EBS Volume ID*: The ID of the existing EBS volume to use.
+
+==== Add EFS Persistent Volume
+
+Select a Storage Class name of type 'EFS' from the Toggle button in the top right corner.
+
+.Console - Add EFS Persistent Volume
+[.img-wide]
+image::console-persistent-volumes-add-efs.png[Add Persistent Volume]
+
+Fill out the form with the following fields:
+
+* *Volume Name*: A unique name for the Persistent Volume.
+* *Storage Class*: Select an existing StorageClass to associate with the PV.
+* *Storage Capacity*: Specify the size of the volume (e.g., 10Gi).
+* *Access Modes*: Choose one or more access modes. ReadWriteMany (RWX) is common for EFS.
+* *EFS File System ID*: The ID of the EFS file system to use. Use the same ID as specified in the StorageClass.
+* *Access Point ID*: (Optional) The ID of the EFS Access Point to use. You can create an access point in 'Acc Access Point' tab, or select one from the 'Access Point List' tab.
+
+==== Add S3 Persistent Volume
+
+Select a Storage Class name of type 'S3' from the Toggle button in the top right corner.
+
+.Console - Add S3 Persistent Volume
+[.img-wide]
+image::console-persistent-volumes-add-s3.png[Add Persistent Volume]
+
+Fill out the form with the following fields:
+
+* *Volume Name*: A unique name for the Persistent Volume.
+* *Storage Class*: Select an existing StorageClass to associate with the PV.
+* *Storage Capacity*: Specify the size of the volume (e.g., 10Gi).
+* *Access Modes*: Choose one or more access modes. ReadWriteMany (RWX) is common for S3.
+* *S3 Bucket Name*: The name of the S3 bucket to use for storage. Use the same bucket name as specified in the StorageClass.
+* *Bucket Prefix*: (Optional) A prefix within the S3 bucket to use for this volume.
+
+== Persistent Volume Claims
+
+The Persistent Volume Claims section lists all PersistentVolumeClaims (PVCs) created in the Kubernetes cluster. Users can view details such as requested storage, access modes, status, and associated PersistentVolumes.
+
+.Console - Persistent Volume Claims
+[.img-wide]
+image::console-pv-claims.png[Persistent Volume Claims]
+
+=== View Persistent Volume Claim
+
+Click the PVC name to view detailed information about the claim, including its specifications and current status.
+
+.Console - View Persistent Volume Claim
+[.img-wide]
+image::console-pv-claims-view.png[View Persistent Volume Claim]
+
+To delete a Persistent Volume Claim, click the "DELETE PVC" button in the header. This will remove the PVC from the cluster and delete its manifest from the Git repository. Ensure that any applications using the PVC are updated or deleted first to avoid binding issues.
+
+=== Add Persistent Volume Claim
+
+Click "Add Persistent Volume Claim" to create a new PVC.
+
+==== Add EBS Persistent Volume Claim
+
+For EBS volumes, dynamic provisioning is recommended. To use static provisioning with this page, ensure that you have already created a Persistent Volume (PV) in the cluster that matches your claim requirements.
+
+.Console - Add EBS Persistent Volume Claim
+[.img-wide]
+image::console-pv-claims-add-ebs.png[Add Persistent Volume Claim]
+
+For EBS and GP2 volume type, set Dynamic Provisioning to 'Yes' to create a PVC that will automatically bind to a dynamically provisioned EBS volume.
+
+Fill out the form with the following fields:
+
+* *PVC Name*: A unique name for the Persistent Volume Claim.
+* *Namespace*: The Kubernetes namespace where the PVC will be created.
+* *Storage Class*: Select an existing StorageClass to associate with the PVC.
+* *Storage Capacity*: Specify the size of the volume (e.g., 10Gi).
+* *Access Modes*: Choose one or more access modes. ReadWriteOnce (RWO) is common for EBS.
+
+==== Add EFS Persistent Volume Claim
+
+.Console - Add EFS Persistent Volume Claim
+[.img-wide]
+image::console-pv-claims-add-efs.png[Add Persistent Volume Claim]
+
+Fill out the form with the following fields:
+
+* *PVC Name*: A unique name for the Persistent Volume Claim.
+* *Namespace*: The Kubernetes namespace where the PVC will be created.
+* *Volume Name*: Select an existing Persistent Volume to bind to.
+* *Storage Class*: Select an existing StorageClass to associate with the PVC.
+* *Storage Capacity*: Specify the size of the volume (e.g., 10Gi).
+* *Access Modes*: Choose one or more access modes. ReadWriteMany (RWX) is common for EFS.
+
+=== Add S3 Persistent Volume Claim
+
+.Console - Add S3 Persistent Volume Claim
+[.img-wide]
+image::console-pv-claims-add-s3.png[Add Persistent Volume Claim]
+
+Fill out the form with the following fields:
+
+* *PVC Name*: A unique name for the Persistent Volume Claim.
+* *Namespace*: The Kubernetes namespace where the PVC will be created.
+* *Volume Name*: Select an existing Persistent Volume to bind to.
+* *Storage Class*: Select an existing StorageClass to associate with the PVC.
+* *Storage Capacity*: Specify the size of the volume (e.g., 10Gi).
+* *Access Modes*: Choose one or more access modes. ReadWriteMany (RWX) is common for S3.
+
 
 
 
