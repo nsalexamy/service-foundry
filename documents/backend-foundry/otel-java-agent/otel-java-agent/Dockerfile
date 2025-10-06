@@ -1,0 +1,19 @@
+# --- Stage 1: fetch agent ---
+FROM alpine:3.20 AS fetcher
+#ARG OTEL_JAVA_AGENT_VERSION=2.7.0
+ARG OTEL_JAVA_AGENT_VERSION=2.20.1
+RUN apk add --no-cache curl \
+ && curl -L -o /tmp/opentelemetry-javaagent.jar \
+    https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OTEL_JAVA_AGENT_VERSION}/opentelemetry-javaagent.jar
+
+# --- Stage 2: minimal runtime with sh/cp (busybox) ---
+FROM busybox:1.36
+USER 65532:65532        # nonroot
+WORKDIR /opt/otel
+COPY --from=fetcher /tmp/opentelemetry-javaagent.jar /opt/otel/opentelemetry-javaagent.jar
+
+# Place your own extensions to /opt/otel/ directory.
+#COPY nsa2-otel-extension-1.0-all.jar /opt/otel/
+
+# optional default entrypoint; we’ll override in the initContainer anyway
+ENTRYPOINT ["sh","-c","cp -f /opt/otel/opentelemetry-javaagent.jar \"$OTEL_AGENT_OUT_DIR/$OTEL_AGENT_FILENAME\""]

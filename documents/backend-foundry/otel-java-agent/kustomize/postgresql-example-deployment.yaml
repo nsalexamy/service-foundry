@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql-example
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: postgresql-example }
+  template:
+    metadata:
+      labels: { app: postgresql-example }
+    spec:
+      # Ensure shared volume readable by the app container (common fix if app runs nonroot)
+      securityContext:
+        fsGroup: 2000
+
+      volumes:
+        - name: otel-agent
+          emptyDir: {} # or { medium: Memory } for tmpfs
+        - name: otel-agent-config        # optional
+          configMap:
+            name: otel-java-agent-config
+            items:
+              - key: agent.properties
+                path: agent.properties
+              - key: logback.xml
+                path: logback.xml
+      initContainers:
+        - name: otel-java-agent-init
+          image: credemol/otel-java-agent:2.20.1
+          imagePullPolicy: Always #IfNotPresent
+          env:
+            - name: OTEL_AGENT_OUT_DIR
+              value: /otel/agent
+            - name: OTEL_AGENT_FILENAME
+              value: opentelemetry-javaagent.jar
+          command: ["/bin/sh","-c"]
+          args:
+            # copy + set sane perms; chown is helpful if your app runs as a specific uid
+            - |
+              cp -f /opt/otel/*.jar /otel/agent/
+              chmod 0644 /otel/agent/*.jar
+#            - |
+#              cp -f /opt/otel/opentelemetry-javaagent.jar /otel/agent/opentelemetry-javaagent.jar
+#              cp -f /opt/otel/nsa2-otel-extension-1.0-all.jar /otel/agent/nsa2-otel-extension-1.0-all.jar
+#              chmod 0644 /otel/agent/opentelemetry-javaagent.jar
+#              chmod 0644 /otel/agent/nsa2-otel-extension-1.0-all.jar
+          volumeMounts:
+            - name: otel-agent
+              mountPath: /otel/agent
+
+      containers:
+        - name: app
+          image: credemol/postgresql-example:0.1.0
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+            - containerPort: 9464
+              name: metrics
+              protocol: TCP
+          volumeMounts:
+            - name: otel-agent
+              mountPath: /otel/agent
+              readOnly: true
+            - name: otel-agent-config      # optional
+              mountPath: /otel/config
+              readOnly: true
+          env:
+            # 1) Inject the javaagent
+            - name: JAVA_TOOL_OPTIONS
+              value: "-javaagent:/otel/agent/opentelemetry-javaagent.jar"
+            - name: OTEL_JAVAAGENT_EXTENSIONS
+              value: "/otel/agent/nsa2-otel-extension-1.0-all.jar"
+
+            # 2) Core OTel config
+            - name: OTEL_SERVICE_NAME
+              value: "postgresql-example"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.o11y.svc.cluster.local:4317"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "grpc"
+            - name: OTEL_METRICS_EXPORTER
+              value: "prometheus"
+
+            # (Optional) add metadata & sampling
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=default,service.version=1.0.0,env=dev"
+            - name: OTEL_TRACES_SAMPLER
+              value: "parentbased_traceidratio"
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: "1.0"
+#              value: "0.10"
+
+            # (Optional) point agent to a properties file
+            - name: OTEL_JAVAAGENT_CONFIGURATION_FILE
+              value: "/otel/config/agent.properties"
+            - name: LOGBACK_CONFIG_FILE
+              value: "/otel/config/logback.xml"
+
+          envFrom:
+            - configMapRef:
+                name: postgresql-example-configmap
+                optional: true
+            - secretRef:
+                name: postgresql-example-secret
+                optional: true
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits:   { cpu: "1000m", memory: "1024Mi" }

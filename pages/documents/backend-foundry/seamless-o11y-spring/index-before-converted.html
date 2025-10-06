@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Seamless Observability for Legacy Spring Applications</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#observability-during-the-development-phase">Observability during the Development Phase</a></li>
+<li><a href="#leveraging-opentelemetry-for-seamless-observability">Leveraging OpenTelemetry for Seamless Observability</a></li>
+<li><a href="#creating-otel-java-agent-container">Creating otel-java-agent Container</a></li>
+<li><a href="#enabling-opentelemetry-in-the-spring-application">Enabling OpenTelemetry in the Spring Application</a>
+<ul class="sectlevel2">
+<li><a href="#adding-otel-java-agent-container-to-the-deployment-manifest">Adding otel-java-agent Container to the Deployment Manifest</a></li>
+<li><a href="#otel-agent-properties">OTEL Agent Properties</a></li>
+<li><a href="#out-of-the-box-instrumentation">Out of the box instrumentation</a></li>
+<li><a href="#configuring-the-agent-properties">Configuring the Agent Properties</a></li>
+<li><a href="#enabling-opentelemetry-in-the-application-container">Enabling OpenTelemetry in the Application Container</a></li>
+<li><a href="#exposing-metrics-endpoint">Exposing Metrics Endpoint</a></li>
+</ul>
+</li>
+<li><a href="#enabling-observability-stack">Enabling Observability Stack</a></li>
+<li><a href="#on-demand-enable-observability-stack-using-service-foundry">On-Demand Enable Observability Stack using Service Foundry</a></li>
+<li><a href="#deploy-the-application-with-observability-enabled">Deploy the Application with Observability Enabled</a></li>
+<li><a href="#generating-traffic-to-create-telemetry-data">Generating Traffic to create Telemetry Data</a></li>
+<li><a href="#visualizing-telemetry-data-in-grafana">Visualizing Telemetry Data in Grafana</a>
+<ul class="sectlevel2">
+<li><a href="#grafana-data-sources">Grafana Data Sources</a></li>
+<li><a href="#trace-data">Trace Data</a></li>
+<li><a href="#log-data">Log Data</a></li>
+<li><a href="#metrics-data">Metrics Data</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/instrumenting-legacy-spring-apps.png" alt="instrumenting legacy spring apps">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This document provides a comprehensive guide on how to integrate seamless observability into legacy Spring applications using OpenTelemetry. It covers the steps to set up OpenTelemetry, instrument your Spring application, and visualize the collected telemetry data.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="observability-during-the-development-phase">Observability during the Development Phase</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Observability is crucial during the development phase to ensure that applications are functioning correctly and efficiently. By integrating OpenTelemetry into your Spring application, you can collect metrics, traces, and logs that provide insights into the application&#8217;s performance and behavior.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="leveraging-opentelemetry-for-seamless-observability">Leveraging OpenTelemetry for Seamless Observability</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>OpenTelemetry is an open-source observability framework that provides a standardized way to collect and export telemetry data. It supports various programming languages, including Java, making it an ideal choice for Spring applications.</p>
+</div>
+<div class="paragraph">
+<p>The postgresql-example Container is a simple Spring Boot application that connects to a PostgreSQL database and exposes a REST API. It does not include any OpenTelemetry instrumentation or related configurations.</p>
+</div>
+<div class="paragraph">
+<p>We are going to use the OpenTelemetry Java agent to instrument the Spring application without modifying the application code. The OpenTelemetry Java agent is a Java agent that can be attached to any Java application to automatically instrument it.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="creating-otel-java-agent-container">Creating otel-java-agent Container</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This container can be used as a sidecar container or init container to inject OpenTelemetry Java agent into the main application container.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="dockerfile"><span class="c"># --- Stage 1: fetch agent ---</span>
+<span class="k">FROM</span><span class="w"> </span><span class="s">alpine:3.20</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="s">fetcher</span>
+<span class="k">ARG</span><span class="s"> OTEL_JAVA_AGENT_VERSION=2.20.1</span>
+<span class="k">RUN </span>apk add <span class="nt">--no-cache</span> curl <span class="se">\
+</span> <span class="o">&amp;&amp;</span> curl <span class="nt">-L</span> <span class="nt">-o</span> /tmp/opentelemetry-javaagent.jar <span class="se">\
+</span>    https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v<span class="k">${</span><span class="nv">OTEL_JAVA_AGENT_VERSION</span><span class="k">}</span>/opentelemetry-javaagent.jar
+
+<span class="c"># --- Stage 2: minimal runtime with sh/cp (busybox) ---</span>
+<span class="k">FROM</span><span class="s"> busybox:1.36</span>
+<span class="k">USER</span><span class="s"> 65532:65532        # nonroot</span>
+<span class="k">WORKDIR</span><span class="s"> /opt/otel</span>
+<span class="k">COPY</span><span class="s"> --from=fetcher /tmp/opentelemetry-javaagent.jar /opt/otel/opentelemetry-javaagent.jar</span>
+
+<span class="c"># Place your own extensions to /opt/otel/ directory.</span>
+<span class="c">#COPY nsa2-otel-extension-1.0-all.jar /opt/otel/</span>
+
+<span class="c"># optional default entrypoint; we’ll override in the initContainer anyway</span>
+<span class="k">ENTRYPOINT</span><span class="s"> ["sh","-c","cp -f /opt/otel/opentelemetry-javaagent.jar \"$OTEL_AGENT_OUT_DIR/$OTEL_AGENT_FILENAME\""]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This Docker image can be found on Docker Hub with the name of <code>credemol/otel-java-agent:2.20.1</code>.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="enabling-opentelemetry-in-the-spring-application">Enabling OpenTelemetry in the Spring Application</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="adding-otel-java-agent-container-to-the-deployment-manifest">Adding otel-java-agent Container to the Deployment Manifest</h3>
+<div class="paragraph">
+<p>initContainer is used to copy the OpenTelemetry Java agent to a shared emptyDir volume. The application container can then mount the same volume to access the agent. All Jar files in the /opt/otel/ directory of the otel-java-agent container will be copied to the shared volume which is mounted to /otel/agent/. You can place your own extensions to the /opt/otel/ directory of the otel-java-agent container.</p>
+</div>
+<div class="listingblock">
+<div class="title">deployment.yaml - initContainer</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">      <span class="na">initContainers</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">otel-java-agent-init</span>
+          <span class="na">image</span><span class="pi">:</span> <span class="s">credemol/otel-java-agent:2.20.1</span>
+          <span class="na">imagePullPolicy</span><span class="pi">:</span> <span class="s">IfNotPresent</span>
+          <span class="na">env</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_AGENT_OUT_DIR</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s">/otel/agent</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_AGENT_FILENAME</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s">opentelemetry-javaagent.jar</span>
+          <span class="na">command</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">/bin/sh"</span><span class="pi">,</span><span class="s2">"</span><span class="s">-c"</span><span class="pi">]</span>
+          <span class="na">args</span><span class="pi">:</span>
+            <span class="c1"># copy + set sane perms; chown is helpful if your app runs as a specific uid</span>
+            <span class="pi">-</span> <span class="pi">|</span>
+              <span class="s">cp -f /opt/otel/*.jar /otel/agent/</span>
+              <span class="s">chmod 0644 /otel/agent/*.jar</span>
+          <span class="na">volumeMounts</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">otel-agent</span>
+              <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/otel/agent</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="otel-agent-properties">OTEL Agent Properties</h3>
+<div class="paragraph">
+<p>For more details about the OpenTelemetry Java agent properties, please refer to the official documentation:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://opentelemetry.io/docs/zero-code/java/spring-boot-starter/out-of-the-box-instrumentation/" class="bare">https://opentelemetry.io/docs/zero-code/java/spring-boot-starter/out-of-the-box-instrumentation/</a></p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="out-of-the-box-instrumentation">Out of the box instrumentation</h3>
+<div class="paragraph">
+<p><strong>Features:</strong></p>
+</div>
+<div class="hdlist">
+<table>
+<tr>
+<td class="hdlist1">
+JDBC
+</td>
+<td class="hdlist2">
+<p>otel.instrumentation.jdbc.enabled	(default: true)</p>
+</td>
+</tr>
+<tr>
+<td class="hdlist1">
+Logback
+</td>
+<td class="hdlist2">
+<p>otel.instrumentation.logback-appender.enabled	(default: true)</p>
+</td>
+</tr>
+<tr>
+<td class="hdlist1">
+Logback MDC
+</td>
+<td class="hdlist2">
+<p>otel.instrumentation.logback-mdc.enabled	(default: true)</p>
+</td>
+</tr>
+<tr>
+<td class="hdlist1">
+Spring
+</td>
+<td class="hdlist2">
+<p>Web	otel.instrumentation.spring-web.enabled	(default: true)</p>
+</td>
+</tr>
+<tr>
+<td class="hdlist1">
+Spring
+</td>
+<td class="hdlist2">
+<p>Web MVC	otel.instrumentation.spring-webmvc.enabled	(default: true)</p>
+</td>
+</tr>
+<tr>
+<td class="hdlist1">
+Spring
+</td>
+<td class="hdlist2">
+<p>WebFlux	otel.instrumentation.spring-webflux.enabled	(default: true)</p>
+</td>
+</tr>
+<tr>
+<td class="hdlist1">
+Kafka
+</td>
+<td class="hdlist2">
+<p>otel.instrumentation.kafka.enabled	(default: true)</p>
+</td>
+</tr>
+<tr>
+<td class="hdlist1">
+MongoDB
+</td>
+<td class="hdlist2">
+<p>otel.instrumentation.mongo.enabled	(default: true)</p>
+</td>
+</tr>
+<tr>
+<td class="hdlist1">
+Micrometer
+</td>
+<td class="hdlist2">
+<p>otel.instrumentation.micrometer.enabled	(default: false)</p>
+</td>
+</tr>
+<tr>
+<td class="hdlist1">
+R2DBC (reactive JDBC)
+</td>
+<td class="hdlist2">
+<p>otel.instrumentation.r2dbc.enabled	(default: true)</p>
+</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="configuring-the-agent-properties">Configuring the Agent Properties</h3>
+<div class="paragraph">
+<p>If you want to customize the OpenTelemetry Java agent properties, you can create a ConfigMap and mount it as a volume in the initContainer. The agent.properties file will be copied to the shared volume along with the OpenTelemetry Java agent Jar file.</p>
+</div>
+<div class="listingblock">
+<div class="title">otel-java-agent.config.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ConfigMap</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">otel-java-agent-config</span>
+<span class="na">data</span><span class="pi">:</span>
+  <span class="na">agent.properties</span><span class="pi">:</span> <span class="pi">|</span>
+    <span class="s">otel.instrumentation.jdbc.enabled=true</span>
+    <span class="s">otel.instrumentation.spring-webmvc.enabled=true</span>
+
+  <span class="c1"># Optional: customize logback configuration</span>
+  <span class="na">logback.xml</span><span class="pi">:</span> <span class="pi">|</span>
+    <span class="s">&lt;configuration&gt;</span>
+        <span class="s">&lt;appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender"&gt;</span>
+            <span class="s">&lt;encoder&gt;</span>
+                <span class="s">&lt;pattern&gt;%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n&lt;/pattern&gt;</span>
+            <span class="s">&lt;/encoder&gt;</span>
+        <span class="s">&lt;/appender&gt;</span>
+
+        <span class="s">&lt;root level="INFO"&gt;</span>
+            <span class="s">&lt;appender-ref ref="STDOUT" /&gt;</span>
+        <span class="s">&lt;/root&gt;</span>
+    <span class="s">&lt;/configuration&gt;</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This ConfigMap will be mounted to /otel/config/ directory in the initContainer. The agent.properties file will be copied to the shared volume which is mounted to /otel/agent/.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="enabling-opentelemetry-in-the-application-container">Enabling OpenTelemetry in the Application Container</h3>
+<div class="listingblock">
+<div class="title">deployment.yaml - application container</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># omitted    for brevity</span>
+
+      <span class="c1"># volumes</span>
+      <span class="na">volumes</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">otel-agent</span>
+          <span class="na">emptyDir</span><span class="pi">:</span> <span class="pi">{}</span> <span class="c1"># or { medium: Memory } for tmpfs</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">otel-agent-config</span>        <span class="c1"># optional</span>
+          <span class="na">configMap</span><span class="pi">:</span>
+            <span class="na">name</span><span class="pi">:</span> <span class="s">otel-java-agent-config</span>
+            <span class="na">items</span><span class="pi">:</span>
+              <span class="pi">-</span> <span class="na">key</span><span class="pi">:</span> <span class="s">agent.properties</span>
+                <span class="na">path</span><span class="pi">:</span> <span class="s">agent.properties</span>
+              <span class="pi">-</span> <span class="na">key</span><span class="pi">:</span> <span class="s">logback.xml</span>
+                <span class="na">path</span><span class="pi">:</span> <span class="s">logback.xml</span>
+      <span class="na">initContainers</span><span class="pi">:</span>
+        <span class="c1"># omitted for brevity. See previous section for details.</span>
+
+      <span class="na">containers</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">app</span>
+          <span class="na">image</span><span class="pi">:</span> <span class="s">credemol/postgresql-example:0.1.0</span>
+          <span class="na">ports</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">containerPort</span><span class="pi">:</span> <span class="m">8080</span>
+              <span class="na">name</span><span class="pi">:</span> <span class="s">http</span>
+              <span class="na">protocol</span><span class="pi">:</span> <span class="s">TCP</span>
+            <span class="c1"># Metrics endpoint for Target Allocator to scrape</span>
+            <span class="pi">-</span> <span class="na">containerPort</span><span class="pi">:</span> <span class="m">9464</span>
+              <span class="na">name</span><span class="pi">:</span> <span class="s">metrics</span>
+              <span class="na">protocol</span><span class="pi">:</span> <span class="s">TCP</span>
+          <span class="c1">#</span>
+          <span class="na">volumeMounts</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">otel-agent</span>
+              <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/otel/agent</span>
+              <span class="na">readOnly</span><span class="pi">:</span> <span class="kc">true</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">otel-agent-config</span>      <span class="c1"># optional</span>
+              <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/otel/config</span>
+              <span class="na">readOnly</span><span class="pi">:</span> <span class="kc">true</span>
+          <span class="na">env</span><span class="pi">:</span>
+            <span class="c1"># 1) Inject the javaagent</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">JAVA_TOOL_OPTIONS</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">-javaagent:/otel/agent/opentelemetry-javaagent.jar"</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_JAVAAGENT_EXTENSIONS</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">/otel/agent/nsa2-otel-extension-1.0-all.jar"</span>
+
+            <span class="c1"># 2) Core OTel config</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_SERVICE_NAME</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">postgresql-example"</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_EXPORTER_OTLP_ENDPOINT</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">http://otel-collector.o11y.svc.cluster.local:4317"</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_EXPORTER_OTLP_PROTOCOL</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">grpc"</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_METRICS_EXPORTER</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">prometheus"</span>
+
+            <span class="c1"># (Optional) add metadata &amp; sampling</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_RESOURCE_ATTRIBUTES</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">service.namespace=default,service.version=1.0.0,env=dev"</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_TRACES_SAMPLER</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">parentbased_traceidratio"</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_TRACES_SAMPLER_ARG</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">1.0"</span>  <span class="c1"># 100% sampling for troubleshooting</span>
+
+            <span class="c1"># (Optional) point agent to a properties file</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_JAVAAGENT_CONFIGURATION_FILE</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">/otel/config/agent.properties"</span>
+
+          <span class="na">envFrom</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">configMapRef</span><span class="pi">:</span>
+                <span class="na">name</span><span class="pi">:</span> <span class="s">postgresql-example-configmap</span>
+                <span class="na">optional</span><span class="pi">:</span> <span class="kc">true</span>
+            <span class="pi">-</span> <span class="na">secretRef</span><span class="pi">:</span>
+                <span class="na">name</span><span class="pi">:</span> <span class="s">postgresql-example-secret</span>
+                <span class="na">optional</span><span class="pi">:</span> <span class="kc">true</span>
+          <span class="na">resources</span><span class="pi">:</span>
+            <span class="na">requests</span><span class="pi">:</span> <span class="pi">{</span> <span class="nv">cpu</span><span class="pi">:</span> <span class="s2">"</span><span class="s">100m"</span><span class="pi">,</span> <span class="nv">memory</span><span class="pi">:</span> <span class="s2">"</span><span class="s">256Mi"</span> <span class="pi">}</span>
+            <span class="na">limits</span><span class="pi">:</span>   <span class="pi">{</span> <span class="nv">cpu</span><span class="pi">:</span> <span class="s2">"</span><span class="s">1000m"</span><span class="pi">,</span> <span class="nv">memory</span><span class="pi">:</span> <span class="s2">"</span><span class="s">1024Mi"</span> <span class="pi">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Key environment variables:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>JAVA_TOOL_OPTIONS</strong>: This variable is used to specify the Java agent to be used. The value should be set to "-javaagent:/path/to/opentelemetry-javaagent.jar".</p>
+</li>
+<li>
+<p><strong>OTEL_JAVAAGENT_EXTENSIONS</strong>: This variable is used to specify the path to any additional extensions for the OpenTelemetry Java agent.</p>
+</li>
+<li>
+<p><strong>OTEL_JAVAAGENT_CONFIGURATION_FILE</strong>: This variable is used to specify the path to the agent.properties file if you want to customize the agent properties.</p>
+</li>
+<li>
+<p><strong>OTEL_EXPORTER_OTLP_ENDPOINT</strong>: This variable is used to specify the endpoint of the OpenTelemetry Collector. The value should be set to the address of the collector in your Kubernetes cluster.</p>
+</li>
+<li>
+<p><strong>OTEL_SERVICE_NAME</strong>: This variable is used to specify the name of the service. This name will be used to identify the service in the telemetry data.</p>
+</li>
+<li>
+<p><strong>OTEL_METRICS_EXPORTER</strong>: This variable is used to specify the metrics exporter to be used. The value should be set to "prometheus" for Target Allocator to scrape metrics.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="exposing-metrics-endpoint">Exposing Metrics Endpoint</h3>
+<div class="paragraph">
+<p>Set <strong>OTEL_METRICS_EXPORTER=prometheus</strong> to enable Prometheus metrics exporter in the OpenTelemetry Java agent. This will expose a Prometheus metrics endpoint at port 9464 by default. Make sure to expose this port in the container and create a Service to allow the Target Allocator to scrape metrics from the application.</p>
+</div>
+<div class="listingblock">
+<div class="title">service.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Service</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">postgresql-example</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="c1"># unique name of the application required for ServiceMonitor</span>
+    <span class="na">app.kubernetes.io/name</span><span class="pi">:</span> <span class="s">postgresql-example</span>
+    <span class="na">provider</span><span class="pi">:</span> <span class="s">service-foundry</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s">ClusterIP</span>  <span class="c1"># ClusterIP, NodePort, or LoadBalancer</span>
+  <span class="na">ports</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">port</span><span class="pi">:</span> <span class="m">8080</span>
+      <span class="na">targetPort</span><span class="pi">:</span> <span class="m">8080</span>
+      <span class="na">protocol</span><span class="pi">:</span> <span class="s">TCP</span>
+      <span class="na">name</span><span class="pi">:</span> <span class="s">http</span>
+    <span class="c1"># Metrics endpoint for Target Allocator to scrape</span>
+    <span class="pi">-</span> <span class="na">port</span><span class="pi">:</span> <span class="m">9464</span>
+      <span class="na">targetPort</span><span class="pi">:</span> <span class="m">9464</span>
+      <span class="na">protocol</span><span class="pi">:</span> <span class="s">TCP</span>
+      <span class="na">name</span><span class="pi">:</span> <span class="s">metrics</span>
+        <span class="s">#    name</span><span class="err">:</span> <span class="s">http</span>
+  <span class="na">selector</span><span class="pi">:</span>
+    <span class="na">app</span><span class="pi">:</span> <span class="s">postgresql-example</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">ServiceMonitor for Target Allocator</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">monitoring.coreos.com/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceMonitor</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">postgresql-example-servicemonitor</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">qc</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="c1"># Target Allocator defined in OtelCollector looks for this label to discover ServiceMonitors</span>
+    <span class="na">metrics-unit</span><span class="pi">:</span> <span class="s">o11y</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">selector</span><span class="pi">:</span>
+    <span class="na">matchLabels</span><span class="pi">:</span>
+      <span class="c1"># must match the label in the Service definition</span>
+      <span class="na">app.kubernetes.io/name</span><span class="pi">:</span> <span class="s">postgresql-example</span>
+  <span class="na">endpoints</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">port</span><span class="pi">:</span> <span class="s">metrics</span>
+      <span class="na">interval</span><span class="pi">:</span> <span class="s">30s</span>
+      <span class="na">scheme</span><span class="pi">:</span> <span class="s">http</span>
+      <span class="na">path</span><span class="pi">:</span> <span class="s">/metrics</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The Target Allocator will automatically discover the ServiceMonitor and start scraping metrics from the application.</p>
+</div>
+<div class="paragraph">
+<p>Metrics from Spring boot applications:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>jvm cpu</p>
+</li>
+<li>
+<p>jvm memory</p>
+</li>
+<li>
+<p>jvm gc</p>
+</li>
+<li>
+<p>jvm threads</p>
+</li>
+<li>
+<p>http server requests</p>
+</li>
+<li>
+<p>datasource (jdbc connection pool)</p>
+</li>
+<li>
+<p>logback appender (if logback is used)</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="enabling-observability-stack">Enabling Observability Stack</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To enable the observability stack, you need to set up the following components:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>OpenTelemetry Collector</p>
+</li>
+<li>
+<p>OpenTelemetry Target Allocator (Metrics for Applications)</p>
+</li>
+<li>
+<p>Kubelet Cadvisor Collector (Metrics for Nodes and Pods)</p>
+</li>
+<li>
+<p>Grafana (Dashboard)</p>
+</li>
+<li>
+<p>Prometheus (Metrics)</p>
+</li>
+<li>
+<p>Jaeger, Zipkin or Tempo (Traces)</p>
+</li>
+<li>
+<p>OpenSearch Stack of Loki (Logs)</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="on-demand-enable-observability-stack-using-service-foundry">On-Demand Enable Observability Stack using Service Foundry</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>If you have set up the Service Foundry platform, you can quickly enable the observability stack by clicking 'Enable Observability' button in the Service Foundry dashboard.</p>
+</div>
+<div class="paragraph">
+<p>Setting up the observability stack costs a certain amount of resources and quite complicated. If you want to enable the observability stack only when needed, you can use the Service Foundry dashboard to enable and disable the observability stack on demand.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-dashboard-enable-o11y.png" alt="console dashboard enable o11y">
+</div>
+<div class="title">Figure 1. Console - Enable Observability</div>
+</div>
+<div class="paragraph">
+<p>After a while, you should see the observability stack components running in the <code>o11y</code> namespace.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-managed-apps-o11y.png" alt="console managed apps o11y">
+</div>
+<div class="title">Figure 2. Console - Observability Stack Components</div>
+</div>
+<div class="paragraph">
+<p>When you no longer need the observability stack, you can click 'Disable Observability' button to disable the observability stack and free up the resources.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-dashboard-disable-o11y.png" alt="console dashboard disable o11y">
+</div>
+<div class="title">Figure 3. Console - Disable Observability</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deploy-the-application-with-observability-enabled">Deploy the Application with Observability Enabled</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Once the observability stack is set up, you can deploy your Spring application with the OpenTelemetry Java agent enabled. The application will start sending telemetry data to the OpenTelemetry Collector, which will then forward the data to the appropriate backend (e.g., Prometheus, Jaeger, etc.).</p>
+</div>
+<div class="paragraph">
+<p>You can use the 'Enterprise Applications' feature like when deploying a regular application.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-enterprise-app-install.png" alt="console enterprise app install">
+</div>
+<div class="title">Figure 4. Console - Deploy Enterprise Application</div>
+</div>
+<div class="paragraph">
+<p>When the application is deployed, you should see the application running in the <code>qc</code> namespace (or the namespace you specified).</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-managed-apps.png" alt="console managed apps">
+</div>
+<div class="title">Figure 5. Console - Deployed Applications</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="generating-traffic-to-create-telemetry-data">Generating Traffic to create Telemetry Data</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To generate some traffic to the application, you can use Swagger UI to send requests to the REST API.</p>
+</div>
+<div class="paragraph">
+<p>Go to <a href="http://postgresql-example.your-root-domain/swagger-ui/index.html" class="bare">http://postgresql-example.your-root-domain/swagger-ui/index.html</a> to access the Swagger UI.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/swagger-ui-create-user.png" alt="swagger ui create user">
+</div>
+<div class="title">Figure 6. Console - Swagger UI</div>
+</div>
+<div class="paragraph">
+<p>Use the <code>POST /users</code> endpoint to create a new user. You can use the following JSON payload to create a user:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+    </span><span class="nl">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"John Doe"</span><span class="p">,</span><span class="w">
+    </span><span class="nl">"email"</span><span class="p">:</span><span class="w"> </span><span class="s2">"john@nsa2.com"</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>After creating a user, you can use the <code>GET /users</code> endpoint to retrieve the list of users.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/swagger-ui-get-users.png" alt="swagger ui get users">
+</div>
+<div class="title">Figure 7. Console - Swagger UI - Get Users</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="visualizing-telemetry-data-in-grafana">Visualizing Telemetry Data in Grafana</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Go to <a href="http://grafana.your-root-domain" class="bare">http://grafana.your-root-domain</a> to access the Grafana dashboard or Navigate to Single Sign-On (SSO) &#8594; Resource Servers page and click the Grafana link.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-resource-servers.png" alt="console resource servers">
+</div>
+<div class="title">Figure 8. Console - Resource Servers</div>
+</div>
+<div class="paragraph">
+<p>The default username is 'devops' and the password is 'password'.</p>
+</div>
+<div class="sect2">
+<h3 id="grafana-data-sources">Grafana Data Sources</h3>
+<div class="paragraph">
+<p>The Grafana instance is pre-configured with the following data sources:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Tempo (for Traces)</p>
+</li>
+<li>
+<p>Loki (for Logs)</p>
+</li>
+<li>
+<p>Prometheus (for Metrics)</p>
+</li>
+</ul>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-data-sources.png" alt="grafana data sources">
+</div>
+<div class="title">Figure 9. Grafana Data Sources</div>
+</div>
+<div class="paragraph">
+<p>Click the 'Explore' menu to explore the telemetry data.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="trace-data">Trace Data</h3>
+<div class="paragraph">
+<p>Click the 'Explore' of the Tempo data source to explore the trace data.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-tempo-search.png" alt="grafana tempo search">
+</div>
+<div class="title">Figure 10. Grafana - Explore Trace Data</div>
+</div>
+<div class="paragraph">
+<p>You should see the trace data for the requests sent to the application.
+Example Trace:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Service Name</strong>: postgresql-example</p>
+</li>
+<li>
+<p><strong>Span Name</strong>: GET /users</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="log-data">Log Data</h3>
+<div class="paragraph">
+<p>Click the 'Explore' of the Loki data source to explore the log data.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-loki-search.png" alt="grafana loki search">
+</div>
+<div class="title">Figure 11. Grafana - Explore Log Data</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>service_name</strong>: postgresql-example</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="metrics-data">Metrics Data</h3>
+<div class="paragraph">
+<p>Metrics data collectors:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Kubelet Cadvisor Collector</strong>: Collects node and pod metrics from Kubelet Cadvisor endpoint.</p>
+</li>
+<li>
+<p><strong>OpenTelemetry Target Allocator</strong>: Collects application metrics from the ServiceMonitor endpoints.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Go to Drilldown &#8594; Metrics to explore the metrics data.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-drilldown-metrics.png" alt="grafana drilldown metrics">
+</div>
+<div class="title">Figure 12. Grafana - Drilldown Metrics</div>
+</div>
+<div class="paragraph">
+<p>There are more than 130 metrics available to explore. Click 'jvm_memory_used_bytes' metric to see the JVM memory usage of the application for example.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-drilldown-metrics-jvm-memory.png" alt="grafana drilldown metrics jvm memory">
+</div>
+<div class="title">Figure 13. Grafana - JVM Memory Usage</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>By following this guide, you have successfully integrated seamless observability into your legacy Spring application using OpenTelemetry. You can now monitor and analyze the performance and behavior of your application using the collected telemetry data.</p>
+</div>
+</div>
+</div>
+</body>
+</html>
