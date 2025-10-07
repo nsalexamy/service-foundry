@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Observability with OpenTelemetry eBPF (OBI) in Kubernetes</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">
+    Service Foundry
+</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/products/" class="">Products</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+        
+        <a href="/service-foundry/pages/demo/" class="">Demo</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/service-foundry/" class="">Service Foundry</a>
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="active">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Observability with OpenTelemetry eBPF (OBI) in Kubernetes
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#enabling-observability-stack-in-service-foundry">Enabling Observability Stack in Service Foundry</a></li>
+<li><a href="#example-applications">Example applications</a></li>
+<li><a href="#deploying-obi-with-postgresql-example">Deploying OBI with postgresql-example</a>
+<ul class="sectlevel2">
+<li><a href="#deploy-obi-as-a-sidecar-container">Deploy OBI as a sidecar container</a></li>
+<li><a href="#rbac-configuration-for-obi">RBAC Configuration for OBI</a></li>
+<li><a href="#deployment-configuration">Deployment Configuration</a></li>
+<li><a href="#deploy-postgresql-example-with-obi-sidecar">Deploy postgresql-example with OBI sidecar</a></li>
+<li><a href="#view-traces-in-grafana-tempo">View traces in Grafana Tempo</a></li>
+</ul>
+</li>
+<li><a href="#enabling-obi-for-go-applications">Enabling OBI for Go Applications</a>
+<ul class="sectlevel2">
+<li><a href="#deploy-service-foundry-app-backend-with-obi-sidecar">Deploy service-foundry-app-backend with OBI sidecar</a></li>
+<li><a href="#view-traces-in-grafana-tempo-2">View traces in Grafana Tempo</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#references">References</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/otel-ebpf-instrument.png" alt="otel ebpf instrument">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>OpenTelemetry eBPF Instrumentation (OBI) is a powerful way to collect deep telemetry data from Kubernetes workloads without modifying application code. By leveraging eBPF (Extended Berkeley Packet Filter) at the kernel level, OBI captures metrics, traces, and network activity directly from running services, making it ideal for languages like Go or Rust where auto-instrumentation may not be available.</p>
+</div>
+<div class="paragraph">
+<p>This guide walks you through deploying OpenTelemetry eBPF Instrumentation in Kubernetes, enabling trace data collection and seamless integration with your observability stack.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="enabling-observability-stack-in-service-foundry">Enabling Observability Stack in Service Foundry</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Service Foundry makes enabling observability as simple as clicking a button. In the Service Foundry Console, click <strong>Enable Observability Stack</strong> to deploy OpenTelemetry Collector, Grafana, Prometheus, and Jaeger to your cluster. To tear down, simply click <strong>Disable Observability Stack</strong> to remove all deployed components.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-dashboard-enable-o11y.png" alt="console dashboard enable o11y">
+</div>
+<div class="title">Figure 1. Console - Enable Observability Stack</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="example-applications">Example applications</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We’ll demonstrate OpenTelemetry eBPF Instrumentation using two sample applications:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>postgresql-example</strong> – A Spring Boot app, previously instrumented with OpenTelemetry Java agent for comparison.</p>
+</li>
+<li>
+<p><strong>service-foundry-app-backend</strong> – A Go application without OpenTelemetry auto-instrumentation support.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deploying-obi-with-postgresql-example">Deploying OBI with postgresql-example</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Previously, we covered how to use OpenTelemetry auto-instrumentation for Java applications with postgresql-example (<a href="https://www.linkedin.com/pulse/observability-legacy-spring-apps-code-changes-required-kim-ndr8c">Observability for Legacy Spring Apps - No Code Changes Required</a>). Here, we’ll deploy OBI as a sidecar container in the same pod as the app.</p>
+</div>
+<div class="sect2">
+<h3 id="deploy-obi-as-a-sidecar-container">Deploy OBI as a sidecar container</h3>
+<div class="paragraph">
+<p>You can deploy OBI in Kubernetes in two different ways:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>As a sidecar container</p>
+</li>
+<li>
+<p>As a DaemonSet</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>In this example, we will deploy OBI as a sidecar container in the same pod as the postgresql-example application.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="rbac-configuration-for-obi">RBAC Configuration for OBI</h3>
+<div class="paragraph">
+<p>Proper RBAC setup is essential. The following YAML creates a ServiceAccount, ClusterRole, and ClusterRoleBinding for OBI in the qc namespace:</p>
+</div>
+<div class="listingblock">
+<div class="title">qc-obi-rbac.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceAccount</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">obi</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">qc</span>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRole</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">obi</span>
+<span class="na">rules</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">apiGroups</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">apps'</span><span class="pi">]</span>
+    <span class="na">resources</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">replicasets'</span><span class="pi">]</span>
+    <span class="na">verbs</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">list'</span><span class="pi">,</span> <span class="s1">'</span><span class="s">watch'</span><span class="pi">]</span>
+  <span class="pi">-</span> <span class="na">apiGroups</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">'</span><span class="pi">]</span>
+    <span class="na">resources</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">pods'</span><span class="pi">,</span> <span class="s1">'</span><span class="s">services'</span><span class="pi">,</span> <span class="s1">'</span><span class="s">nodes'</span><span class="pi">]</span>
+    <span class="na">verbs</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">list'</span><span class="pi">,</span> <span class="s1">'</span><span class="s">watch'</span><span class="pi">]</span>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRoleBinding</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">obi</span>
+<span class="na">subjects</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceAccount</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">obi</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="s">qc</span>
+<span class="na">roleRef</span><span class="pi">:</span>
+  <span class="na">apiGroup</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io</span>
+  <span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRole</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">obi</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="deployment-configuration">Deployment Configuration</h3>
+<div class="paragraph">
+<p>Enable shareProcessNamespace so OBI can attach to the app container, and reference the ServiceAccount created above:</p>
+</div>
+<div class="listingblock">
+<div class="title">deployment.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">spec</span><span class="pi">:</span>
+  <span class="na">template</span><span class="pi">:</span>
+    <span class="na">spec</span><span class="pi">:</span>
+      <span class="na">shareProcessNamespace</span><span class="pi">:</span> <span class="kc">true</span>
+      <span class="na">serviceAccountName</span><span class="pi">:</span> <span class="s">obi</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The shareProcessNamespace field is set to true to allow OBI to access the process namespace of the application container. And the serviceAccountName field is set to obi to use the ServiceAccount created in the previous step.</p>
+</div>
+<div class="paragraph">
+<p>Add the OBI container alongside your application container:</p>
+</div>
+<div class="listingblock">
+<div class="title">deployment.yaml (contd.)</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml">        <span class="na">containers</span><span class="pi">:</span>
+
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">obi</span>
+          <span class="na">image</span><span class="pi">:</span> <span class="s">otel/ebpf-instrument:main</span>
+          <span class="na">securityContext</span><span class="pi">:</span> <span class="c1"># Privileges are required to install the eBPF probes</span>
+            <span class="na">privileged</span><span class="pi">:</span> <span class="kc">true</span>
+          <span class="na">env</span><span class="pi">:</span>
+            <span class="c1"># The internal port of the postgresql-example application container</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_EBPF_OPEN_PORT</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s1">'</span><span class="s">8080'</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_EXPORTER_OTLP_ENDPOINT</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s1">'</span><span class="s">http://otel-collector.o11y.svc.cluster.local:4318'</span>
+              <span class="c1"># required if you want kubernetes metadata decoration</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_EBPF_KUBE_METADATA_ENABLE</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s1">'</span><span class="s">true'</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">deployment.yaml - entire file</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">apps/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Deployment</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">postgresql-example-obi</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">1</span>
+  <span class="na">selector</span><span class="pi">:</span>
+    <span class="na">matchLabels</span><span class="pi">:</span> <span class="pi">{</span> <span class="nv">app</span><span class="pi">:</span> <span class="nv">postgresql-example-obi</span> <span class="pi">}</span>
+  <span class="na">template</span><span class="pi">:</span>
+    <span class="na">metadata</span><span class="pi">:</span>
+      <span class="na">labels</span><span class="pi">:</span> <span class="pi">{</span> <span class="nv">app</span><span class="pi">:</span> <span class="nv">postgresql-example-obi</span> <span class="pi">}</span>
+    <span class="na">spec</span><span class="pi">:</span>
+      <span class="na">shareProcessNamespace</span><span class="pi">:</span> <span class="kc">true</span>
+      <span class="na">serviceAccountName</span><span class="pi">:</span> <span class="s">obi</span>
+
+      <span class="na">containers</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">app</span>
+          <span class="na">image</span><span class="pi">:</span> <span class="s">credemol/postgresql-example:0.1.0</span>
+          <span class="na">ports</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">containerPort</span><span class="pi">:</span> <span class="m">8080</span>
+              <span class="na">name</span><span class="pi">:</span> <span class="s">http</span>
+              <span class="na">protocol</span><span class="pi">:</span> <span class="s">TCP</span>
+
+          <span class="na">envFrom</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">configMapRef</span><span class="pi">:</span>
+                <span class="na">name</span><span class="pi">:</span> <span class="s">postgresql-example-obi-configmap</span>
+                <span class="na">optional</span><span class="pi">:</span> <span class="kc">true</span>
+            <span class="pi">-</span> <span class="na">secretRef</span><span class="pi">:</span>
+                <span class="na">name</span><span class="pi">:</span> <span class="s">postgresql-example-obi-secret</span>
+                <span class="na">optional</span><span class="pi">:</span> <span class="kc">true</span>
+          <span class="na">resources</span><span class="pi">:</span>
+            <span class="na">requests</span><span class="pi">:</span> <span class="pi">{</span> <span class="nv">cpu</span><span class="pi">:</span> <span class="s2">"</span><span class="s">100m"</span><span class="pi">,</span> <span class="nv">memory</span><span class="pi">:</span> <span class="s2">"</span><span class="s">256Mi"</span> <span class="pi">}</span>
+            <span class="na">limits</span><span class="pi">:</span>   <span class="pi">{</span> <span class="nv">cpu</span><span class="pi">:</span> <span class="s2">"</span><span class="s">1000m"</span><span class="pi">,</span> <span class="nv">memory</span><span class="pi">:</span> <span class="s2">"</span><span class="s">1024Mi"</span> <span class="pi">}</span>
+
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">obi</span>
+          <span class="na">image</span><span class="pi">:</span> <span class="s">otel/ebpf-instrument:main</span>
+          <span class="na">securityContext</span><span class="pi">:</span> <span class="c1"># Privileges are required to install the eBPF probes</span>
+            <span class="na">privileged</span><span class="pi">:</span> <span class="kc">true</span>
+          <span class="na">env</span><span class="pi">:</span>
+            <span class="c1"># The internal port of the  application container</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_EBPF_OPEN_PORT</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s1">'</span><span class="s">8080'</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_EXPORTER_OTLP_ENDPOINT</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s1">'</span><span class="s">http://otel-collector.o11y.svc.cluster.local:4318'</span>
+              <span class="c1"># required if you want kubernetes metadata decoration</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_EBPF_KUBE_METADATA_ENABLE</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s1">'</span><span class="s">true'</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="deploy-postgresql-example-with-obi-sidecar">Deploy postgresql-example with OBI sidecar</h3>
+<div class="paragraph">
+<p>You can deploy the postgresql-example application with OBI sidecar container by applying the deployment.yaml file.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-install-postgresql-example-obi.png" alt="console install postgresql example obi">
+</div>
+<div class="title">Figure 2. Console - Install postgresql-example with OBI</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="view-traces-in-grafana-tempo">View traces in Grafana Tempo</h3>
+<div class="paragraph">
+<p>Once deployed, generate traffic to postgresql-example-obi and view traces in Grafana Tempo. You’ll see trace data captured without modifying the application.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-tempo-postgresql-example-obi.png" alt="grafana tempo postgresql example obi">
+</div>
+<div class="title">Figure 3. Grafana Tempo - postgresql-example with OBI</div>
+</div>
+<div class="paragraph">
+<p>The spans in a trace might be shorter compared to using Java agent, as OBI captures data at the system call level.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-tempo-postgresql-example-javaagent.png" alt="grafana tempo postgresql example javaagent">
+</div>
+<div class="title">Figure 4. Grafana Tempo - postgresql-example with javaagent</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="enabling-obi-for-go-applications">Enabling OBI for Go Applications</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>For compiled apps like Go where auto-instrumentation is not supported, OBI can be added as a sidecar via Helm. Here’s an example values.yaml snippet for service-foundry-app-backend:</p>
+</div>
+<div class="listingblock">
+<div class="title">values.yaml for Helm chart</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># omitting other configurations for brevity</span>
+
+<span class="na">obiContainer</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">false</span>
+  <span class="na">image</span><span class="pi">:</span> <span class="s">otel/ebpf-instrument:main</span>
+  <span class="na">securityContext</span><span class="pi">:</span> <span class="c1"># Privileges are required to install the eBPF probes</span>
+    <span class="na">privileged</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="na">env</span><span class="pi">:</span>
+    <span class="c1"># The internal port of the application container</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_EBPF_OPEN_PORT</span>
+      <span class="na">value</span><span class="pi">:</span> <span class="s1">'</span><span class="s">8080'</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_EXPORTER_OTLP_ENDPOINT</span>
+      <span class="na">value</span><span class="pi">:</span> <span class="s1">'</span><span class="s">http://otel-collector.o11y.svc.cluster.local:4318'</span>
+      <span class="c1"># required if you want kubernetes metadata decoration</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_EBPF_KUBE_METADATA_ENABLE</span>
+      <span class="na">value</span><span class="pi">:</span> <span class="s1">'</span><span class="s">true'</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_SERVICE_NAME</span>
+      <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">service-foundry-app-backend"</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Users can enable OBI sidecar container by setting the obiContainer.enabled field to true in the custom values.yaml file, and override other configurations as needed.</p>
+</div>
+<div class="paragraph">
+<p>Here is the relevant snippet from the Helm chart deployment.yaml template to include the OBI sidecar container when enabled:</p>
+</div>
+<div class="listingblock">
+<div class="title">templates/deployment.yaml (snippet)</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">spec</span><span class="pi">:</span>
+  <span class="na">template</span><span class="pi">:</span>
+    <span class="na">spec</span><span class="pi">:</span>
+      <span class="pi">{{</span><span class="nv">- if .Values.obiContainer.enabled</span> <span class="pi">}}</span>
+      <span class="na">shareProcessNamespace</span><span class="pi">:</span> <span class="kc">true</span>
+      <span class="pi">{{</span><span class="nv">- end</span> <span class="pi">}}</span>
+
+      <span class="c1"># omitting other configurations for brevity</span>
+
+
+        <span class="pi">{{</span><span class="nv">- if .Values.obiContainer.enabled -</span><span class="pi">}}</span>
+          <span class="pi">{{</span><span class="nv">- with .Values.obiContainer</span> <span class="pi">}}</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">obi</span>
+          <span class="na">image</span><span class="pi">:</span> <span class="pi">{{</span> <span class="nv">.image</span> <span class="pi">}}</span>
+          <span class="na">securityContext</span><span class="pi">:</span>
+            <span class="pi">{{</span><span class="nv">- toYaml .securityContext | nindent 12</span> <span class="pi">}}</span>
+          <span class="na">env</span><span class="pi">:</span>
+            <span class="pi">{{</span><span class="nv">- toYaml .env | nindent 12</span> <span class="pi">}}</span>
+          <span class="pi">{{</span><span class="nv">- end</span> <span class="pi">}}</span>
+        <span class="pi">{{</span><span class="nv">- end</span> <span class="pi">}}</span></code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="deploy-service-foundry-app-backend-with-obi-sidecar">Deploy service-foundry-app-backend with OBI sidecar</h3>
+<div class="paragraph">
+<p>Like any other Application in Service Foundry, you can update the custom values.yaml file in Service Foundry UI, and redeploy the application.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/console-update-backend.png" alt="console update backend">
+</div>
+<div class="title">Figure 5. Console - Update custom values.yaml</div>
+</div>
+<div class="paragraph">
+<p>Set obiContainer.enabled to true in the custom values.yaml file.</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># omitting other configurations for brevity</span>
+
+<span class="na">obiContainer</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Enable the sidecar by setting obiContainer.enabled=true and redeploy via Service Foundry UI. Argo CD will apply the update and redeploy the pod with OBI attached.</p>
+</div>
+<div class="paragraph">
+<p>Now obi container is running in the same pod as the service-foundry-app-backend application.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/argocd-pod-details.png" alt="argocd pod details">
+</div>
+<div class="title">Figure 6. Obi sidecar container in the same pod</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="view-traces-in-grafana-tempo-2">View traces in Grafana Tempo</h3>
+<div class="paragraph">
+<p>Go to Explore in Grafana, and select the Tempo data source. You can see the traces based on the traffic to the service-foundry-app-backend application.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-tempo-backend-obi.png" alt="grafana tempo backend obi">
+</div>
+<div class="title">Figure 7. Grafana Tempo - service-foundry-app-backend with OBI</div>
+</div>
+<div class="paragraph">
+<p>Traces can then be explored in Grafana Tempo by filtering on the service name and duration thresholds.</p>
+</div>
+<div class="paragraph">
+<p>Service name: service-foundry-app-backend
+Duration: span &gt; 500ms</p>
+</div>
+<div class="paragraph">
+<p>If clicking a trace, you can see the details of the trace.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/grafana-tempo-backend-details.png" alt="grafana tempo backend details">
+</div>
+<div class="title">Figure 8. Grafana Tempo - Trace details</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide showed how to integrate OpenTelemetry eBPF Instrumentation (OBI) with Kubernetes applications to collect telemetry data without modifying your application code. We deployed OBI as a sidecar container, configured RBAC, and demonstrated viewing traces in Grafana Tempo. With Service Foundry, enabling and managing this observability stack is simple and can be done with just a few clicks.</p>
+</div>
+<div class="paragraph">
+<p>📘 View the web version:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/otel-ebpf-instrumentation/" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/otel-ebpf-instrumentation/</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="references">References</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://opentelemetry.io/docs/zero-code/obi/">OpenTelemetry eBPF Instrumentation (OBI)</a></p>
+</li>
+<li>
+<p><a href="https://opentelemetry.io/docs/zero-code/obi/setup/kubernetes/">Deploy OBI in Kubernetes</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>
