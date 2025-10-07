@@ -1,0 +1,314 @@
+= Enable Observability using OpenTelemetry eBPF Instrumentation
+
+:imagesdir: images
+
+[.img-wide]
+image::otel-ebpf-instrument.png[]
+
+== Introduction
+
+OpenTelemetry eBPF Instrumentation is a powerful tool that leverages eBPF (extended Berkeley Packet Filter) technology to collect telemetry data from applications and services running in a Kubernetes environment. It provides deep visibility into application performance, resource usage, and network activity, enabling developers and operators to monitor and troubleshoot their applications effectively.
+
+In some compiled languages like Go or Rust, OpenTelemetry auto-instrumentation may not be available or may require additional effort to implement. In such cases, eBPF-based instrumentation can be a valuable alternative, as it operates at the kernel level and can capture telemetry data without modifying the application code.
+
+In this document, we will explore how to set up and use OpenTelemetry eBPF Instrumentation in a Kubernetes environment mostly for Trace data collection.
+
+== Enabling Observability Stack in Service Foundry
+To enable the Observability Stack in Service Foundry, simply click the "Enable Observability Stack" button in the Service Foundry Console. This action will deploy the necessary components, including OpenTelemetry Collector, Grafana, Prometheus, and Jaeger, into your Kubernetes cluster.
+
+.Console - Enable Observability Stack
+[.img-wide]
+image::console-dashboard-enable-o11y.png[]
+
+To clean up the Observability Stack, you can click the "Disable Observability Stack" button in the Service Foundry Console. This will remove all the deployed components from your Kubernetes cluster.
+
+== Example applications
+
+We will use the following example applications to demonstrate OpenTelemetry eBPF Instrumentation:
+
+* *postgresql-example*: For comparison with when using OpenTelemetry auto-instrumentation for Java applications
+* *service-foundry-app-backend*: Go application without OpenTelemetry auto-instrumentation support
+
+== postgresql-example
+
+In a previous article, we demonstrated how to use OpenTelemetry auto-instrumentation for Java applications with the postgresql-example application. You can refer to that article for more details: link:https://www.linkedin.com/pulse/observability-legacy-spring-apps-code-changes-required-kim-ndr8c[Observability for Legacy Spring Apps - No Code Changes Required].
+
+=== Deploy OBI as a sidecar container
+
+You can deploy OBI in Kubernetes in two different ways:
+
+- As a sidecar container
+- As a DaemonSet
+
+In this example, we will deploy OBI as a sidecar container in the same pod as the postgresql-example application.
+
+=== OBI rbac Configuration
+
+Proper RBAC (Role-Based Access Control) configuration is essential for the OpenTelemetry eBPF Instrumentation (OBI) to function correctly in a Kubernetes environment. The following YAML configuration creates a ServiceAccount, ClusterRole, and ClusterRoleBinding for OBI in the `qc` namespace.
+
+.qc-obi-rbac.yaml
+[source,yaml]
+----
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: obi
+  namespace: qc
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: obi
+rules:
+  - apiGroups: ['apps']
+    resources: ['replicasets']
+    verbs: ['list', 'watch']
+  - apiGroups: ['']
+    resources: ['pods', 'services', 'nodes']
+    verbs: ['list', 'watch']
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: obi
+subjects:
+  - kind: ServiceAccount
+    name: obi
+    namespace: qc
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: obi
+
+----
+
+=== Configuration in postgresql-example deployment
+
+.deployment.yaml
+[source,yaml]
+----
+
+spec:
+  template:
+    spec:
+      shareProcessNamespace: true
+      serviceAccountName: obi
+
+----
+
+The shareProcessNamespace field is set to true to allow OBI to access the process namespace of the application container. And the serviceAccountName field is set to obi to use the ServiceAccount created in the previous step.
+
+.deployment.yaml (contd.)
+[source,yaml]
+----
+        containers:
+
+        - name: obi
+          image: otel/ebpf-instrument:main
+          securityContext: # Privileges are required to install the eBPF probes
+            privileged: true
+          env:
+            # The internal port of the postgresql-example application container
+            - name: OTEL_EBPF_OPEN_PORT
+              value: '8080'
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: 'http://otel-collector.o11y.svc.cluster.local:4318'
+              # required if you want kubernetes metadata decoration
+            - name: OTEL_EBPF_KUBE_METADATA_ENABLE
+              value: 'true'
+----
+
+.deployment.yaml - entire file
+[source,yaml]
+----
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql-example-obi
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: postgresql-example-obi }
+  template:
+    metadata:
+      labels: { app: postgresql-example-obi }
+    spec:
+      shareProcessNamespace: true
+      serviceAccountName: obi
+
+      containers:
+        - name: app
+          image: credemol/postgresql-example:0.1.0
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: postgresql-example-obi-configmap
+                optional: true
+            - secretRef:
+                name: postgresql-example-obi-secret
+                optional: true
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits:   { cpu: "1000m", memory: "1024Mi" }
+
+        - name: obi
+          image: otel/ebpf-instrument:main
+          securityContext: # Privileges are required to install the eBPF probes
+            privileged: true
+          env:
+            # The internal port of the  application container
+            - name: OTEL_EBPF_OPEN_PORT
+              value: '8080'
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: 'http://otel-collector.o11y.svc.cluster.local:4318'
+              # required if you want kubernetes metadata decoration
+            - name: OTEL_EBPF_KUBE_METADATA_ENABLE
+              value: 'true'
+----
+
+=== Deploy postgresql-example with OBI sidecar
+
+You can deploy the postgresql-example application with OBI sidecar container by applying the deployment.yaml file.
+
+.Console - Install postgresql-example with OBI
+[.img-wide]
+image::console-install-postgresql-example-obi.png[]
+
+=== View traces in Grafana Tempo
+
+Let's generate some traffic to the postgresql-example-obi application.
+
+In the way of using OBI, you can see the traces in Grafana Tempo based on the traffic to the postgresql-example-obi application.
+
+.Grafana Tempo - postgresql-example with OBI
+[.img-wide]
+image::grafana-tempo-postgresql-example-obi.png[]
+
+In the way of using Java auto-instrumentation, you can see the traces with more detailed information in Grafana Tempo.
+
+.Grafana Tempo - postgresql-example with javaagent
+[.img-wide]
+image::grafana-tempo-postgresql-example-javaagent.png[]
+
+== service-foundry-app-backend (Go application)
+
+As for Go applications and any other compiled applications, OpenTelemetry auto-instrumentation is not available. In this example, we will use the service-foundry-app-backend application, which is a Go application without OpenTelemetry auto-instrumentation support.
+
+service-foundry-app-backend application is installed in a bootstrap way with using Helm chart, and it is not using OBI sidecar by default.
+
+.values.yaml for Helm chart
+[source,yaml]
+----
+# omitting other configurations for brevity
+
+obiContainer:
+  enabled: false
+  image: otel/ebpf-instrument:main
+  securityContext: # Privileges are required to install the eBPF probes
+    privileged: true
+  env:
+    # The internal port of the application container
+    - name: OTEL_EBPF_OPEN_PORT
+      value: '8080'
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: 'http://otel-collector.o11y.svc.cluster.local:4318'
+      # required if you want kubernetes metadata decoration
+    - name: OTEL_EBPF_KUBE_METADATA_ENABLE
+      value: 'true'
+    - name: OTEL_SERVICE_NAME
+      value: "service-foundry-app-backend"
+----
+
+Users can enable OBI sidecar container by setting the obiContainer.enabled field to true in the custom values.yaml file, and override other configurations as needed.
+
+.templates/deployment.yaml (snippet)
+[source,yaml]
+----
+spec:
+  template:
+    spec:
+      {{- if .Values.obiContainer.enabled }}
+      shareProcessNamespace: true
+      {{- end }}
+
+      # omitting other configurations for brevity
+
+
+        {{- if .Values.obiContainer.enabled -}}
+          {{- with .Values.obiContainer }}
+        - name: obi
+          image: {{ .image }}
+          securityContext:
+            {{- toYaml .securityContext | nindent 12 }}
+          env:
+            {{- toYaml .env | nindent 12 }}
+          {{- end }}
+        {{- end }}
+----
+
+=== Deploy service-foundry-app-backend with OBI sidecar
+
+Like any other Application in Service Foundry, you can update the custom values.yaml file in Service Foundry UI, and redeploy the application.
+
+.Console - Update custom values.yaml
+[.img-wide]
+image::console-update-backend.png[]
+
+Set obiContainer.enabled to true in the custom values.yaml file.
+
+.custom-values.yaml
+[source,yaml]
+----
+# omitting other configurations for brevity
+
+obiContainer:
+  enabled: true
+----
+
+And click the Publish button to push the changes to Git repository, and then Argo CD will redeploy the application with OBI sidecar container.
+
+Now obi container is running in the same pod as the service-foundry-app-backend application.
+
+.Obi sidecar container in the same pod
+[.img-wide]
+image::argocd-pod-details.png[]
+
+=== View traces in Grafana Tempo
+
+Go to Explore in Grafana, and select the Tempo data source. You can see the traces based on the traffic to the service-foundry-app-backend application.
+
+.Grafana Tempo - service-foundry-app-backend with OBI
+[.img-wide]
+image::grafana-tempo-backend-obi.png[]
+
+You can filter the traces by the service name and duration.
+
+Service name: service-foundry-app-backend
+Duration: span > 500ms
+
+I want to see the traces with duration greater than 500ms.
+
+If clicking a trace, you can see the details of the trace.
+
+.Grafana Tempo - Trace details
+[.img-wide]
+image::grafana-tempo-backend-details.png[]
+
+== Conclusion
+
+In this document, we have explored how to set up and use OpenTelemetry eBPF Instrumentation (OBI) in a Kubernetes environment. We have demonstrated how to deploy OBI as a sidecar container in the same pod as the application, and how to configure the necessary RBAC permissions for OBI to function correctly. We have also shown how to view the collected traces in Grafana Tempo, providing deep visibility into application performance and resource usage. And we have seen how Service Foundry makes it easy to enable and manage the Observability Stack, including OBI, with just a few clicks in the console.
+
+
+
+
+== References
+
+* link:https://opentelemetry.io/docs/zero-code/obi/[OpenTelemetry eBPF Instrumentation (OBI)]
+* link:https://opentelemetry.io/docs/zero-code/obi/setup/kubernetes/[Deploy OBI in Kubernetes]
+
+
+

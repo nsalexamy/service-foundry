@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql-example-obi
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: postgresql-example-obi }
+  template:
+    metadata:
+      labels: { app: postgresql-example-obi }
+    spec:
+      shareProcessNamespace: true
+      serviceAccountName: obi
+      # Ensure shared volume readable by the app container (common fix if app runs nonroot)
+#      securityContext:
+#        fsGroup: 2000
+
+
+
+      containers:
+        - name: app
+          image: credemol/postgresql-example:0.1.0
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+#            - containerPort: 9464
+#              name: metrics
+#              protocol: TCP
+
+
+          envFrom:
+            - configMapRef:
+                name: postgresql-example-obi-configmap
+                optional: true
+            - secretRef:
+                name: postgresql-example-obi-secret
+                optional: true
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits:   { cpu: "1000m", memory: "1024Mi" }
+
+        - name: obi
+          image: otel/ebpf-instrument:main
+          securityContext: # Privileges are required to install the eBPF probes
+            privileged: true
+          env:
+            # The internal port of the postgresql-example application container
+            - name: OTEL_EBPF_OPEN_PORT
+              value: '8080'
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: 'http://otel-collector.o11y.svc.cluster.local:4318'
+              # required if you want kubernetes metadata decoration
+            - name: OTEL_EBPF_KUBE_METADATA_ENABLE
+              value: 'true'
