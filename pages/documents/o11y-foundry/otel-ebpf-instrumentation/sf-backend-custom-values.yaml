@@ -1,0 +1,97 @@
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::445567090745:role/service-foundry-app-backend-role
+
+# Custom values for Service Foundry App Backend
+extraEnvs:
+  # this value is used when installing the service-foundry-builder in the backend.
+  - name: "SERVICE_ACCOUNT_ROLE_ARN"
+    value: "arn:aws:iam::445567090745:role/service-foundry-builder-role"
+  - name: "SF_BUILDER_CHART_VERSION"
+    value: "0.2.0"
+  - name: "SSH_KEY_PATH"
+    value: "/opt/nsa2/service-foundry/ssh/id_rsa"
+  #- name: "GIT_OPS_REPO_SSH_KEY_PATH"
+  #  value: "/app/ssh/argocd_id_rsa"
+  #- name: "GIT_SSH_COMMAND"
+  #  value: "ssh -i /app/ssh/argocd_id_rsa -o IdentitiesOnly=yes -F /dev/null"
+
+volumes:
+  - name: github-ssh
+    secret:
+      secretName: service-foundry-github-ssh
+      optional: false
+#  - name: backend-config
+#    configMap:
+#      name: service-foundry-app-backend-config
+#      optional: false
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts:
+  - name: github-ssh
+    mountPath: /opt/nsa2/service-foundry/ssh/id_rsa
+    subPath: argocd_id_rsa # make sure the file is named argocd_id_rsa NOT id_rsa
+    readOnly: false
+#  - name: backend-config
+#    mountPath: /root/.ssh/config
+#    subPath: ssh_config
+#    readOnly: true
+#  - name: backend-config
+#    mountPath: /root/.gitconfig
+#    subPath: .gitconfig
+#    readOnly: true
+
+podLabels:
+  instrument: obi
+  override-svc-name: service-foundry-console
+  override-svc-namespace: service-foundry
+
+obiContainer:
+  enabled: false
+  securityContext: # Privileges are required to install the eBPF probes
+    privileged: true
+    runAsUser: 0
+    capabilities:
+      add:
+        - SYS_ADMIN
+        - SYS_RESOURCE
+        - CAP_NET_ADMIN
+  env:
+    # The internal port of the application container
+    - name: OTEL_EBPF_OPEN_PORT
+      value: '8080'
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: 'http://otel-collector.o11y.svc.cluster.local:4318'
+      # required if you want kubernetes metadata decoration
+    - name: OTEL_EBPF_KUBE_METADATA_ENABLE
+      value: 'true'
+    - name: OTEL_SERVICE_NAME
+      value: "service-foundry-console"
+    # - name: KUBE_NAMESPACE
+    #   valueFrom:
+    #     fieldRef:
+    #       fieldPath: metadata.namespace
+    # - name: OTEL_SERVICE_NAMESPACE
+    #   value: "service-foundry"
+    - name: OTEL_TRACES_SAMPLER
+      value: "parentbased_traceidratio"
+    - name: OTEL_TRACES_SAMPLER_ARG
+      value: "1.0"  # 100% sampling for troubleshooting
+    - name: OTEL_EBPF_TRACES_ENABLED
+      value: 'true' # default is true
+    - name: OTEL_EBPF_INCLUDE_NETWORK_SPANS
+      value: 'true'
+    - name: OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS
+      value: 'true'
+    - name: OTEL_EBPF_BPF_CONTEXT_PROPAGATION
+      value: 'all'
+    # Disables the detection of Go specifics when the eBPF tracer inspects executables to be instrumented
+    - name: OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS
+      value: 'false'  # set to true to skip go specific tracers
+    # # Disables OBI instrumentation of services already instrumented with OpenTelemetry.
+    - name: OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES
+      value: 'false'
+    #- name: OTEL_EBPF_DISABLE_SDK_DETECTION
+    #  value: 'true'  # disable auto-instrumentation detection to reduce overhead'
+    #- name: OTEL_EBPF_HTTP_INJECT_TRACE_CONTEXT
+    #  value: 'true'  # enable http trace context injection

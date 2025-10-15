@@ -1,0 +1,25 @@
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterFilter
+metadata:
+  name: parse-inner-json
+  annotations:
+    fluentbit.fluent.io/filter-order: "40"
+spec:
+  match: sf-backend.*
+  ordinal: 40
+  filters:
+    - lua:
+        call: parse_inner
+        code: |
+          function parse_inner(tag, timestamp, record)
+              local raw = record["log"]
+              if raw and string.find(raw, "{") then
+                  local ok, decoded = pcall(cjson.decode, raw:match("{.*}"))
+                  if ok and decoded then
+                      for k, v in pairs(decoded) do
+                          record[k] = v
+                      end
+                  end
+              end
+              return 1, timestamp, record
+          end

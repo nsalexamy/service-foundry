@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Full-Stack Observability for Go Applications using OpenTelemetry eBPF</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">
+    Service Foundry
+</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/products/" class="">Products</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+        
+        <a href="/service-foundry/pages/demo/" class="">Demo</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/service-foundry/" class="">Service Foundry</a>
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="active">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/o11y-foundry/">Observability Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Full-Stack Observability for Go Applications using OpenTelemetry eBPF
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#key-components">Key Components</a></li>
+</ul>
+</li>
+<li><a href="#what-is-ebpf">What is eBPF?</a></li>
+<li><a href="#what-is-opentelemetry-ebpf-instrumentation">What is OpenTelemetry eBPF Instrumentation?</a></li>
+<li><a href="#why-fluent-bit">Why Fluent Bit?</a></li>
+<li><a href="#enable-obi-from-the-service-foundry-console">Enable OBI from the Service Foundry Console</a></li>
+<li><a href="#manual-installation">Manual Installation</a>
+<ul class="sectlevel2">
+<li><a href="#ebpf-daemonset-via-kustomize">eBPF DaemonSet via Kustomize</a></li>
+<li><a href="#fluent-bit-daemonset-via-helm">Fluent Bit DaemonSet via Helm</a></li>
+</ul>
+</li>
+<li><a href="#instrumenting-go-applications">Instrumenting Go Applications</a>
+<ul class="sectlevel2">
+<li><a href="#middleware-go">middleware.go</a></li>
+<li><a href="#logger-go">logger.go</a></li>
+<li><a href="#main-go">main.go</a></li>
+<li><a href="#writing-logs-in-handlers">Writing Logs in Handlers</a></li>
+</ul>
+</li>
+<li><a href="#traefik-for-trace-context-injection">Traefik for Trace Context Injection</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/end-to-end-obi.png" alt="end to end obi">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide walks you through setting up complete observability for Go applications in Kubernetes using OpenTelemetry&#8217;s eBPF-based instrumentation. You’ll learn how to trace, monitor, and log your services with minimal application code changes. OpenTelemetry eBPF captures traces and metrics, while Fluent Bit handles logs and enriches them with trace context, enabling full trace-log correlation.</p>
+</div>
+<div class="paragraph">
+<p>By the end of this guide, you’ll have an observability setup like the following:</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/grafana-trace.png" alt="grafana trace">
+</div>
+<div class="title">Figure 1. End-to-End Observability Stack - Traces</div>
+</div>
+<div class="paragraph">
+<p>Visualize distributed traces across Go services and infrastructure components using eBPF auto-instrumentation, as shown above.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/grafana-trace-and-log.png" alt="grafana trace and log">
+</div>
+<div class="title">Figure 2. End-to-End Observability Stack - Logs correlated with Traces</div>
+</div>
+<div class="paragraph">
+<p>Clicking a span in a trace reveals correlated logs, which offer contextual insight into the application&#8217;s behavior.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/grafana-metrics.png" alt="grafana metrics">
+</div>
+<div class="title">Figure 3. End-to-End Observability Stack - Metrics</div>
+</div>
+<div class="paragraph">
+<p>System and application metrics like latency, error rate, and resource consumption are collected transparently.</p>
+</div>
+<div class="sect2">
+<h3 id="key-components">Key Components</h3>
+<div class="paragraph">
+<p>This setup relies on the following tools:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>OpenTelemetry Collector</strong> for ingesting and exporting traces, metrics, and logs.</p>
+</li>
+<li>
+<p><strong>eBPF DaemonSet</strong> to inspect application behavior without modifying code.</p>
+</li>
+<li>
+<p><strong>OpenTelemetry</strong> Go SDK to emit logs with trace IDs.</p>
+</li>
+<li>
+<p><strong>Traefik</strong> to inject and propagate trace context.</p>
+</li>
+<li>
+<p><strong>Fluent Bit</strong> to parse and forward logs enriched with trace IDs.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-is-ebpf">What is eBPF?</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Extended Berkeley Packet Filter (eBPF) enables safe, dynamic instrumentation inside the Linux kernel. It allows you to attach logic to events such as system calls, network activity, and tracepoints—ideal for capturing telemetry across running workloads.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-is-opentelemetry-ebpf-instrumentation">What is OpenTelemetry eBPF Instrumentation?</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>OpenTelemetry eBPF auto-instruments processes at the system level. It detects and collects span data from network traffic, syscalls, and libraries without requiring code changes. When deployed as a DaemonSet in Kubernetes, it automatically inspects eligible pods.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="why-fluent-bit">Why Fluent Bit?</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Since eBPF does not collect logs, Fluent Bit is used to gather logs from Go applications. These logs are enriched with trace_id and span_id and sent to the OpenTelemetry Collector for correlation.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="enable-obi-from-the-service-foundry-console">Enable OBI from the Service Foundry Console</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The Service Foundry Console includes a one-click <strong>Enable OBI</strong> button. When clicked, it deploys the required eBPF and Fluent Bit DaemonSets.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/sf-console-enable-obi.png" alt="sf console enable obi">
+</div>
+<div class="title">Figure 4. Service Foundry Console - Enable OBI</div>
+</div>
+<div class="paragraph">
+<p>You can also clean up the deployment using the <strong>Disable OBI</strong> button.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/sf-console-disable-obi.png" alt="sf console disable obi">
+</div>
+<div class="title">Figure 5. Service Foundry Console - Disable OBI</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="manual-installation">Manual Installation</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>You can manually deploy OBI using YAML files.</p>
+</div>
+<div class="sect2">
+<h3 id="ebpf-daemonset-via-kustomize">eBPF DaemonSet via Kustomize</h3>
+<div class="paragraph">
+<p>The following files are used:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>kustomization.yaml</p>
+</li>
+<li>
+<p>obi-rbac.yaml</p>
+</li>
+<li>
+<p>obi-configmap.yaml</p>
+</li>
+<li>
+<p>obi-daemonset.yaml</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>These files configure permissions, discovery rules, and runtime settings.</p>
+</div>
+<div class="paragraph">
+<p>See <a href="https://opentelemetry.io/docs/zero-code/obi/configure/service-discovery/" class="bare">https://opentelemetry.io/docs/zero-code/obi/configure/service-discovery/</a> for more discovery options.</p>
+</div>
+<div class="sect3">
+<h4 id="kustomization-yaml">kustomization.yaml</h4>
+<div class="paragraph">
+<p>Like other ArgoCD applications in Service Foundry, a kustomization.yaml file is used to manage the resources for the OBI DaemonSet.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+
+<span class="na">resources</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">obi-rbac.yaml</span>
+  <span class="pi">-</span> <span class="s">obi-configmap.yaml</span>
+  <span class="pi">-</span> <span class="s">obi-daemonset.yaml</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="obi-rbac-yaml">obi-rbac.yaml</h4>
+<div class="paragraph">
+<p>Create a ServiceAccount, ClusterRole, and ClusterRoleBinding for the OBI DaemonSet.</p>
+</div>
+<div class="paragraph">
+<p>For more information about the required permissions, refer to the official documentation:</p>
+</div>
+<div class="paragraph">
+<p><a href="https://opentelemetry.io/docs/zero-code/obi/setup/kubernetes/" class="bare">https://opentelemetry.io/docs/zero-code/obi/setup/kubernetes/</a></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceAccount</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">obi</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRole</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">obi</span>
+<span class="na">rules</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">apiGroups</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">apps'</span><span class="pi">]</span>
+    <span class="na">resources</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">replicasets'</span><span class="pi">]</span>
+    <span class="na">verbs</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">list'</span><span class="pi">,</span> <span class="s1">'</span><span class="s">watch'</span><span class="pi">]</span>
+  <span class="pi">-</span> <span class="na">apiGroups</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">'</span><span class="pi">]</span>
+    <span class="na">resources</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">pods'</span><span class="pi">,</span> <span class="s1">'</span><span class="s">services'</span><span class="pi">,</span> <span class="s1">'</span><span class="s">nodes'</span><span class="pi">]</span>
+    <span class="na">verbs</span><span class="pi">:</span> <span class="pi">[</span><span class="s1">'</span><span class="s">list'</span><span class="pi">,</span> <span class="s1">'</span><span class="s">watch'</span><span class="pi">]</span>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRoleBinding</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">obi</span>
+<span class="na">subjects</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceAccount</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">obi</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+<span class="na">roleRef</span><span class="pi">:</span>
+  <span class="na">apiGroup</span><span class="pi">:</span> <span class="s">rbac.authorization.k8s.io</span>
+  <span class="na">kind</span><span class="pi">:</span> <span class="s">ClusterRole</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">obi</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="obi-configmap-yaml">obi-configmap.yaml</h4>
+<div class="paragraph">
+<p>The obi-configmap.yaml file contains the configuration for the OBI DaemonSet.</p>
+</div>
+<div class="paragraph">
+<p>In the discovery section, we specify that we want to instrument pods in the service-foundry namespace with the label <code>instrument: obi</code>. and more discovery options are available in the official documentation:</p>
+</div>
+<div class="paragraph">
+<p><a href="https://opentelemetry.io/docs/zero-code/obi/configure/service-discovery/" class="bare">https://opentelemetry.io/docs/zero-code/obi/configure/service-discovery/</a></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ConfigMap</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">obi-config</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+<span class="na">data</span><span class="pi">:</span>
+  <span class="na">obi-config.yml</span><span class="pi">:</span> <span class="pi">|-</span>
+    <span class="s">discovery:</span>
+      <span class="s">instrument:</span>
+
+      <span class="s">- k8s_namespace: service-foundry</span>
+        <span class="s">k8s_pod_labels:</span>
+          <span class="s">instrument: obi</span>
+
+    <span class="s"># https://opentelemetry.io/docs/zero-code/obi/configure/service-discovery/</span>
+    <span class="s">kubernetes:</span>
+      <span class="s">resource_labels:</span>
+        <span class="s">service.name:</span>
+          <span class="s">- "override-svc-name"</span>
+          <span class="s">- "app.kubernetes.io/name"</span>
+          <span class="s">- "app.kubernetes.io/component"</span>
+
+        <span class="s">service.namespace:</span>
+          <span class="s">- "override-svc-namespace"</span>
+          <span class="s">- "app.kubernetes.io/part-of"</span>
+          <span class="s">- "app.kubernetes.io/namespace"</span>
+
+    <span class="s"># Controls how eBPF-generated spans behave</span>
+    <span class="s">ebpf:</span>
+      <span class="s"># When true, OBI does NOT auto-detect existing SDKs.</span>
+      <span class="s"># Instead, it assumes that incoming requests may already contain trace headers.</span>
+      <span class="s">disable_sdk_detection: true</span>
+
+      <span class="s"># When true, include spans for inbound/outbound network calls</span>
+      <span class="s"># (so OBI generates child spans only when trace context exists)</span>
+      <span class="s">include_network_spans: true</span>
+
+      <span class="s"># Optional: capture network metadata</span>
+      <span class="s">capture_headers: true</span>
+      <span class="s">capture_body: false</span>
+
+      <span class="s"># Optional: enrich spans with Kubernetes metadata</span>
+      <span class="s">kube_metadata_enable: true</span>
+
+    <span class="s">otel_traces_export:</span>
+      <span class="s">endpoint: http://otel-collector.o11y.svc.cluster.local:4318</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="obi-daemonset-yaml">obi-daemonset.yaml</h4>
+<div class="paragraph">
+<p>The obi-daemonset.yaml file defines the DaemonSet that deploys the OBI agent on each node in the Kubernetes cluster.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">apps/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">DaemonSet</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">obi</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">service-foundry</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">app</span><span class="pi">:</span> <span class="s">obi</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">selector</span><span class="pi">:</span>
+    <span class="na">matchLabels</span><span class="pi">:</span>
+      <span class="na">app</span><span class="pi">:</span> <span class="s">obi</span>
+  <span class="na">template</span><span class="pi">:</span>
+    <span class="na">metadata</span><span class="pi">:</span>
+      <span class="na">labels</span><span class="pi">:</span>
+        <span class="na">app</span><span class="pi">:</span> <span class="s">obi</span>
+    <span class="na">spec</span><span class="pi">:</span>
+      <span class="na">hostPID</span><span class="pi">:</span> <span class="kc">true</span> <span class="c1"># Required to access the processes on the host</span>
+      <span class="na">serviceAccountName</span><span class="pi">:</span> <span class="s">obi</span> <span class="c1"># required if you want kubernetes metadata decoration</span>
+      <span class="na">containers</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">autoinstrument</span>
+          <span class="na">image</span><span class="pi">:</span> <span class="s">otel/ebpf-instrument:main</span>
+          <span class="na">securityContext</span><span class="pi">:</span>
+            <span class="na">privileged</span><span class="pi">:</span> <span class="kc">true</span>
+            <span class="na">runAsUser</span><span class="pi">:</span> <span class="m">0</span>
+            <span class="na">capabilities</span><span class="pi">:</span>
+              <span class="na">add</span><span class="pi">:</span>
+                <span class="pi">-</span> <span class="s">SYS_ADMIN</span>
+                <span class="pi">-</span> <span class="s">SYS_RESOURCE</span>
+                <span class="pi">-</span> <span class="s">CAP_NET_ADMIN</span>
+          <span class="na">env</span><span class="pi">:</span>
+            <span class="c1">#- name: OTEL_EXPORTER_OTLP_ENDPOINT</span>
+            <span class="c1">#  value: 'http://otel-collector.o11y.svc.cluster.local:4318'</span>
+              <span class="c1"># required if you want kubernetes metadata decoration</span>
+            <span class="c1">#- name: OTEL_EBPF_KUBE_METADATA_ENABLE</span>
+            <span class="c1">#  value: 'true'</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_EBPF_CONFIG_PATH</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s">/etc/obi/config/obi-config.yml</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_EBPF_LOG_LEVEL</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s1">'</span><span class="s">debug'</span> <span class="c1"># debug, info, warn, error</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_EBPF_BPF_CONTEXT_PROPAGATION</span> <span class="c1"># all, headers, ip, disabled</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s">headers</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s1">'</span><span class="s">true'</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">OTEL_EBPF_METRIC_FEATURES</span>
+              <span class="na">value</span><span class="pi">:</span> <span class="s">network,application</span>
+
+          <span class="na">volumeMounts</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">obi-config</span>
+              <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/etc/obi/config</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">var-run-obi</span>
+              <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/var/run/obi</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">cgroup</span>
+              <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/sys/fs/cgroup</span>
+
+      <span class="na">volumes</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">obi-config</span>
+          <span class="na">configMap</span><span class="pi">:</span>
+            <span class="na">name</span><span class="pi">:</span> <span class="s">obi-config</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">var-run-obi</span>
+          <span class="na">emptyDir</span><span class="pi">:</span> <span class="pi">{}</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">cgroup</span>
+          <span class="na">hostPath</span><span class="pi">:</span>
+            <span class="na">path</span><span class="pi">:</span> <span class="s">/sys/fs/cgroup</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="fluent-bit-daemonset-via-helm">Fluent Bit DaemonSet via Helm</h3>
+<div class="paragraph">
+<p>Customize custom-values-0.53.0.yaml to match your application log format.</p>
+</div>
+<div class="paragraph">
+<p>Example log entry (from Go SDK):</p>
+</div>
+<div class="listingblock">
+<div class="title">go-log-format.txt</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"job.name"</span><span class="p">:</span><span class="s2">"service-foundry-builder"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"level"</span><span class="p">:</span><span class="s2">"info"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"msg"</span><span class="p">:</span><span class="s2">"Received request for job status"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"span_id"</span><span class="p">:</span><span class="s2">"316912bad90ada05"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"time"</span><span class="p">:</span><span class="s2">"2025-10-15T03:27:15Z"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"trace_id"</span><span class="p">:</span><span class="s2">"e3501aa248ec89c9e1d629720797cbf1"</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Logs are parsed, enriched, and shipped to the Otel Collector using the OpenTelemetry output plugin.</p>
+</div>
+<div class="sect3">
+<h4 id="input-configuration">Input Configuration</h4>
+<div class="paragraph">
+<p>In the input configuration, we use the Tail input plugin to read log files from the specified path. The Path parameter should match the log file path of your Go application.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">config</span><span class="pi">:</span>
+
+  <span class="na">inputs</span><span class="pi">:</span> <span class="pi">|</span>
+
+    <span class="s">[INPUT]</span>
+        <span class="s">Name tail</span>
+        <span class="s">Path        /var/log/containers/service-foundry-app-backend-*.log</span>
+        <span class="s">Tag         obi-log.*</span>
+        <span class="s">Parser      cri_json_tail</span>
+        <span class="s">Mem_Buf_Limit 32MB</span>
+        <span class="s">multiline.parser              docker,</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="filters-configuration">Filters Configuration</h4>
+<div class="paragraph">
+<p>In the filters configuration, we use several filter plugins to process and enrich the log entries.</p>
+</div>
+<div class="paragraph">
+<p>After all filters are applied, the log entry will be transformed into the following format:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="text">[1760489734.138600321, {}, {"job.name"=&gt;"service-foundry-builder", "SeverityText"=&gt;"info", "msg"=&gt;"Received request for job status", "SpanId"=&gt;"210d9d66448b8a82", "time"=&gt;"2025-10-15T00:55:34Z", "TraceId"=&gt;"ccd3e8cd7f82aaa010b27493763c78dc", "@timestamp"=&gt;"2025-10-15T00:55:34.138600321Z", "service.namespace"=&gt;"service-foundry", "service.name"=&gt;"service-foundry-app-backend"}]</code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="output-configuration">Output Configuration</h4>
+<div class="paragraph">
+<p>In the output configuration, we use the OpenTelemetry output plugin to send logs to the Otel Collector. The Host and Port parameters should match the Otel Collector&#8217;s service name and port in your Kubernetes cluster.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"> <span class="na">outputs</span><span class="pi">:</span> <span class="pi">|</span>
+    <span class="s">[OUTPUT]</span>
+        <span class="s">Name            opentelemetry</span>
+        <span class="s">Match           obi-log.*</span>
+        <span class="s">Host            otel-collector.o11y.svc.cluster.local</span>
+        <span class="s">Port            4318</span>
+        <span class="s">Logs_uri        /v1/logs</span>
+        <span class="s">TLS             Off</span>
+        <span class="s">Logs_Body_Key   msg</span>
+        <span class="s">Logs_Body_Key_Attributes On</span>
+        <span class="s">Logs_Timestamp_Metadata_Key @timestamp</span>
+        <span class="s">Logs_Resource_Metadata_Key   service.name</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="instrumenting-go-applications">Instrumenting Go Applications</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="middleware-go">middleware.go</h3>
+<div class="paragraph">
+<p>Use OpenTelemetry&#8217;s W3C propagator to extract trace context from headers:</p>
+</div>
+<div class="listingblock">
+<div class="title">middleware.go</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="go"><span class="k">package</span> <span class="n">tracing</span>
+
+<span class="k">import</span> <span class="p">(</span>
+	<span class="s">"context"</span>
+	<span class="s">"net/http"</span>
+
+	<span class="s">"github.com/gin-gonic/gin"</span>
+	<span class="s">"go.opentelemetry.io/otel/propagation"</span>
+<span class="p">)</span>
+
+<span class="c">// Global propagator for W3C Trace Context (traceparent, tracestate)</span>
+<span class="k">var</span> <span class="n">Propagator</span> <span class="o">=</span> <span class="n">propagation</span><span class="o">.</span><span class="n">TraceContext</span><span class="p">{}</span>
+
+<span class="c">// ExtractContext extracts any incoming OpenTelemetry trace context</span>
+<span class="c">// (e.g., from OBI, upstream services, or gateways) from HTTP headers.</span>
+<span class="k">func</span> <span class="n">ExtractContext</span><span class="p">(</span><span class="n">r</span> <span class="o">*</span><span class="n">http</span><span class="o">.</span><span class="n">Request</span><span class="p">)</span> <span class="n">context</span><span class="o">.</span><span class="n">Context</span> <span class="p">{</span>
+
+	<span class="k">return</span> <span class="n">Propagator</span><span class="o">.</span><span class="n">Extract</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">Context</span><span class="p">(),</span> <span class="n">propagation</span><span class="o">.</span><span class="n">HeaderCarrier</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">Header</span><span class="p">))</span>
+<span class="p">}</span>
+
+<span class="k">func</span> <span class="n">Middleware</span><span class="p">()</span> <span class="n">gin</span><span class="o">.</span><span class="n">HandlerFunc</span> <span class="p">{</span>
+	<span class="k">return</span> <span class="k">func</span><span class="p">(</span><span class="n">c</span> <span class="o">*</span><span class="n">gin</span><span class="o">.</span><span class="n">Context</span><span class="p">)</span> <span class="p">{</span>
+		<span class="c">// Extract context from request headers (from OBI or upstream)</span>
+		<span class="n">ctx</span> <span class="o">:=</span> <span class="n">ExtractContext</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">Request</span><span class="p">)</span>
+
+		<span class="c">// Replace the request context so downstream handlers use it</span>
+		<span class="n">c</span><span class="o">.</span><span class="n">Request</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">Request</span><span class="o">.</span><span class="n">WithContext</span><span class="p">(</span><span class="n">ctx</span><span class="p">)</span>
+
+		<span class="n">c</span><span class="o">.</span><span class="n">Next</span><span class="p">()</span>
+	<span class="p">}</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="logger-go">logger.go</h3>
+<div class="paragraph">
+<p>Extend your logger to include trace fields from context:</p>
+</div>
+<div class="listingblock">
+<div class="title">logger.go</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="go"><span class="k">package</span> <span class="n">logger</span>
+
+<span class="k">import</span> <span class="p">(</span>
+	<span class="s">"context"</span>
+
+	<span class="s">"github.com/sirupsen/logrus"</span>
+	<span class="s">"go.opentelemetry.io/otel/trace"</span>
+<span class="p">)</span>
+
+<span class="k">var</span> <span class="n">_logger</span> <span class="o">=</span> <span class="n">logrus</span><span class="o">.</span><span class="n">New</span><span class="p">()</span>
+
+<span class="k">func</span> <span class="n">Init</span><span class="p">()</span> <span class="p">{</span>
+	<span class="n">_logger</span><span class="o">.</span><span class="n">SetFormatter</span><span class="p">(</span><span class="o">&amp;</span><span class="n">logrus</span><span class="o">.</span><span class="n">JSONFormatter</span><span class="p">{})</span>
+	<span class="n">_logger</span><span class="o">.</span><span class="n">SetLevel</span><span class="p">(</span><span class="n">logrus</span><span class="o">.</span><span class="n">InfoLevel</span><span class="p">)</span>
+<span class="p">}</span>
+
+<span class="c">// Info logs a message with trace_id and span_id from context</span>
+<span class="k">func</span> <span class="n">Info</span><span class="p">(</span><span class="n">ctx</span> <span class="n">context</span><span class="o">.</span><span class="n">Context</span><span class="p">,</span> <span class="n">msg</span> <span class="kt">string</span><span class="p">,</span> <span class="n">fields</span> <span class="o">...</span><span class="n">logrus</span><span class="o">.</span><span class="n">Fields</span><span class="p">)</span> <span class="p">{</span>
+	<span class="n">entry</span> <span class="o">:=</span> <span class="n">_logger</span><span class="o">.</span><span class="n">WithFields</span><span class="p">(</span><span class="n">extractTraceFields</span><span class="p">(</span><span class="n">ctx</span><span class="p">))</span>
+	<span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">fields</span><span class="p">)</span> <span class="o">&gt;</span> <span class="m">0</span> <span class="p">{</span>
+		<span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="o">:=</span> <span class="k">range</span> <span class="n">fields</span><span class="p">[</span><span class="m">0</span><span class="p">]</span> <span class="p">{</span>
+			<span class="n">entry</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">WithField</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+		<span class="p">}</span>
+	<span class="p">}</span>
+	<span class="n">entry</span><span class="o">.</span><span class="n">Info</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+<span class="p">}</span>
+
+<span class="c">// Error logs an error message with trace context</span>
+<span class="k">func</span> <span class="n">Error</span><span class="p">(</span><span class="n">ctx</span> <span class="n">context</span><span class="o">.</span><span class="n">Context</span><span class="p">,</span> <span class="n">msg</span> <span class="kt">string</span><span class="p">,</span> <span class="n">err</span> <span class="kt">error</span><span class="p">)</span> <span class="p">{</span>
+	<span class="n">_logger</span><span class="o">.</span><span class="n">WithFields</span><span class="p">(</span><span class="n">extractTraceFields</span><span class="p">(</span><span class="n">ctx</span><span class="p">))</span><span class="o">.</span><span class="n">WithError</span><span class="p">(</span><span class="n">err</span><span class="p">)</span><span class="o">.</span><span class="n">Error</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+<span class="p">}</span>
+
+<span class="c">// extractTraceFields pulls trace_id/span_id from context</span>
+<span class="k">func</span> <span class="n">extractTraceFields</span><span class="p">(</span><span class="n">ctx</span> <span class="n">context</span><span class="o">.</span><span class="n">Context</span><span class="p">)</span> <span class="n">logrus</span><span class="o">.</span><span class="n">Fields</span> <span class="p">{</span>
+	<span class="n">sc</span> <span class="o">:=</span> <span class="n">trace</span><span class="o">.</span><span class="n">SpanContextFromContext</span><span class="p">(</span><span class="n">ctx</span><span class="p">)</span>
+
+	<span class="k">if</span> <span class="o">!</span><span class="n">sc</span><span class="o">.</span><span class="n">IsValid</span><span class="p">()</span> <span class="p">{</span>
+		<span class="k">return</span> <span class="n">logrus</span><span class="o">.</span><span class="n">Fields</span><span class="p">{}</span>
+	<span class="p">}</span>
+	<span class="k">return</span> <span class="n">logrus</span><span class="o">.</span><span class="n">Fields</span><span class="p">{</span>
+		<span class="s">"trace_id"</span><span class="o">:</span> <span class="n">sc</span><span class="o">.</span><span class="n">TraceID</span><span class="p">()</span><span class="o">.</span><span class="n">String</span><span class="p">(),</span>
+		<span class="s">"span_id"</span><span class="o">:</span>  <span class="n">sc</span><span class="o">.</span><span class="n">SpanID</span><span class="p">()</span><span class="o">.</span><span class="n">String</span><span class="p">(),</span>
+	<span class="p">}</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="main-go">main.go</h3>
+<div class="paragraph">
+<p>This Middleware should be added to your Gin router to ensure that all incoming requests have their trace context extracted and set in the request context.</p>
+</div>
+<div class="listingblock">
+<div class="title">main.go</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="go"><span class="k">func</span> <span class="n">main</span><span class="p">()</span> <span class="p">{</span>
+	<span class="n">logger</span><span class="o">.</span><span class="n">Init</span><span class="p">()</span>
+
+
+	<span class="n">r</span> <span class="o">:=</span> <span class="n">gin</span><span class="o">.</span><span class="n">Default</span><span class="p">()</span>
+
+	<span class="c">// Custom tracing middleware to extract context from incoming requests</span>
+	<span class="n">r</span><span class="o">.</span><span class="n">Use</span><span class="p">(</span><span class="n">tracing</span><span class="o">.</span><span class="n">Middleware</span><span class="p">())</span>
+
+    <span class="c">// omitted for brevity</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="writing-logs-in-handlers">Writing Logs in Handlers</h3>
+<div class="paragraph">
+<p>Use this logger in handlers to correlate logs with traces.</p>
+</div>
+<div class="listingblock">
+<div class="title">handler.go</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="go"><span class="k">func</span> <span class="n">RunInternalServiceHandler</span><span class="p">(</span><span class="n">c</span> <span class="o">*</span><span class="n">gin</span><span class="o">.</span><span class="n">Context</span><span class="p">)</span> <span class="p">{</span>
+	<span class="n">ctx</span> <span class="o">:=</span> <span class="n">c</span><span class="o">.</span><span class="n">Request</span><span class="o">.</span><span class="n">Context</span><span class="p">()</span>
+
+	<span class="n">logger</span><span class="o">.</span><span class="n">Info</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="s">"Received request to run internal service"</span><span class="p">)</span>
+
+    <span class="c">// omitted for brevity</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This log entry will include the trace_id and span_id, allowing you to correlate it with the corresponding trace in your observability stack.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="traefik-for-trace-context-injection">Traefik for Trace Context Injection</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Traefik is configured to inject trace context headers. This ensures upstream requests receive a root span.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/sf-console-traefik-edit.png" alt="sf console traefik edit">
+</div>
+<div class="title">Figure 6. Service Foundry Console - Edit Traefik Configuration</div>
+</div>
+<div class="paragraph">
+<p>Add the following configuration to the custom-values.yaml file for Traefik:</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">tracing</span><span class="pi">:</span>
+  <span class="na">addInternals</span><span class="pi">:</span> <span class="kc">true</span>
+
+  <span class="na">otlp</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">http</span><span class="pi">:</span>
+      <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+      <span class="na">endpoint</span><span class="pi">:</span> <span class="s">http://otel-collector.o11y.svc.cluster.local:4318</span>
+      <span class="na">insecure</span><span class="pi">:</span> <span class="kc">true</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Once you have published the changes, ArgoCD will automatically deploy the updated Traefik configuration within a few minutes.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>With eBPF auto-instrumentation and minimal SDK usage, you now have full observability for your Go applications. This includes trace-log correlation, system metrics, and distributed tracing—all without modifying application logic.</p>
+</div>
+<div class="paragraph">
+<p>For more, visit the official OpenTelemetry OBI docs:</p>
+</div>
+<div class="paragraph">
+<p><a href="https://opentelemetry.io/docs/zero-code/obi/" class="bare">https://opentelemetry.io/docs/zero-code/obi/</a></p>
+</div>
+<div class="paragraph">
+<p>📘 View the web version:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/end-to-end-obi/" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/o11y-foundry/end-to-end-obi/</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>

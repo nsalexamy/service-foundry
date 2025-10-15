@@ -1,0 +1,69 @@
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: obi
+  namespace: service-foundry
+  labels:
+    app: obi
+spec:
+  selector:
+    matchLabels:
+      app: obi
+  template:
+    metadata:
+      labels:
+        app: obi
+    spec:
+      hostPID: true # Required to access the processes on the host
+      serviceAccountName: obi # required if you want kubernetes metadata decoration
+      containers:
+        - name: autoinstrument
+          image: otel/ebpf-instrument:main
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - SYS_RESOURCE
+                - CAP_NET_ADMIN
+          env:
+            # Select the executable by its name instead of OTEL_EBPF_OPEN_PORT
+            #- name: OTEL_EBPF_AUTO_TARGET_EXE
+            #  value: '*/goblog'
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: 'http://otel-collector.o11y.svc.cluster.local:4318'
+              # required if you want kubernetes metadata decoration
+            - name: OTEL_EBPF_KUBE_METADATA_ENABLE
+              value: 'true'
+            - name: OTEL_EBPF_CONFIG_FILE
+              value: /etc/obi/config/obi-config.yml
+            - name: OTEL_EBPF_OPEN_PORT
+              value: '8080' # comma separated list of ports
+            - name: OTEL_EBPF_LOG_LEVEL
+              value: debug
+            - name: OTEL_EBPF_BPF_CONTEXT_PROPAGATION
+              value: all
+            - name: OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS
+              value: 'true'
+            - name: OTEL_EBPF_METRIC_FEATURES
+              value: network,application
+
+          volumeMounts:
+            - name: obi-config
+              mountPath: /etc/obi/config
+            - name: var-run-obi
+              mountPath: /var/run/obi
+            - name: cgroup
+              mountPath: /sys/fs/cgroup
+
+      volumes:
+        - name: obi-config
+          configMap:
+            name: sf-obi-config
+        - name: var-run-obi
+          emptyDir: {}
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup

@@ -1,0 +1,59 @@
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterFilter
+metadata:
+  name: otel-pipeline
+  labels:
+    fluentbit.fluent.io/enabled: "true"
+    fluentbit.fluent.io/component: logging
+    fluentbit.fluent.io/filter-order: "100" # Run this first
+spec:
+  match: sf-backend.*
+  ordinal: 100
+  filters:
+#    - lua:
+#        call: dump_record
+#        code: |
+#          function dump_record(tag, ts, record)
+#              local json = cjson.encode(record)
+#              record["_dump"] = json
+#              return 1, ts, record
+#          end
+    # --- Step 1: Unwrap the JSON from the 'log' field ---
+    - parser:
+        keyName: log # Target the 'log' field where your JSON is nested
+        preserveKey: false
+        parser: json-trace-parser # Use your JSON parser
+        reserveData: true # Keep the original 'log' field (optional, but safe)
+#        reserveTime: true # Keep the original log time
+
+    # --- Step 2: Modify/Rename Fields for OTLP Output ---
+    - modify:
+        rules:
+          - rename:
+              trace_id: traceId
+              span_id: spanId
+              level: SeverityText
+#          - rename:
+#              span_id: SpanId
+#          - rename:
+#              level: SeverityText
+          - add:
+#              'resource.service.name': service-foundry-app-backend
+              'service.name': service-foundry-app-backend
+       # Note: You no longer need to add 'job.name': '${job.name}'
+       # as it is now a top-level field and will become a Log Attribute automatically.
+#    - lua:
+#        call: dump_record
+#        code: |
+#          function dump_record(tag, ts, record)
+#            local out = "{ "
+#            for k,v in pairs(record) do
+#              out = out .. k .. "=" .. tostring(v) .. " "
+#            end
+#            record["_dump"] = out .. "}"
+#            return 1, ts, record
+#          end
+    - kubernetes:
+        annotations: true
+        labels: true
+

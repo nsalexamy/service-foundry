@@ -1,0 +1,44 @@
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterFilter
+metadata:
+  name: otel-field-mapper
+  labels:
+    #    component: "output"
+    fluentbit.fluent.io/enabled: "true"
+    fluentbit.fluent.io/component: logging
+    fluentbit.fluent.io/filter-order: "110"
+spec:
+  match: sf-backend.* # Match the tag from the input
+  filters:
+    - modify:
+        rules:
+        - rename: # Rename your custom fields to OTLP standard field names
+          # Renames 'trace_id' from your log to 'TraceId'
+#            key: trace_id
+#            value: TraceId
+            trace_id: TraceId
+        - rename:
+          # Renames 'span_id' from your log to 'SpanId'
+#            key: span_id
+#            value: SpanId
+            span_id: SpanId
+        - rename:
+          # Renames 'level' from your log to 'SeverityText'
+#            key: level
+#            value: SeverityText
+            level: SeverityText
+        - add: # Add Resource Attributes
+          # Add a new field 'resource.service.name' which Otel output automatically maps
+          # to the OTLP Resource object.
+            'resource.service.name': service-foundry-app-backend
+#            key: resource.service.name
+#            value: service-foundry-builder
+          # Add a new field for the job.name attribute
+          # Note: 'job.name' is a flat key in your original log, which typically becomes a
+          # Log Record attribute. If you want it as a resource attribute, you can rename it.
+          # However, to keep it as a *Log Record Attribute*, we leave it as is.
+          # If you want it as a *Resource Attribute*:
+        - add:
+            'job.name': ${job.name} # Use interpolation to get the value from the log record
+#            key: resource.job.name
+#            value: ${job.name} # Use interpolation to get the value from the log record
