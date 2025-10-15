@@ -1,0 +1,523 @@
+= End to End Observability for Go Applications with Otel eBPF Instrumentation
+
+:imagesdir: ./images
+
+[.img-wide]
+image::end-to-end-obi.png[]
+
+== Introduction
+
+This guide provides a comprehensive walkthrough for setting up end-to-end observability for Go applications using OpenTelemetry (Otel) eBPF instrumentation. By following this guide, you will learn how to instrument your Go applications, collect telemetry data, and visualize it using popular observability tools. Traces and Metrics will be collected using Otel eBPF instrumentation, while logs will be collected using Fluent Bit and correlated with traces.
+
+At the end of this guide, you will have a fully functional observability stack like the one shown below:
+
+.End-to-End Observability Stack - Traces
+[.img-wide]
+image::grafana-trace.png[]
+
+The screen above shows traces collected from a sample Go application using Otel eBPF instrumentation. It includes spans from HTTP requests, database queries, and other operations, all visualized in Grafana.
+
+
+.End-to-End Observability Stack - Logs correlated with Traces
+[.img-wide]
+image::grafana-trace-and-log.png[]
+
+If clicking 'Logs for this span' in the trace view, you can see the logs correlated with the selected trace span. This correlation helps in diagnosing issues by providing context around specific operations.
+
+.End-to-End Observability Stack - Metrics
+[.img-wide]
+image::grafana-metrics.png[]
+
+The metrics dashboard displays various performance metrics such as request latency, error rates, and system resource usage, providing insights into the health and performance of your Go applications.
+
+=== Key Components
+
+The following key components are used in this end-to-end observability setup:
+
+* OpenTelemetry Collector: A vendor-agnostic agent that collects, processes, and exports telemetry data.
+* Otel eBPF Instrumentation: A method to collect low-level system metrics and traces using extended
+* Otel Go SDK: The official OpenTelemetry SDK for Go applications to write logs.
+* Traefik: A modern HTTP reverse proxy and load balancer that is used to generate trace headers for incoming requests.
+* Fluent Bit: A lightweight log processor and forwarder that collects and ships logs to Otel Collector.
+
+== What is eBPF?
+
+eBPF (extended Berkeley Packet Filter) is a powerful technology that allows you to run sandboxed programs in the Linux kernel without changing kernel source code or loading kernel modules. It provides a way to safely and efficiently extend the capabilities of the kernel, enabling advanced networking, security, and observability features.
+
+== What is OpenTelemetry eBPF Instrumentation?
+
+OpenTelemetry eBPF instrumentation leverages eBPF technology to collect telemetry data (traces, metrics, and logs) from applications and the underlying system. It allows for deep visibility into application performance and behavior by capturing low-level events and interactions.
+This instrumentation is particularly useful for monitoring applications in dynamic and distributed environments, such as Kubernetes, where traditional instrumentation methods may fall short.
+
+In this guide, we will deploy the OpenTelemetry eBPF instrumentation as a DaemonSet in a Kubernetes cluster to collect telemetry data from all nodes.
+
+== What is Fluent Bit?
+
+Since eBPF instrumentation does not collect application logs, we will use Fluent Bit to collect and forward logs to the OpenTelemetry Collector. Fluent Bit is a lightweight and efficient log processor and forwarder that can be easily deployed in Kubernetes.
+
+== Enabling OBI using Service Foundry Console
+
+On Service Foundry Console Dashboard, there is an "*Enable OBI*" button. This button is available after the Observability Stack is enabled.
+
+Clicking this button will deploy Otel eBPF Instrumentation and Fluent Bit as a DaemonSet in your Kubernetes cluster.
+
+.Service Foundry Console - Enable OBI
+[.img-wide]
+image::sf-console-enable-obi.png[]
+
+If you want to clean up the resources created by this guide, you can click the "Disable OBI" button.
+
+.Service Foundry Console - Disable OBI
+[.img-wide]
+image::sf-console-disable-obi.png[]
+
+== Enabling OBI manually
+
+If you are not using Service Foundry, you can manually deploy the Otel eBPF Instrumentation and Fluent Bit DaemonSets using the provided YAML files.
+
+- Kustomize app for OBI DaemonSet:
+- Helm chart for Fluent Bit DaemonSet:
+
+=== OTel eBPF Instrumentation DaemonSet
+
+These files are generated and deployed as a ArgoCD application when you click the "Enable OBI" button.
+
+- kustomization.yaml
+- obi-rbac.yaml
+- obi-configmap.yaml
+- obi-daemonset.yaml
+
+==== kustomization.yaml
+
+Like other ArgoCD applications in Service Foundry, a kustomization.yaml file is used to manage the resources for the OBI DaemonSet.
+
+[source,yaml]
+----
+namespace: o11y
+
+resources:
+  - obi-rbac.yaml
+  - obi-configmap.yaml
+  - obi-daemonset.yaml
+----
+
+==== obi-rbac.yaml
+
+Create a ServiceAccount, ClusterRole, and ClusterRoleBinding for the OBI DaemonSet.
+
+For more information about the required permissions, refer to the official documentation:
+
+https://opentelemetry.io/docs/zero-code/obi/setup/kubernetes/
+
+[source,yaml]
+----
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: obi
+  namespace: o11y
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: obi
+rules:
+  - apiGroups: ['apps']
+    resources: ['replicasets']
+    verbs: ['list', 'watch']
+  - apiGroups: ['']
+    resources: ['pods', 'services', 'nodes']
+    verbs: ['list', 'watch']
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: obi
+subjects:
+  - kind: ServiceAccount
+    name: obi
+    namespace: o11y
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: obi
+
+----
+
+==== obi-configmap.yaml
+
+The obi-configmap.yaml file contains the configuration for the OBI DaemonSet.
+
+In the discovery section, we specify that we want to instrument pods in the service-foundry namespace with the label `instrument: obi`. and more discovery options are available in the official documentation:
+
+https://opentelemetry.io/docs/zero-code/obi/configure/service-discovery/
+
+
+[source,yaml]
+----
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: obi-config
+  namespace: o11y
+data:
+  obi-config.yml: |-
+    discovery:
+      instrument:
+
+      - k8s_namespace: service-foundry
+        k8s_pod_labels:
+          instrument: obi
+
+    # https://opentelemetry.io/docs/zero-code/obi/configure/service-discovery/
+    kubernetes:
+      resource_labels:
+        service.name:
+          - "override-svc-name"
+          - "app.kubernetes.io/name"
+          - "app.kubernetes.io/component"
+
+        service.namespace:
+          - "override-svc-namespace"
+          - "app.kubernetes.io/part-of"
+          - "app.kubernetes.io/namespace"
+
+    # Controls how eBPF-generated spans behave
+    ebpf:
+      # When true, OBI does NOT auto-detect existing SDKs.
+      # Instead, it assumes that incoming requests may already contain trace headers.
+      disable_sdk_detection: true
+
+      # When true, include spans for inbound/outbound network calls
+      # (so OBI generates child spans only when trace context exists)
+      include_network_spans: true
+
+      # Optional: capture network metadata
+      capture_headers: true
+      capture_body: false
+
+      # Optional: enrich spans with Kubernetes metadata
+      kube_metadata_enable: true
+
+    otel_traces_export:
+      endpoint: http://otel-collector.o11y.svc.cluster.local:4318
+
+----
+
+==== obi-daemonset.yaml
+
+The obi-daemonset.yaml file defines the DaemonSet that deploys the OBI agent on each node in the Kubernetes cluster.
+
+[source,yaml]
+----
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: obi
+  namespace: service-foundry
+  labels:
+    app: obi
+spec:
+  selector:
+    matchLabels:
+      app: obi
+  template:
+    metadata:
+      labels:
+        app: obi
+    spec:
+      hostPID: true # Required to access the processes on the host
+      serviceAccountName: obi # required if you want kubernetes metadata decoration
+      containers:
+        - name: autoinstrument
+          image: otel/ebpf-instrument:main
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - SYS_RESOURCE
+                - CAP_NET_ADMIN
+          env:
+            #- name: OTEL_EXPORTER_OTLP_ENDPOINT
+            #  value: 'http://otel-collector.o11y.svc.cluster.local:4318'
+              # required if you want kubernetes metadata decoration
+            #- name: OTEL_EBPF_KUBE_METADATA_ENABLE
+            #  value: 'true'
+            - name: OTEL_EBPF_CONFIG_PATH
+              value: /etc/obi/config/obi-config.yml
+            - name: OTEL_EBPF_LOG_LEVEL
+              value: 'debug' # debug, info, warn, error
+            - name: OTEL_EBPF_BPF_CONTEXT_PROPAGATION # all, headers, ip, disabled
+              value: headers
+            - name: OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS
+              value: 'true'
+            - name: OTEL_EBPF_METRIC_FEATURES
+              value: network,application
+
+          volumeMounts:
+            - name: obi-config
+              mountPath: /etc/obi/config
+            - name: var-run-obi
+              mountPath: /var/run/obi
+            - name: cgroup
+              mountPath: /sys/fs/cgroup
+
+      volumes:
+        - name: obi-config
+          configMap:
+            name: obi-config
+        - name: var-run-obi
+          emptyDir: {}
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+----
+
+=== Fluent Bit DaemonSet
+
+These files are generated and deployed as a ArgoCD application when you click the "Enable OBI" button.
+
+- custom-values-0.53.0.yaml
+
+Filter configurations for Fluent Bit are dependent on your application and log format. You may need to modify the filter configurations in the custom-values-0.53.0.yaml file to match your application's log format.
+
+==== Log Format of the Go Application
+
+The sample Go application in this example uses a JSON log format. Here is an example log entry:
+
+.go-log-format.txt
+[source,json]
+----
+{
+  "job.name":"service-foundry-builder",
+  "level":"info",
+  "msg":"Received request for job status",
+  "span_id":"316912bad90ada05",
+  "time":"2025-10-15T03:27:15Z",
+  "trace_id":"e3501aa248ec89c9e1d629720797cbf1"
+}
+----
+
+The log entry contains fields such as job.name, level, msg, span_id, time, and trace_id. The trace_id and span_id field is particularly important as it allows us to correlate logs with traces. They came from the propagated trace context.
+
+==== Input Configuration
+
+In the input configuration, we use the Tail input plugin to read log files from the specified path. The Path parameter should match the log file path of your Go application.
+
+[source,yaml]
+----
+config:
+
+  inputs: |
+
+    [INPUT]
+        Name tail
+        Path        /var/log/containers/service-foundry-app-backend-*.log
+        Tag         obi-log.*
+        Parser      cri_json_tail
+        Mem_Buf_Limit 32MB
+        multiline.parser              docker,
+----
+
+
+==== Filters Configuration
+
+In the filters configuration, we use several filter plugins to process and enrich the log entries.
+
+After all filters are applied, the log entry will be transformed into the following format:
+
+[source,text]
+----
+[1760489734.138600321, {}, {"job.name"=>"service-foundry-builder", "SeverityText"=>"info", "msg"=>"Received request for job status", "SpanId"=>"210d9d66448b8a82", "time"=>"2025-10-15T00:55:34Z", "TraceId"=>"ccd3e8cd7f82aaa010b27493763c78dc", "@timestamp"=>"2025-10-15T00:55:34.138600321Z", "service.namespace"=>"service-foundry", "service.name"=>"service-foundry-app-backend"}]
+----
+
+==== Output Configuration
+
+In the output configuration, we use the OpenTelemetry output plugin to send logs to the Otel Collector. The Host and Port parameters should match the Otel Collector's service name and port in your Kubernetes cluster.
+
+[source,yaml]
+----
+ outputs: |
+    [OUTPUT]
+        Name            opentelemetry
+        Match           obi-log.*
+        Host            otel-collector.o11y.svc.cluster.local
+        Port            4318
+        Logs_uri        /v1/logs
+        TLS             Off
+        Logs_Body_Key   msg
+        Logs_Body_Key_Attributes On
+        Logs_Timestamp_Metadata_Key @timestamp
+        Logs_Resource_Metadata_Key   service.name
+----
+
+== Writing Logs in Go Applications
+
+=== middleware.go
+
+To retrieve and log the trace context (trace_id and span_id) in your Go application, you can use the OpenTelemetry Go SDK. Here is an example of how to do this:
+
+.middleware.go
+[source,go]
+----
+package tracing
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel/propagation"
+)
+
+// Global propagator for W3C Trace Context (traceparent, tracestate)
+var Propagator = propagation.TraceContext{}
+
+// ExtractContext extracts any incoming OpenTelemetry trace context
+// (e.g., from OBI, upstream services, or gateways) from HTTP headers.
+func ExtractContext(r *http.Request) context.Context {
+
+	return Propagator.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+}
+
+func Middleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Extract context from request headers (from OBI or upstream)
+		ctx := ExtractContext(c.Request)
+
+		// Replace the request context so downstream handlers use it
+		c.Request = c.Request.WithContext(ctx)
+
+		c.Next()
+	}
+}
+----
+
+=== logger.go
+
+In logger.go, we define a custom logger that includes the trace_id and span_id from the context in each log entry. This allows us to correlate logs with traces in the observability stack.
+
+.logger.go
+[source,go]
+----
+package logger
+
+import (
+	"context"
+
+	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/trace"
+)
+
+var _logger = logrus.New()
+
+func Init() {
+	_logger.SetFormatter(&logrus.JSONFormatter{})
+	_logger.SetLevel(logrus.InfoLevel)
+}
+
+// Info logs a message with trace_id and span_id from context
+func Info(ctx context.Context, msg string, fields ...logrus.Fields) {
+	entry := _logger.WithFields(extractTraceFields(ctx))
+	if len(fields) > 0 {
+		for k, v := range fields[0] {
+			entry = entry.WithField(k, v)
+		}
+	}
+	entry.Info(msg)
+}
+
+// Error logs an error message with trace context
+func Error(ctx context.Context, msg string, err error) {
+	_logger.WithFields(extractTraceFields(ctx)).WithError(err).Error(msg)
+}
+
+// extractTraceFields pulls trace_id/span_id from context
+func extractTraceFields(ctx context.Context) logrus.Fields {
+	sc := trace.SpanContextFromContext(ctx)
+
+	if !sc.IsValid() {
+		return logrus.Fields{}
+	}
+	return logrus.Fields{
+		"trace_id": sc.TraceID().String(),
+		"span_id":  sc.SpanID().String(),
+	}
+}
+
+----
+This Middleware should be added to your Gin router to ensure that all incoming requests have their trace context extracted and set in the request context.
+
+.main.go
+[source,go]
+----
+func main() {
+	logger.Init()
+
+
+	r := gin.Default()
+
+	// Custom tracing middleware to extract context from incoming requests
+	r.Use(tracing.Middleware())
+
+    // omitted for brevity
+}
+----
+
+=== Writing Logs in Handlers
+
+In your HTTP handlers, you can use the custom logger to log messages along with the trace context. Here is an example of how to do this in a Gin handler:
+
+.handler.go
+[source,go]
+----
+func RunInternalServiceHandler(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	logger.Info(ctx, "Received request to run internal service")
+
+    // omitted for brevity
+}
+----
+
+This log entry will include the trace_id and span_id, allowing you to correlate it with the corresponding trace in your observability stack.
+
+== Traefik Configuration for Trace Context Propagation
+
+Since the Otel eBPF instrumentation does not automatically propagate trace context for incoming requests, we will use Traefik as a reverse proxy to add trace context headers to incoming requests. This ensures that the Go application receives the trace context and can log it accordingly.
+
+Traefik is installed as a core component in Service Foundry. You can configure Traefik to add the necessary headers for trace context propagation.
+
+.Service Foundry Console - Edit Traefik Configuration
+[.img-wide]
+image::sf-console-traefik-edit.png[]
+
+Add the following configuration to the custom-values.yaml file for Traefik:
+
+[.source,yaml]
+
+[source,yaml]
+----
+tracing:
+  addInternals: true
+
+  otlp:
+    enabled: true
+    http:
+      enabled: true
+      endpoint: http://otel-collector.o11y.svc.cluster.local:4318
+      insecure: true
+----
+
+Once you have published the changes, ArgoCD will automatically deploy the updated Traefik configuration within a few minutes.
+
+== Conclusion
+
+By following this guide, you have successfully set up end-to-end observability for your Go applications using OpenTelemetry eBPF instrumentation. You can now monitor and analyze traces, metrics, and logs in your observability stack, gaining valuable insights into the performance and behavior of your applications.
+
+For more information on OpenTelemetry eBPF instrumentation, refer to the official documentation:
+
+https://opentelemetry.io/docs/zero-code/obi/

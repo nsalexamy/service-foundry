@@ -1,0 +1,25 @@
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterFilter
+metadata:
+  name: extract-json-body
+  labels:
+    fluentbit.fluent.io/enabled: "true"
+    fluentbit.fluent.io/component: logging
+    fluentbit.fluent.io/filter-order: "100"
+spec:
+  match: sf-backend.*
+  ordinal: 20
+  filters:
+    - lua:
+        call: extract_json
+        code: |
+          function extract_json(tag, ts, record)
+              local log = record["log"]
+              if log then
+                  local json_start = string.find(log, "{")
+                  if json_start then
+                      record["log"] = string.sub(log, json_start)
+                  end
+              end
+              return 1, ts, record
+          end
