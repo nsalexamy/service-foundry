@@ -35,7 +35,25 @@
 <div class="listingblock">
 <div class="title">java-otel-agent/Dockerfile</div>
 <div class="content">
-<pre class="rouge highlight"><code data-lang="dockerfile">Unresolved directive in index.adoc - include::otel-java-agent/Dockerfile[]</code></pre>
+<pre class="rouge highlight"><code data-lang="dockerfile"><span class="c"># --- Stage 1: fetch agent ---</span>
+<span class="k">FROM</span><span class="w"> </span><span class="s">alpine:3.20</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="s">fetcher</span>
+<span class="c">#ARG OTEL_JAVA_AGENT_VERSION=2.7.0</span>
+<span class="k">ARG</span><span class="s"> OTEL_JAVA_AGENT_VERSION=2.20.1</span>
+<span class="k">RUN </span>apk add <span class="nt">--no-cache</span> curl <span class="se">\
+</span> <span class="o">&amp;&amp;</span> curl <span class="nt">-L</span> <span class="nt">-o</span> /tmp/opentelemetry-javaagent.jar <span class="se">\
+</span>    https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v<span class="k">${</span><span class="nv">OTEL_JAVA_AGENT_VERSION</span><span class="k">}</span>/opentelemetry-javaagent.jar
+
+<span class="c"># --- Stage 2: minimal runtime with sh/cp (busybox) ---</span>
+<span class="k">FROM</span><span class="s"> busybox:1.36</span>
+<span class="k">USER</span><span class="s"> 65532:65532        # nonroot</span>
+<span class="k">WORKDIR</span><span class="s"> /opt/otel</span>
+<span class="k">COPY</span><span class="s"> --from=fetcher /tmp/opentelemetry-javaagent.jar /opt/otel/opentelemetry-javaagent.jar</span>
+
+<span class="c"># Place your own extensions to /opt/otel/ directory.</span>
+<span class="c">#COPY nsa2-otel-extension-1.0-all.jar /opt/otel/</span>
+
+<span class="c"># optional default entrypoint; we’ll override in the initContainer anyway</span>
+<span class="k">ENTRYPOINT</span><span class="s"> ["sh","-c","cp -f /opt/otel/opentelemetry-javaagent.jar \"$OTEL_AGENT_OUT_DIR/$OTEL_AGENT_FILENAME\""]</span></code></pre>
 </div>
 </div>
 </div>
