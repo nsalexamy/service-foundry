@@ -1,0 +1,247 @@
+---
+layout: documents
+title: Securing Web Applications with SSO Using Traefik, OAuth2 Proxy, and Keycloak – A Jaeger Example
+author: Young Gyu Kim
+email: credemol@gmail.com
+summary: "This article demonstrates how to implement Single Sign-On (SSO) for Kubernetes web applications using Traefik, OAuth2 Proxy, and Keycloak, with Jaeger UI as a real-world example. It explains how to configure Traefik’s IngressRoute and ForwardAuth middleware to delegate authentication to OAuth2 Proxy, which integrates with Keycloak as the identity provider. The guide also shows how to set CORS headers, set up OAuth2 Proxy using Helm with proper secrets and environment variables, and register redirect URIs in Keycloak. All configurations are managed using a GitOps approach via the Service Foundry Console, making the entire process automated, repeatable, and production-ready."
+tags: "#SSO #Kubernetes #Traefik #OAuth2 #Keycloak #DevOps #OpenTelemetry #Jaeger #Observability #GitOps #ServiceFoundry #IngressController #CloudSecurity #WebSecurity #Microservices"
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: SSO Foundry
+    url: /documents/sso-foundry/
+
+---
+
+
+= Securing Web Applications with SSO Using Traefik, OAuth2 Proxy, and Keycloak – A Jaeger Example
+
+:imagesdir: images
+
+[.img-wide]
+image::sso-overview.png[]
+
+== Introduction
+
+This guide demonstrates how to secure a web application with Single Sign-On (SSO) using the Service Foundry Console. As a real-world example, we will walk through securing the Jaeger UI.
+
+You can follow along with the full walkthrough in the accompanying video, which demonstrates how the Service Foundry Console automates and simplifies the entire SSO setup process.
+
+* https://youtu.be/f5lSyp1aLAY[Secure Web Applications with SSO Using Service Foundry Console – Jaeger Example]
+
+We will cover:
+
+•	Configuring Traefik Ingress to delegate authentication via OAuth2 Proxy
+•	Integrating OAuth2 Proxy with Keycloak as the identity provider
+•	Setting up redirect URIs in Keycloak for SSO authentication
+
+== Prerequisites
+
+Before you begin, ensure the following components are installed in your Kubernetes cluster:
+•	Traefik Ingress Controller
+•	OAuth2 Proxy
+•	Keycloak
+
+== Traefik Ingress Controller
+
+=== Using IngressRoute CRD
+
+Traefik provides a custom resource called IngressRoute to define application-level routing within Kubernetes.
+
+The example below shows an IngressRoute definition for the Jaeger Collector service, secured by OAuth2 Proxy:
+
+.traefik-ingress-route-jaeger.yaml
+[source,yaml]
+----
+
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: o11y-sso-ingress-route
+  namespace: o11y
+spec:
+  entryPoints:
+    - web
+  routes:
+
+    - match: Host(`jaeger.nsa2.com`)
+      kind: Rule
+      services:
+        - name: jaeger-collector
+          port: jaeger
+      middlewares:
+        - name: cors-headers
+        - name: forward-auth
+----
+
+Note that the middlewares section includes a forward-auth middleware, which enables OAuth2-based SSO authentication.
+
+=== ForwardAuth Middleware CRD by Traefik
+
+According to Traefik’s official documentation:
+
+https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/forwardauth/
+
+Here’s an example configuration of the forward-auth middleware using OAuth2 Proxy:
+
+.forward-auth-middleware.yaml
+[source,yaml]
+----
+
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: forward-auth
+  namespace: o11y
+spec:
+  forwardAuth:
+    address: http://oauth2-proxy.service-foundry.svc.cluster.local/oauth2/
+    trustForwardHeader: true
+    authResponseHeaders:
+      - "X-Auth-Request-User"
+      - "X-Auth-Request-Email"
+      - "Authorization"
+----
+
+The address field points to the OAuth2 Proxy service, while authResponseHeaders specifies which headers to forward after successful authentication.
+
+=== Configuring Headers Middleware for CORS
+
+To allow cross-origin requests, you can define a middleware for CORS headers:
+
+.cors-headers-middleware.yaml
+[source,yaml]
+----
+
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: cors-headers
+  namespace: o11y # replace with actual namespace, e.g., traefik or default
+spec:
+  headers:
+    accessControlAllowMethods:
+      - "GET"
+      - "OPTIONS"
+      - "PUT"
+      - "POST"
+      - "DELETE"
+      - "PATCH"
+      - "HEAD"
+    accessControlAllowHeaders:
+      - Origin
+      - Content-Type
+      - Authorization
+      - Accept
+      - User-Agent
+      - Cache-Control
+      - X-Requested-With
+      - Access-Control-Allow-Origin
+      - Access-Control-Allow-Headers
+      - traceparent
+    accessControlAllowOriginList:
+
+      - "http://jaeger.nsa2.com"
+
+    accessControlMaxAge: 100
+    accessControlAllowCredentials: true
+    addVaryHeader: true
+----
+
+For more details on headers middleware:
+https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/headers/
+
+== Setting Up OAuth2 Proxy with Keycloak
+
+To configure OAuth2 Proxy with Keycloak, we use a Helm chart with a custom values file like this:
+
+.custom-values.yaml
+[source,yaml]
+----
+config:
+  existingSecret: oauth2-proxy-secret
+
+  configFile: |
+    provider = "keycloak-oidc"
+    email_domains = ["*"]
+    cookie_secure = false
+    upstreams = ["static://200"]
+    redirect_url = "http://oauth2-proxy.nsa2.com/oauth2/callback"
+    scope = "openid email profile"
+    cookie_domains = ".nsa2.com"
+    cookie_name = "_oauth2_proxy"
+    cookie_refresh = "2m"
+    cookie_expire = "24h"
+    whitelist_domains = [".nsa2.com"]
+    set_xauthrequest = true
+
+# 94
+extraArgs:
+  - --cookie-secure=false
+  - --skip-provider-button
+  - --ssl-insecure-skip-verify
+  - --reverse-proxy
+
+
+# 97
+envFrom:
+  - configMapRef:
+      name: oauth2-proxy-config
+----
+
+This configuration relies on two additional Kubernetes resources:
+
+•	oauth2-proxy-secret: Contains the client ID and client secret
+•	oauth2-proxy-config: Defines environment variables like the issuer URL
+
+
+=== Creating oauth2-proxy-secret
+
+The secret should include the following keys:
+
+	•	client-id: Your OAuth2 Proxy client ID
+	•	client-secret: Your client secret
+	•	cookie-secret: A random base64-encoded string for cookie encryption
+
+
+=== Creating oauth2-proxy-config
+
+This config map sets the following required environment variable:
+
+•	*OAUTH2_PROXY_OIDC_ISSUER_URL*: The issuer URL from your Keycloak realm
+
+Refer to the official OAuth2 Proxy documentation for additional environment variables:
+https://oauth2-proxy.github.io/oauth2-proxy/configuration/overview#environment-variables
+
+== Register Redirect URIs in Keycloak
+
+To complete the setup, you need to register the redirect URI in your Keycloak client configuration. This should exactly match the redirect_url value in your OAuth2 Proxy configuration.
+
+.In Keycloak Admin Console
+[.img-wide]
+image::kc-redirect-url.png[]
+
+The redirect URI should match the redirect_url specified in the OAuth2 Proxy configuration.
+
+== Manage Everything with GitOps
+
+All of the Kubernetes manifests shown in this guide can be managed declaratively using a GitOps workflow with Service Foundry Console.
+
+Related YouTube videos:
+
+•	https://youtu.be/KDTdc21ss1A[Service Foundry: Simplifying the End-to-End Lifecycle of Kubernetes Applications]
+•	https://youtu.be/a9bv-cM4tRs[Observability Made Easy: Traces, Logs, and Metrics with Service Foundry]
+•	https://youtu.be/f5lSyp1aLAY[Secure Web Applications with SSO Using Service Foundry Console – Jaeger Example]
+
+== Conclusion
+
+In this guide, we demonstrated how to secure a web application using SSO with Traefik, OAuth2 Proxy, and Keycloak—automated and managed via Service Foundry Console. This approach provides a streamlined, secure, and repeatable way to authenticate users across web-based UIs in your Kubernetes environments.
+
+
+📘 View the web version:
+
+* https://nsalexamy.github.io/service-foundry/pages/documents/sso-foundry/secure-jaeger-ui/
+
+

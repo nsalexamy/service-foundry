@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Secure Web Applications with SSO Using Service Foundry Console – Jaeger Example</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#traefik-ingress-controller">Traefik Ingress Controller</a>
+<ul class="sectlevel2">
+<li><a href="#ingress-route-crd-by-traefik">Ingress Route CRD by Traefik</a></li>
+<li><a href="#forwardauth-middleware-crd-by-traefik">ForwardAuth Middleware CRD by Traefik</a></li>
+<li><a href="#headers-middleware-crd-by-traefik">Headers Middleware CRD by Traefik</a></li>
+</ul>
+</li>
+<li><a href="#setting-up-oauth2-proxy-with-keycloak">Setting up OAuth2 Proxy with Keycloak</a>
+<ul class="sectlevel2">
+<li><a href="#oauth2-proxy-secret">oauth2-proxy-secret</a></li>
+<li><a href="#oauth2-proxy-config">oauth2-proxy-config</a></li>
+</ul>
+</li>
+<li><a href="#add-redirect-uris-in-keycloak-for-oauth2-proxy">Add Redirect URIs in Keycloak for OAuth2 Proxy</a></li>
+<li><a href="#gitops-way-of-managing-kubernetes-resources">GitOps Way of Managing Kubernetes Resources</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/sso-overview.png" alt="sso overview">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This article shows you how to secure web applications with SSO using Service Foundry Console. As an example, we are going to secure Jaeger UI with SSO.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>YouTube Video</strong>: <a href="https://youtu.be/f5lSyp1aLAY">Secure Web Applications with SSO Using Service Foundry Console – Jaeger Example</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>This article covers the following topics:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Configuring Traefik Ingress Controller to use OAuth2 Proxy for SSO authentication</p>
+</li>
+<li>
+<p>Setting up OAuth2 Proxy with Keycloak as the identity provider</p>
+</li>
+<li>
+<p>Add redirect URIs in Keycloak for OAuth2 Proxy</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="prerequisites">Prerequisites</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p>Traefik Ingress Controller</p>
+</li>
+<li>
+<p>OAuth2 Proxy</p>
+</li>
+<li>
+<p>Keyclock</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="traefik-ingress-controller">Traefik Ingress Controller</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="ingress-route-crd-by-traefik">Ingress Route CRD by Traefik</h3>
+<div class="paragraph">
+<p>IngressRoute is a Custom Resource Definition (CRD) provided by Traefik Ingress Controller. IngressRoute allows you to define routing rules for your applications running in the Kubernetes cluster.</p>
+</div>
+<div class="paragraph">
+<p>Here is a sample IngressRoute resource definition to route traffic to Jaeger Collector service with SSO using OAuth2 Proxy.</p>
+</div>
+<div class="listingblock">
+<div class="title">traefik-ingress-route-jaeger.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">traefik.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">IngressRoute</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">o11y-sso-ingress-route</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">entryPoints</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">web</span>
+  <span class="na">routes</span><span class="pi">:</span>
+
+    <span class="pi">-</span> <span class="na">match</span><span class="pi">:</span> <span class="s">Host(`jaeger.nsa2.com`)</span>
+      <span class="na">kind</span><span class="pi">:</span> <span class="s">Rule</span>
+      <span class="na">services</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">jaeger-collector</span>
+          <span class="na">port</span><span class="pi">:</span> <span class="s">jaeger</span>
+      <span class="na">middlewares</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">cors-headers</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">forward-auth</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Notice that the middlewares section includes <strong>forward-auth</strong> middleware to enable SSO authentication.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="forwardauth-middleware-crd-by-traefik">ForwardAuth Middleware CRD by Traefik</h3>
+<div class="paragraph">
+<p>Official documentation:</p>
+</div>
+<div class="paragraph">
+<p><a href="https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/forwardauth/" class="bare">https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/forwardauth/</a></p>
+</div>
+<div class="paragraph">
+<p>Here is a sample forward-auth middleware resource definition to use OAuth2 Proxy for authentication.</p>
+</div>
+<div class="listingblock">
+<div class="title">forward-auth-middleware.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">traefik.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Middleware</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">forward-auth</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">forwardAuth</span><span class="pi">:</span>
+    <span class="na">address</span><span class="pi">:</span> <span class="s">http://oauth2-proxy.service-foundry.svc.cluster.local/oauth2/</span>
+    <span class="na">trustForwardHeader</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">authResponseHeaders</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">X-Auth-Request-User"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">X-Auth-Request-Email"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">Authorization"</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The address field specifies the URL of the OAuth2 Proxy service. The authResponseHeaders field lists the headers that will be forwarded to the backend service after successful authentication.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="headers-middleware-crd-by-traefik">Headers Middleware CRD by Traefik</h3>
+<div class="paragraph">
+<p>Official documentation:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/headers/" class="bare">https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/headers/</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Here is a sample headers middleware resource definition to set CORS headers.</p>
+</div>
+<div class="listingblock">
+<div class="title">cors-headers-middleware.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">traefik.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Middleware</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">cors-headers</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">o11y</span> <span class="c1"># replace with actual namespace, e.g., traefik or default</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">headers</span><span class="pi">:</span>
+    <span class="na">accessControlAllowMethods</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">GET"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">OPTIONS"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">PUT"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">POST"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">DELETE"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">PATCH"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">HEAD"</span>
+    <span class="na">accessControlAllowHeaders</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">Origin</span>
+      <span class="pi">-</span> <span class="s">Content-Type</span>
+      <span class="pi">-</span> <span class="s">Authorization</span>
+      <span class="pi">-</span> <span class="s">Accept</span>
+      <span class="pi">-</span> <span class="s">User-Agent</span>
+      <span class="pi">-</span> <span class="s">Cache-Control</span>
+      <span class="pi">-</span> <span class="s">X-Requested-With</span>
+      <span class="pi">-</span> <span class="s">Access-Control-Allow-Origin</span>
+      <span class="pi">-</span> <span class="s">Access-Control-Allow-Headers</span>
+      <span class="pi">-</span> <span class="s">traceparent</span>
+    <span class="na">accessControlAllowOriginList</span><span class="pi">:</span>
+
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">http://jaeger.nsa2.com"</span>
+
+    <span class="na">accessControlMaxAge</span><span class="pi">:</span> <span class="m">100</span>
+    <span class="na">accessControlAllowCredentials</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">addVaryHeader</span><span class="pi">:</span> <span class="kc">true</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="setting-up-oauth2-proxy-with-keycloak">Setting up OAuth2 Proxy with Keycloak</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To set up OAuth2 Proxy with Keycloak as the identity provider, I used the following Helm Chart:</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">config</span><span class="pi">:</span>
+  <span class="na">existingSecret</span><span class="pi">:</span> <span class="s">oauth2-proxy-secret</span>
+
+  <span class="na">configFile</span><span class="pi">:</span> <span class="pi">|</span>
+    <span class="s">provider = "keycloak-oidc"</span>
+    <span class="s">email_domains = ["*"]</span>
+    <span class="s">cookie_secure = false</span>
+    <span class="s">upstreams = ["static://200"]</span>
+    <span class="s">redirect_url = "http://oauth2-proxy.nsa2.com/oauth2/callback"</span>
+    <span class="s">scope = "openid email profile"</span>
+    <span class="s">cookie_domains = ".nsa2.com"</span>
+    <span class="s">cookie_name = "_oauth2_proxy"</span>
+    <span class="s">cookie_refresh = "2m"</span>
+    <span class="s">cookie_expire = "24h"</span>
+    <span class="s">whitelist_domains = [".nsa2.com"]</span>
+    <span class="s">set_xauthrequest = true</span>
+
+<span class="c1"># 94</span>
+<span class="na">extraArgs</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">--cookie-secure=false</span>
+  <span class="pi">-</span> <span class="s">--skip-provider-button</span>
+  <span class="pi">-</span> <span class="s">--ssl-insecure-skip-verify</span>
+  <span class="pi">-</span> <span class="s">--reverse-proxy</span>
+
+
+<span class="c1"># 97</span>
+<span class="na">envFrom</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">configMapRef</span><span class="pi">:</span>
+      <span class="na">name</span><span class="pi">:</span> <span class="s">oauth2-proxy-config</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In the configuration above, the additional Kubernetes resources are as follows:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>oauth2-proxy-secret: Kubernetes Secret containing OAuth2 Proxy client ID and client secret</p>
+</li>
+<li>
+<p>oauth2-proxy-config: Kubernetes ConfigMap containing environment variables for OAuth2 Proxy</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="oauth2-proxy-secret">oauth2-proxy-secret</h3>
+<div class="paragraph">
+<p>In oauth2-proxy-secret, the following keys are required:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>client-id: OAuth2 Proxy client ID</p>
+</li>
+<li>
+<p>client-secret: OAuth2 Proxy client secret</p>
+</li>
+<li>
+<p>cookie-secret: Cookie secret for OAuth2 Proxy</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="oauth2-proxy-config">oauth2-proxy-config</h3>
+<div class="paragraph">
+<p>In oauth2-proxy-config, the following environment variables are set:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>OAUTH2_PROXY_OIDC_ISSUER_URL</strong>: Keycloak issuer URL</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>For the naming convention of environment variables, please refer to the official documentation:</p>
+</div>
+<div class="paragraph">
+<p><a href="https://oauth2-proxy.github.io/oauth2-proxy/configuration/overview?_highlight=oauth2_proxy#environment-variables" class="bare">https://oauth2-proxy.github.io/oauth2-proxy/configuration/overview?_highlight=oauth2_proxy#environment-variables</a></p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="add-redirect-uris-in-keycloak-for-oauth2-proxy">Add Redirect URIs in Keycloak for OAuth2 Proxy</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>One last thing to do is to add redirect URIs in Keycloak for OAuth2 Proxy.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/kc-redirect-url.png" alt="kc redirect url">
+</div>
+<div class="title">Figure 1. In Keycloak Admin Console</div>
+</div>
+<div class="paragraph">
+<p>The redirect URI should match the redirect_url specified in the OAuth2 Proxy configuration.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="gitops-way-of-managing-kubernetes-resources">GitOps Way of Managing Kubernetes Resources</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>All the Kubernetes resources mentioned in this article can be managed using GitOps approach with Service Foundry Console.</p>
+</div>
+<div class="paragraph">
+<p><strong>YouTube Videos</strong>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://youtu.be/KDTdc21ss1A">Service Foundry: Simplifying the End-to-End Lifecycle of Kubernetes Applications</a></p>
+</li>
+<li>
+<p><a href="https://youtu.be/a9bv-cM4tRs">Observability Made Easy: Traces, Logs, and Metrics with Service Foundry</a></p>
+</li>
+<li>
+<p><a href="https://youtu.be/f5lSyp1aLAY">Secure Web Applications with SSO Using Service Foundry Console – Jaeger Example</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this article, we have demonstrated how to secure web applications with SSO using Service Foundry Console. By leveraging Traefik Ingress Controller, OAuth2 Proxy, and Keycloak, we can easily implement SSO authentication for our applications running in Kubernetes.</p>
+</div>
+</div>
+</div>
+</body>
+</html>
