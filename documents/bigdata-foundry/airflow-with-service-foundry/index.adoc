@@ -1,0 +1,397 @@
+---
+layout: documents
+title: Installing Apache Airflow 3 on Kubernetes
+author: Young Gyu Kim
+email: credemol@gmail.com
+summary: "This article walks through the complete process of manually installing Apache Airflow 3 on a Kubernetes cluster, without relying on Helm chart defaults. It covers how to securely sync DAGs from a private Git repository using SSH and GitSync, configure the KubernetesExecutor for scalable, containerized task execution, and set up supporting components like PostgreSQL and Ingress. Additional topics include disabling Redis, minimizing triggerer storage, and deploying sample DAGs through GitOps-style workflows. By following this guide, developers and DevOps engineers can gain fine-grained control over Airflow deployment and tailor it to production needs."
+tags: "#ApacheAirflow #Kubernetes #DataEngineering #DevOps #Helm #GitOps #GitSync #PostgreSQL #Airflow3 #WorkflowOrchestration #OpenSource #CloudNative"
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: BigData Foundry
+    url: /documents/bigdata-foundry/
+
+---
+
+
+= Installing Apache Airflow 3 on Kubernetes
+
+:imagesdir: images
+
+[.img-wide]
+image::airflow3-components.png[]
+
+== Introduction
+
+This guide walks you through the manual installation of *Apache Airflow 3* on a Kubernetes cluster.
+
+It covers:
+
+•	Creating necessary Kubernetes secrets for Git access and PostgreSQL credentials.
+•	Configuring Airflow to use the KubernetesExecutor for scalable task execution.
+•	Setting up Git synchronization for DAGs.
+•   Configuring Ingress to expose the Airflow web UI.
+•	Disabling unnecessary components like Redis when using the KubernetesExecutor.
+•	Deploying Airflow components using Helm.
+
+
+=== YouTube Video Tutorial
+
+▶️ https://youtu.be/JzIXVxYS0uQ[Install Apache Airflow 3 on Kubernetes | GitSync, KubernetesExecutor, and PostgreSQL Setup]
+
+▶️ https://youtu.be/OS5t1Ubqp1k[Installing Apache Airflow on Kubernetes with GitOps using Service Foundry]
+
+
+== What’s New in Airflow 3
+
+Apache Airflow 3 introduces a number of important enhancements over version 2:
+
+•	*Improved Security*: Stronger encryption for sensitive data and enhanced authentication features.
+•	*Performance Improvements*: Faster task scheduling and better resource utilization.
+•	*New Operators and Hooks*: Support for a wider range of systems and integration scenarios.
+•	*Enhanced UI*: A redesigned user interface for better usability.
+•	*Better Kubernetes Integration*: More robust support for Kubernetes-native deployments.
+
+For the full list of features and changes, see the official Airflow 3 release notes.
+
+
+
+== Step 1: Create SSH Key Secret for Git Access
+
+To allow Airflow to sync DAGs from a private Git repository, generate an SSH key pair:
+
+[source,shell]
+----
+$ ssh-keygen -t rsa -b 4096 -C "bmaxpunch@gmail.com" -f ./airflow_gitsync_id_rsa
+----
+
+Then, create a Kubernetes secret from the private key:
+
+[source,shell]
+----
+kubectl create secret generic airflow-git-ssh-key-secret \
+  --from-file=gitSshKey=./airflow_gitsync_id_rsa \
+  --namespace airflow \
+  --dry-run=client -o yaml > airflow-git-ssh-key-secret.yaml
+----
+
+Apply the secret to the Kubernetes cluster:
+
+[source,shell]
+----
+$ kubectl apply -f airflow-git-ssh-key-secret.yaml
+----
+
+== Step 2: Add Deploy Key to Git Repository
+
+Copy the contents of airflow_gitsync_id_rsa.pub and add it as a Deploy Key with read-only access in your Git repository.
+
+link:https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys#deploy-keys[GitHub Deploy Key Docs]
+
+
+== Step 3: Configure Airflow Settings (custom-values.yaml)
+
+=== Executor Selection
+
+To take advantage of Kubernetes-native scaling, we will use the KubernetesExecutor instead of the default CeleryExecutor:
+
+
+.custom-values.yaml
+[source,yaml]
+----
+executor: "KubernetesExecutor"
+----
+
+NOTE:: When using the KubernetesExecutor, Redis is not needed.
+
+==== CeleryExecutor vs KubernetesExecutor:
+
+	•	*CeleryExecutor*: Requires external services like Redis and a result backend.
+	•	*KubernetesExecutor*: Dynamically creates a Kubernetes pod for each task, reducing dependencies and improving scalability.
+
+=== DAG Synchronization from Git
+
+To sync DAGs from a Git repository:
+
+.custom-values.yaml
+[source,yaml]
+----
+dags:
+  persistence:
+    enabled: false # (1)
+
+  gitSync:
+    enabled: true
+    repo: "git@github.com:nsalexamy/airflow-dags-example.git" # (2)
+    branch: "main"
+    rev: HEAD
+    depth: 1
+    wait: 60  # Sync every 60 seconds
+    subPath: "dags" # (3)
+    containerName: "git-sync"
+
+    sshKeySecret: "airflow-git-ssh-key-secret" # (4)
+    #(5)
+    knownHosts: |
+      github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+      github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhL...++Tpockg=
+      github.com ssh-rsa AAAAB3NzaC1yc2...+p1vN1/wsjk=
+
+----
+1. Disable persistent storage for DAGs as Git synchronization will handle DAG updates.
+2. Specify the SSH URL of your Git repository containing the Airflow DAGs.
+3. Define the subdirectory within the repository where the DAGs are located.
+4. Reference the Kubernetes secret containing the SSH private key for Git access.
+5. Add GitHub's SSH key fingerprints to the known hosts to ensure secure connections.
+
+
+==== GitHub's SSH Key Fingerprints
+
+For more information on GitHub's SSH key fingerprints, refer to: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+
+=== Redis Configuration
+
+Since we’re using the KubernetesExecutor, Redis can be safely disabled:
+
+.custom-values.yaml
+[source,yaml]
+----
+redis:
+  enabled: false  # Celery backend not needed for KubernetesExecutor
+----
+
+=== PostgreSQL Configuration
+
+Use the legacy Bitnami image (publicly available as of now):
+
+.custom-values.yaml
+[source,yaml]
+----
+postgresql:
+  enabled: true
+
+  image:
+    #registry:
+    repository: bitnamilegacy/postgresql
+    tag: 16.1.0-debian-11-r15 # 16.1.0-debian-11-r15 is default. 17.6.0-debian-12-r4
+
+  auth:
+    enablePostgresUser: true
+    username: "airflowuser"
+    existingSecret: airflow-postgresql-credentials
+----
+
+==== Bitname PostgreSQL Image Issue
+
+WARNING:: Bitnami images are moving behind a paywall. The bitnamilegacy repository is a temporary workaround but may not be maintained in the future.
+
+
+==== Create Secret for PostgreSQL Credentials
+
+.airflow-postgresql-credentials-secret.yaml
+[source,yaml]
+----
+apiVersion: v1
+data:
+  password: base64-encoded-database-password
+  postgres-password: base64-encoded-postgres-password
+  replication-password: base64-encoded-replication-password
+kind: Secret
+metadata:
+  name: airflow-postgresql-credentials
+  namespace: airflow
+----
+
+Apply the secret:
+
+[source,shell]
+----
+$ kubectl apply -f airflow-postgresql-credentials-secret.yaml
+----
+
+=== Ingress Setup
+
+Expose the Airflow web UI using Traefik Ingress:
+
+.custom-values.yaml
+[source,yaml]
+----
+ingress:
+  enabled: true
+  web:
+    enabled: true
+    host: "airflow.nsa2.com"
+    ingressClassName: "traefik"
+----
+
+=== Triggerer Configuration
+
+Reduce default disk usage by tuning the triggerer settings:
+
+.custom-values.yaml
+[source,yaml]
+----
+triggerer:
+  replicas: 2
+  persistence:
+    size: 5Gi
+----
+
+== Step 4: Deploy Airflow
+
+Make sure you have already applied the following secrets:
+
+•	airflow-git-ssh-key-secret
+•	airflow-postgresql-credentials
+
+Then deploy Airflow using Helm:
+
+[source,shell]
+----
+$ helm -n airflow upgrade --install airflow apache-airflow/airflow -f custom-values.yaml --create-namespace
+----
+
+// == DB Connection
+//
+// The PostgreSQL connection string for Airflow is as follows:
+//
+//
+// * AIRFLOW_CONN_AIRFLOW_DB=postgresql://postgres:postgres@airflow-postgresql.airflow:5432/postgres?sslmode=disable
+// * AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql://postgres:postgres@airflow-postgresql.airflow:5432/postgres?sslmode=disable
+// * AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql://postgres:postgres@airflow-postgresql.airflow:5432/postgres?sslmode=disable
+//
+// These are from airflow-dag-processor container.
+//
+// .connection string
+// [source]
+// ----
+// # postgresql+psycopg2://airflow_user:changeit@airflow-postgresql-hl:5432/airflow
+//
+// #postgresql://postgres:postgres@airflow-postgresql.airflow:5432/postgres?sslmode=disable
+//
+// postgresql://postgres:postgres@airflow-pg-postgresql-hl.airflow:5432/postgres?sslmode=disable
+//
+//
+// ----
+
+== Step 5: Sample DAG from Git
+
+Here’s a sample DAG file synced from Git:
+
+.dags/hello_world_dag.py
+[source,python]
+----
+from airflow import DAG
+from airflow.operators.bash import BashOperator
+from airflow.operators.python import PythonOperator
+from datetime import datetime
+from airflow.decorators import dag, task
+from kubernetes.client import models as k8s
+
+
+default_executor_config = {
+    "pod_override": k8s.V1Pod(
+        spec=k8s.V1PodSpec(
+            containers=[
+                k8s.V1Container(
+                    name="base",
+                    resources=k8s.V1ResourceRequirements(
+                        requests={"cpu": "100m", "memory": "128Mi"},
+                        limits={"cpu": "200m", "memory": "256Mi"}
+                    )
+                )
+            ]
+        )
+    )
+} # end of default_executor_config
+
+with DAG(dag_id="hello_world_dag",
+         start_date=datetime(2024,3,27),
+         schedule="@hourly",
+         catchup=False) as dag:
+
+    @task(
+        task_id="hello_world",
+        executor_config=default_executor_config
+    )
+    def hello_world():
+        print('Hello World - From Github Repository')
+
+
+
+    @task.bash(
+        task_id="sleep",
+    )
+    def sleep_task() -> str:
+        return "sleep 10"
+
+
+    @task(
+        task_id="done",
+        #executor_config=default_executor_config
+    )
+    def done():
+        print('Done')
+
+
+    @task(
+        task_id="goodbye_world",
+    )
+    def goodbye_world():
+        print('Goodbye World - From Github Repository')
+
+
+    hello_world_task = hello_world()
+    sleep_task = sleep_task()
+    goodbye_world_task = goodbye_world()
+    done_task = done()
+
+
+    hello_world_task >> sleep_task >> goodbye_world_task >> done_task
+----
+
+
+== Step 6: Access the Airflow UI
+
+Once deployed, visit the Airflow web interface at:
+
+http://airflow.nsa2.com
+
+Login using default credentials:
+
+•	Username: admin
+•	Password: admin
+
+.Airflow Web Login Page
+[.img-medium]
+image::airflow-web-login.png[]
+
+You should now see your synced DAGs:
+
+.Airflow Web - DAGs View
+[.img-wide]
+image::airflow-web-dags.png[]
+
+And you can inspect each DAG’s detail page:
+
+.Airflow Web - DAG Details
+[.img-wide]
+image::airflow-web-hello-world-dag.png[]
+
+== Conclusion
+
+You’ve successfully installed Apache Airflow 3 on Kubernetes using a manual and modular approach. With Git-based DAG synchronization, KubernetesExecutor for scalability, and secure PostgreSQL integration, you’re ready to start orchestrating your workflows in a production-grade setup.
+
+
+
+
+== References
+
+* link:https://airflow.apache.org/docs/apache-airflow/stable/index.html[Apache Airflow Documentation]
+* link:https://airflow.apache.org/docs/apache-airflow/stable/executor/kubernetes.html[KubernetesExecutor Docs]
+
+
+
+

@@ -1,0 +1,320 @@
+= Installing Airflow 3 on Kubernetes Manually
+
+:imagesdir: images
+
+[.img-wide]
+image::airflow3-components.png[]
+
+== Introduction
+
+This guide provides step-by-step instructions to install Apache Airflow 3 on a Kubernetes cluster manually. It covers creating necessary Kubernetes secrets, configuring Airflow with Git synchronization for DAGs, and deploying Airflow components.
+
+== Major changes in Airflow 3
+
+
+Airflow 3 introduces several new features and improvements over Airflow 2, including enhanced security, better performance, and new operators.
+
+* Improved Security: Airflow 3 includes enhanced security features, such as better encryption for sensitive data and improved authentication mechanisms.
+* Performance Enhancements: Airflow 3 has been optimized for better performance, including faster task
+scheduling and improved resource management.
+* New Operators and Hooks: Airflow 3 introduces new operators and hooks to support a wider range of use cases and integrations.
+* Enhanced UI: The Airflow 3 web interface has been redesigned for better usability and user experience.
+* Improved Kubernetes Integration: Airflow 3 offers better integration with Kubernetes, making it easier to deploy and manage Airflow on Kubernetes clusters.
+
+For a comprehensive list of changes, refer to the official Airflow 3 release notes.
+
+
+
+
+== Create SSH Key Secret for Git Repository Access
+
+To allow Airflow to access private Git repositories, you need to create an SSH keypair and store it as a Kubernetes secret.
+
+Generate an SSH keypair:
+
+[.terminal]
+----
+$ ssh-keygen -t rsa -b 4096 -C "bmaxpunch@gmail.com" -f ./airflow_gitsync_id_rsa
+
+----
+
+Create a Kubernetes secret from the generated SSH private key:
+
+[.terminal]
+----
+kubectl create secret generic airflow-git-ssh-key-secret \
+  --from-file=gitSshKey=./airflow_gitsync_id_rsa \
+  --namespace airflow \
+  --dry-run=client -o yaml > airflow-git-ssh-key-secret.yaml
+----
+
+Apply the secret to the Kubernetes cluster:
+
+[.terminal]
+----
+$ kubectl apply -f airflow-git-ssh-key-secret.yaml
+----
+
+== Set Deploy Key in Git Repository
+
+Add the public key (from `airflow_gitsync_id_rsa.pub`) as a deploy key in your Git repository settings to allow read access.
+Refer to the GitHub documentation for detailed instructions: https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys#deploy-keys
+
+== Configuring Custom Airflow Values
+
+=== Executor Configuration
+
+The default executor in the Airflow Helm chart is the Celery Executor. However, for better scalability and resource management in a Kubernetes environment, we will switch to the Kubernetes Executor.
+
+.custom-values.yaml
+[source,yaml]
+----
+executor: "KubernetesExecutor"
+----
+
+NOTE:: When using the Kubernetes Executor, no need to configure the message broker and result backend which means you can set the enabled flags for Redis as false.
+
+==== Celery Executor vs Kubernetes Executor
+
+* *Celery Executor*: Uses a distributed task queue (Celery) to manage task execution across multiple worker nodes. Requires a message broker (like RabbitMQ or Redis) and a results backend (like a database).
+* *Kubernetes Executor*: Leverages Kubernetes to dynamically create pods for each task, allowing for better resource isolation and scalability. No need for a separate message broker or results backend.
+
+=== Dags Git Synchronization Configuration
+
+.custom-values.yaml
+[source,yaml]
+----
+dags:
+  persistence:
+    enabled: false # (1)
+
+  gitSync:
+    enabled: true
+    repo: "git@github.com:nsalexamy/airflow-dags-example.git" # (2)
+    branch: "main"
+    rev: HEAD
+    depth: 1
+    wait: 60  # Sync every 60 seconds
+    subPath: "dags" # (3)
+    containerName: "git-sync"
+
+    sshKeySecret: "airflow-git-ssh-key-secret" # (4)
+    #(5)
+    knownHosts: |
+      github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+      github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhL...++Tpockg=
+      github.com ssh-rsa AAAAB3NzaC1yc2...+p1vN1/wsjk=
+
+----
+<1> Disable persistent storage for DAGs as Git synchronization will handle DAG updates.
+<2> Specify the SSH URL of your Git repository containing the Airflow DAGs.
+<3> Define the subdirectory within the repository where the DAGs are located.
+<4> Reference the Kubernetes secret containing the SSH private key for Git access.
+<5> Add GitHub's SSH key fingerprints to the known hosts to ensure secure connections.
+
+
+==== GitHub's SSH Key Fingerprints
+
+For more information on GitHub's SSH key fingerprints, refer to: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+
+=== Redis Configuration
+
+By default, Redis is enabled in the Airflow Helm chart. Since we are using the Kubernetes Executor, we can disable Redis.
+
+.custom-values.yaml
+[source,yaml]
+----
+redis:
+  enabled: false  # Celery backend not needed for KubernetesExecutor
+----
+
+=== PostgreSQL Configuration
+
+.custom-values.yaml
+[source,yaml]
+----
+postgresql:
+  enabled: true
+
+  image:
+    #registry:
+    repository: bitnamilegacy/postgresql
+    tag: 16.1.0-debian-11-r15 # 16.1.0-debian-11-r15 is default. 17.6.0-debian-12-r4
+
+  auth:
+    enablePostgresUser: true
+    postgresPassword: postgres
+    username: "database-user"
+    password: "database-password"
+----
+
+==== Bitname PostgreSQL Image Issue
+
+Recently, Bitnami have decided to provide their Container images for paid subscribers only. As a workaround, we are using the `bitnamilegacy/postgresql` image which is still publicly available. However, this image is not actively maintained, so it is recommended to switch to an alternative PostgreSQL image in the future.
+
+==== Create Secret for PostgreSQL Credentials
+
+.airflow-postgresql-credentials-secret.yaml
+[source,yaml]
+----
+apiVersion: v1
+data:
+  password: base64-encoded-database-password
+  postgres-password: base64-encoded-postgres-password
+  replication-password: base64-encoded-replication-password
+kind: Secret
+metadata:
+  name: airflow-postgresql-credentials
+  namespace: airflow
+----
+
+Create a Kubernetes secret to store PostgreSQL credentials:
+
+[.terminal]
+----
+$ kubectl apply -f airflow-postgresql-credentials-secret.yaml
+----
+
+=== Ingress Configuration
+
+To expose the Airflow webserver via an Ingress, enable the Ingress configuration in the Helm chart values.
+
+.custom-values.yaml
+[source,yaml]
+----
+ingress:
+  enabled: true
+  web:
+    enabled: true
+    host: "airflow.nsa2.com"
+    ingressClassName: "traefik"
+----
+
+=== Triggerer Configuration
+
+Each Triggerer pod uses 100Gi of storage by default. To reduce the storage size, we can customize it in the values file.
+
+.custom-values.yaml
+[source,yaml]
+----
+triggerer:
+  replicas: 2
+  persistence:
+    size: 5Gi
+----
+
+== Deploy Airflow on Kubernetes
+
+With all configurations set, you can now deploy Airflow on your Kubernetes cluster using the Helm chart.
+
+Make sure you have deployed the required secrets below before installing Airflow:
+
+* *airflow-git-ssh-key-secret* for Git repository access
+* *airflow-postgresql-credentials* for PostgreSQL credentials
+
+[.terminal]
+----
+$ helm -n airflow upgrade --install airflow apache-airflow/airflow -f custom-values.yaml --create-namespace
+----
+
+== Sample DAGs in Git Repository
+
+.dags/hello_world_dag.py
+[source,python]
+----
+from airflow import DAG
+from airflow.operators.bash import BashOperator
+from airflow.operators.python import PythonOperator
+from datetime import datetime
+from airflow.decorators import dag, task
+from kubernetes.client import models as k8s
+
+
+default_executor_config = {
+    "pod_override": k8s.V1Pod(
+        spec=k8s.V1PodSpec(
+            containers=[
+                k8s.V1Container(
+                    name="base",
+                    resources=k8s.V1ResourceRequirements(
+                        requests={"cpu": "100m", "memory": "128Mi"},
+                        limits={"cpu": "200m", "memory": "256Mi"}
+                    )
+                )
+            ]
+        )
+    )
+} # end of default_executor_config
+
+with DAG(dag_id="hello_world_dag",
+         start_date=datetime(2024,3,27),
+         schedule="@hourly",
+         catchup=False) as dag:
+
+    @task(
+        task_id="hello_world",
+        executor_config=default_executor_config
+    )
+    def hello_world():
+        print('Hello World - From Github Repository')
+
+
+
+    @task.bash(
+        task_id="sleep",
+    )
+    def sleep_task() -> str:
+        return "sleep 10"
+
+
+    @task(
+        task_id="done",
+        #executor_config=default_executor_config
+    )
+    def done():
+        print('Done')
+
+
+    @task(
+        task_id="goodbye_world",
+    )
+    def goodbye_world():
+        print('Goodbye World - From Github Repository')
+
+
+    hello_world_task = hello_world()
+    sleep_task = sleep_task()
+    goodbye_world_task = goodbye_world()
+    done_task = done()
+
+
+    hello_world_task >> sleep_task >> goodbye_world_task >> done_task
+----
+
+
+== Access Airflow Web Interface
+
+Once Airflow is deployed, you can access the web interface using the Ingress host you configured (e.g., `http://airflow.nsa2.com`).
+
+.Airflow Web Login Page
+[.img-medium]
+image::airflow-web-login.png[]
+
+The default credentials are:
+
+* Username: `admin`
+* Password: `admin`
+
+.Airflow Web - DAGs View
+[.img-wide]
+image::airflow-web-dags.png[]
+
+You should see the sample DAGs from the Git repository in the Airflow web interface.
+
+.Airflow Web - DAG Details
+[.img-wide]
+image::airflow-web-hello-world-dag.png[]
+
+== Conclusion
+
+You have successfully installed Apache Airflow 3 on your Kubernetes cluster manually. You can now start creating and managing your workflows using Airflow's powerful features.
