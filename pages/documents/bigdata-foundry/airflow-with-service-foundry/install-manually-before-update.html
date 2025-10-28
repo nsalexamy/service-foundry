@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Installing Airflow 3 on Kubernetes Manually</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#major-changes-in-airflow-3">Major changes in Airflow 3</a></li>
+<li><a href="#create-ssh-key-secret-for-git-repository-access">Create SSH Key Secret for Git Repository Access</a></li>
+<li><a href="#set-deploy-key-in-git-repository">Set Deploy Key in Git Repository</a></li>
+<li><a href="#configuring-custom-airflow-values">Configuring Custom Airflow Values</a>
+<ul class="sectlevel2">
+<li><a href="#executor-configuration">Executor Configuration</a></li>
+<li><a href="#dags-git-synchronization-configuration">Dags Git Synchronization Configuration</a></li>
+<li><a href="#redis-configuration">Redis Configuration</a></li>
+<li><a href="#postgresql-configuration">PostgreSQL Configuration</a></li>
+<li><a href="#ingress-configuration">Ingress Configuration</a></li>
+<li><a href="#triggerer-configuration">Triggerer Configuration</a></li>
+</ul>
+</li>
+<li><a href="#deploy-airflow-on-kubernetes">Deploy Airflow on Kubernetes</a></li>
+<li><a href="#sample-dags-in-git-repository">Sample DAGs in Git Repository</a></li>
+<li><a href="#access-airflow-web-interface">Access Airflow Web Interface</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/airflow3-components.png" alt="airflow3 components">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide provides step-by-step instructions to install Apache Airflow 3 on a Kubernetes cluster manually. It covers creating necessary Kubernetes secrets, configuring Airflow with Git synchronization for DAGs, and deploying Airflow components.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="major-changes-in-airflow-3">Major changes in Airflow 3</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Airflow 3 introduces several new features and improvements over Airflow 2, including enhanced security, better performance, and new operators.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Improved Security: Airflow 3 includes enhanced security features, such as better encryption for sensitive data and improved authentication mechanisms.</p>
+</li>
+<li>
+<p>Performance Enhancements: Airflow 3 has been optimized for better performance, including faster task
+scheduling and improved resource management.</p>
+</li>
+<li>
+<p>New Operators and Hooks: Airflow 3 introduces new operators and hooks to support a wider range of use cases and integrations.</p>
+</li>
+<li>
+<p>Enhanced UI: The Airflow 3 web interface has been redesigned for better usability and user experience.</p>
+</li>
+<li>
+<p>Improved Kubernetes Integration: Airflow 3 offers better integration with Kubernetes, making it easier to deploy and manage Airflow on Kubernetes clusters.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>For a comprehensive list of changes, refer to the official Airflow 3 release notes.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-ssh-key-secret-for-git-repository-access">Create SSH Key Secret for Git Repository Access</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To allow Airflow to access private Git repositories, you need to create an SSH keypair and store it as a Kubernetes secret.</p>
+</div>
+<div class="paragraph">
+<p>Generate an SSH keypair:</p>
+</div>
+<div class="listingblock terminal">
+<div class="content">
+<pre>$ ssh-keygen -t rsa -b 4096 -C "bmaxpunch@gmail.com" -f ./airflow_gitsync_id_rsa</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Create a Kubernetes secret from the generated SSH private key:</p>
+</div>
+<div class="listingblock terminal">
+<div class="content">
+<pre>kubectl create secret generic airflow-git-ssh-key-secret \
+  --from-file=gitSshKey=./airflow_gitsync_id_rsa \
+  --namespace airflow \
+  --dry-run=client -o yaml &gt; airflow-git-ssh-key-secret.yaml</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Apply the secret to the Kubernetes cluster:</p>
+</div>
+<div class="listingblock terminal">
+<div class="content">
+<pre>$ kubectl apply -f airflow-git-ssh-key-secret.yaml</pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="set-deploy-key-in-git-repository">Set Deploy Key in Git Repository</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Add the public key (from <code>airflow_gitsync_id_rsa.pub</code>) as a deploy key in your Git repository settings to allow read access.
+Refer to the GitHub documentation for detailed instructions: <a href="https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys#deploy-keys" class="bare">https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys#deploy-keys</a></p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="configuring-custom-airflow-values">Configuring Custom Airflow Values</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="executor-configuration">Executor Configuration</h3>
+<div class="paragraph">
+<p>The default executor in the Airflow Helm chart is the Celery Executor. However, for better scalability and resource management in a Kubernetes environment, we will switch to the Kubernetes Executor.</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">executor</span><span class="pi">:</span> <span class="s2">"</span><span class="s">KubernetesExecutor"</span></code></pre>
+</div>
+</div>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">NOTE</dt>
+<dd>
+<p>When using the Kubernetes Executor, no need to configure the message broker and result backend which means you can set the enabled flags for Redis as false.</p>
+</dd>
+</dl>
+</div>
+<div class="sect3">
+<h4 id="celery-executor-vs-kubernetes-executor">Celery Executor vs Kubernetes Executor</h4>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Celery Executor</strong>: Uses a distributed task queue (Celery) to manage task execution across multiple worker nodes. Requires a message broker (like RabbitMQ or Redis) and a results backend (like a database).</p>
+</li>
+<li>
+<p><strong>Kubernetes Executor</strong>: Leverages Kubernetes to dynamically create pods for each task, allowing for better resource isolation and scalability. No need for a separate message broker or results backend.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="dags-git-synchronization-configuration">Dags Git Synchronization Configuration</h3>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">dags</span><span class="pi">:</span>
+  <span class="na">persistence</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">false</span> <span class="c1"># (1)</span>
+
+  <span class="na">gitSync</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">repo</span><span class="pi">:</span> <span class="s2">"</span><span class="s">git@github.com:nsalexamy/airflow-dags-example.git"</span> <span class="c1"># (2)</span>
+    <span class="na">branch</span><span class="pi">:</span> <span class="s2">"</span><span class="s">main"</span>
+    <span class="na">rev</span><span class="pi">:</span> <span class="s">HEAD</span>
+    <span class="na">depth</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="na">wait</span><span class="pi">:</span> <span class="m">60</span>  <span class="c1"># Sync every 60 seconds</span>
+    <span class="na">subPath</span><span class="pi">:</span> <span class="s2">"</span><span class="s">dags"</span> <span class="c1"># (3)</span>
+    <span class="na">containerName</span><span class="pi">:</span> <span class="s2">"</span><span class="s">git-sync"</span>
+
+    <span class="na">sshKeySecret</span><span class="pi">:</span> <span class="s2">"</span><span class="s">airflow-git-ssh-key-secret"</span> <span class="c1"># (4)</span>
+    <span class="c1">#(5)</span>
+    <span class="na">knownHosts</span><span class="pi">:</span> <span class="pi">|</span>
+      <span class="s">github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl</span>
+      <span class="s">github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhL...++Tpockg=</span>
+      <span class="s">github.com ssh-rsa AAAAB3NzaC1yc2...+p1vN1/wsjk=</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Disable persistent storage for DAGs as Git synchronization will handle DAG updates.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Specify the SSH URL of your Git repository containing the Airflow DAGs.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Define the subdirectory within the repository where the DAGs are located.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>Reference the Kubernetes secret containing the SSH private key for Git access.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td>Add GitHub&#8217;s SSH key fingerprints to the known hosts to ensure secure connections.</td>
+</tr>
+</table>
+</div>
+<div class="sect3">
+<h4 id="githubs-ssh-key-fingerprints">GitHub&#8217;s SSH Key Fingerprints</h4>
+<div class="paragraph">
+<p>For more information on GitHub&#8217;s SSH key fingerprints, refer to: <a href="https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints" class="bare">https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints</a></p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="redis-configuration">Redis Configuration</h3>
+<div class="paragraph">
+<p>By default, Redis is enabled in the Airflow Helm chart. Since we are using the Kubernetes Executor, we can disable Redis.</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">redis</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">false</span>  <span class="c1"># Celery backend not needed for KubernetesExecutor</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="postgresql-configuration">PostgreSQL Configuration</h3>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">postgresql</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+
+  <span class="na">image</span><span class="pi">:</span>
+    <span class="c1">#registry:</span>
+    <span class="na">repository</span><span class="pi">:</span> <span class="s">bitnamilegacy/postgresql</span>
+    <span class="na">tag</span><span class="pi">:</span> <span class="s">16.1.0-debian-11-r15</span> <span class="c1"># 16.1.0-debian-11-r15 is default. 17.6.0-debian-12-r4</span>
+
+  <span class="na">auth</span><span class="pi">:</span>
+    <span class="na">enablePostgresUser</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">postgresPassword</span><span class="pi">:</span> <span class="s">postgres</span>
+    <span class="na">username</span><span class="pi">:</span> <span class="s2">"</span><span class="s">database-user"</span>
+    <span class="na">password</span><span class="pi">:</span> <span class="s2">"</span><span class="s">database-password"</span></code></pre>
+</div>
+</div>
+<div class="sect3">
+<h4 id="bitname-postgresql-image-issue">Bitname PostgreSQL Image Issue</h4>
+<div class="paragraph">
+<p>Recently, Bitnami have decided to provide their Container images for paid subscribers only. As a workaround, we are using the <code>bitnamilegacy/postgresql</code> image which is still publicly available. However, this image is not actively maintained, so it is recommended to switch to an alternative PostgreSQL image in the future.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="create-secret-for-postgresql-credentials">Create Secret for PostgreSQL Credentials</h4>
+<div class="listingblock">
+<div class="title">airflow-postgresql-credentials-secret.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">data</span><span class="pi">:</span>
+  <span class="na">password</span><span class="pi">:</span> <span class="s">base64-encoded-database-password</span>
+  <span class="na">postgres-password</span><span class="pi">:</span> <span class="s">base64-encoded-postgres-password</span>
+  <span class="na">replication-password</span><span class="pi">:</span> <span class="s">base64-encoded-replication-password</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Secret</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">airflow-postgresql-credentials</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">airflow</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Create a Kubernetes secret to store PostgreSQL credentials:</p>
+</div>
+<div class="listingblock terminal">
+<div class="content">
+<pre>$ kubectl apply -f airflow-postgresql-credentials-secret.yaml</pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="ingress-configuration">Ingress Configuration</h3>
+<div class="paragraph">
+<p>To expose the Airflow webserver via an Ingress, enable the Ingress configuration in the Helm chart values.</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">ingress</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="na">web</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">host</span><span class="pi">:</span> <span class="s2">"</span><span class="s">airflow.nsa2.com"</span>
+    <span class="na">ingressClassName</span><span class="pi">:</span> <span class="s2">"</span><span class="s">traefik"</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="triggerer-configuration">Triggerer Configuration</h3>
+<div class="paragraph">
+<p>Each Triggerer pod uses 100Gi of storage by default. To reduce the storage size, we can customize it in the values file.</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">triggerer</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">2</span>
+  <span class="na">persistence</span><span class="pi">:</span>
+    <span class="na">size</span><span class="pi">:</span> <span class="s">5Gi</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deploy-airflow-on-kubernetes">Deploy Airflow on Kubernetes</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>With all configurations set, you can now deploy Airflow on your Kubernetes cluster using the Helm chart.</p>
+</div>
+<div class="paragraph">
+<p>Make sure you have deployed the required secrets below before installing Airflow:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>airflow-git-ssh-key-secret</strong> for Git repository access</p>
+</li>
+<li>
+<p><strong>airflow-postgresql-credentials</strong> for PostgreSQL credentials</p>
+</li>
+</ul>
+</div>
+<div class="listingblock terminal">
+<div class="content">
+<pre>$ helm -n airflow upgrade --install airflow apache-airflow/airflow -f custom-values.yaml --create-namespace</pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="sample-dags-in-git-repository">Sample DAGs in Git Repository</h2>
+<div class="sectionbody">
+<div class="listingblock">
+<div class="title">dags/hello_world_dag.py</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="python"><span class="kn">from</span> <span class="n">airflow</span> <span class="kn">import</span> <span class="n">DAG</span>
+<span class="kn">from</span> <span class="n">airflow.operators.bash</span> <span class="kn">import</span> <span class="n">BashOperator</span>
+<span class="kn">from</span> <span class="n">airflow.operators.python</span> <span class="kn">import</span> <span class="n">PythonOperator</span>
+<span class="kn">from</span> <span class="n">datetime</span> <span class="kn">import</span> <span class="n">datetime</span>
+<span class="kn">from</span> <span class="n">airflow.decorators</span> <span class="kn">import</span> <span class="n">dag</span><span class="p">,</span> <span class="n">task</span>
+<span class="kn">from</span> <span class="n">kubernetes.client</span> <span class="kn">import</span> <span class="n">models</span> <span class="k">as</span> <span class="n">k8s</span>
+
+
+<span class="n">default_executor_config</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="sh">"</span><span class="s">pod_override</span><span class="sh">"</span><span class="p">:</span> <span class="n">k8s</span><span class="p">.</span><span class="nc">V1Pod</span><span class="p">(</span>
+        <span class="n">spec</span><span class="o">=</span><span class="n">k8s</span><span class="p">.</span><span class="nc">V1PodSpec</span><span class="p">(</span>
+            <span class="n">containers</span><span class="o">=</span><span class="p">[</span>
+                <span class="n">k8s</span><span class="p">.</span><span class="nc">V1Container</span><span class="p">(</span>
+                    <span class="n">name</span><span class="o">=</span><span class="sh">"</span><span class="s">base</span><span class="sh">"</span><span class="p">,</span>
+                    <span class="n">resources</span><span class="o">=</span><span class="n">k8s</span><span class="p">.</span><span class="nc">V1ResourceRequirements</span><span class="p">(</span>
+                        <span class="n">requests</span><span class="o">=</span><span class="p">{</span><span class="sh">"</span><span class="s">cpu</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">100m</span><span class="sh">"</span><span class="p">,</span> <span class="sh">"</span><span class="s">memory</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">128Mi</span><span class="sh">"</span><span class="p">},</span>
+                        <span class="n">limits</span><span class="o">=</span><span class="p">{</span><span class="sh">"</span><span class="s">cpu</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">200m</span><span class="sh">"</span><span class="p">,</span> <span class="sh">"</span><span class="s">memory</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">256Mi</span><span class="sh">"</span><span class="p">}</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+            <span class="p">]</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+<span class="p">}</span> <span class="c1"># end of default_executor_config
+</span>
+<span class="k">with</span> <span class="nc">DAG</span><span class="p">(</span><span class="n">dag_id</span><span class="o">=</span><span class="sh">"</span><span class="s">hello_world_dag</span><span class="sh">"</span><span class="p">,</span>
+         <span class="n">start_date</span><span class="o">=</span><span class="nf">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span><span class="mi">3</span><span class="p">,</span><span class="mi">27</span><span class="p">),</span>
+         <span class="n">schedule</span><span class="o">=</span><span class="sh">"</span><span class="s">@hourly</span><span class="sh">"</span><span class="p">,</span>
+         <span class="n">catchup</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span> <span class="k">as</span> <span class="n">dag</span><span class="p">:</span>
+
+    <span class="nd">@task</span><span class="p">(</span>
+        <span class="n">task_id</span><span class="o">=</span><span class="sh">"</span><span class="s">hello_world</span><span class="sh">"</span><span class="p">,</span>
+        <span class="n">executor_config</span><span class="o">=</span><span class="n">default_executor_config</span>
+    <span class="p">)</span>
+    <span class="k">def</span> <span class="nf">hello_world</span><span class="p">():</span>
+        <span class="nf">print</span><span class="p">(</span><span class="sh">'</span><span class="s">Hello World - From Github Repository</span><span class="sh">'</span><span class="p">)</span>
+
+
+
+    <span class="nd">@task.bash</span><span class="p">(</span>
+        <span class="n">task_id</span><span class="o">=</span><span class="sh">"</span><span class="s">sleep</span><span class="sh">"</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">def</span> <span class="nf">sleep_task</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sh">"</span><span class="s">sleep 10</span><span class="sh">"</span>
+
+
+    <span class="nd">@task</span><span class="p">(</span>
+        <span class="n">task_id</span><span class="o">=</span><span class="sh">"</span><span class="s">done</span><span class="sh">"</span><span class="p">,</span>
+        <span class="c1">#executor_config=default_executor_config
+</span>    <span class="p">)</span>
+    <span class="k">def</span> <span class="nf">done</span><span class="p">():</span>
+        <span class="nf">print</span><span class="p">(</span><span class="sh">'</span><span class="s">Done</span><span class="sh">'</span><span class="p">)</span>
+
+
+    <span class="nd">@task</span><span class="p">(</span>
+        <span class="n">task_id</span><span class="o">=</span><span class="sh">"</span><span class="s">goodbye_world</span><span class="sh">"</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">def</span> <span class="nf">goodbye_world</span><span class="p">():</span>
+        <span class="nf">print</span><span class="p">(</span><span class="sh">'</span><span class="s">Goodbye World - From Github Repository</span><span class="sh">'</span><span class="p">)</span>
+
+
+    <span class="n">hello_world_task</span> <span class="o">=</span> <span class="nf">hello_world</span><span class="p">()</span>
+    <span class="n">sleep_task</span> <span class="o">=</span> <span class="nf">sleep_task</span><span class="p">()</span>
+    <span class="n">goodbye_world_task</span> <span class="o">=</span> <span class="nf">goodbye_world</span><span class="p">()</span>
+    <span class="n">done_task</span> <span class="o">=</span> <span class="nf">done</span><span class="p">()</span>
+
+
+    <span class="n">hello_world_task</span> <span class="o">&gt;&gt;</span> <span class="n">sleep_task</span> <span class="o">&gt;&gt;</span> <span class="n">goodbye_world_task</span> <span class="o">&gt;&gt;</span> <span class="n">done_task</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="access-airflow-web-interface">Access Airflow Web Interface</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Once Airflow is deployed, you can access the web interface using the Ingress host you configured (e.g., <code><a href="http://airflow.nsa2.com" class="bare">http://airflow.nsa2.com</a></code>).</p>
+</div>
+<div class="imageblock img-medium">
+<div class="content">
+<img src="images/airflow-web-login.png" alt="airflow web login">
+</div>
+<div class="title">Figure 1. Airflow Web Login Page</div>
+</div>
+<div class="paragraph">
+<p>The default credentials are:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Username: <code>admin</code></p>
+</li>
+<li>
+<p>Password: <code>admin</code></p>
+</li>
+</ul>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/airflow-web-dags.png" alt="airflow web dags">
+</div>
+<div class="title">Figure 2. Airflow Web - DAGs View</div>
+</div>
+<div class="paragraph">
+<p>You should see the sample DAGs from the Git repository in the Airflow web interface.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/airflow-web-hello-world-dag.png" alt="airflow web hello world dag">
+</div>
+<div class="title">Figure 3. Airflow Web - DAG Details</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>You have successfully installed Apache Airflow 3 on your Kubernetes cluster manually. You can now start creating and managing your workflows using Airflow&#8217;s powerful features.</p>
+</div>
+</div>
+</div>
+</body>
+</html>

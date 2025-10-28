@@ -1,0 +1,200 @@
+executor: "KubernetesExecutor"
+
+# 389
+#volumes:
+#  - name: airflow-service-foundry-secret
+#    secret:
+#      secretName: airflow-service-foundry-secret
+#      optional: false
+
+# 489
+extraEnvFrom: |
+  - secretRef:
+      name: airflow-webserver-default-user-credentials
+      optional: false
+
+# 489
+#data:
+#  metadataSecretName: "custom-airflow-metadata-secret"
+
+dags:
+  persistence:
+    enabled: false # (1)
+
+  gitSync:
+    enabled: true
+    repo: "git@github.com:nsalexamy/airflow-dags-example.git" # (2)
+    branch: "main"
+    rev: HEAD
+    depth: 1
+    wait: 60  # Sync every 60 seconds
+    subPath: "dags" # (3)
+    containerName: "git-sync"
+
+    sshKeySecret: "airflow-git-ssh-key-secret" # (4)
+    #(5)
+    knownHosts: |
+      github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+      github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+      github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
+
+#    uid: 50000
+#    securityContext:
+#      runAsUser: 50000
+#      runAsGroup: 0
+
+
+#    emptyDirConfig:
+#      sizeLimit: 1Gi
+#      medium: Memory
+#
+#    resources:
+#      limits:
+#        cpu: 400m
+#        memory: 512Mi
+#      requests:
+#        cpu: 100m
+#        memory: 128Mi
+
+#logs:
+#  # Configuration for empty dir volume (if logs.persistence.enabled == false)
+#  emptyDirConfig:
+#    sizeLimit: 1Gi
+#    medium: Memory
+#
+#  persistence:
+#    enabled: false
+
+# 1171
+createUserJob:
+#  env:
+#    - name: WEB_SERVER_DEFAULT_USER_PASSWORD
+#      valueFrom:
+#        secretKeyRef:
+#          name: airflow-webserver-default-user-credentials
+#          key: WEB_SERVER_DEFAULT_USER_PASSWORD
+#  args:
+#    - "bash"
+#    - "-c"
+#    # The format below is necessary to get `helm lint` happy
+#    - |-
+#      exec \
+#      airflow {{ semverCompare ">=2.0.0" .Values.airflowVersion | ternary "users create" "create_user" }} "$@"
+#    - --
+#    - "-r"
+#    - "{{ .Values.webserver.defaultUser.role }}"
+#    - "-u"
+#    - "{{ .Values.webserver.defaultUser.username }}"
+#    - "-e"
+#    - "{{ .Values.webserver.defaultUser.email }}"
+#    - "-f"
+#    - "{{ .Values.webserver.defaultUser.firstName }}"
+#    - "-l"
+#    - "{{ .Values.webserver.defaultUser.lastName }}"
+#    - "-p"
+#    - "${WEB_SERVER_DEFAULT_USER_PASSWORD}"
+  args:
+    - "bash"
+    - "-c"
+    - |
+      exec airflow {{ semverCompare ">=2.0.0" .Values.airflowVersion | ternary "users create" "create_user" }} \
+        -r "{{ .Values.webserver.defaultUser.role }}" \
+        -u "{{ .Values.webserver.defaultUser.username }}" \
+        -e "{{ .Values.webserver.defaultUser.email }}" \
+        -f "{{ .Values.webserver.defaultUser.firstName }}" \
+        -l "{{ .Values.webserver.defaultUser.lastName }}" \
+        -p "${WEB_SERVER_DEFAULT_USER_PASSWORD}"
+
+#createUserJob:
+#  env:
+#    - name: WEB_SERVER_DEFAULT_USER_PASSWORD
+#      valueFrom:
+#        secretKeyRef:
+#          name: airflow-webserver-default-user-credentials
+#          key: WEB_SERVER_DEFAULT_USER_PASSWORD
+#  args:
+#    - "bash"
+#    - "-c"
+#    - |
+#      exec airflow {{ semverCompare ">=2.0.0" .Values.airflowVersion | ternary "users create" "create_user" }} \
+#        -r "{{ .Values.webserver.defaultUser.role }}" \
+#        -u "{{ .Values.webserver.defaultUser.username }}" \
+#        -e "{{ .Values.webserver.defaultUser.email }}" \
+#        -f "{{ .Values.webserver.defaultUser.firstName }}" \
+#        -l "{{ .Values.webserver.defaultUser.lastName }}" \
+#        -p "${WEB_SERVER_DEFAULT_USER_PASSWORD}"
+
+redis:
+  enabled: false  # Celery backend not needed for KubernetesExecutor
+
+postgresql:
+  enabled: true
+
+  image:
+    #registry:
+    repository: bitnamilegacy/postgresql
+    tag: 16.1.0-debian-11-r15 # 16.1.0-debian-11-r15 is default. 17.6.0-debian-12-r4
+
+  auth:
+    #enablePostgresUser: true
+    postgresPassword: postgres
+    username: "airflow"
+    database: "airflow"
+    password: "changeit"
+    # this can cause side effects.
+    # Rather create a PostgreSQL server separately and provide the credentials via a secret.
+    #existingSecret: airflow-postgresql-credentials
+#  auth:
+#    username: "<%- postgresql.username %>"
+#    database: "<%- postgresql.database %>"
+#    existingSecret: postgresql-credentials
+
+
+
+#webserver:
+#  webserverConfig: |
+#    from airflow.www.security import AirflowSecurityManager
+#    from flask_appbuilder.security.manager import AUTH_OAUTH
+#
+#    # OIDC Configuration
+#    AUTH_TYPE = AUTH_OAUTH
+#    OAUTH_PROVIDERS = [
+#        {
+#            'name': 'keycloak' # e.g., 'google', 'keycloak', 'azure'
+#            'token_url': 'http://aafcda849a0b74262847cdc247d998ce-479578671.ca-central-1.elb.amazonaws.com/realms/default/protocol/openid-connect/token',
+#            'authorize_url': 'http://aafcda849a0b74262847cdc247d998ce-479578671.ca-central-1.elb.amazonaws.com/realms/default/protocol/openid-connect/auth',
+#            'api_base_url': 'http://aafcda849a0b74262847cdc247d998ce-479578671.ca-central-1.elb.amazonaws.com/realms/default/protocol/openid-connect/userinfo',
+#            'client_id': 'nsa2',
+#            'client_secret': 'gZ343TCd0kBehqTOkGZFkbL4WvXoa3Ss',
+#            'scope': ['openid', 'email', 'profile'], # Adjust scope as needed
+#            'oauth_callback_route': '/oauth-authorized/keycloak',
+#            'access_token_params': {'client_id': 'nsa2'},
+#            'jwks_uri': 'http://aafcda849a0b74262847cdc247d998ce-479578671.ca-central-1.elb.amazonaws.com/realms/default/protocol/openid-connect/certs', # Optional, for JWT validation
+#        }
+#    ]
+
+ingress:
+  enabled: true
+  web:
+    enabled: true
+    #    annotations:
+    #      kubernetes.io/ingress.class: "traefik"
+    #      traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+    #      traefik.ingress.kubernetes.io/router.tls: "true"
+    #      traefik.ingress.kubernetes.io/router.middlewares: "service-foundry/oauth2-proxy@kubernetescrd"
+    host: "airflow.nsa2.com"
+    ingressClassName: "traefik"
+
+
+triggerer:
+  replicas: 2
+  persistence:
+    size: 5Gi
+
+
+
+# 2855
+#config:
+#  webserver:
+#    authenticate: true
+#    auth_manager: airflow.providers.keycloak.auth_manager.keycloak_auth_manager.KeycloakAuthManager # Example for Keycloak
