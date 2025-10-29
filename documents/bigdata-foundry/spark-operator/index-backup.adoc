@@ -1,0 +1,193 @@
+---
+layout: documents
+title: Apache Airflow - How to use SparkKubernetesOperator
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: BigData Foundry
+    url: /documents/bigdata-foundry/
+
+---
+// docs/spark/spark-operator/index.adoc
+
+= Spark Operator
+
+== Overview
+
+This document provides how to install and use the Spark Operator on Kubernetes.
+
+== Installation
+
+=== Add the Spark Operator Helm repository
+
+We are going to use 'spark-operator' provided by Kubeflow. First, check you have added the old version of spark-operator repository provided by Google. Then remove it.
+
+.remove old Helm repository
+[source,shell]
+----
+# check Helm repositories
+$ helm repo list | grep spark-operator
+
+spark-operator          https://googlecloudplatform.github.io/spark-on-k8s-operator
+
+$ helm repo remove spark-operator
+----
+
+Now, add the new Helm repository provided by Kubeflow.
+
+.add new Helm repository
+[source,shell]
+----
+$ helm repo add spark-operator https://kubeflow.github.io/spark-operator
+$ helm repo update
+
+$ helm repo list | grep spark-operator
+
+spark-operator          https://kubeflow.github.io/spark-operator
+----
+
+.download the values.yaml file.
+[source,shell]
+----
+$ helm show values spark-operator/spark-operator > values.yaml
+----
+
+=== custom-values.yaml
+
+You can customize the values.yaml file to fit your needs. Here is an example of custom-values.yaml.
+
+.custom-values.yaml
+[source,yaml]
+----
+controller:
+  nodeSelector:
+    agentpool: depnodes
+
+webhook:
+  nodeSelector:
+    agentpool: depnodes
+
+spark:
+  jobNamespaces:
+  - dep
+  - spark-jobs
+  - airflow
+  - default
+----
+
+For spark.jobNamespace, you can specify the namespace where the Spark applications will be created.
+
+
+
+
+=== Install the Spark Operator
+
+[source,shell]
+----
+$ helm install spark-operator spark-operator/spark-operator --namespace spark-operator --create-namespace -f custom-values.yaml
+
+NAME: spark-operator
+LAST DEPLOYED: Thu Dec  5 11:36:33 2024
+NAMESPACE: spark-operator
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+----
+
+
+
+== Uninstall the Spark Operator
+
+[source,shell]
+----
+$ helm uninstall spark-operator -n spark-operator
+----
+
+== Create an example application
+
+Spark-Operator examples can be found in the examples directory of the Spark-Operator repository.
+
+* https://github.com/kubeflow/spark-operator/tree/master/examples
+
+.examples/spark-pi.yaml
+[source,yaml]
+----
+#
+# Copyright 2017 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: spark-pi
+#  namespace: default
+  namespace: spark-jobs
+spec:
+  type: Scala
+  mode: cluster
+  image: spark:3.5.3
+  imagePullPolicy: IfNotPresent
+  mainClass: org.apache.spark.examples.SparkPi
+  mainApplicationFile: local:///opt/spark/examples/jars/spark-examples.jar
+  arguments:
+    - "5000"
+  sparkVersion: 3.5.3
+  driver:
+    labels:
+      version: 3.5.3
+    cores: 1
+    memory: 512m
+    serviceAccount: spark-operator-spark
+  executor:
+    labels:
+      version: 3.5.3
+    instances: 1
+    cores: 1
+    memory: 512m
+----
+
+I just changed the namespace to 'spark-jobs' in the example file.
+
+[source,shell]
+----
+$ kubectl get namespace spark-jobs || kubectl create namespace spark-jobs
+
+# Create an example Spark application in the spark-jobs namespace
+$ kubectl apply -f examples/spark-pi.yaml -n spark-jobs
+----
+
+=== Verify the Spark application
+
+To verify the Spark application, you can check the logs of the driver pod.
+
+[source,shell]
+----
+$ kubectl get pods -n spark-jobs
+$ kubectl logs -f spark-pi-driver -n spark-jobs
+----
+
+== Upgrade the Spark Operator
+
+[source,shell]
+----
+$ helm upgrade spark-operator spark-operator/spark-operator --namespace spark-operator -f custom-values.yaml
+----
+
+== Working with Airflow
+
+link:../../airflow/airflow-on-k8s/spark-kubernetes-operator.adoc[Spark Kubernetes Operator]
