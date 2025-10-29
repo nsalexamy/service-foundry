@@ -1,6 +1,6 @@
 ---
 layout: documents
-title: Running Spark Applications on Kubernetes with Spark Operator and Airflow 3.0
+title: Apache Airflow - How to use SparkKubernetesOperator
 author: Young Gyu Kim
 email: credemol@gmail.com
 breadcrumb:
@@ -12,8 +12,9 @@ breadcrumb:
     url: /documents/bigdata-foundry/
 
 ---
+// docs/spark/spark-operator/index.adoc
 
-= Running Spark Applications on Kubernetes with Spark Operator and Airflow 3.0
+= Spark Operator
 
 :imagesdir: images
 
@@ -22,24 +23,27 @@ image::intro.png[]
 
 == Introduction
 
-This guide explains how to run Apache Spark applications on Kubernetes using the *Spark Operator*, and how to orchestrate those jobs with *Apache Airflow* 3.0. You’ll learn how to install the Spark Operator, configure your cluster, submit Spark jobs declaratively, and integrate with Airflow using the SparkKubernetesOperator.
+In this document, we will explore the Spark Operator, a powerful tool for managing Apache Spark applications on Kubernetes. We will cover the installation process, configuration options, and how to create and manage Spark applications using the Spark Operator.
 
-=== YouTube Tutorial Videos
+Additionally, we will discuss how to integrate the Spark Operator with Apache Airflow 3.0 using the *SparkKubernetesOperator* to orchestrate Spark jobs.
 
-* https://youtu.be/-G6Qn6VLx7U[Deploy Spark Operator & Airflow on Kubernetes with GitOps | Service Foundry Tutorial]
-* https://youtu.be/rIlNF1z18_s[Run Apache Spark Jobs on Kubernetes with Spark Operator and Airflow 3.0]
+== What is Spark Operator?
 
-== What is the Spark Operator?
+*Apache Spark* is a powerful open-source distributed computing system that provides an easy-to-use interface for processing large datasets.
 
-Apache Spark is a widely-used distributed computing engine for big data processing. The *Spark Operator* simplifies deploying and managing Spark applications on Kubernetes using Kubernetes-native tools. It introduces custom resource definitions (CRDs) so you can create, monitor, and delete Spark applications just like any other Kubernetes resource.
-
+The *Spark Operator* automates the process of deploying Spark applications, managing their lifecycle, and monitoring their status. It provides a declarative way to define Spark applications using Kubernetes Custom Resource Definitions (CRDs), allowing users to easily create, update, and delete Spark applications using standard Kubernetes tools.
 
 
-== Installing the Spark Operator with Helm
+
+
+
+== Installation
 
 === Add the Spark Operator Helm repository
 
-Add the Kubeflow version of the Spark Operator Helm repo:
+We are going to use 'spark-operator' provided by Kubeflow. First, check you have added the old version of spark-operator repository provided by Google. Then remove it.
+
+Now, add the new Helm repository provided by Kubeflow.
 
 .add new Helm repository
 [source,shell]
@@ -53,14 +57,13 @@ $ helm repo list | grep spark-operator
 spark-operator          https://kubeflow.github.io/spark-operator
 ----
 
-=== Download the Helm chart and values file
-
 .pull the spark-operator chart
 [source,shell]
 ----
 $ helm pull spark-operator/spark-operator
 
 # as of October 2025, the latest version is 2.3.0
+
 ----
 
 .download the values.yaml file.
@@ -69,11 +72,14 @@ $ helm pull spark-operator/spark-operator
 $ helm show values --version 2.3.0 spark-operator/spark-operator > values-2.3.0.yaml
 ----
 
-=== Customize the values file
+=== custom-values.yaml
+
+You can customize the values.yaml file to fit your needs. Here is an example of custom-values.yaml.
 
 .custom-values.yaml
 [source,yaml]
 ----
+
 spark:
   # -- List of namespaces where to run spark jobs.
   jobNamespaces:
@@ -84,17 +90,8 @@ spark:
 
 For spark.jobNamespace, you can specify the namespace where the Spark applications will be created.
 
-If the namespaces don’t already exist, you’ll need to create them before applying any resources. Run the following commands to verify and create them if necessary:
-
-[source,shell]
-----
-$ kubectl get namespace spark-jobs || kubectl create namespace spark-jobs
-$ kubectl get namespace airflow || kubectl create namespace airflow
-----
 
 === Install the Spark Operator
-
-Run the following command to install the Spark Operator using Helm with the custom values file.
 
 [source,shell]
 ----
@@ -106,30 +103,40 @@ $ helm install spark-operator spark-operator/spark-operator --namespace spark-op
 
 == Uninstall the Spark Operator
 
-To uninstall the operator:
-
 [source,shell]
 ----
 $ helm uninstall spark-operator -n spark-operator
 ----
 
-== Create a Sample Spark Application
+== Create an example application
 
-You can find examples in the official GitHub repo.
+Spark-Operator examples can be found in the examples directory of the Spark-Operator repository.
 
 * https://github.com/kubeflow/spark-operator/tree/master/examples
-
-Here is a basic example:
 
 .examples/spark-pi.yaml
 [source,yaml]
 ----
+#
+# Copyright 2017 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 apiVersion: sparkoperator.k8s.io/v1beta2
 kind: SparkApplication
 metadata:
   name: spark-pi
-  #namespace: default
-  namespace: spark-jobs
+  namespace: default
 spec:
   type: Scala
   mode: cluster
@@ -175,27 +182,36 @@ spec:
 
 ----
 
-Update the namespace to spark-jobs if desired.
+I just changed the namespace to 'spark-jobs' in the example file.
 
 [source,shell]
 ----
+#$ kubectl get namespace spark-jobs || kubectl create namespace spark-jobs
+
 # Create an example Spark application in the spark-jobs namespace
 $ kubectl apply -f examples/spark-pi.yaml
 ----
 
-To verify execution:
+=== Verify the Spark application
+
+To verify the Spark application, you can check the logs of the driver pod.
 
 [source,shell]
 ----
-$ kubectl -n spark-jobs get pods
-$ kubectl -n spark-jobs get sparkapplications
-$ kubectl -n spark-jobs logs -f spark-pi-driver
+$ kubectl get pods
+$ kubectl logs -f spark-pi-driver
 ----
 
+== Upgrade the Spark Operator
 
-== Integrating Spark Operator with Airflow 3.0
+[source,shell]
+----
+$ helm upgrade spark-operator spark-operator/spark-operator --namespace spark-operator -f custom-values.yaml
+----
 
-To learn how to install Airflow 3.0 on Kubernetes, refer to:
+== Working with Airflow 3.0 and SparkKubernetesOperator
+
+For more details about how to install Apache Airflow 3 on Kubernetes, please refer to the following document:
 
 * https://nsalexamy.github.io/service-foundry/pages/documents/bigdata-foundry/airflow-with-service-foundry/[Installing Apache Airflow 3 on Kubernetes]
 * https://youtu.be/JzIXVxYS0uQ[YouTube Video - Installing Apache Airflow 3 on Kubernetes]
@@ -203,10 +219,9 @@ To learn how to install Airflow 3.0 on Kubernetes, refer to:
 
 
 
-=== Organizing Spark Applications in Airflow Git Repo
+=== Extends Git Repository used in Airflow for DAGs
 
-To submit Spark jobs via Airflow, organize your repository like this:
-
+A directory named *spark-apps/* needs to be created under the *dags/* directory in the Airflow Git repository to store the Spark application YAML files.
 
 .file structure in Airflow Git Repository
 [source,shell]
@@ -226,14 +241,13 @@ File descriptions:
 
 [WARNING]
 ====
-The spark-apps/ folder must be under dags/.
+The application directory which is *spark-apps/* must be located under the *dags/* directory in the Airflow Git repository.
 ====
 
-=== Example DAG with SparkKubernetesOperator
+=== spark-py-example.py
 
-This Airflow DAG uses SparkKubernetesOperator to submit the Spark app:
+This is an example DAG that uses SparkKubernetesOperator to submit a Spark application to the Kubernetes cluster.
 
-.spark-py-example.py
 [source,python]
 ----
 from datetime import timedelta, datetime
@@ -285,8 +299,6 @@ with DAG(
 
     start_batch_task >> spark_pi_task >> done_task
 ----
-
-Make sure the spark-pi.yaml file references the same namespace used in the DAG:
 
 === spark-apps/spark-pi.yaml
 
@@ -346,7 +358,7 @@ spec:
 
 == RBAC for SparkKubernetesOperator
 
-Airflow needs permission to create SparkApplication resources. Apply the following RBAC:
+The airflow-worker service account needs to have permissions to create SparkApplication resources in the target namespace.
 
 .spark-rbac.yaml
 [source,yaml]
@@ -397,29 +409,22 @@ $ kubectl apply -f spark-rbac.yaml
 
 == The result of executing the DAG
 
-Once you trigger the DAG in Airflow, it creates a SparkApplication resource:
+When you trigger the *spark_pi* DAG in Airflow, it will create a SparkApplication resource in the Kubernetes cluster. You can monitor the status of the Spark application using kubectl.
 
 [source,shell]
 ----
 $ kubectl get sparkapplications -n airflow
 ----
 
-You can track the DAG progress in the Airflow UI:
+And you can see the graphical representation of the DAG in the Airflow web UI.
 
 .Airflow DAG Execution
 [.img-wide]
 image::airflow-dag-execution.png[]
 
+The second task is the SparkKubernetesOperator task that submits the Spark application to the Kubernetes cluster.
 
 == Conclusion
 
-This guide walked you through running Spark jobs on Kubernetes using the Spark Operator, and integrating them into Apache Airflow 3.0 with SparkKubernetesOperator. With this setup, you get the scalability of Kubernetes, the orchestration power of Airflow, and the simplicity of Spark Operator’s declarative job submission.
-
-📘 View the web version:
-
-* https://nsalexamy.github.io/service-foundry/pages/documents/bigdata-foundry/spark-operator/
-
-== Thanks for reading!
-
-* Young Gyu Kim (credemol@gmail.com)
+This document provided an overview of how to install and use the Spark Operator on Kubernetes, as well as how to integrate it with Apache Airflow 3.0 using the SparkKubernetesOperator. By following the steps outlined in this document, you can easily deploy and manage Spark applications on your Kubernetes cluster using Airflow.
 
