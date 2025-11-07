@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Self Signed Certificate for SSO Foundry</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a></li>
+<li><a href="#install-cert-manager">Install cert-manager</a></li>
+<li><a href="#create-a-self-signed-bootstrap-issuer">Create a self-signed bootstrap issuer</a></li>
+<li><a href="#mint-the-root-ca-certificate">Mint the root CA certificate</a></li>
+<li><a href="#create-a-ca-based-clusterissuer-cluster-wide-signer">Create a CA-based ClusterIssuer (cluster-wide signer)</a></li>
+<li><a href="#issue-a-wildcard-certificate-for-your-domain-nsa2-com">Issue a wildcard certificate for your domain (*.nsa2.com)</a></li>
+<li><a href="#configure-ingressroute-to-use-the-certificate">Configure IngressRoute to use the certificate</a></li>
+</ul>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This article covers:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Install cert-manager in your Kubernetes cluster</p>
+</li>
+<li>
+<p>Create a self-signed certificate using cert-manager</p>
+</li>
+<li>
+<p>Configure SSO Foundry to use the self-signed certificate</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="install-cert-manager">Install cert-manager</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>TBD</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-a-self-signed-bootstrap-issuer">Create a self-signed bootstrap issuer</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>First, create a ClusterIssuer resource for the self-signed certificate.</p>
+</div>
+<div class="listingblock">
+<div class="title">cert-manager/clusterissuer-selfsigned-bootstrap.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="s">Unresolved directive in index.adoc - include::cert-manager/clusterissuer-selfsigned-bootstrap.yaml[]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Apply the ClusterIssuer resource:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> cert-manager/clusterissuer-selfsigned-bootstrap.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="mint-the-root-ca-certificate">Mint the root CA certificate</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This certificate is isCA: true, and the secret (nsa2-root-ca) will store both the CA cert and private key.</p>
+</div>
+<div class="listingblock">
+<div class="title">cert-manager/nsa2-root-ca.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="s">Unresolved directive in index.adoc - include::cert-manager/nsa2-root-ca.yaml[]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Apply and wait for the certificate to be ready:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> cert-manager/nsa2-root-ca.yaml
+
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> cert-manager <span class="nb">wait</span> <span class="nt">--for</span><span class="o">=</span><span class="nv">condition</span><span class="o">=</span>Ready certificate/nsa2-root-ca <span class="nt">--timeout</span><span class="o">=</span>90s</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-a-ca-based-clusterissuer-cluster-wide-signer">Create a CA-based ClusterIssuer (cluster-wide signer)</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This ClusterIssuer references the root CA secret, so it can sign certificates for any namespace.</p>
+</div>
+<div class="listingblock">
+<div class="title">cert-manager/clusterissuer-nsa2-ca.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="s">Unresolved directive in index.adoc - include::cert-manager/clusterissuer-nsa2-ca.yaml[]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Apply:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> cert-manager/clusterissuer-nsa2-ca.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="issue-a-wildcard-certificate-for-your-domain-nsa2-com">Issue a wildcard certificate for your domain (*.nsa2.com)</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Now that your global issuer exists, you can issue your wildcard certificate in any app namespace (e.g., default).</p>
+</div>
+<div class="listingblock">
+<div class="title">service-foundry/wildcard-nsa2-com.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="s">Unresolved directive in index.adoc - include::service-foundry/wildcard-nsa2-com.yaml[]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Apply and wait for the certificate to be ready:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> service-foundry/wildcard-nsa2-com.yaml
+<span class="nv">$ </span>kubectl <span class="nt">-n</span> service-foundry <span class="nb">wait</span> <span class="nt">--for</span><span class="o">=</span><span class="nv">condition</span><span class="o">=</span>Ready certificate/wildcard-nsa2-com <span class="nt">--timeout</span><span class="o">=</span>90s</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This will create a secret named wildcard-nsa2-com in the service-foundry namespace.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">% kubectl <span class="nt">-n</span> service-foundry get secret/wildcard-nsa2-com <span class="nt">-o</span> yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Output:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">data</span><span class="pi">:</span>
+  <span class="na">ca.crt</span><span class="pi">:</span> <span class="s">&lt;base64-encoded-ca-certificate&gt;</span>
+  <span class="na">tls.crt</span><span class="pi">:</span> <span class="s">&lt;base64-encoded-certificate&gt;</span>
+  <span class="na">tls.key</span><span class="pi">:</span> <span class="s">&lt;base64-encoded-private-key&gt;</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="configure-ingressroute-to-use-the-certificate">Configure IngressRoute to use the certificate</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Finally, update your IngressRoute resources to reference the new wildcard certificate.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">traefik.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">IngressRoute</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-sso-ingress-route</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">service-foundry</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">entryPoints</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">web</span>
+  <span class="na">routes</span><span class="pi">:</span>
+
+
+    <span class="pi">-</span> <span class="na">match</span><span class="pi">:</span> <span class="s">Host(`sfapp.nsa2.com`)</span>
+      <span class="na">kind</span><span class="pi">:</span> <span class="s">Rule</span>
+      <span class="na">services</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-app-frontend</span>
+          <span class="na">port</span><span class="pi">:</span> <span class="s">http</span>
+      <span class="na">middlewares</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">cors-headers</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">forward-auth</span>
+
+
+    <span class="pi">-</span> <span class="na">match</span><span class="pi">:</span> <span class="s">Host(`sfapp-backend.nsa2.com`)</span>
+      <span class="na">kind</span><span class="pi">:</span> <span class="s">Rule</span>
+      <span class="na">services</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-app-backend</span>
+          <span class="na">port</span><span class="pi">:</span> <span class="s">http</span>
+      <span class="na">middlewares</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">cors-headers</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">forward-auth</span>
+  <span class="c1"># &lt;1&gt; Reference the TLS secret for the wildcard certificate</span>
+  <span class="na">tls</span><span class="pi">:</span>
+    <span class="na">secretName</span><span class="pi">:</span> <span class="s">wildcard-nsa2-com-tls</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">cors-headers-middleware.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">traefik.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Middleware</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">cors-headers</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">service-foundry</span> <span class="c1"># replace with actual namespace, e.g., traefik or default</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">headers</span><span class="pi">:</span>
+    <span class="na">accessControlAllowMethods</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">GET"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">OPTIONS"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">PUT"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">POST"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">DELETE"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">PATCH"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">HEAD"</span>
+    <span class="na">accessControlAllowHeaders</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">Origin</span>
+      <span class="pi">-</span> <span class="s">Content-Type</span>
+      <span class="pi">-</span> <span class="s">Authorization</span>
+      <span class="pi">-</span> <span class="s">Accept</span>
+      <span class="pi">-</span> <span class="s">User-Agent</span>
+      <span class="pi">-</span> <span class="s">Cache-Control</span>
+      <span class="pi">-</span> <span class="s">X-Requested-With</span>
+      <span class="pi">-</span> <span class="s">Access-Control-Allow-Origin</span>
+      <span class="pi">-</span> <span class="s">Access-Control-Allow-Headers</span>
+      <span class="pi">-</span> <span class="s">traceparent</span>
+    <span class="na">accessControlAllowOriginList</span><span class="pi">:</span>
+      <span class="c1"># &lt;1&gt; Add your allowed origins here</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">http://sfapp.nsa2.com"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">https://sfapp.nsa2.com"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">http://sfapp-backend.nsa2.com"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">https://sfapp-backend.nsa2.com"</span>
+    <span class="na">accessControlMaxAge</span><span class="pi">:</span> <span class="m">100</span>
+    <span class="na">accessControlAllowCredentials</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">addVaryHeader</span><span class="pi">:</span> <span class="kc">true</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Add https and http origins as needed.</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+</body>
+</html>
