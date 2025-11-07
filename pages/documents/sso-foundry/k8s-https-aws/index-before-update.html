@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Securing Web Applications on Kubernetes with TLS and AWS</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#what-aws-load-balancer-controller-is">What AWS Load Balancer Controller is?</a></li>
+<li><a href="#manual-configuration-steps">Manual Configuration Steps</a></li>
+<li><a href="#sample-web-application">Sample Web Application</a></li>
+<li><a href="#route-53-domain">Route 53 Domain</a></li>
+<li><a href="#create-tls-certificate-in-aws-acm">Create TLS Certificate in AWS ACM</a></li>
+<li><a href="#install-traefik-ingress-controller">Install Traefik Ingress Controller</a>
+<ul class="sectlevel2">
+<li><a href="#classic-load-balancer-option">Classic Load Balancer Option</a></li>
+<li><a href="#network-load-balancer-option">Network Load Balancer Option</a></li>
+</ul>
+</li>
+<li><a href="#update-dns-records-in-route-53">Update DNS Records in Route 53</a></li>
+<li><a href="#create-ingressroute-for-the-web-application">Create IngressRoute for the Web Application</a></li>
+<li><a href="#test-access-to-the-web-application-over-https">Test Access to the Web Application over HTTPS</a></li>
+<li><a href="#warning-on-load-balancer-deletion">Warning on Load Balancer Deletion</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/intro.png" alt="intro">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this guide, we will walk you through the steps to secure a web application running on a Kubernetes cluster with TLS using AWS Certificate Manager (ACM) and AWS Load Balancer Controller.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-aws-load-balancer-controller-is">What AWS Load Balancer Controller is?</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The AWS Load Balancer Controller manages AWS Elastic Load Balancers for a Kubernetes cluster. You can use the controller to expose your cluster apps to the internet. The controller provisions AWS load balancers that point to cluster Service or Ingress resources. In other words, the controller creates a single IP address or DNS name that points to multiple pods in your cluster.</p>
+</div>
+<div class="paragraph">
+<p>For more information, see the AWS documentation:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html" class="bare">https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="manual-configuration-steps">Manual Configuration Steps</h2>
+<div class="sectionbody">
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Deploy Sample Web Application to Kubernetes</p>
+</li>
+<li>
+<p>Create a Domain on Route 53</p>
+</li>
+<li>
+<p>Request a TLS Certificate from AWS ACM</p>
+</li>
+<li>
+<p>Install Traefik Ingress Controller using AWS Load Balancer Controller</p>
+</li>
+<li>
+<p>Update DNS Records in Route 53</p>
+</li>
+<li>
+<p>Create IngressRoute for the Web Application</p>
+</li>
+<li>
+<p>Test Access to the Web Application over HTTPS</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="sample-web-application">Sample Web Application</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>You can use any web application that you want to secure with TLS. For demonstration purposes, we will use a simple Nginx web application.</p>
+</div>
+<div class="paragraph">
+<p>In this example, we will use the sample application avaialable at <a href="https://github.com/nsalexamy/secure-web-app-on-k8s-with-tls" class="bare">https://github.com/nsalexamy/secure-web-app-on-k8s-with-tls</a></p>
+</div>
+<div class="listingblock source">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-k</span> k8s/overlays/dev</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The sample application will be deployed in the <code>dev</code> namespace with the following details:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Namespace</strong>: dev</p>
+</li>
+<li>
+<p><strong>Service</strong>: dev-web-service</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="route-53-domain">Route 53 Domain</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>You need to have a domain registered and managed in AWS Route 53. In this example, we will use the domain <code>servicefoundry.org</code>.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/aws-route-53-hosted-zone.png" alt="aws route 53 hosted zone">
+</div>
+<div class="title">Figure 1. AWS Route 53 Hosted Zone - servicefoundry.org</div>
+</div>
+<div class="paragraph">
+<p>We are going to use 'dev.servicefoundry.org' as the subdomain for our sample web application.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-tls-certificate-in-aws-acm">Create TLS Certificate in AWS ACM</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>You need to create a TLS certificate in AWS ACM for your domain. In this example, we will create a certificate for <code>*.servicefoundry.org</code>.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/aws-acm-servicefoundry-org.png" alt="aws acm servicefoundry org">
+</div>
+<div class="title">Figure 2. AWS ACM Certificate for *.servicefoundry.org</div>
+</div>
+<div class="paragraph">
+<p>ARN of the certificate is required when configuring the Traefik Ingress Controller.</p>
+</div>
+<div class="paragraph">
+<p>The CNAME record here must be added to your Route 53 hosted zone to validate domain ownership.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="install-traefik-ingress-controller">Install Traefik Ingress Controller</h2>
+<div class="sectionbody">
+<div class="listingblock">
+<div class="title">k8s/traefik/custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">ports</span><span class="pi">:</span>
+  <span class="na">websecure</span><span class="pi">:</span>
+    <span class="na">port</span><span class="pi">:</span> <span class="m">443</span>
+    <span class="c1">## &lt;1&gt; USE HTTP</span>
+    <span class="na">targetPort</span><span class="pi">:</span> <span class="s">web</span>
+    <span class="na">proxyProtocol</span><span class="pi">:</span>
+      <span class="na">insecure</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">forwardedHeaders</span><span class="pi">:</span>
+      <span class="na">insecure</span><span class="pi">:</span> <span class="kc">true</span>
+
+
+<span class="na">service</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s">LoadBalancer</span>
+  <span class="c1">## &lt;1&gt; AWS Load Balancer Controller Annotations</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="na">service.beta.kubernetes.io/aws-load-balancer-ssl-cert</span><span class="pi">:</span> <span class="s2">"</span><span class="s">arn:aws:acm:REGION:ACCOUNTID:certificate/CERT-ID"</span>
+    <span class="na">service.beta.kubernetes.io/aws-load-balancer-ssl-ports</span><span class="pi">:</span> <span class="s2">"</span><span class="s">443"</span>
+    <span class="na">service.beta.kubernetes.io/aws-load-balancer-backend-protocol</span><span class="pi">:</span> <span class="s2">"</span><span class="s">tcp"</span>
+    <span class="c1">#service.beta.kubernetes.io/aws-load-balancer-type: "nlb" # nlb or alb</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The ARN of the certificate is specified in the annotation <code>service.beta.kubernetes.io/aws-load-balancer-ssl-cert</code>.</p>
+</div>
+<div class="paragraph">
+<p>For more information on AWS Load Balancer Controller annotations, see:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/guide/service/annotations/" class="bare">https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/guide/service/annotations/</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Install Traefik using the custom values file and run below.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nb">install </span>traefik traefik/traefik <span class="se">\</span>
+  <span class="nt">-f</span> k8s/traefik/custom-values.yaml <span class="se">\</span>
+  <span class="nt">--namespace</span> traefik <span class="nt">--create-namespace</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This command installs Traefik Ingress Controller in the <code>traefik</code> namespace and creates a Load Balancer in AWS.</p>
+</div>
+<div class="sect2">
+<h3 id="classic-load-balancer-option">Classic Load Balancer Option</h3>
+<div class="paragraph">
+<p>By default, AWS Load Balancer Controller creates a Classic Load Balancer. You can see the Load Balancer created in the EC2 console.</p>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="images/aws-classic-load-balancer.png" alt="img-wide">
+</div>
+<div class="title">Figure 3. AWS Classic Load Balancer created by AWS Load Balancer Controller</div>
+</div>
+<div class="paragraph">
+<p>At the bottom of the Load Balancer description, you can see the Listener configuration with HTTPS on port 443.</p>
+</div>
+<div class="paragraph">
+<p>The instance protocol is TCP because we are using the annotation <code>service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "tcp"</code> in the service configuration. And the instance ports are node ports where Traefik is listening for incoming traffic.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="network-load-balancer-option">Network Load Balancer Option</h3>
+<div class="paragraph">
+<p>If you want to use Network Load Balancer instead of Classic Load Balancer, uncomment the following annotation in the custom-values.yaml file.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>service:
+  annotations:
+    #
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb" # nlb or alb</pre>
+</div>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/aws-network-load-balancer.png" alt="aws network load balancer">
+</div>
+<div class="title">Figure 4. AWS Network Load Balancer created by AWS Load Balancer Controller</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="update-dns-records-in-route-53">Update DNS Records in Route 53</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>You need to upcate the DNS records in Route 53 to point to the Load Balancer created by AWS Load Balancer Controller.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/aws-route-53-update-dns.png" alt="aws route 53 update dns">
+</div>
+<div class="title">Figure 5. AWS Route 53 DNS Record for dev.servicefoundry.org</div>
+</div>
+<div class="paragraph">
+<p>In the Edit record set dialog, select <code>Alias</code> as <code>Yes</code> and choose the Load Balancer created by AWS Load Balancer Controller.</p>
+</div>
+<div class="paragraph">
+<p>After updating the DNS records, you will see the following alert in the Route 53 hosted zone.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="text">servicefoundry.org was successfully updated.
+Route 53 propagates your changes to all of the Route 53 authoritative DNS servers within 60 seconds.
+Use "View status" button to check propagation status.</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-ingressroute-for-the-web-application">Create IngressRoute for the Web Application</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To route traffic to the sample web application, you need to create an IngressRoute resource in the <code>dev</code> namespace.</p>
+</div>
+<div class="listingblock">
+<div class="title">k8s/traefik/ingressroute-dev.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">traefik.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">IngressRoute</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">dev-ingress-route</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">dev</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">entryPoints</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">web</span>
+    <span class="pi">-</span> <span class="s">websecure</span>
+
+  <span class="na">routes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">match</span><span class="pi">:</span> <span class="s">Host(`dev.servicefoundry.org`) &amp;&amp; PathPrefix(`/`)</span>
+      <span class="na">kind</span><span class="pi">:</span> <span class="s">Rule</span>
+      <span class="na">services</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">dev-web-service</span>
+          <span class="na">port</span><span class="pi">:</span> <span class="s">80</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Apply the IngressRoute resource using the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> k8s/traefik/ingressroute-dev.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="test-access-to-the-web-application-over-https">Test Access to the Web Application over HTTPS</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Now everything is set up. You can test access to the sample web application over HTTPS.</p>
+</div>
+<div class="paragraph">
+<p>Open your web browser and navigate to <code><a href="https://dev.servicefoundry.org" class="bare">https://dev.servicefoundry.org</a></code>.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/https-dev-servicefoundry-org.png" alt="https dev servicefoundry org">
+</div>
+<div class="title">Figure 6. Access Sample Web Application over HTTPS</div>
+</div>
+<div class="paragraph">
+<p>You should see the 'Development Page' of the sample web application served over HTTPS.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="warning-on-load-balancer-deletion">Warning on Load Balancer Deletion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Please remember that the Load Balancer created by AWS Load Balancer Controller is supposed to be deleted when you uninstall the Traefik Helm chart. In case that you want to keep the Load Balancer, you need to manually create the Load Balancer and deploy Traefik with Node Ports.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this guide, you have successfully secured a web application running on Kubernetes with TLS using AWS ACM and AWS Load Balancer Controller. You can now extend this setup to secure other applications in your Kubernetes cluster.</p>
+</div>
+<div class="paragraph">
+<p>Compared to using Let&#8217;s Encrypt, using AWS ACM for TLS certificates provides better integration with AWS services and simplifies certificate management within the AWS ecosystem.</p>
+</div>
+</div>
+</div>
+</body>
+</html>
