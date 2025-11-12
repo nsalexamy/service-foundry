@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Automating Route 53 DNS Updates When New ALBs Are Provisioned with Terraform</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#source-code-repository">Source Code Repository</a></li>
+<li><a href="#apply-terraform-shell-script">apply-terraform shell script</a></li>
+<li><a href="#terraform-configuration">Terraform Configuration</a>
+<ul class="sectlevel2">
+<li><a href="#main-tf">main.tf</a></li>
+<li><a href="#modulesroute53-alias-for-k8s-lbmain-tf">modules/route53-alias-for-k8s-lb/main.tf</a></li>
+<li><a href="#modulesroute53-alias-for-k8s-lbvariables-tf">modules/route53-alias-for-k8s-lb/variables.tf</a></li>
+</ul>
+</li>
+<li><a href="#annotations-in-ingress-resource">Annotations in Ingress Resource</a></li>
+<li><a href="#applying-the-terraform-configuration">Applying the Terraform Configuration</a></li>
+<li><a href="#verifying-dns-updates">Verifying DNS Updates</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="tf-images/intro.png" alt="intro">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this guide, we will demonstrate how to automate the updating of Route 53 DNS records when a new AWS Application Load Balancer (ALB) is provisioned using Terraform. This automation ensures that your domain always points to the correct ALB without manual intervention.</p>
+</div>
+<div class="paragraph">
+<p>This guide is the follow-up to <a href="https://youtu.be/EW4uJ6hUIRE">Securing Web Apps on Kubernetes with TLS Using AWS Load Balancer Controller and Traefik</a></p>
+</div>
+<div class="paragraph">
+<p>In the previous guide, we set up Route 53 DNS records to point to an ALB created by the AWS Load Balancer Controller. However, if the ALB is deleted and recreated (for example, during cluster upgrades or changes), the DNS records would need to be updated manually. This guide shows you how to automate that process using Terraform.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="source-code-repository">Source Code Repository</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The complete source code for this guide is available in the following GitHub repository:</p>
+</div>
+<div class="paragraph">
+<p><a href="https://github.com/nsalexamy/secure-web-app-on-k8s-with-tls" class="bare">https://github.com/nsalexamy/secure-web-app-on-k8s-with-tls</a></p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="tf-images/github-repo.png" alt="github repo">
+</div>
+<div class="title">Figure 1. GitHub Repository</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="apply-terraform-shell-script">apply-terraform shell script</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The <code>apply-terraform.sh</code> script is designed to be run after the ALB Ingress resource has been deployed. It waits for the ALB to become active, retrieves the hosted zone ID from Route 53, and then applies the Terraform configuration to update the DNS records accordingly.</p>
+</div>
+<div class="listingblock">
+<div class="title">apply-terraform.sh - wait for ALB active</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c">#!/bin/bash</span>
+
+<span class="nv">CWD</span><span class="o">=</span><span class="si">$(</span><span class="nb">pwd</span><span class="si">)</span>
+<span class="nv">TERRAFORM_DIR</span><span class="o">=</span><span class="nv">$CWD</span>/terraform
+
+wait_for_alb_active<span class="o">()</span> <span class="o">{</span>
+  <span class="c"># use aws cli to wait for alb to be active</span>
+  <span class="nb">local </span><span class="nv">alb_name</span><span class="o">=</span><span class="s2">"</span><span class="nv">$1</span><span class="s2">"</span>
+  <span class="nb">local </span><span class="nv">timeout_seconds</span><span class="o">=</span><span class="s2">"</span><span class="k">${</span><span class="nv">2</span><span class="k">:-</span><span class="nv">600</span><span class="k">}</span><span class="s2">"</span>     <span class="c"># default: 600 seconds</span>
+  <span class="nb">local </span><span class="nv">interval_seconds</span><span class="o">=</span><span class="s2">"</span><span class="k">${</span><span class="nv">3</span><span class="k">:-</span><span class="nv">5</span><span class="k">}</span><span class="s2">"</span>      <span class="c"># default: 5 seconds</span>
+  <span class="nb">local </span><span class="nv">max_retries</span><span class="o">=</span><span class="k">$((</span>timeout_seconds <span class="o">/</span> interval_seconds<span class="k">))</span>
+  <span class="nb">echo</span> <span class="s2">"Waiting for ALB </span><span class="nv">$alb_name</span><span class="s2"> to become active..."</span>
+  <span class="k">for</span> <span class="o">((</span><span class="nv">i</span><span class="o">=</span>1<span class="p">;</span> i&lt;<span class="o">=</span>max_retries<span class="p">;</span> i++<span class="o">))</span><span class="p">;</span> <span class="k">do
+    </span><span class="nv">alb_state</span><span class="o">=</span><span class="si">$(</span>aws elbv2 describe-load-balancers <span class="nt">--names</span> <span class="s2">"</span><span class="nv">$alb_name</span><span class="s2">"</span> <span class="nt">--query</span> <span class="s1">'LoadBalancers[0].State.Code'</span> <span class="nt">--output</span> text 2&gt;/dev/null <span class="o">||</span> <span class="nb">true</span><span class="si">)</span>
+    <span class="k">if</span> <span class="o">[[</span> <span class="s2">"</span><span class="nv">$alb_state</span><span class="s2">"</span> <span class="o">==</span> <span class="s2">"active"</span> <span class="o">]]</span><span class="p">;</span> <span class="k">then
+      </span><span class="nb">echo</span> <span class="s2">"ALB </span><span class="nv">$alb_name</span><span class="s2"> is active."</span>
+      <span class="k">return </span>0
+    <span class="k">fi
+    </span><span class="nb">sleep</span> <span class="s2">"</span><span class="nv">$interval_seconds</span><span class="s2">"</span>
+  <span class="k">done
+
+  </span><span class="nb">echo</span> <span class="s2">"Timed out waiting for ALB </span><span class="nv">$alb_name</span><span class="s2"> to become active."</span> <span class="o">&gt;</span>&amp;2
+  <span class="k">return </span>1
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The code snippet below shows how to call the <code>wait_for_alb_active</code> function within the <code>apply-terraform.sh</code> script.</p>
+</div>
+<div class="listingblock">
+<div class="title">apply-terraform.sh - call wait_for_alb_active</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="nv">ALB_NAME</span><span class="o">=</span><span class="s2">"traefik-alb"</span>
+
+<span class="k">if</span> <span class="o">!</span> wait_for_alb_active <span class="s2">"</span><span class="nv">$ALB_NAME</span><span class="s2">"</span><span class="p">;</span> <span class="k">then
+  </span><span class="nb">echo</span> <span class="s2">"Exiting due to timeout"</span>
+  <span class="nb">exit </span>1
+<span class="k">fi</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In the code snippet below, first we retrieve the hosted zone ID for the specified DNS name from Route 53. Then we initialize Terraform and check if the DNS record already exists. If it does, we import it into the Terraform state before applying the configuration so that the DNS record points to the new ALB. If the record does not exist, Terraform will create a new DNS record.</p>
+</div>
+<div class="listingblock">
+<div class="title">apply-terraform.sh - terraform init and import existing dns record if exists</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="nb">cd</span> <span class="nv">$TERRAFORM_DIR</span>
+
+<span class="nv">DNS_NAME</span><span class="o">=</span><span class="k">${</span><span class="nv">DNS_NAME</span><span class="k">:-</span><span class="s2">"servicefoundry.org"</span><span class="k">}</span>
+
+<span class="nv">HOSTED_ZONE_ID</span><span class="o">=</span><span class="si">$(</span>aws route53 list-hosted-zones-by-name <span class="nt">--dns-name</span> <span class="nv">$DNS_NAME</span> | yq <span class="s1">'.HostedZones[0].Id'</span> | <span class="nb">awk</span> <span class="nt">-F</span><span class="s1">'/'</span> <span class="s1">'{print $NF}'</span><span class="si">)</span>
+
+<span class="c"># check if HOSTED_ZONE_ID is 'null'</span>
+<span class="k">if</span> <span class="o">[</span> <span class="s2">"</span><span class="nv">$HOSTED_ZONE_ID</span><span class="s2">"</span> <span class="o">==</span> <span class="s2">"null"</span> <span class="o">]</span> <span class="o">||</span> <span class="o">[</span> <span class="nt">-z</span> <span class="s2">"</span><span class="nv">$HOSTED_ZONE_ID</span><span class="s2">"</span> <span class="o">]</span><span class="p">;</span> <span class="k">then
+  </span><span class="nb">echo</span> <span class="s2">"Hosted Zone ID for </span><span class="nv">$DNS_NAME</span><span class="s2"> not found."</span>
+  <span class="nb">echo</span> <span class="s2">"Please create a hosted zone for </span><span class="nv">$DNS_NAME</span><span class="s2"> in Route 53 before applying this Terraform configuration."</span>
+
+  <span class="nb">exit </span>1
+<span class="k">else
+  </span><span class="nb">echo</span> <span class="s2">"Found Hosted Zone ID: </span><span class="nv">$HOSTED_ZONE_ID</span><span class="s2"> for </span><span class="nv">$DNS_NAME</span><span class="s2">"</span>
+  <span class="nb">echo</span> <span class="s2">"Using existing hosted zone."</span>
+
+  terraform init
+
+  <span class="c"># check if the DNS record exists</span>
+  <span class="nv">RECORD_SETS</span><span class="o">=</span><span class="si">$(</span>aws route53 list-resource-record-sets <span class="se">\</span>
+                  <span class="nt">--hosted-zone-id</span> <span class="nv">$HOSTED_ZONE_ID</span> <span class="se">\</span>
+                  <span class="nt">--output</span> yaml <span class="se">\</span>
+                  <span class="nt">--query</span> <span class="s2">"ResourceRecordSets[?Name == '</span><span class="k">${</span><span class="nv">DNS_NAME</span><span class="k">}</span><span class="s2">.' &amp;&amp; Type == 'A']"</span><span class="si">)</span>
+
+  <span class="k">if</span> <span class="o">[</span> <span class="s2">"</span><span class="nv">$RECORD_SETS</span><span class="s2">"</span> <span class="o">==</span> <span class="s2">"[]"</span> <span class="o">]</span><span class="p">;</span> <span class="k">then
+    </span><span class="nb">echo</span> <span class="s2">"DNS record for </span><span class="nv">$DNS_NAME</span><span class="s2"> not found in hosted zone </span><span class="nv">$HOSTED_ZONE_ID</span><span class="s2">. It will be created."</span>
+  <span class="k">else
+    </span><span class="nb">echo</span> <span class="s2">"DNS record for </span><span class="nv">$DNS_NAME</span><span class="s2"> found in hosted zone </span><span class="nv">$HOSTED_ZONE_ID</span><span class="s2">. Importing into Terraform state."</span>
+
+    <span class="nv">DNS_ALIAS</span><span class="o">=</span><span class="s2">"</span><span class="k">${</span><span class="nv">HOSTED_ZONE_ID</span><span class="k">}</span><span class="s2">_</span><span class="k">${</span><span class="nv">DNS_NAME</span><span class="k">}</span><span class="s2">_A"</span>
+
+    <span class="nb">echo</span> <span class="s2">"terraform import aws_route53_record.a_alias </span><span class="nv">$DNS_ALIAS</span><span class="s2">"</span>
+    terraform import module.alias_for_traefik.aws_route53_record.a_alias <span class="nv">$DNS_ALIAS</span>
+  <span class="k">fi
+
+  </span>terraform apply <span class="nt">--auto-approve</span>
+<span class="k">fi
+
+</span><span class="nb">cd</span> <span class="nv">$CWD</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="terraform-configuration">Terraform Configuration</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The Terraform configuration consists of a main configuration file and a module that creates the Route 53 alias record pointing to the ALB created by the AWS Load Balancer Controller.</p>
+</div>
+<div class="listingblock">
+<div class="title">terraform directory structure</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>tree terraform
+terraform
+├── main.tf
+└── modules
+    └── route53-alias-for-k8s-lb
+        ├── main.tf
+        └── variables.tf</code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="main-tf">main.tf</h3>
+<div class="paragraph">
+<p>The <code>main.tf</code> file contains the Terraform configuration that defines the AWS and Kubernetes providers, as well as the module to create the Route 53 alias record for the Traefik Load Balancer.</p>
+</div>
+<div class="listingblock">
+<div class="title">/terraform/main.tf</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terraform"><span class="k">provider</span> <span class="s2">"aws"</span> <span class="p">{</span>
+  <span class="nx">region</span> <span class="o">=</span> <span class="s2">"ca-central-1"</span>
+<span class="p">}</span>
+
+<span class="k">provider</span> <span class="s2">"kubernetes"</span> <span class="p">{</span>
+  <span class="nx">config_path</span> <span class="o">=</span> <span class="s2">"~/.kube/config"</span>
+  <span class="c1"># or host/token/cluster_ca_certificate if running in CI</span>
+<span class="p">}</span>
+
+<span class="k">module</span> <span class="s2">"alias_for_traefik"</span> <span class="p">{</span>
+  <span class="nx">source</span>           <span class="o">=</span> <span class="s2">"./modules/route53-alias-for-k8s-lb"</span>
+  <span class="nx">zone_name</span>        <span class="o">=</span> <span class="s2">"servicefoundry.org"</span>
+  <span class="nx">record_name</span>      <span class="o">=</span> <span class="s2">"@"</span>                     <span class="c1"># root apex; use "app" for app.servicefoundry.org</span>
+  <span class="nx">k8s_namespace</span>    <span class="o">=</span> <span class="s2">"traefik"</span>
+  <span class="nx">k8s_ingress_name</span> <span class="o">=</span> <span class="s2">"traefik-alb"</span>
+  <span class="nx">create_aaaa</span>      <span class="o">=</span> <span class="kc">false</span>
+<span class="err">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="modulesroute53-alias-for-k8s-lbmain-tf">modules/route53-alias-for-k8s-lb/main.tf</h3>
+<div class="paragraph">
+<p>This file contains the module that creates the Route 53 alias record pointing to the ALB created by the AWS Load Balancer Controller.</p>
+</div>
+<div class="listingblock">
+<div class="title">/terraform/modules/route53-alias-for-k8s-lb/main.tf</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terraform"><span class="k">terraform</span> <span class="p">{</span>
+  <span class="nx">required_version</span> <span class="o">=</span> <span class="s2">"&gt;= 1.5.0"</span>
+  <span class="nx">required_providers</span> <span class="p">{</span>
+    <span class="nx">aws</span> <span class="o">=</span> <span class="p">{</span>
+      <span class="nx">source</span>  <span class="o">=</span> <span class="s2">"hashicorp/aws"</span>
+      <span class="nx">version</span> <span class="o">=</span> <span class="s2">"&gt;= 6.19.0"</span>
+    <span class="p">}</span>
+    <span class="nx">kubernetes</span> <span class="o">=</span> <span class="p">{</span>
+      <span class="nx">source</span>  <span class="o">=</span> <span class="s2">"hashicorp/kubernetes"</span>
+      <span class="nx">version</span> <span class="o">=</span> <span class="s2">"&gt;= 2.30.0"</span>
+    <span class="p">}</span>
+    <span class="nx">external</span> <span class="o">=</span> <span class="p">{</span>
+      <span class="nx">source</span>  <span class="o">=</span> <span class="s2">"hashicorp/external"</span>
+      <span class="nx">version</span> <span class="o">=</span> <span class="s2">"&gt;= 2.3"</span>
+    <span class="p">}</span>
+    <span class="kc">null</span> <span class="p">=</span> <span class="p">{</span>
+      <span class="nx">source</span>  <span class="o">=</span> <span class="s2">"hashicorp/null"</span>
+      <span class="nx">version</span> <span class="o">=</span> <span class="s2">"&gt;= 3.2"</span>
+    <span class="p">}</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="c1">############################</span>
+<span class="c1"># Discover the AWS LB by controller tag (robust + gives us zone_id)</span>
+<span class="c1">############################</span>
+<span class="c1"># The AWS Load Balancer Controller tags LBs with:</span>
+<span class="c1">#   servicefoundry.org/service-name = "&lt;namespace&gt;/&lt;ingress-name&gt;"</span>
+<span class="k">data</span> <span class="s2">"aws_lb"</span> <span class="s2">"this"</span> <span class="p">{</span>
+  <span class="c1"># Tag filter works well with controller-managed LBs</span>
+  <span class="nx">tags</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"servicefoundry.org/service-name"</span> <span class="p">=</span> <span class="s2">"</span><span class="p">${</span><span class="kd">var</span><span class="p">.</span><span class="nx">k8s_namespace</span><span class="p">}</span><span class="s2">/</span><span class="p">${</span><span class="kd">var</span><span class="p">.</span><span class="nx">k8s_ingress_name</span><span class="p">}</span><span class="s2">"</span>
+  <span class="p">}</span>
+
+<span class="p">}</span>
+
+<span class="c1">############################</span>
+<span class="c1"># Route53</span>
+<span class="c1">############################</span>
+<span class="k">data</span> <span class="s2">"aws_route53_zone"</span> <span class="s2">"this"</span> <span class="p">{</span>
+  <span class="nx">name</span>         <span class="o">=</span> <span class="kd">var</span><span class="p">.</span><span class="nx">zone_name</span>
+  <span class="nx">private_zone</span> <span class="o">=</span> <span class="kc">false</span>
+<span class="p">}</span>
+
+<span class="nx">locals</span> <span class="p">{</span>
+  <span class="nx">fqdn</span> <span class="o">=</span> <span class="kd">var</span><span class="p">.</span><span class="nx">record_name</span> <span class="o">==</span> <span class="s2">"@"</span> <span class="o">?</span> <span class="kd">var</span><span class="p">.</span><span class="nx">zone_name</span> <span class="o">:</span> <span class="s2">"</span><span class="p">${</span><span class="kd">var</span><span class="p">.</span><span class="nx">record_name</span><span class="p">}</span><span class="s2">.</span><span class="p">${</span><span class="kd">var</span><span class="p">.</span><span class="nx">zone_name</span><span class="p">}</span><span class="s2">"</span>
+<span class="p">}</span>
+
+<span class="c1"># A record → ALB/NLB Alias</span>
+<span class="k">resource</span> <span class="s2">"aws_route53_record"</span> <span class="s2">"a_alias"</span> <span class="p">{</span>
+  <span class="nx">zone_id</span> <span class="o">=</span> <span class="k">data</span><span class="p">.</span><span class="nx">aws_route53_zone</span><span class="p">.</span><span class="nx">this</span><span class="p">.</span><span class="nx">zone_id</span>
+  <span class="nx">name</span>    <span class="o">=</span> <span class="kd">local</span><span class="p">.</span><span class="nx">fqdn</span>
+  <span class="nx">type</span>    <span class="o">=</span> <span class="s2">"A"</span>
+
+  <span class="nx">alias</span> <span class="p">{</span>
+    <span class="nx">name</span>                   <span class="o">=</span> <span class="k">data</span><span class="p">.</span><span class="nx">aws_lb</span><span class="p">.</span><span class="nx">this</span><span class="p">.</span><span class="nx">dns_name</span>
+    <span class="nx">zone_id</span>                <span class="o">=</span> <span class="k">data</span><span class="p">.</span><span class="nx">aws_lb</span><span class="p">.</span><span class="nx">this</span><span class="p">.</span><span class="nx">zone_id</span>
+    <span class="nx">evaluate_target_health</span> <span class="o">=</span> <span class="kc">true</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="c1">############################</span>
+<span class="c1"># Outputs</span>
+<span class="c1">############################</span>
+<span class="k">output</span> <span class="s2">"lb_dns_name"</span> <span class="p">{</span>
+  <span class="nx">value</span>       <span class="o">=</span> <span class="k">data</span><span class="p">.</span><span class="nx">aws_lb</span><span class="p">.</span><span class="nx">this</span><span class="p">.</span><span class="nx">dns_name</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Discovered Load Balancer DNS name."</span>
+<span class="p">}</span>
+
+
+<span class="k">output</span> <span class="s2">"record_fqdn"</span> <span class="p">{</span>
+  <span class="nx">value</span>       <span class="o">=</span> <span class="kd">local</span><span class="p">.</span><span class="nx">fqdn</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"The fully-qualified DNS name created in Route53."</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="modulesroute53-alias-for-k8s-lbvariables-tf">modules/route53-alias-for-k8s-lb/variables.tf</h3>
+<div class="paragraph">
+<p>This file defines the input variables for the module.</p>
+</div>
+<div class="listingblock">
+<div class="title">/terraform/modules/route53-alias-for-k8s-lb/variables.tf</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terraform"><span class="c1">############################</span>
+<span class="c1"># Variables</span>
+<span class="c1">############################</span>
+<span class="k">variable</span> <span class="s2">"zone_name"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Hosted zone name (e.g., servicefoundry.org). No trailing dot."</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+<span class="p">}</span>
+
+<span class="k">variable</span> <span class="s2">"record_name"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Record label (e.g., '@', 'app', 'traefik')."</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+  <span class="nx">default</span>     <span class="o">=</span> <span class="s2">"@"</span>
+<span class="p">}</span>
+
+<span class="k">variable</span> <span class="s2">"k8s_namespace"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Namespace of the Kubernetes Service (exposed by LB Controller)."</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+<span class="p">}</span>
+
+<span class="k">variable</span> <span class="s2">"k8s_ingress_name"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Name of the Kubernetes Service."</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+<span class="p">}</span>
+
+<span class="k">variable</span> <span class="s2">"create_aaaa"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Also create AAAA (IPv6) alias to the same LB."</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">bool</span>
+  <span class="nx">default</span>     <span class="o">=</span> <span class="kc">true</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="annotations-in-ingress-resource">Annotations in Ingress Resource</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The properties defined in the Terraform module correspond to the annotations set in the Kubernetes Ingress resource managed by the AWS Load Balancer Controller. Ensure that your Ingress resource includes the necessary annotations to create an ALB.</p>
+</div>
+<div class="listingblock">
+<div class="title">k8s/alb-traefik/ingress-traefik-alb.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">networking.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Ingress</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">traefik-alb</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">traefik</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="na">alb.ingress.kubernetes.io/load-balancer-name</span><span class="pi">:</span> <span class="s">traefik-alb</span>
+    <span class="na">alb.ingress.kubernetes.io/scheme</span><span class="pi">:</span> <span class="s">internet-facing</span>
+    <span class="na">alb.ingress.kubernetes.io/tags</span><span class="pi">:</span> <span class="s2">"</span><span class="s">servicefoundry.org/service-name=traefik/traefik-alb,servicefoundry.org/provider=service-foundry"</span>
+    <span class="na">alb.ingress.kubernetes.io/target-type</span><span class="pi">:</span> <span class="s">instance</span>     <span class="c1"># or "ip"</span>
+    <span class="na">alb.ingress.kubernetes.io/healthcheck-path</span><span class="pi">:</span> <span class="s">/ping</span>
+    <span class="na">alb.ingress.kubernetes.io/healthcheck-port</span><span class="pi">:</span> <span class="s1">'</span><span class="s">31080'</span>
+    <span class="na">alb.ingress.kubernetes.io/listen-ports</span><span class="pi">:</span> <span class="s1">'</span><span class="s">[{"HTTPS":443}]'</span>
+    <span class="na">alb.ingress.kubernetes.io/certificate-arn</span><span class="pi">:</span> <span class="s">arn:aws:acm:aws-region:aws-account-id:certificate/certificate-arn</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">ingressClassName</span><span class="pi">:</span> <span class="s">alb</span>
+  <span class="c1">## rules are omitted for brevity</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The namespace and ingress name specified in the annotations should match the values provided to the Terraform module.</p>
+</div>
+<div class="paragraph">
+<p>And the tag <code>servicefoundry.org/service-name</code> is used by the Terraform module to discover the ALB created by the AWS Load Balancer Controller.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="applying-the-terraform-configuration">Applying the Terraform Configuration</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To apply the Terraform configuration and update the Route 53 DNS records, run the <code>apply-terraform.sh</code> script after deploying the ALB Ingress resource.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> k8s/alb-traefik/ingress-traefik-alb.yaml
+
+<span class="nv">$ </span>./apply-terraform.sh</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In your deployment pipeline, ensure that the <code>apply-terraform.sh</code> script is executed after the ALB Ingress resource is created or updated.
+This will automate the DNS updates in Route 53 whenever a new ALB is provisioned.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="verifying-dns-updates">Verifying DNS Updates</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>After running the script, verify that the DNS records in Route 53 have been updated to point to the new ALB. You can do this by checking the Route 53 console or using the <code>dig</code> command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>dig +short servicefoundry.org
+
+<span class="c"># output should show updated IP addresses corresponding to the new ALB</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>By following this guide, you have successfully automated the process of updating Route 53 DNS records whenever a new AWS Application Load Balancer is provisioned using Terraform. This automation helps maintain consistent access to your services without manual intervention, ensuring high availability and reliability for your applications.</p>
+</div>
+</div>
+</div>
+</body>
+</html>

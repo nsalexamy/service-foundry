@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AWS Load Balancer Controller with Application Load Balancer for Traefik</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#what-is-aws-load-balancer-controller">What is AWS Load Balancer Controller?</a></li>
+<li><a href="#step-by-step-setup">Step-by-Step Setup</a></li>
+<li><a href="#installing-aws-load-balancer-controller">Installing AWS Load Balancer Controller</a>
+<ul class="sectlevel2">
+<li><a href="#add-eks-helm-repository">Add EKS Helm repository</a></li>
+<li><a href="#get-vpc-id-of-eks-cluster">Get VPC ID of EKS Cluster</a></li>
+<li><a href="#create-iam-role-using-eksctl">Create IAM Role using eksctl</a></li>
+<li><a href="#deleting-iamserviceaccount-if-needed">Deleting iamserviceaccount (if needed)</a></li>
+</ul>
+</li>
+<li><a href="#custom-values-for-albc">Custom values for ALBC</a></li>
+<li><a href="#installing-traefik-with-nodeport-and-albc">Installing Traefik with NodePort and ALBC</a></li>
+<li><a href="#create-alb-ingress-resource-for-traefik">Create ALB Ingress Resource for Traefik</a>
+<ul class="sectlevel2">
+<li><a href="#load-balancer-traefik-alb-created">Load Balancer (traefik-alb) Created</a></li>
+<li><a href="#load-balancer-tags">Load Balancer Tags</a></li>
+<li><a href="#target-group-created">Target Group Created</a></li>
+<li><a href="#health-check-configuration">Health Check Configuration</a></li>
+</ul>
+</li>
+<li><a href="#updating-dns-in-route-53">Updating DNS in Route 53</a></li>
+<li><a href="#verifying-https-access">Verifying HTTPS Access</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#references">References</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="albc-images/intro.png" alt="intro">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In the previous guide, we demonstrated how to secure a web application running on a Kubernetes cluster with TLS using AWS Certificate Manager (ACM) and AWS Load Balancer created by the Kubernetes Service controller of type LoadBalancer without using AWS Load Balancer Controller.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="albc-images/prev-intro.png" alt="prev intro">
+</div>
+</div>
+<div class="paragraph">
+<p>It worked, but the Kubernetes Service controller creates:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Classic Load Balancer (CLB) for HTTP/HTTPS services (deprecated)</p>
+</li>
+<li>
+<p>Network Load Balancer (NLB) for TCP/UDP services</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>NLBs are great for certain use cases, but for web applications, ALBs provide more features like path-based routing, host-based routing, and better integration with AWS services.</p>
+</div>
+<div class="paragraph">
+<p>In this guide, we will walk you through the steps to install and configure the AWS Load Balancer Controller to create an Application Load Balancer (ALB) for your Kubernetes applications. We will also demonstrate how to use Traefik Ingress Controller with ALB.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-is-aws-load-balancer-controller">What is AWS Load Balancer Controller?</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The AWS Load Balancer Controller automates the provisioning and management of AWS Elastic Load Balancers for Kubernetes clusters. It allows you to expose applications to the internet by creating Load Balancers that map to Kubernetes Services or Ingress resources, giving you a single DNS or IP that routes traffic to your pods.</p>
+</div>
+<div class="paragraph">
+<p>You can find more details in the AWS documentation:</p>
+</div>
+<div class="paragraph">
+<p><a href="https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html" class="bare">https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html</a></p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-by-step-setup">Step-by-Step Setup</h2>
+<div class="sectionbody">
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Install AWS Load Balancer Controller</p>
+</li>
+<li>
+<p>Install Traefik Ingress Controller with NodePort service type</p>
+</li>
+<li>
+<p>Create ALB Ingress Resource for Traefik</p>
+</li>
+<li>
+<p>Verify HTTPS Access to the Web Application</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-aws-load-balancer-controller">Installing AWS Load Balancer Controller</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>You can install the AWS Load Balancer Controller using Helm, a package manager for Kubernetes.</p>
+</div>
+<div class="paragraph">
+<p>For more information, see the AWS documentation:</p>
+</div>
+<div class="paragraph">
+<p><a href="https://docs.aws.amazon.com/eks/latest/userguide/lbc-helm.html" class="bare">https://docs.aws.amazon.com/eks/latest/userguide/lbc-helm.html</a></p>
+</div>
+<div class="sect2">
+<h3 id="add-eks-helm-repository">Add EKS Helm repository</h3>
+<div class="paragraph">
+<p>Add the EKS Helm repository and update the repository to get the latest charts.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm repo add eks https://aws.github.io/eks-charts
+<span class="nv">$ </span>helm repo update eks</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>And then, save the values.yaml file for version 1.14.1 of AWS Load Balancer Controller to understand the default configuration.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm pull eks/aws-load-balancer-controller
+
+<span class="c"># version 1.14.1</span>
+<span class="c"># save values.yaml</span>
+
+<span class="nv">$ </span>helm show values eks/aws-load-balancer-controller <span class="o">&gt;</span> values-1.14.1.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="get-vpc-id-of-eks-cluster">Get VPC ID of EKS Cluster</h3>
+<div class="paragraph">
+<p>Get the VPC ID of your EKS cluster by running the following command. Replace <code>your-eks-cluster-name</code> with the name of your EKS cluster.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ EKS_CLUSTER_NAME</span><span class="o">=</span>your-eks-cluster-name
+<span class="c">#$ VPC_ID=$(aws eks describe-cluster --name $EKS_CLUSTER_NAME --query "cluster.resourcesVpcConfig.vpcId" --output text)</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-iam-role-using-eksctl">Create IAM Role using eksctl</h3>
+<div class="paragraph">
+<p>Create serviceaccount and attach IAM policy to the serviceaccount using eksctl. Replace <code>your-eks-cluster-name</code>, <code>your-aws-account-id</code>, and <code>your-aws-region</code> with your EKS cluster name, AWS account ID, and AWS region respectively.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>eksctl create iamserviceaccount <span class="se">\</span>
+    <span class="nt">--cluster</span><span class="o">=</span><span class="nv">$EKS_CLUSTER_NAME</span> <span class="se">\</span>
+    <span class="nt">--namespace</span><span class="o">=</span>kube-system <span class="se">\</span>
+    <span class="nt">--name</span><span class="o">=</span>aws-load-balancer-controller <span class="se">\</span>
+    <span class="nt">--attach-policy-arn</span> arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess <span class="se">\</span>
+    <span class="nt">--attach-policy-arn</span><span class="o">=</span>arn:aws:iam::<span class="nv">$AWS_ACCOUNT_ID</span>:policy/AWSLoadBalancerControllerIAMPolicy <span class="se">\</span>
+    <span class="nt">--override-existing-serviceaccounts</span> <span class="se">\</span>
+    <span class="nt">--region</span> <span class="nv">$AWS_REGION</span> <span class="se">\</span>
+    <span class="nt">--approve</span> <span class="nt">--override-existing-serviceaccounts</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Verify the serviceaccount is created in the <code>kube-system</code> namespace.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl get sa <span class="nt">-n</span> kube-system aws-load-balancer-controller <span class="nt">-o</span> yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="deleting-iamserviceaccount-if-needed">Deleting iamserviceaccount (if needed)</h3>
+<div class="paragraph">
+<p>Run the following command to delete the iamserviceaccount if needed.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>eksctl delete iamserviceaccount <span class="se">\</span>
+    <span class="nt">--cluster</span><span class="o">=</span><span class="nv">$EKS_CLUSTER_NAME</span> <span class="se">\</span>
+    <span class="nt">--namespace</span><span class="o">=</span>kube-system <span class="se">\</span>
+    <span class="nt">--name</span><span class="o">=</span>aws-load-balancer-controller</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="custom-values-for-albc">Custom values for ALBC</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We already created a serviceaccount for AWS Load Balancer Controller using eksctl, so we need to set <code>serviceAccount.create</code> to <code>false</code> and specify the name of the serviceaccount in the custom values file.</p>
+</div>
+<div class="paragraph">
+<p>Replace <code>your-eks-cluster-name</code> with the name of your EKS cluster in the custom values file.</p>
+</div>
+<div class="listingblock">
+<div class="title">k8s/aws-load-balancer-controller/custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># 30</span>
+<span class="na">serviceAccount</span><span class="pi">:</span>
+  <span class="na">create</span><span class="pi">:</span> <span class="kc">false</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">aws-load-balancer-controller</span>
+
+<span class="c1"># 125</span>
+<span class="na">clusterName</span><span class="pi">:</span> <span class="s">your-eks-cluster-name</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To install AWS Load Balancer Controller using the custom values file, run below.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nb">install </span>aws-load-balancer-controller eks/aws-load-balancer-controller <span class="se">\</span>
+    <span class="nt">-f</span> k8s/aws-load-balancer-controller/custom-values.yaml <span class="se">\</span>
+    <span class="nt">--namespace</span> kube-system <span class="nt">--create-namespace</span> <span class="nt">--version</span> 1.14.1</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Verify the AWS Load Balancer Controller pods are running.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl get deployment <span class="nt">-n</span> kube-system aws-load-balancer-controller</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-traefik-with-nodeport-and-albc">Installing Traefik with NodePort and ALBC</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The service type should be NodePort because we are going to use AWS Load Balancer Controller to create an Application Load Balancer for Traefik Ingress Controller.</p>
+</div>
+<div class="paragraph">
+<p>Node Ports:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Traefik Node Port: 31080 for Health Check</p>
+</li>
+<li>
+<p>Web Node Port: 30080 for HTTP</p>
+</li>
+<li>
+<p>WebSecure Node Port: 30443 for HTTPS (optional)</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">k8s/alb-traefik/custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">ingressRoute</span><span class="pi">:</span>
+    <span class="na">healthcheck</span><span class="pi">:</span>
+      <span class="c1"># -- Create an IngressRoute for the healthcheck</span>
+      <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+
+<span class="na">ports</span><span class="pi">:</span>
+  <span class="na">traefik</span><span class="pi">:</span>
+    <span class="na">nodePort</span><span class="pi">:</span> <span class="m">31080</span>
+    <span class="na">expose</span><span class="pi">:</span>
+      <span class="na">default</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="na">web</span><span class="pi">:</span>
+    <span class="na">port</span><span class="pi">:</span> <span class="m">80</span>
+    <span class="na">nodePort</span><span class="pi">:</span> <span class="m">30080</span>
+
+  <span class="na">websecure</span><span class="pi">:</span>
+    <span class="na">port</span><span class="pi">:</span> <span class="m">443</span>
+    <span class="na">nodePort</span><span class="pi">:</span> <span class="m">30443</span>
+
+<span class="na">service</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s">NodePort</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Install Traefik using the custom values file and run below.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm upgrade <span class="nt">--install</span> traefik traefik/traefik <span class="se">\</span>
+    <span class="nt">-f</span> k8s/alb-traefik/custom-values.yaml <span class="se">\</span>
+    <span class="nt">--namespace</span> traefik <span class="nt">--create-namespace</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This command installs Traefik Ingress Controller in the <code>traefik</code> namespace, but does not create a Load Balancer yet.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-alb-ingress-resource-for-traefik">Create ALB Ingress Resource for Traefik</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To create an Application Load Balancer for Traefik, we need to create an Ingress resource with specific annotations for AWS Load Balancer Controller.</p>
+</div>
+<div class="paragraph">
+<p>Annotations used in this example:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>load-balancer-name: Name of the ALB</p>
+</li>
+<li>
+<p>tags: Tags to be added to the ALB</p>
+</li>
+<li>
+<p>scheme: internet-facing or internal</p>
+</li>
+<li>
+<p>target-type: instance or ip</p>
+</li>
+<li>
+<p>healthcheck-path: Path for health check</p>
+</li>
+<li>
+<p>healthcheck-port: Port for health check</p>
+</li>
+<li>
+<p>listen-ports: Ports to listen on the ALB (HTTPS on port 443 in this case)</p>
+</li>
+<li>
+<p>certificate-arn: ARN of the TLS certificate in AWS ACM</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>For more information on ALB Ingress annotations, see:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/guide/ingress/annotations/" class="bare">https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/guide/ingress/annotations/</a></p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">k8s/alb-traefik/traefik-alb-ingress.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">networking.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Ingress</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">traefik-alb</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">traefik</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="na">alb.ingress.kubernetes.io/load-balancer-name</span><span class="pi">:</span> <span class="s">traefik-alb</span>
+    <span class="na">alb.ingress.kubernetes.io/tags</span><span class="pi">:</span> <span class="s2">"</span><span class="s">servicefoundry.org/service-name=traefik/traefik-alb,servicefoundry.org/provider=service-foundry"</span>
+    <span class="na">alb.ingress.kubernetes.io/scheme</span><span class="pi">:</span> <span class="s">internet-facing</span>
+    <span class="na">alb.ingress.kubernetes.io/target-type</span><span class="pi">:</span> <span class="s">instance</span>     <span class="c1"># or "ip"</span>
+    <span class="na">alb.ingress.kubernetes.io/healthcheck-path</span><span class="pi">:</span> <span class="s">/ping</span>
+    <span class="na">alb.ingress.kubernetes.io/healthcheck-port</span><span class="pi">:</span> <span class="s1">'</span><span class="s">31080'</span>
+    <span class="na">alb.ingress.kubernetes.io/listen-ports</span><span class="pi">:</span> <span class="s1">'</span><span class="s">[{"HTTPS":443}]'</span>
+    <span class="na">alb.ingress.kubernetes.io/certificate-arn</span><span class="pi">:</span> <span class="s">arn:aws:acm:aws-region:aws-account-id:certificate/certificate-arn</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">ingressClassName</span><span class="pi">:</span> <span class="s">alb</span>
+  <span class="na">rules</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">host</span><span class="pi">:</span> <span class="s1">'</span><span class="s">*.servicefoundry.org'</span>
+      <span class="na">http</span><span class="pi">:</span>
+        <span class="na">paths</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">path</span><span class="pi">:</span> <span class="s">/</span>
+            <span class="na">pathType</span><span class="pi">:</span> <span class="s">Prefix</span>
+            <span class="na">backend</span><span class="pi">:</span>
+              <span class="na">service</span><span class="pi">:</span>
+                <span class="na">name</span><span class="pi">:</span> <span class="s">traefik</span>
+                <span class="na">port</span><span class="pi">:</span>
+                  <span class="na">number</span><span class="pi">:</span> <span class="m">80</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>All requests to <code>*.servicefoundry.org</code> will be routed to the Traefik service on port 80.</p>
+</div>
+<div class="paragraph">
+<p>Apply the Ingress resource to create an Application Load Balancer in AWS.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> k8s/alb-traefik/traefik-alb-ingress.yaml</code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="load-balancer-traefik-alb-created">Load Balancer (traefik-alb) Created</h3>
+<div class="paragraph">
+<p>The name of the Load Balancer is <code>traefik-alb</code> as specified in the Ingress annotations.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="albc-images/aws-load-balancer-traefik-alb.png" alt="aws load balancer traefik alb">
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="load-balancer-tags">Load Balancer Tags</h3>
+<div class="paragraph">
+<p>The tags specified in the Ingress annotations are added to the Load Balancer.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="albc-images/aws-load-balancer-tags.png" alt="aws load balancer tags">
+</div>
+</div>
+<div class="paragraph">
+<p>These tags will be used in Terraform later for automating DNS record creation in Route 53.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="target-group-created">Target Group Created</h3>
+<div class="paragraph">
+<p>The target group is used to route requests to the Traefik nodes on the specified Node Port (30080 for HTTP in this case). AWS Load Balancer Controller automatically creates the target group based on the Ingress resource.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="albc-images/aws-target-groups.png" alt="aws target groups">
+</div>
+</div>
+<div class="paragraph">
+<p>The instances are the EC2 instances that are part of the EKS cluster, and the port is the Node Port of the Traefik service (30080).</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="health-check-configuration">Health Check Configuration</h3>
+<div class="paragraph">
+<p>The health check configuration for the target group is set based on the annotations in the Ingress resource. In this case, the health check path is <code>/ping</code> and the health check port is <code>31080</code>.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="albc-images/aws-target-groups-health-checks.png" alt="aws target groups health checks">
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="updating-dns-in-route-53">Updating DNS in Route 53</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Update your DNS records to point your domain (e.g., dev.servicefoundry.org) to the Load Balancer’s DNS name. Use Route 53’s Alias feature to link the domain directly to the Load Balancer.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="albc-images/aws-route53-update-dns.png" alt="aws route53 update dns">
+</div>
+<div class="title">Figure 1. AWS Route 53 DNS Record for dev.servicefoundry.org</div>
+</div>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">NOTE</dt>
+<dd>
+<p>In the next guide, we will show you how to automate this process using Terraform by leveraging the tags added to the Load Balancer.</p>
+</dd>
+</dl>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="verifying-https-access">Verifying HTTPS Access</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>After the ALB is created and DNS records are updated, you can access your web application over HTTPS using the domain name (e.g., <code>dev.servicefoundry.org</code>).</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="albc-images/dev-servicefoundry-org.png" alt="dev servicefoundry org">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this guide, we demonstrated how to install and configure AWS Load Balancer Controller to create an Application Load Balancer for Traefik Ingress Controller in a Kubernetes cluster. We also showed how to set up an Ingress resource with the necessary annotations to create the ALB and route traffic to the Traefik service.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="references">References</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html" class="bare">https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html</a></p>
+</li>
+<li>
+<p><a href="https://docs.aws.amazon.com/eks/latest/userguide/lbc-helm.html" class="bare">https://docs.aws.amazon.com/eks/latest/userguide/lbc-helm.html</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</body>
+</html>
