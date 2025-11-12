@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Securing Web Apps on Kubernetes with TLS Using AWS Load Balancer Controller and Traefik</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">
+    Service Foundry
+</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/products/" class="">Products</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+        
+        <a href="/service-foundry/pages/demo/" class="">Demo</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/service-foundry/" class="">Service Foundry</a>
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="active">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/sso-foundry/">SSO Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Securing Web Apps on Kubernetes with TLS Using AWS Load Balancer Controller and Traefik
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#what-is-the-aws-load-balancer-controller">What Is the AWS Load Balancer Controller?</a></li>
+<li><a href="#step-by-step-setup-overview">Step-by-Step Setup Overview</a></li>
+<li><a href="#installing-the-aws-load-balancer-controller">Installing the AWS Load Balancer Controller</a>
+<ul class="sectlevel2">
+<li><a href="#create-iam-role-using-eksctl">Create IAM Role Using eksctl</a></li>
+<li><a href="#configure-helm-custom-values">Configure Helm Custom Values</a></li>
+</ul>
+</li>
+<li><a href="#installing-traefik-with-nodeport-for-alb">Installing Traefik with NodePort for ALB</a></li>
+<li><a href="#creating-the-alb-ingress-resource">Creating the ALB Ingress Resource</a></li>
+<li><a href="#verifying-the-alb-setup">Verifying the ALB Setup</a></li>
+<li><a href="#updating-dns-records">Updating DNS Records</a></li>
+<li><a href="#verifying-https-access">Verifying HTTPS Access</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#references">References</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="albc-images/intro.png" alt="intro">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="dlist">
+<dl>
+<dt class="hdlist1">YouTube Tutorial</dt>
+<dd>
+<p><a href="https://youtu.be/EW4uJ6hUIRE" class="bare">https://youtu.be/EW4uJ6hUIRE</a></p>
+</dd>
+</dl>
+</div>
+<div class="paragraph">
+<p>In our previous guide, we explored how to secure a Kubernetes web application using TLS with AWS Certificate Manager (ACM) and the default Kubernetes Service of type <code>LoadBalancer</code>. However, this approach didn&#8217;t use the AWS Load Balancer Controller.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="albc-images/prev-intro.png" alt="prev intro">
+</div>
+</div>
+<div class="paragraph">
+<p>While it worked, the default Kubernetes Service controller provisions:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Classic Load Balancer (CLB) for HTTP/HTTPS (now deprecated)</p>
+</li>
+<li>
+<p>Network Load Balancer (NLB) for TCP/UDP</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Although NLBs are suitable for specific use cases, Application Load Balancers (ALBs) offer advanced features such as path-based and host-based routing—making them ideal for modern web applications.</p>
+</div>
+<div class="paragraph">
+<p>This guide walks you through installing and configuring the AWS Load Balancer Controller to provision an ALB for your Kubernetes workloads. We’ll also demonstrate how to integrate Traefik as your Ingress Controller with this setup.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-is-the-aws-load-balancer-controller">What Is the AWS Load Balancer Controller?</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The AWS Load Balancer Controller helps manage AWS Elastic Load Balancers for Kubernetes workloads. It automatically creates and manages ALBs or NLBs based on your Kubernetes Ingress or Service resources.</p>
+</div>
+<div class="paragraph">
+<p>This lets you expose your applications through a single DNS endpoint managed by AWS.</p>
+</div>
+<div class="paragraph">
+<p>→ Learn more: <a href="https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html" class="bare">https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html</a></p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-by-step-setup-overview">Step-by-Step Setup Overview</h2>
+<div class="sectionbody">
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Install the AWS Load Balancer Controller</p>
+</li>
+<li>
+<p>Install the Traefik Ingress Controller using NodePort</p>
+</li>
+<li>
+<p>Configure an ALB Ingress resource for Traefik</p>
+</li>
+<li>
+<p>Update Route 53 DNS records</p>
+</li>
+<li>
+<p>Test HTTPS access to your app</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-the-aws-load-balancer-controller">Installing the AWS Load Balancer Controller</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We’ll use Helm to install the controller. First, add and update the EKS Helm chart repository:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm repo add eks https://aws.github.io/eks-charts
+<span class="nv">$ </span>helm repo update eks</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Then save the default configuration for version 1.14.1:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm pull eks/aws-load-balancer-controller
+<span class="nv">$ </span>helm show values eks/aws-load-balancer-controller <span class="o">&gt;</span> values-1.14.1.yaml</code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-iam-role-using-eksctl">Create IAM Role Using eksctl</h3>
+<div class="paragraph">
+<p>We need a service account with appropriate IAM permissions:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>eksctl create iamserviceaccount <span class="se">\</span>
+    <span class="nt">--cluster</span><span class="o">=</span><span class="nv">$EKS_CLUSTER_NAME</span> <span class="se">\</span>
+    <span class="nt">--namespace</span><span class="o">=</span>kube-system <span class="se">\</span>
+    <span class="nt">--name</span><span class="o">=</span>aws-load-balancer-controller <span class="se">\</span>
+    <span class="nt">--attach-policy-arn</span> arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess <span class="se">\</span>
+    <span class="nt">--attach-policy-arn</span><span class="o">=</span>arn:aws:iam::<span class="nv">$AWS_ACCOUNT_ID</span>:policy/AWSLoadBalancerControllerIAMPolicy <span class="se">\</span>
+    <span class="nt">--override-existing-serviceaccounts</span> <span class="se">\</span>
+    <span class="nt">--region</span> <span class="nv">$AWS_REGION</span> <span class="se">\</span>
+    <span class="nt">--approve</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Verify the service account exists:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl get serviceaccount <span class="nt">-n</span> kube-system aws-load-balancer-controller <span class="nt">-o</span> yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="configure-helm-custom-values">Configure Helm Custom Values</h3>
+<div class="paragraph">
+<p>Use these settings in your custom values file:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">serviceAccount</span><span class="pi">:</span>
+  <span class="na">create</span><span class="pi">:</span> <span class="kc">false</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">aws-load-balancer-controller</span>
+
+<span class="na">clusterName</span><span class="pi">:</span> <span class="s">your-eks-cluster-name</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Install the controller:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nb">install </span>aws-load-balancer-controller eks/aws-load-balancer-controller <span class="se">\</span>
+    <span class="nt">-f</span> k8s/aws-load-balancer-controller/custom-values.yaml <span class="se">\</span>
+    <span class="nt">--namespace</span> kube-system <span class="nt">--create-namespace</span> <span class="nt">--version</span> 1.14.1</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Confirm that the controller is running:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl get deployment <span class="nt">-n</span> kube-system aws-load-balancer-controller</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-traefik-with-nodeport-for-alb">Installing Traefik with NodePort for ALB</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To route traffic through an ALB, Traefik must expose its service as NodePort:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">ingressRoute</span><span class="pi">:</span>
+  <span class="na">healthcheck</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+
+<span class="na">ports</span><span class="pi">:</span>
+  <span class="na">traefik</span><span class="pi">:</span>
+    <span class="na">nodePort</span><span class="pi">:</span> <span class="m">31080</span>
+    <span class="na">expose</span><span class="pi">:</span>
+      <span class="na">default</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="na">web</span><span class="pi">:</span>
+    <span class="na">port</span><span class="pi">:</span> <span class="m">80</span>
+    <span class="na">nodePort</span><span class="pi">:</span> <span class="m">30080</span>
+  <span class="na">websecure</span><span class="pi">:</span>
+    <span class="na">port</span><span class="pi">:</span> <span class="m">443</span>
+    <span class="na">nodePort</span><span class="pi">:</span> <span class="m">30443</span>
+
+<span class="na">service</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s">NodePort</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Install Traefik:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm upgrade <span class="nt">--install</span> traefik traefik/traefik <span class="se">\</span>
+    <span class="nt">-f</span> k8s/alb-traefik/custom-values.yaml <span class="se">\</span>
+    <span class="nt">--namespace</span> traefik <span class="nt">--create-namespace</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="creating-the-alb-ingress-resource">Creating the ALB Ingress Resource</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Define an Ingress with the right annotations to instruct the controller to create an ALB:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">networking.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Ingress</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">traefik-alb</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">traefik</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="na">alb.ingress.kubernetes.io/load-balancer-name</span><span class="pi">:</span> <span class="s">traefik-alb</span>
+    <span class="na">alb.ingress.kubernetes.io/tags</span><span class="pi">:</span> <span class="s2">"</span><span class="s">servicefoundry.org/service-name=traefik/traefik-alb,servicefoundry.org/provider=service-foundry"</span>
+    <span class="na">alb.ingress.kubernetes.io/scheme</span><span class="pi">:</span> <span class="s">internet-facing</span>
+    <span class="na">alb.ingress.kubernetes.io/target-type</span><span class="pi">:</span> <span class="s">instance</span>
+    <span class="na">alb.ingress.kubernetes.io/healthcheck-path</span><span class="pi">:</span> <span class="s">/ping</span>
+    <span class="na">alb.ingress.kubernetes.io/healthcheck-port</span><span class="pi">:</span> <span class="s1">'</span><span class="s">31080'</span>
+    <span class="na">alb.ingress.kubernetes.io/listen-ports</span><span class="pi">:</span> <span class="s1">'</span><span class="s">[{"HTTPS":443}]'</span>
+    <span class="na">alb.ingress.kubernetes.io/certificate-arn</span><span class="pi">:</span> <span class="s">arn:aws:acm:aws-region:aws-account-id:certificate/certificate-arn</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">ingressClassName</span><span class="pi">:</span> <span class="s">alb</span>
+  <span class="na">rules</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">host</span><span class="pi">:</span> <span class="s1">'</span><span class="s">*.servicefoundry.org'</span>
+      <span class="na">http</span><span class="pi">:</span>
+        <span class="na">paths</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="na">path</span><span class="pi">:</span> <span class="s">/</span>
+            <span class="na">pathType</span><span class="pi">:</span> <span class="s">Prefix</span>
+            <span class="na">backend</span><span class="pi">:</span>
+              <span class="na">service</span><span class="pi">:</span>
+                <span class="na">name</span><span class="pi">:</span> <span class="s">traefik</span>
+                <span class="na">port</span><span class="pi">:</span>
+                  <span class="na">number</span><span class="pi">:</span> <span class="s">80</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Apply the Ingress:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> k8s/alb-traefik/traefik-alb-ingress.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="verifying-the-alb-setup">Verifying the ALB Setup</h2>
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="albc-images/aws-load-balancer-traefik-alb.png" alt="aws load balancer traefik alb">
+</div>
+</div>
+<div class="paragraph">
+<p>The ALB named <code>traefik-alb</code> is now created.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="albc-images/aws-load-balancer-tags.png" alt="aws load balancer tags">
+</div>
+</div>
+<div class="paragraph">
+<p>Tags added in the annotations appear in the Load Balancer&#8217;s AWS console and can be used by Terraform later.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="albc-images/aws-target-groups.png" alt="aws target groups">
+</div>
+</div>
+<div class="paragraph">
+<p>A target group is created automatically and linked to EC2 instances on port 30080.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="albc-images/aws-target-groups-health-checks.png" alt="aws target groups health checks">
+</div>
+</div>
+<div class="paragraph">
+<p>Health checks use the <code>/ping</code> path and port 31080 as defined in the annotations.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="updating-dns-records">Updating DNS Records</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Use Route 53 to map your domain (e.g., <code>dev.servicefoundry.org</code>) to the Load Balancer DNS name using Alias routing.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="albc-images/aws-route53-update-dns.png" alt="aws route53 update dns">
+</div>
+</div>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">TIP</dt>
+<dd>
+<p>In the next guide, we’ll show how to automate this using Terraform and tags.</p>
+</dd>
+</dl>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="verifying-https-access">Verifying HTTPS Access</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Once DNS is updated, navigate to <code><a href="https://dev.servicefoundry.org" class="bare">https://dev.servicefoundry.org</a></code> to verify your app is accessible over HTTPS.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="albc-images/dev-servicefoundry-org.png" alt="dev servicefoundry org">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="albc-images/intro.png" alt="intro">
+</div>
+</div>
+<div class="paragraph">
+<p>We’ve successfully integrated the AWS Load Balancer Controller with Traefik to create an ALB that routes HTTPS traffic to our Kubernetes web application. This solution is more flexible and production-ready compared to using NLBs or CLBs, and it aligns with modern cloud-native architecture practices.</p>
+</div>
+<div class="paragraph">
+<p>📘 View the web version:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/sso-foundry/k8s-https-aws/albc.html" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/sso-foundry/k8s-https-aws/albc.html</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="references">References</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html" class="bare">https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html</a></p>
+</li>
+<li>
+<p><a href="https://docs.aws.amazon.com/eks/latest/userguide/lbc-helm.html" class="bare">https://docs.aws.amazon.com/eks/latest/userguide/lbc-helm.html</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>

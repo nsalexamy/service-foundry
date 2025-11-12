@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Automating Route 53 DNS Updates with Terraform When ALBs Are Reprovisioned</title>
+    <!-- rouge source highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/service-foundry/pages/assets/css/main.css">
+
+    <!-- Highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>
+        hljs.highlightAll();
+    </script>
+</head>
+<body class="">
+
+<!-- Header -->
+<header>
+<!--    <div class="logo text-xl font-semibold">Service Foundry</div>-->
+    <a href="/service-foundry/pages/index.html" class="text-2xl font-semibold hover:text-teal-400">
+    Service Foundry
+</a>
+    <nav>
+    
+        
+        <a href="/service-foundry/pages/getting-started/" class="">Getting Started</a>
+    
+        
+        <a href="/service-foundry/pages/products/" class="">Products</a>
+    
+        
+        <a href="/service-foundry/pages/documents/" class="active">Docs</a>
+    
+        
+        <a href="/service-foundry/pages/github/" class="">GitHub</a>
+    
+        
+        <a href="/service-foundry/pages/developers/" class="">Developers</a>
+    
+        
+        <a href="/service-foundry/pages/demo/" class="">Demo</a>
+    
+</nav>
+</header>
+
+
+    <!-- Sub-navigation for Foundries -->
+    <div class="subnav">
+
+    
+    <a href="/service-foundry/pages/documents/service-foundry/" class="">Service Foundry</a>
+
+    
+    <a href="/service-foundry/pages/documents/blog/" class="">Blog</a>
+
+    
+    <a href="/service-foundry/pages/documents/infra-foundry/" class="">Infra</a>
+
+    
+    <a href="/service-foundry/pages/documents/sso-foundry/" class="active">SSO</a>
+
+    
+    <a href="/service-foundry/pages/documents/o11y-foundry/" class="">Observability</a>
+
+    
+    <a href="/service-foundry/pages/documents/backend-foundry/" class="">Backend</a>
+
+    
+    <a href="/service-foundry/pages/documents/bigdata-foundry/" class="">Big Data</a>
+
+<!--    <a href="/service-foundry/pages/documents/infra-foundry/index-backup.html" class="text-gray-300 hover:text-white">Infra</a>-->
+<!--    <a href="/service-foundry/pages/documents/sso-foundry/index-backup.html" class="text-gray-300 hover:text-white">SSO</a>-->
+<!--    <a href="/service-foundry/pages/documents/o11y-foundry/index-backup.html" class="text-gray-300 hover:text-white">Observability</a>-->
+<!--    <a href="/service-foundry/pages/documents/backend-foundry/index-backup.html" class="text-gray-300 hover:text-white">Backend</a>-->
+<!--    <a href="/service-foundry/pages/documents/bigdata-foundry/index-backup.html" class="text-gray-300 hover:text-white">Big Data</a>-->
+</div>
+
+
+
+
+
+<!-- Breadcrumb -->
+
+    <nav class="breadcrumb-wrapper">
+    <ol class="breadcrumb">
+        
+        <li>
+            
+            <a href="/service-foundry/pages/">Home</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/">Docs</a>
+            
+            
+            <span class="separator">/</span>
+            
+        </li>
+        
+        <li>
+            
+            <a href="/service-foundry/pages/documents/sso-foundry/">SSO Foundry</a>
+            
+            
+        </li>
+        
+    </ol>
+</nav>
+
+
+
+
+
+<!-- Main Layout -->
+<div class="container">
+
+
+    <nav id="toc-container" class="toc-nav"></nav>
+
+
+    <main id="main-content">
+        
+        <div class="author-box">
+            Young Gyu Kim
+            &lt;<a href="mailto:credemol@gmail.com" style="color: #0d9488; text-decoration: none;">credemol@gmail.com</a>&gt;
+        </div>
+        
+
+        <!-- Title -->
+        
+        <h1 class="page-title">
+            Automating Route 53 DNS Updates with Terraform When ALBs Are Reprovisioned
+        </h1>
+        
+
+        <div class="asciidoc">
+            <div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a></li>
+<li><a href="#github-repository">GitHub Repository</a></li>
+<li><a href="#script-apply-terraform-sh">Script: apply-terraform.sh</a></li>
+<li><a href="#terraform-configuration">Terraform Configuration</a>
+<ul class="sectlevel2">
+<li><a href="#main-tf">main.tf</a></li>
+<li><a href="#modulesroute53-alias-for-k8s-lbmain-tf">modules/route53-alias-for-k8s-lb/main.tf</a></li>
+<li><a href="#modulesroute53-alias-for-k8s-lbvariables-tf">modules/route53-alias-for-k8s-lb/variables.tf</a></li>
+</ul>
+</li>
+<li><a href="#kubernetes-ingress-configuration">Kubernetes Ingress Configuration</a></li>
+<li><a href="#automation-flow">Automation Flow</a></li>
+<li><a href="#verify-dns-changes">Verify DNS Changes</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#additional-resources">Additional Resources</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="tf-images/intro.png" alt="intro">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="dlist">
+<dl>
+<dt class="hdlist1">YouTube Tutorial</dt>
+<dd>
+<p><a href="https://youtu.be/b0jNG1SJpC0" class="bare">https://youtu.be/b0jNG1SJpC0</a></p>
+</dd>
+</dl>
+</div>
+<div class="paragraph">
+<p>This guide shows how to automate the DNS update process in AWS Route 53 whenever a new Application Load Balancer (ALB) is created or replaced in a Kubernetes environment. It builds on the previous tutorial about securing web applications on Kubernetes with TLS using AWS Load Balancer Controller and Traefik.</p>
+</div>
+<div class="paragraph">
+<p>When an ALB is deleted and recreated — such as during a cluster upgrade — the DNS record previously pointing to the old ALB becomes outdated. Manually updating this in Route 53 can be error-prone and repetitive. This guide demonstrates how to eliminate that manual step by automating it with Terraform.</p>
+</div>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">Previous tutorial video</dt>
+<dd>
+<p><a href="https://youtu.be/EW4uJ6hUIRE">Securing Web Apps on Kubernetes with TLS Using AWS Load Balancer Controller and Traefik</a></p>
+</dd>
+</dl>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="github-repository">GitHub Repository</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The complete source code and scripts are available on GitHub:</p>
+</div>
+<div class="paragraph">
+<p><a href="https://github.com/nsalexamy/secure-web-app-on-k8s-with-tls" class="bare">https://github.com/nsalexamy/secure-web-app-on-k8s-with-tls</a></p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="tf-images/github-repo.png" alt="github repo">
+</div>
+<div class="title">Figure 1. GitHub Repository</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="script-apply-terraform-sh">Script: apply-terraform.sh</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This Bash script automates the following:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Waits for the ALB to become active using the AWS CLI.</p>
+</li>
+<li>
+<p>Retrieves the correct Hosted Zone ID from Route 53.</p>
+</li>
+<li>
+<p>Initializes Terraform.</p>
+</li>
+<li>
+<p>Checks if a DNS record already exists.</p>
+<div class="ulist">
+<ul>
+<li>
+<p>If it exists, imports it into the Terraform state.</p>
+</li>
+<li>
+<p>If not, Terraform will create a new one.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p>Applies the Terraform configuration.</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">apply-terraform.sh - wait for ALB active</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c">#!/bin/bash</span>
+
+<span class="nv">CWD</span><span class="o">=</span><span class="si">$(</span><span class="nb">pwd</span><span class="si">)</span>
+<span class="nv">TERRAFORM_DIR</span><span class="o">=</span><span class="nv">$CWD</span>/terraform
+
+wait_for_alb_active<span class="o">()</span> <span class="o">{</span>
+  <span class="c"># use aws cli to wait for alb to be active</span>
+  <span class="nb">local </span><span class="nv">alb_name</span><span class="o">=</span><span class="s2">"</span><span class="nv">$1</span><span class="s2">"</span>
+  <span class="nb">local </span><span class="nv">timeout_seconds</span><span class="o">=</span><span class="s2">"</span><span class="k">${</span><span class="nv">2</span><span class="k">:-</span><span class="nv">600</span><span class="k">}</span><span class="s2">"</span>     <span class="c"># default: 600 seconds</span>
+  <span class="nb">local </span><span class="nv">interval_seconds</span><span class="o">=</span><span class="s2">"</span><span class="k">${</span><span class="nv">3</span><span class="k">:-</span><span class="nv">5</span><span class="k">}</span><span class="s2">"</span>      <span class="c"># default: 5 seconds</span>
+  <span class="nb">local </span><span class="nv">max_retries</span><span class="o">=</span><span class="k">$((</span>timeout_seconds <span class="o">/</span> interval_seconds<span class="k">))</span>
+  <span class="nb">echo</span> <span class="s2">"Waiting for ALB </span><span class="nv">$alb_name</span><span class="s2"> to become active..."</span>
+  <span class="k">for</span> <span class="o">((</span><span class="nv">i</span><span class="o">=</span>1<span class="p">;</span> i&lt;<span class="o">=</span>max_retries<span class="p">;</span> i++<span class="o">))</span><span class="p">;</span> <span class="k">do
+    </span><span class="nv">alb_state</span><span class="o">=</span><span class="si">$(</span>aws elbv2 describe-load-balancers <span class="nt">--names</span> <span class="s2">"</span><span class="nv">$alb_name</span><span class="s2">"</span> <span class="nt">--query</span> <span class="s1">'LoadBalancers[0].State.Code'</span> <span class="nt">--output</span> text 2&gt;/dev/null <span class="o">||</span> <span class="nb">true</span><span class="si">)</span>
+    <span class="k">if</span> <span class="o">[[</span> <span class="s2">"</span><span class="nv">$alb_state</span><span class="s2">"</span> <span class="o">==</span> <span class="s2">"active"</span> <span class="o">]]</span><span class="p">;</span> <span class="k">then
+      </span><span class="nb">echo</span> <span class="s2">"ALB </span><span class="nv">$alb_name</span><span class="s2"> is active."</span>
+      <span class="k">return </span>0
+    <span class="k">fi
+    </span><span class="nb">sleep</span> <span class="s2">"</span><span class="nv">$interval_seconds</span><span class="s2">"</span>
+  <span class="k">done
+
+  </span><span class="nb">echo</span> <span class="s2">"Timed out waiting for ALB </span><span class="nv">$alb_name</span><span class="s2"> to become active."</span> <span class="o">&gt;</span>&amp;2
+  <span class="k">return </span>1
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The code snippet below shows how to call the <code>wait_for_alb_active</code> function within the <code>apply-terraform.sh</code> script.</p>
+</div>
+<div class="listingblock">
+<div class="title">apply-terraform.sh - call wait_for_alb_active</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="nv">ALB_NAME</span><span class="o">=</span><span class="s2">"traefik-alb"</span>
+
+<span class="k">if</span> <span class="o">!</span> wait_for_alb_active <span class="s2">"</span><span class="nv">$ALB_NAME</span><span class="s2">"</span><span class="p">;</span> <span class="k">then
+  </span><span class="nb">echo</span> <span class="s2">"Exiting due to timeout"</span>
+  <span class="nb">exit </span>1
+<span class="k">fi</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">apply-terraform.sh - terraform init and import existing dns record if exists</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="nb">cd</span> <span class="nv">$TERRAFORM_DIR</span>
+
+<span class="nv">DNS_NAME</span><span class="o">=</span><span class="k">${</span><span class="nv">DNS_NAME</span><span class="k">:-</span><span class="s2">"servicefoundry.org"</span><span class="k">}</span>
+
+<span class="nv">HOSTED_ZONE_ID</span><span class="o">=</span><span class="si">$(</span>aws route53 list-hosted-zones-by-name <span class="nt">--dns-name</span> <span class="nv">$DNS_NAME</span> | yq <span class="s1">'.HostedZones[0].Id'</span> | <span class="nb">awk</span> <span class="nt">-F</span><span class="s1">'/'</span> <span class="s1">'{print $NF}'</span><span class="si">)</span>
+
+<span class="c"># check if HOSTED_ZONE_ID is 'null'</span>
+<span class="k">if</span> <span class="o">[</span> <span class="s2">"</span><span class="nv">$HOSTED_ZONE_ID</span><span class="s2">"</span> <span class="o">==</span> <span class="s2">"null"</span> <span class="o">]</span> <span class="o">||</span> <span class="o">[</span> <span class="nt">-z</span> <span class="s2">"</span><span class="nv">$HOSTED_ZONE_ID</span><span class="s2">"</span> <span class="o">]</span><span class="p">;</span> <span class="k">then
+  </span><span class="nb">echo</span> <span class="s2">"Hosted Zone ID for </span><span class="nv">$DNS_NAME</span><span class="s2"> not found."</span>
+  <span class="nb">echo</span> <span class="s2">"Please create a hosted zone for </span><span class="nv">$DNS_NAME</span><span class="s2"> in Route 53 before applying this Terraform configuration."</span>
+
+  <span class="nb">exit </span>1
+<span class="k">else
+  </span><span class="nb">echo</span> <span class="s2">"Found Hosted Zone ID: </span><span class="nv">$HOSTED_ZONE_ID</span><span class="s2"> for </span><span class="nv">$DNS_NAME</span><span class="s2">"</span>
+  <span class="nb">echo</span> <span class="s2">"Using existing hosted zone."</span>
+
+  terraform init
+
+  <span class="c"># check if the DNS record exists</span>
+  <span class="nv">RECORD_SETS</span><span class="o">=</span><span class="si">$(</span>aws route53 list-resource-record-sets <span class="se">\</span>
+                  <span class="nt">--hosted-zone-id</span> <span class="nv">$HOSTED_ZONE_ID</span> <span class="se">\</span>
+                  <span class="nt">--output</span> yaml <span class="se">\</span>
+                  <span class="nt">--query</span> <span class="s2">"ResourceRecordSets[?Name == '</span><span class="k">${</span><span class="nv">DNS_NAME</span><span class="k">}</span><span class="s2">.' &amp;&amp; Type == 'A']"</span><span class="si">)</span>
+
+  <span class="k">if</span> <span class="o">[</span> <span class="s2">"</span><span class="nv">$RECORD_SETS</span><span class="s2">"</span> <span class="o">==</span> <span class="s2">"[]"</span> <span class="o">]</span><span class="p">;</span> <span class="k">then
+    </span><span class="nb">echo</span> <span class="s2">"DNS record for </span><span class="nv">$DNS_NAME</span><span class="s2"> not found in hosted zone </span><span class="nv">$HOSTED_ZONE_ID</span><span class="s2">. It will be created."</span>
+  <span class="k">else
+    </span><span class="nb">echo</span> <span class="s2">"DNS record for </span><span class="nv">$DNS_NAME</span><span class="s2"> found in hosted zone </span><span class="nv">$HOSTED_ZONE_ID</span><span class="s2">. Importing into Terraform state."</span>
+
+    <span class="nv">DNS_ALIAS</span><span class="o">=</span><span class="s2">"</span><span class="k">${</span><span class="nv">HOSTED_ZONE_ID</span><span class="k">}</span><span class="s2">_</span><span class="k">${</span><span class="nv">DNS_NAME</span><span class="k">}</span><span class="s2">_A"</span>
+
+    <span class="nb">echo</span> <span class="s2">"terraform import aws_route53_record.a_alias </span><span class="nv">$DNS_ALIAS</span><span class="s2">"</span>
+    terraform import module.alias_for_traefik.aws_route53_record.a_alias <span class="nv">$DNS_ALIAS</span>
+  <span class="k">fi
+
+  </span>terraform apply <span class="nt">--auto-approve</span>
+<span class="k">fi
+
+</span><span class="nb">cd</span> <span class="nv">$CWD</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Key Highlights</strong>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>The wait_for_alb_active() function polls AWS until the ALB is in an “active” state.</p>
+</li>
+<li>
+<p>Terraform is only applied once the ALB is verified to be ready.</p>
+</li>
+<li>
+<p>DNS records are safely imported or created to reflect the current ALB.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="terraform-configuration">Terraform Configuration</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The Terraform configuration is organized as follows:</p>
+</div>
+<div class="listingblock">
+<div class="title">terraform directory structure</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>tree terraform
+terraform
+├── main.tf
+└── modules
+    └── route53-alias-for-k8s-lb
+        ├── main.tf
+        └── variables.tf</code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="main-tf">main.tf</h3>
+<div class="paragraph">
+<p><strong>main.tf</strong> sets up the AWS and Kubernetes providers and invokes the Route 53 alias module.</p>
+</div>
+<div class="listingblock">
+<div class="title">/terraform/main.tf</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terraform"><span class="k">provider</span> <span class="s2">"aws"</span> <span class="p">{</span>
+  <span class="nx">region</span> <span class="o">=</span> <span class="s2">"ca-central-1"</span>
+<span class="p">}</span>
+
+<span class="k">provider</span> <span class="s2">"kubernetes"</span> <span class="p">{</span>
+  <span class="nx">config_path</span> <span class="o">=</span> <span class="s2">"~/.kube/config"</span>
+  <span class="c1"># or host/token/cluster_ca_certificate if running in CI</span>
+<span class="p">}</span>
+
+<span class="k">module</span> <span class="s2">"alias_for_traefik"</span> <span class="p">{</span>
+  <span class="nx">source</span>           <span class="o">=</span> <span class="s2">"./modules/route53-alias-for-k8s-lb"</span>
+  <span class="nx">zone_name</span>        <span class="o">=</span> <span class="s2">"servicefoundry.org"</span>
+  <span class="nx">record_name</span>      <span class="o">=</span> <span class="s2">"@"</span>                     <span class="c1"># root apex; use "app" for app.servicefoundry.org</span>
+  <span class="nx">k8s_namespace</span>    <span class="o">=</span> <span class="s2">"traefik"</span>
+  <span class="nx">k8s_ingress_name</span> <span class="o">=</span> <span class="s2">"traefik-alb"</span>
+  <span class="nx">create_aaaa</span>      <span class="o">=</span> <span class="kc">false</span>
+<span class="err">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="modulesroute53-alias-for-k8s-lbmain-tf">modules/route53-alias-for-k8s-lb/main.tf</h3>
+<div class="paragraph">
+<p><strong>modules/route53-alias-for-k8s-lb/main.tf</strong> dynamically locates the correct ALB using AWS tags and creates a Route 53 A record alias pointing to the ALB.</p>
+</div>
+<div class="listingblock">
+<div class="title">/terraform/modules/route53-alias-for-k8s-lb/main.tf</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terraform"><span class="k">terraform</span> <span class="p">{</span>
+  <span class="nx">required_version</span> <span class="o">=</span> <span class="s2">"&gt;= 1.5.0"</span>
+  <span class="nx">required_providers</span> <span class="p">{</span>
+    <span class="nx">aws</span> <span class="o">=</span> <span class="p">{</span>
+      <span class="nx">source</span>  <span class="o">=</span> <span class="s2">"hashicorp/aws"</span>
+      <span class="nx">version</span> <span class="o">=</span> <span class="s2">"&gt;= 6.19.0"</span>
+    <span class="p">}</span>
+    <span class="nx">kubernetes</span> <span class="o">=</span> <span class="p">{</span>
+      <span class="nx">source</span>  <span class="o">=</span> <span class="s2">"hashicorp/kubernetes"</span>
+      <span class="nx">version</span> <span class="o">=</span> <span class="s2">"&gt;= 2.30.0"</span>
+    <span class="p">}</span>
+    <span class="nx">external</span> <span class="o">=</span> <span class="p">{</span>
+      <span class="nx">source</span>  <span class="o">=</span> <span class="s2">"hashicorp/external"</span>
+      <span class="nx">version</span> <span class="o">=</span> <span class="s2">"&gt;= 2.3"</span>
+    <span class="p">}</span>
+    <span class="kc">null</span> <span class="p">=</span> <span class="p">{</span>
+      <span class="nx">source</span>  <span class="o">=</span> <span class="s2">"hashicorp/null"</span>
+      <span class="nx">version</span> <span class="o">=</span> <span class="s2">"&gt;= 3.2"</span>
+    <span class="p">}</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="c1">############################</span>
+<span class="c1"># Discover the AWS LB by controller tag (robust + gives us zone_id)</span>
+<span class="c1">############################</span>
+<span class="c1"># The AWS Load Balancer Controller tags LBs with:</span>
+<span class="c1">#   servicefoundry.org/service-name = "&lt;namespace&gt;/&lt;ingress-name&gt;"</span>
+<span class="k">data</span> <span class="s2">"aws_lb"</span> <span class="s2">"this"</span> <span class="p">{</span>
+  <span class="c1"># Tag filter works well with controller-managed LBs</span>
+  <span class="nx">tags</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"servicefoundry.org/service-name"</span> <span class="p">=</span> <span class="s2">"</span><span class="p">${</span><span class="kd">var</span><span class="p">.</span><span class="nx">k8s_namespace</span><span class="p">}</span><span class="s2">/</span><span class="p">${</span><span class="kd">var</span><span class="p">.</span><span class="nx">k8s_ingress_name</span><span class="p">}</span><span class="s2">"</span>
+  <span class="p">}</span>
+
+<span class="p">}</span>
+
+<span class="c1">############################</span>
+<span class="c1"># Route53</span>
+<span class="c1">############################</span>
+<span class="k">data</span> <span class="s2">"aws_route53_zone"</span> <span class="s2">"this"</span> <span class="p">{</span>
+  <span class="nx">name</span>         <span class="o">=</span> <span class="kd">var</span><span class="p">.</span><span class="nx">zone_name</span>
+  <span class="nx">private_zone</span> <span class="o">=</span> <span class="kc">false</span>
+<span class="p">}</span>
+
+<span class="nx">locals</span> <span class="p">{</span>
+  <span class="nx">fqdn</span> <span class="o">=</span> <span class="kd">var</span><span class="p">.</span><span class="nx">record_name</span> <span class="o">==</span> <span class="s2">"@"</span> <span class="o">?</span> <span class="kd">var</span><span class="p">.</span><span class="nx">zone_name</span> <span class="o">:</span> <span class="s2">"</span><span class="p">${</span><span class="kd">var</span><span class="p">.</span><span class="nx">record_name</span><span class="p">}</span><span class="s2">.</span><span class="p">${</span><span class="kd">var</span><span class="p">.</span><span class="nx">zone_name</span><span class="p">}</span><span class="s2">"</span>
+<span class="p">}</span>
+
+<span class="c1"># A record → ALB/NLB Alias</span>
+<span class="k">resource</span> <span class="s2">"aws_route53_record"</span> <span class="s2">"a_alias"</span> <span class="p">{</span>
+  <span class="nx">zone_id</span> <span class="o">=</span> <span class="k">data</span><span class="p">.</span><span class="nx">aws_route53_zone</span><span class="p">.</span><span class="nx">this</span><span class="p">.</span><span class="nx">zone_id</span>
+  <span class="nx">name</span>    <span class="o">=</span> <span class="kd">local</span><span class="p">.</span><span class="nx">fqdn</span>
+  <span class="nx">type</span>    <span class="o">=</span> <span class="s2">"A"</span>
+
+  <span class="nx">alias</span> <span class="p">{</span>
+    <span class="nx">name</span>                   <span class="o">=</span> <span class="k">data</span><span class="p">.</span><span class="nx">aws_lb</span><span class="p">.</span><span class="nx">this</span><span class="p">.</span><span class="nx">dns_name</span>
+    <span class="nx">zone_id</span>                <span class="o">=</span> <span class="k">data</span><span class="p">.</span><span class="nx">aws_lb</span><span class="p">.</span><span class="nx">this</span><span class="p">.</span><span class="nx">zone_id</span>
+    <span class="nx">evaluate_target_health</span> <span class="o">=</span> <span class="kc">true</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="c1">############################</span>
+<span class="c1"># Outputs</span>
+<span class="c1">############################</span>
+<span class="k">output</span> <span class="s2">"lb_dns_name"</span> <span class="p">{</span>
+  <span class="nx">value</span>       <span class="o">=</span> <span class="k">data</span><span class="p">.</span><span class="nx">aws_lb</span><span class="p">.</span><span class="nx">this</span><span class="p">.</span><span class="nx">dns_name</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Discovered Load Balancer DNS name."</span>
+<span class="p">}</span>
+
+
+<span class="k">output</span> <span class="s2">"record_fqdn"</span> <span class="p">{</span>
+  <span class="nx">value</span>       <span class="o">=</span> <span class="kd">local</span><span class="p">.</span><span class="nx">fqdn</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"The fully-qualified DNS name created in Route53."</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="modulesroute53-alias-for-k8s-lbvariables-tf">modules/route53-alias-for-k8s-lb/variables.tf</h3>
+<div class="paragraph">
+<p><strong>variables.tf</strong> defines all the required input values, such as the domain name, record name, namespace, and ingress name.</p>
+</div>
+<div class="listingblock">
+<div class="title">/terraform/modules/route53-alias-for-k8s-lb/variables.tf</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="terraform"><span class="c1">############################</span>
+<span class="c1"># Variables</span>
+<span class="c1">############################</span>
+<span class="k">variable</span> <span class="s2">"zone_name"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Hosted zone name (e.g., servicefoundry.org). No trailing dot."</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+<span class="p">}</span>
+
+<span class="k">variable</span> <span class="s2">"record_name"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Record label (e.g., '@', 'app', 'traefik')."</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+  <span class="nx">default</span>     <span class="o">=</span> <span class="s2">"@"</span>
+<span class="p">}</span>
+
+<span class="k">variable</span> <span class="s2">"k8s_namespace"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Namespace of the Kubernetes Service (exposed by LB Controller)."</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+<span class="p">}</span>
+
+<span class="k">variable</span> <span class="s2">"k8s_ingress_name"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Name of the Kubernetes Service."</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">string</span>
+<span class="p">}</span>
+
+<span class="k">variable</span> <span class="s2">"create_aaaa"</span> <span class="p">{</span>
+  <span class="nx">description</span> <span class="o">=</span> <span class="s2">"Also create AAAA (IPv6) alias to the same LB."</span>
+  <span class="nx">type</span>        <span class="o">=</span> <span class="nx">bool</span>
+  <span class="nx">default</span>     <span class="o">=</span> <span class="kc">true</span>
+<span class="p">}</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="kubernetes-ingress-configuration">Kubernetes Ingress Configuration</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To support the automation, your ALB Ingress should:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Use the alb ingress class.</p>
+</li>
+<li>
+<p>Set AWS Load Balancer Controller annotations to:</p>
+</li>
+<li>
+<p>Define the ALB name</p>
+</li>
+<li>
+<p>Provide certificate ARN</p>
+</li>
+<li>
+<p>Configure tags used by Terraform to discover the ALB</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Make sure the tag servicefoundry.org/service-name matches the expected format so Terraform can find the right load balancer.</p>
+</div>
+<div class="listingblock">
+<div class="title">k8s/alb-traefik/ingress-traefik-alb.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">networking.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Ingress</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">traefik-alb</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">traefik</span>
+  <span class="na">annotations</span><span class="pi">:</span>
+    <span class="na">alb.ingress.kubernetes.io/load-balancer-name</span><span class="pi">:</span> <span class="s">traefik-alb</span>
+    <span class="na">alb.ingress.kubernetes.io/scheme</span><span class="pi">:</span> <span class="s">internet-facing</span>
+    <span class="na">alb.ingress.kubernetes.io/tags</span><span class="pi">:</span> <span class="s2">"</span><span class="s">servicefoundry.org/service-name=traefik/traefik-alb,servicefoundry.org/provider=service-foundry"</span>
+    <span class="na">alb.ingress.kubernetes.io/target-type</span><span class="pi">:</span> <span class="s">instance</span>     <span class="c1"># or "ip"</span>
+    <span class="na">alb.ingress.kubernetes.io/healthcheck-path</span><span class="pi">:</span> <span class="s">/ping</span>
+    <span class="na">alb.ingress.kubernetes.io/healthcheck-port</span><span class="pi">:</span> <span class="s1">'</span><span class="s">31080'</span>
+    <span class="na">alb.ingress.kubernetes.io/listen-ports</span><span class="pi">:</span> <span class="s1">'</span><span class="s">[{"HTTPS":443}]'</span>
+    <span class="na">alb.ingress.kubernetes.io/certificate-arn</span><span class="pi">:</span> <span class="s">arn:aws:acm:aws-region:aws-account-id:certificate/certificate-arn</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">ingressClassName</span><span class="pi">:</span> <span class="s">alb</span>
+  <span class="c1">## rules are omitted for brevity</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="automation-flow">Automation Flow</h2>
+<div class="sectionbody">
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Deploy the ALB Ingress resource:</p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> k8s/alb-traefik/ingress-traefik-alb.yaml</code></pre>
+</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic" start="2">
+<li>
+<p>Run the automation script:</p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ ./apply-terraform.sh</pre>
+</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic" start="3">
+<li>
+<p>Terraform will either:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Import the existing DNS record and update it</p>
+</li>
+<li>
+<p>Or create a new DNS record pointing to the new ALB</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="verify-dns-changes">Verify DNS Changes</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>You can verify the updated DNS using:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>dig +short servicefoundry.org</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Make sure the IP address or CNAME matches the newly created ALB.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="tf-images/intro.png" alt="intro">
+</div>
+<div class="title">Figure 2. Utilizing Terraform to Automate Route 53 DNS Updates</div>
+</div>
+<div class="paragraph">
+<p>By integrating Terraform into your DNS management workflow, you eliminate manual Route 53 updates when ALBs are reprovisioned. This ensures your domain always points to the right infrastructure and reduces human error during cluster updates or rollouts.</p>
+</div>
+<div class="paragraph">
+<p>This approach not only simplifies maintenance but also ensures high availability and reliability in production environments.</p>
+</div>
+<div class="paragraph">
+<p>📘 View the web version:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/sso-foundry/k8s-https-aws/apply-terraform.html" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/sso-foundry/k8s-https-aws/apply-terraform.html</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="additional-resources">Additional Resources</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p>AWS Load Balancer Controller Documentation:
+<a href="https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/" class="bare">https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/</a></p>
+</li>
+<li>
+<p>Terraform AWS Provider:
+<a href="https://registry.terraform.io/providers/hashicorp/aws/latest/docs" class="bare">https://registry.terraform.io/providers/hashicorp/aws/latest/docs</a></p>
+</li>
+<li>
+<p>Terraform Kubernetes Provider:
+<a href="https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs" class="bare">https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs</a></p>
+</li>
+<li>
+<p>AWS Route 53 Documentation:
+<a href="https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/Welcome.html" class="bare">https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/Welcome.html</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="tf-images/thnak-you-for-watching.png" alt="thnak you for watching">
+</div>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+        </div>
+    </main>
+</div>
+
+
+
+
+<script>
+    const toc = document.getElementById('toc');
+    const container = document.getElementById('toc-container');
+    if (toc && container) {
+        container.appendChild(toc);
+    }
+</script>
+
+
+<!--<button onclick="toggleTheme()" style="position: fixed; bottom: 1rem; right: 1rem; padding: 0.5rem 1rem; background-color: var(&#45;&#45;link); color: white; border: none; border-radius: 0.375rem; cursor: pointer;">-->
+<!--    Toggle Theme-->
+<!--</button>-->
+
+<!--<script>-->
+<!--    function toggleTheme() {-->
+<!--        const html = document.documentElement;-->
+<!--        const isDark = html.getAttribute("data-theme") === "dark";-->
+<!--        html.setAttribute("data-theme", isDark ? "light" : "dark");-->
+<!--        localStorage.setItem("theme", isDark ? "light" : "dark");-->
+<!--    }-->
+
+<!--    document.addEventListener("DOMContentLoaded", () => {-->
+<!--        const savedTheme = localStorage.getItem("theme") || "light";-->
+<!--        document.documentElement.setAttribute("data-theme", savedTheme);-->
+<!--    });-->
+<!--</script>-->
+
+<!-- Footer -->
+<footer class="bg-gray-900 text-white text-sm py-6 text-center">
+    © 2025 Service Foundry. All rights reserved.
+</footer>
+</body>
+</html>
