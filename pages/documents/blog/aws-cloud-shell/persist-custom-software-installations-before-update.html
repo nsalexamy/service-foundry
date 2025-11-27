@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AWS Cloud Shell - Persisting Custom Software Installations</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a>
+<ul class="sectlevel2">
+<li><a href="#persistent-storage">Persistent storage</a></li>
+</ul>
+</li>
+<li><a href="#add-homebin-to-path">Add $HOME/bin to PATH</a></li>
+<li><a href="#install-custom-software-in-persistent-storage">Install Custom Software in Persistent Storage</a>
+<ul class="sectlevel2">
+<li><a href="#install-helm">Install Helm</a></li>
+<li><a href="#install-yq">Install yq</a></li>
+</ul>
+</li>
+<li><a href="#restart-cloud-shell">Restart Cloud Shell</a></li>
+<li><a href="#walk-around">Walk-around</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/persist-custom-software-installations.png" alt="persist custom software installations">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In the previous article, we discussed setting up AWS Cloud Shell for deploying Service Foundry. One important aspect of using Cloud Shell is understanding how to persist custom software installations across sessions.
+We installed several tools like helm and yq in the /usr/local/bin directory, but these installations do not persist after the session ends.</p>
+</div>
+<div class="paragraph">
+<p>The following installations will be lost after the Cloud Shell session ends:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>/usr/local/bin/helm</p>
+</li>
+<li>
+<p>/usr/local/bin/yq</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>This article explains how to use the 1 GB of persistent storage provided by AWS Cloud Shell to store custom software installations, configuration files, and scripts.</p>
+</div>
+<div class="sect2">
+<h3 id="persistent-storage">Persistent storage</h3>
+<div class="paragraph">
+<p>With AWS CloudShell, you can use up to 1 GB of persistent storage in each AWS Region at no additional cost. Persistent storage is located in your home directory ($HOME) and is private to you. Unlike ephemeral environment resources that are recycled after each shell session ends, data in your home directory persists between sessions.</p>
+</div>
+<div class="paragraph">
+<p>For more information, refer to the official documentation: <a href="https://docs.aws.amazon.com/cloudshell/latest/userguide/limits.html#persistent-storage-limitations">AWS CloudShell Persistent Storage</a>.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="add-homebin-to-path">Add $HOME/bin to PATH</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To ensure that custom software installations in your persistent storage are easily accessible, you should add the $HOME/bin directory to your PATH environment variable.
+By default, AWS Cloud Shell includes $HOME/bin in the PATH, but if it&#8217;s not present, you can add it by appending the following line to your ~/.bashrc file:</p>
+</div>
+<div class="listingblock">
+<div class="title">Check if $HOME/bin is in PATH,</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">echo</span> <span class="nv">$PATH</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>See if $HOME/bin is listed. If not, add it with the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">echo</span> <span class="s1">'export PATH=$HOME/bin:$PATH'</span> <span class="o">&gt;&gt;</span> <span class="nv">$HOME</span>/.bashrc
+<span class="nv">$ </span><span class="nb">source</span> <span class="nv">$HOME</span>/.bashrc</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Create the bin directory if it doesn&#8217;t exist:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">mkdir</span> <span class="nt">-p</span> <span class="nv">$HOME</span>/bin</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="install-custom-software-in-persistent-storage">Install Custom Software in Persistent Storage</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We are going to install helm and yq in the $HOME/bin directory to ensure they persist across sessions.</p>
+</div>
+<div class="sect2">
+<h3 id="install-helm">Install Helm</h3>
+<div class="paragraph">
+<p>Run the following commands to download and install Helm in your persistent storage:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>curl <span class="nt">-L</span> https://get.helm.sh/helm-v3.14.2-linux-amd64.tar.gz <span class="nt">-o</span> helm.tar.gz
+<span class="nv">$ </span><span class="nb">tar</span> <span class="nt">-zxvf</span> helm.tar.gz
+<span class="nv">$ </span><span class="nb">mv </span>linux-amd64/helm ~/bin/
+<span class="nv">$ </span><span class="nb">rm</span> <span class="nt">-rf</span> helm.tar.gz linux-amd64</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Verify the installation:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm version</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-yq">Install yq</h3>
+<div class="paragraph">
+<p>Run the following commands to download and install yq in your persistent storage:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 <span class="nt">-O</span> ~/bin/yq
+<span class="nb">chmod</span> +x ~/bin/yq</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Verify the installation:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>yq <span class="nt">--version</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="restart-cloud-shell">Restart Cloud Shell</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To apply the changes and ensure that the installed software is available, restart your Cloud Shell session by clicking on the gear icon in the top-right corner and selecting "Restart."</p>
+</div>
+<div class="paragraph">
+<p>And run the following command to reload your bash configuration:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm version
+<span class="nv">$ </span>yq <span class="nt">--version</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="walk-around">Walk-around</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>If you prefer not to install software in your persistent storage, you can create a setup script that installs the required tools each time you start a new Cloud Shell session.
+Here is an example script that installs Helm and yq:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">cat</span> <span class="o">&lt;&lt;</span> <span class="sh">'</span><span class="no">EOF</span><span class="sh">' &gt; </span><span class="nv">$HOME</span><span class="sh">/setup-cloudshell.sh
+
+#!/bin/bash
+# Install Helm
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+
+# Install yq
+wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O ./yq
+chmod +x ./yq
+sudo mv ./yq /usr/local/bin/yq
+
+# Install any other tools you need here
+
+EOF</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Make the script executable:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">chmod</span> +x <span class="nv">$HOME</span>/setup-cloudshell.sh</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>You can run this script whenever you start a new Cloud Shell session to set up your environment quickly:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ $HOME</span>/setup-cloudshell.sh</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>By utilizing the persistent storage in AWS Cloud Shell, you can ensure that your custom software installations remain available across sessions.</p>
+</div>
+</div>
+</div>
+</body>
+</html>
