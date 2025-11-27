@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Keeping SSO Sessions Alive with Active Use (OAuth2 Proxy + Keycloak + Redis)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#what-we-cover-in-this-guide">What we cover in this guide</a></li>
+<li><a href="#why-use-a-session-store">Why Use a Session Store?</a></li>
+<li><a href="#session-related-configurations">Session Related Configurations</a></li>
+<li><a href="#how-session-store-works">How Session Store Works</a></li>
+<li><a href="#install-redis">Install Redis</a>
+<ul class="sectlevel2">
+<li><a href="#custom-values-for-redis">Custom Values for Redis</a></li>
+<li><a href="#install-redis-using-helm">Install Redis using Helm</a></li>
+</ul>
+</li>
+<li><a href="#configure-oauth2-proxy-to-use-redis-session-store">Configure OAuth2 Proxy to Use Redis Session Store</a>
+<ul class="sectlevel2">
+<li><a href="#adjust-cookie-settings-for-extended-sessions">Adjust Cookie Settings for Extended Sessions</a></li>
+</ul>
+</li>
+<li><a href="#keycloak-session-timeout-settings">Keycloak Session Timeout Settings</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/architecture-with-session-store.png" alt="architecture with session store">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p><strong>YouTube Video Tutorial</strong>: Not yet available</p>
+</div>
+<div class="paragraph">
+<p>In this guide, we will explore how to extend SSO session timeouts in OAuth2 Proxy by implementing a session store using Redis. By default, OAuth2 Proxy relies on cookies to manage user sessions, which can lead to limitations in session duration and user experience. By integrating a session store, we can enhance session management and provide a more seamless authentication experience.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-we-cover-in-this-guide">What we cover in this guide</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p>Installing and configuring Redis as a session store for OAuth2 Proxy</p>
+</li>
+<li>
+<p>Configuring OAuth2 Proxy to use Redis for session storage</p>
+</li>
+<li>
+<p>Adjusting session timeout settings in both OAuth2 Proxy and Keycloak to extend user sessions</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="why-use-a-session-store">Why Use a Session Store?</h2>
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/architecture-without-session-store.png" alt="architecture without session store">
+</div>
+</div>
+<div class="paragraph">
+<p>Without a session store, OAuth2 Proxy relies solely on cookies to manage user sessions. This can lead to limitations in extending session timeouts, as cookies have fixed expiration times and SSO Session Idle Timeout in Keycloak may cause users to be logged out unexpectedly.
+By using a session store like Redis, OAuth2 Proxy can manage sessions more effectively, allowing for dynamic session expiration and refresh. Normally session can stay valid for up to SSO Session Max Lifespan in Keycloak.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="session-related-configurations">Session Related Configurations</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p><strong>Properties in OAuth2 Proxy</strong>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>cookie_secure: ensures cookies are only sent over HTTPS</p>
+</li>
+<li>
+<p>cookie_domains: defaults to the domain of the request</p>
+</li>
+<li>
+<p>cookie_name: OAuth2 Proxy Session Cookie Name(default: _oauth2_proxy)</p>
+</li>
+<li>
+<p>cookie_expire: expiration time of the cookie (eg, 8h for 8 hours)</p>
+</li>
+<li>
+<p>cookie_refresh: duration before cookie expiration to refresh the session (eg, 10m for 10 minutes)</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Properties in Keycloak</strong>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>SSO Session Idle Timeout: session inactivity timeout(eg, 30m for 30 minutes)</p>
+</li>
+<li>
+<p>SSO Session Max Lifespan: maximum session lifespan regardless of activity(eg, 8h for 8 hours)</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="how-session-store-works">How Session Store Works</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>By default, OAuth2 Proxy stores session data in encrypted cookies on the client side. However, this approach has limitations, especially when it comes to extending session timeouts. When using a session store like Redis, OAuth2 Proxy can offload session management to the server side, allowing for more flexible session handling.</p>
+</div>
+<div class="paragraph">
+<p>When a user logs in, OAuth2 Proxy creates a session in Redis and stores the session ID in the cookie. On refresh, OAuth2 Proxy checks the session store for the session ID and updates the expiration time in Redis, effectively extending the session without requiring the user to re-authenticate.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="install-redis">Install Redis</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Redis is an open-source, in-memory data structure store that can be used as a database, cache, and message broker. In this guide, we will use Redis as a session store for OAuth2 Proxy.</p>
+</div>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">WARNING</dt>
+<dd>
+<p>This guide uses Redis Helm chart provided by Bitnami, and they have moved all their container images to bitnamilegacy repository. Only paid customers can access the images in the bitnami repository. And remember that images in bitnamilegacy repository will not receive security updates</p>
+</dd>
+</dl>
+</div>
+<div class="listingblock">
+<div class="title">Add Redis Helm repository</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm repo add bitnami https://charts.bitnami.com/bitnami
+<span class="nv">$ </span>helm repo update</code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="custom-values-for-redis">Custom Values for Redis</h3>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">image</span><span class="pi">:</span>
+  <span class="na">registry</span><span class="pi">:</span> <span class="s">docker.io</span>
+  <span class="c1">## &lt;1&gt; Use bitnamilegacy repository for Redis images</span>
+  <span class="na">repository</span><span class="pi">:</span> <span class="s">bitnamilegacy/redis</span>
+  <span class="na">tag</span><span class="pi">:</span> <span class="s">7.2.4-debian-11-r2</span>
+
+<span class="na">architecture</span><span class="pi">:</span> <span class="s2">"</span><span class="s">standalone"</span> <span class="c1"># standalone or replication</span>
+
+<span class="na">auth</span><span class="pi">:</span>
+  <span class="na">enable</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="c1">## &lt;2&gt; Use existing secret for Redis password</span>
+  <span class="na">existingSecret</span><span class="pi">:</span> <span class="s">redis-credentials</span>
+  <span class="na">existingSecretPasswordKey</span><span class="pi">:</span> <span class="s">redis-password</span>
+
+<span class="na">master</span><span class="pi">:</span>
+  <span class="na">count</span><span class="pi">:</span> <span class="s">1</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Use bitnamilegacy repository for Redis images</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Use existing secret for Redis password</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-redis-using-helm">Install Redis using Helm</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nb">install </span>redis bitnami/redis <span class="nt">-n</span> service-foundry <span class="nt">--create-namespace</span> <span class="nt">-f</span> custom-values.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The namespace matters when configuring OAuth2 Proxy later.</p>
+</div>
+<div class="paragraph">
+<p>Redis Connection URL:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>redis://redis-master.service-foundry.svc.cluster.local:6379</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="configure-oauth2-proxy-to-use-redis-session-store">Configure OAuth2 Proxy to Use Redis Session Store</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To configure OAuth2 Proxy to use Redis as a session store, we need to set the appropriate flags in the OAuth2 Proxy configuration.</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-oauth2-proxy-values.yaml - sessionStorage</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">sessionStorage</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s2">"</span><span class="s">redis"</span>   <span class="c1"># cookie or redis</span>
+  <span class="na">redis</span><span class="pi">:</span>
+    <span class="na">existingSecret</span><span class="pi">:</span> <span class="s2">"</span><span class="s">redis-credentials"</span>
+    <span class="na">clientType</span><span class="pi">:</span> <span class="s2">"</span><span class="s">standalone"</span>
+
+    <span class="na">standalone</span><span class="pi">:</span>
+      <span class="na">connectionUrl</span><span class="pi">:</span> <span class="s2">"</span><span class="s">redis://redis-master.service-foundry.svc.cluster.local:6379"</span></code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="adjust-cookie-settings-for-extended-sessions">Adjust Cookie Settings for Extended Sessions</h3>
+<div class="listingblock">
+<div class="title">custom-oauth2-proxy-values.yaml - cookie settings</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">config</span><span class="pi">:</span>
+  <span class="na">existingSecret</span><span class="pi">:</span> <span class="s">oauth2-proxy-secret</span>
+
+  <span class="na">configFile</span><span class="pi">:</span> <span class="pi">|</span>
+    <span class="s">provider = "keycloak-oidc"</span>
+    <span class="s">email_domains = ["*"]</span>
+    <span class="s">upstreams = ["static://200"]</span>
+    <span class="s">redirect_url = "https://oauth2-proxy.servicefoundry.org/oauth2/callback"</span>
+    <span class="s">scope = "openid email profile"</span>
+    <span class="s">cookie_secure = true</span>
+    <span class="s">cookie_domains = ".servicefoundry.org"</span>
+    <span class="s">cookie_name = "_oauth2_proxy"</span>
+    <span class="s">cookie_refresh = "10m"</span>
+    <span class="s">cookie_expire = "24h"</span>
+    <span class="s">whitelist_domains = [".servicefoundry.org"]</span>
+    <span class="s"># return authenticated user to nginx</span>
+    <span class="s">set_xauthrequest = true</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="keycloak-session-timeout-settings">Keycloak Session Timeout Settings</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To ensure that sessions are extended properly, we also need to adjust the session timeout settings in Keycloak.</p>
+</div>
+<div class="paragraph">
+<p>The code snippets below show the recommended settings for Keycloak realms using Terraform:</p>
+</div>
+<div class="listingblock">
+<div class="title">Keycloak Session Timeout Settings</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="hcl-terraform"># Create a new realm
+resource "keycloak_realm" "default" {
+  realm   = "default"
+  enabled = true
+  display_name = "Service Foundry"
+  display_name_html = "&lt;b&gt;Service Foundry&lt;/b&gt;"
+  access_code_lifespan = "1h"
+  sso_session_idle_timeout = "30m"
+  sso_session_max_lifespan = "24h"
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Properties defined keycloak_realm resource are shown below:</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/keycloak-sessions.png" alt="keycloak sessions">
+</div>
+<div class="title">Figure 1. Keycloak Sessions</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/architecture-with-session-store.png" alt="architecture with session store">
+</div>
+</div>
+<div class="paragraph">
+<p>By implementing a session store with Redis and adjusting the session timeout settings in both OAuth2 Proxy and Keycloak, you can effectively extend user sessions and improve the overall user experience in your Service Foundry applications.</p>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/thnak-you-for-watching.png" alt="thnak you for watching">
+</div>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+</body>
+</html>

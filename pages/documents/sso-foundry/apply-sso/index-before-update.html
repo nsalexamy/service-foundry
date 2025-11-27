@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Securing Web Applications on Kubernetes with SSO</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#oauth2-proxy">Oauth2 Proxy</a></li>
+<li><a href="#oauth2-proxy-session-cookies">Oauth2 Proxy Session Cookies</a>
+<ul class="sectlevel2">
+<li><a href="#cookie-name">Cookie name</a></li>
+</ul>
+</li>
+<li><a href="#sample-web-application">Sample Web Application</a>
+<ul class="sectlevel2">
+<li><a href="#server-js">server.js</a></li>
+<li><a href="#basedeployment-yaml">base/deployment.yaml</a></li>
+</ul>
+</li>
+<li><a href="#configure-traefik-ingress">Configure Traefik Ingress</a>
+<ul class="sectlevel2">
+<li><a href="#kustomization-yaml-file">kustomization.yaml file</a></li>
+<li><a href="#ingressroute-dev-yaml">ingressroute-dev.yaml</a></li>
+<li><a href="#forward-auth-middleware-yaml">forward-auth-middleware.yaml</a></li>
+</ul>
+</li>
+<li><a href="#deploying-the-application">Deploying the Application</a></li>
+<li><a href="#sign-in-to-access-the-application">Sign in to Access the Application</a>
+<ul class="sectlevel2">
+<li><a href="#oauth2-proxy-cookie-and-headers">Oauth2-Proxy Cookie and Headers</a></li>
+</ul>
+</li>
+<li><a href="#next-steps">Next Steps</a></li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/architecture.png" alt="architecture">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide demonstrates how to secure a web application with Single Sign-On (SSO) using the Service Foundry Console. We will walk through configuring Traefik Ingress to delegate authentication via Oauth2 Proxy, which integrates with Keycloak as the identity provider.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="prerequisites">Prerequisites</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide focuses on the configuration aspects. Before you begin, ensure the following components are installed in your Kubernetes cluster:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Traefik Ingress Controller</p>
+</li>
+<li>
+<p>Oauth2 Proxy</p>
+</li>
+<li>
+<p>Keycloak</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="oauth2-proxy">Oauth2 Proxy</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Oauth2 Proxy is a reverse proxy and static file server that provides authentication using various providers, including Keycloak. It acts as an intermediary between users and your web applications, ensuring that only authenticated users can access protected resources.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="oauth2-proxy-session-cookies">Oauth2 Proxy Session Cookies</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>When using Oauth2 Proxy, session cookies are used to maintain user authentication state. These cookies are typically set in the user&#8217;s browser after a successful login and are used to identify the user in subsequent requests.</p>
+</div>
+<div class="paragraph">
+<p>This is the cookie that stores (encrypted):</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>User ID (from Keycloak)</p>
+</li>
+<li>
+<p>Access token (optional)</p>
+</li>
+<li>
+<p>ID token (optional)</p>
+</li>
+<li>
+<p>Expiry timestamps</p>
+</li>
+<li>
+<p>Session identifier (if Redis session store is enabled)</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>It is the cookie your browser presents on every request to prove you are authenticated.</p>
+</div>
+<div class="sect2">
+<h3 id="cookie-name">Cookie name</h3>
+<div class="paragraph">
+<p>By default, Oauth2 Proxy uses the cookie name <code>_oauth2_proxy</code>. However, you can customize this name using the <code>--cookie-name</code> flag when starting Oauth2 Proxy.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="sample-web-application">Sample Web Application</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Instead of using a static HTML page, in this demo, we will use a simple Node.js application that shows all request headers.</p>
+</div>
+<div class="listingblock">
+<div class="title">project structure</div>
+<div class="content">
+<pre>k8s
+├── base
+│   ├── configmap.yaml
+│   ├── deployment.yaml
+│   ├── kustomization.yaml
+│   ├── namespace.yaml
+│   └── service.yaml
+└── overlays
+    └── dev
+        ├── kustomization.yaml
+        ├── pod-label-patch.yaml
+        └── server.js</pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="server-js">server.js</h3>
+<div class="paragraph">
+<p>The server.js is a simple node.JS application that prints all request headers.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="javascript"><span class="kd">const</span> <span class="nx">http</span> <span class="o">=</span> <span class="nf">require</span><span class="p">(</span><span class="dl">'</span><span class="s1">http</span><span class="dl">'</span><span class="p">);</span>
+<span class="kd">const</span> <span class="nx">port</span> <span class="o">=</span> <span class="mi">3000</span><span class="p">;</span>
+
+<span class="kd">const</span> <span class="nx">server</span> <span class="o">=</span> <span class="nx">http</span><span class="p">.</span><span class="nf">createServer</span><span class="p">((</span><span class="nx">req</span><span class="p">,</span> <span class="nx">res</span><span class="p">)</span> <span class="o">=&gt;</span> <span class="p">{</span>
+    <span class="nx">res</span><span class="p">.</span><span class="nf">writeHead</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="p">{</span> <span class="dl">"</span><span class="s2">Content-Type</span><span class="dl">"</span><span class="p">:</span> <span class="dl">"</span><span class="s2">text/html</span><span class="dl">"</span> <span class="p">});</span>
+
+    <span class="nx">res</span><span class="p">.</span><span class="nf">end</span><span class="p">(</span><span class="s2">`
+        &lt;html&gt;
+        &lt;body&gt;
+          &lt;h1&gt;Request Headers After oauth2-proxy&lt;/h1&gt;
+          &lt;pre&gt;</span><span class="p">${</span><span class="nx">JSON</span><span class="p">.</span><span class="nf">stringify</span><span class="p">(</span><span class="nx">req</span><span class="p">.</span><span class="nx">headers</span><span class="p">,</span> <span class="kc">null</span><span class="p">,</span> <span class="mi">2</span><span class="p">)}</span><span class="s2">&lt;/pre&gt;
+        &lt;/body&gt;
+        &lt;/html&gt;
+      `</span><span class="p">);</span>
+<span class="p">});</span>
+
+<span class="nx">server</span><span class="p">.</span><span class="nf">listen</span><span class="p">(</span><span class="nx">port</span><span class="p">,</span> <span class="p">()</span> <span class="o">=&gt;</span> <span class="p">{</span>
+    <span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">"</span><span class="s2">Header dump server running on port</span><span class="dl">"</span><span class="p">,</span> <span class="nx">port</span><span class="p">);</span>
+<span class="p">});</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="basedeployment-yaml">base/deployment.yaml</h3>
+<div class="paragraph">
+<p>This deployment manifest file runs the server.js file.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">apps/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Deployment</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">web-app</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">1</span>
+  <span class="na">selector</span><span class="pi">:</span>
+    <span class="na">matchLabels</span><span class="pi">:</span>
+      <span class="na">app</span><span class="pi">:</span> <span class="s">web-app</span>
+  <span class="na">template</span><span class="pi">:</span>
+    <span class="na">metadata</span><span class="pi">:</span>
+      <span class="na">labels</span><span class="pi">:</span>
+        <span class="na">app</span><span class="pi">:</span> <span class="s">web-app</span>
+    <span class="na">spec</span><span class="pi">:</span>
+      <span class="na">containers</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">node-header-dump</span>
+          <span class="na">image</span><span class="pi">:</span> <span class="s">node:22-alpine</span>
+          <span class="na">command</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">node"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">/app/server.js"</span><span class="pi">]</span>
+          <span class="na">ports</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">containerPort</span><span class="pi">:</span> <span class="m">3000</span>
+          <span class="na">volumeMounts</span><span class="pi">:</span>
+            <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">node-sources</span>
+              <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/app/server.js</span>
+              <span class="na">subPath</span><span class="pi">:</span> <span class="s">server.js</span>
+      <span class="na">volumes</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">node-sources</span>
+          <span class="na">configMap</span><span class="pi">:</span>
+            <span class="na">name</span><span class="pi">:</span> <span class="s">node-sources</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="configure-traefik-ingress">Configure Traefik Ingress</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The following configuration demonstrates how to set up Traefik Ingress to route traffic to the sample web application while enforcing authentication via oauth2-proxy.</p>
+</div>
+<div class="listingblock">
+<div class="title">traefik-ingress files</div>
+<div class="content">
+<pre>k8s/traefik-ingress
+├── forward-auth-middleware.yaml
+├── ingressroute-dev.yaml
+└── kustomization.yaml</pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="kustomization-yaml-file">kustomization.yaml file</h3>
+<div class="listingblock">
+<div class="title">k8s/traefik-ingress/kustomization.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">namespace</span><span class="pi">:</span> <span class="s">dev</span>
+
+<span class="na">resources</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">ingressroute-dev.yaml</span>
+  <span class="pi">-</span> <span class="s">forward-auth-middleware.yaml</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="ingressroute-dev-yaml">ingressroute-dev.yaml</h3>
+<div class="paragraph">
+<p>The <strong>forward-auth</strong> middleware is added which redirects unauthenticated requests to oauth2-proxy for authentication.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">traefik.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">IngressRoute</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">dev-ingress-route</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">dev</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">entryPoints</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">web</span>
+    <span class="pi">-</span> <span class="s">websecure</span>
+
+  <span class="na">routes</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">match</span><span class="pi">:</span> <span class="s">Host(`dev.servicefoundry.org`) &amp;&amp; PathPrefix(`/`)</span>
+      <span class="na">kind</span><span class="pi">:</span> <span class="s">Rule</span>
+      <span class="na">services</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">dev-web-service</span>
+          <span class="na">port</span><span class="pi">:</span> <span class="m">80</span>
+
+      <span class="na">middlewares</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">forward-auth</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="forward-auth-middleware-yaml">forward-auth-middleware.yaml</h3>
+<div class="paragraph">
+<p>This middleware configuration points to the oauth2-proxy service for authentication.</p>
+</div>
+<div class="listingblock">
+<div class="title">k8s/traefik-ingress/forward-auth-middleware.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">traefik.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Middleware</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">forward-auth</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">service-foundry</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">forwardAuth</span><span class="pi">:</span>
+    <span class="na">address</span><span class="pi">:</span> <span class="s">http://oauth2-proxy.service-foundry.svc.cluster.local/oauth2/</span>
+    <span class="na">trustForwardHeader</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">authResponseHeaders</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">X-Auth-Request-User"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">X-Auth-Request-Email"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">X-Auth-Request-Preferred-Username"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">Authorization"</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Request headers below are sent to the downstream web application after successful authentication by oauth2-proxy.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>X-Auth-Request-User</strong>: The authenticated user&#8217;s identifier.</p>
+</li>
+<li>
+<p><strong>X-Auth-Request-Email</strong>: The authenticated user&#8217;s email address.</p>
+</li>
+<li>
+<p><strong>X-Auth-Request-Preferred-Username</strong>: The authenticated user&#8217;s preferred username.</p>
+</li>
+<li>
+<p><strong>Authorization</strong>: The authorization token (if applicable).</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deploying-the-application">Deploying the Application</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To deploy the sample web application along with the Traefik Ingress configuration, follow these steps:</p>
+</div>
+<div class="paragraph">
+<p>Deploy the web application in the <code>dev</code> namespace:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-k</span> k8s/overlays/dev</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Deploy the Traefik Ingress configuration:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-k</span> k8s/traefik-ingress</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="sign-in-to-access-the-application">Sign in to Access the Application</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Once everything is set up, access the application at: <a href="https://dev.servicefoundry.org" class="bare">https://dev.servicefoundry.org</a>. Then you will be redirected to the Keycloak sign-in page.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/sign-in.png" alt="sign in">
+</div>
+<div class="title">Figure 1. Sign-In Page</div>
+</div>
+<div class="paragraph">
+<p>After successful authentication, you will be redirected back to the sample web application, and the request headers will be displayed.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/request-headers.png" alt="request headers">
+</div>
+<div class="title">Figure 2. Request Headers after Successful Authentication</div>
+</div>
+<div class="sect2">
+<h3 id="oauth2-proxy-cookie-and-headers">Oauth2-Proxy Cookie and Headers</h3>
+<div class="paragraph">
+<p>The _oauth2-proxy cookie and authResponseHeaders set by oauth2-proxy are as follows:</p>
+</div>
+<div class="listingblock">
+<div class="title">oauth2-proxy cookie set in the browser</div>
+<div class="content">
+<pre>"cookie": "_oauth2_proxy=ch6QXiH-Qv-Bpt...(truncated for brevity)..",</pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">authResponseHeaders sent by oauth2-proxy</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="plaintext">  "x-auth-request-email": "devops@nsa2.com",
+  "x-auth-request-preferred-username": "devops",
+  "x-auth-request-user": "1bb013b8-ed9e-4466-b058-8b6c616cf2d3",</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>These values are retrieved from Keycloak after successful authentication.</p>
+</div>
+<div class="paragraph">
+<p>The same information can also be found in the Keycloak User Info page.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/keycloak-user.png" alt="keycloak user">
+</div>
+<div class="title">Figure 3. Keycloak User Info</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="next-steps">Next Steps</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Without session persistence, the user session will be expired after a certain period, requiring re-authentication. To maintain user sessions across multiple instances of oauth2-proxy, consider using a shared session store like Redis.</p>
+</div>
+<div class="paragraph">
+<p>In the next guide, we will demonstrate how to set up Redis as a session store for oauth2-proxy to enable session persistence.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/architecture.png" alt="architecture">
+</div>
+</div>
+<div class="paragraph">
+<p>In this guide, we demonstrated how to secure a web application running on Kubernetes using oauth2-proxy and Keycloak for Single Sign-On (SSO). By integrating these components with the Traefik Ingress Controller, we ensured that only authenticated users can access the application, enhancing its security and user management capabilities.</p>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="images/thnak-you-for-watching.png" alt="thnak you for watching">
+</div>
+</div>
+</div>
+</div>
+</body>
+</html>

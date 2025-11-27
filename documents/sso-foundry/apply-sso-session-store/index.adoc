@@ -1,0 +1,250 @@
+
+
+= Keeping SSO Sessions Alive with Active Use (OAuth2 Proxy + Keycloak + Redis)
+
+:imagesdir: images
+
+[.img-wide]
+image::architecture-with-session-store.png[]
+
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+
+== Introduction
+
+*YouTube Video Tutorial*: https://youtu.be/0qRcQnaYPqo
+
+This guide explains how to keep Single Sign‑On (SSO) sessions active for longer when using OAuth2 Proxy with Keycloak.
+By default, OAuth2 Proxy stores session information inside browser cookies, which makes it difficult to extend sessions dynamically.
+By adding a Redis-backed session store, OAuth2 Proxy can maintain sessions on the server side and refresh them as users stay active—leading to a much smoother login experience.
+
+
+What You Will Learn
+
+• How to install and configure Redis as a session store for OAuth2 Proxy
+• How to enable Redis-based sessions in OAuth2 Proxy
+• How Keycloak and OAuth2 Proxy session timeouts interact
+• How to configure session lifespans for longer, uninterrupted user sessions
+
+== Why Use a Session Store?
+
+.Session Management Without a Store
+[.img-wide]
+image::architecture-without-session-store.png[]
+
+Without a session store, OAuth2 Proxy works entirely through encrypted cookies stored in the browser.
+This has several limitations:
+
+•	Cookie expiration is fixed—OAuth2 Proxy cannot extend it automatically.
+•	When Keycloak’s *SSO Session Idle Timeout* expires, the user is logged out even if OAuth2 Proxy tries to refresh the cookie.
+•	Longer sessions become unreliable without a backend store.
+
+When Redis is used as a session store:
+
+•	OAuth2 Proxy stores the session data in Redis
+•	The browser only stores the session ID
+•	Sessions can be refreshed on every active request
+•	Sessions can stay alive up to Keycloak’s *SSO Session Max Lifespan*
+
+This dramatically improves the user experience.
+
+
+
+== Session‑Related Settings
+
+*OAuth2 Proxy Settings*:
+
+- *cookie_secure*: ensures cookies are only sent over HTTPS
+- *cookie_domains*: domain scope of the cookie
+- *cookie_name*: name of the session cookie (default: _oauth2_proxy)
+- *cookie_expire*: total cookie lifetime (e.g., 8h)
+- *cookie_refresh*: refresh interval before expiration (e.g., 10m)
+
+*Keycloak Settings*:
+
+- *SSO Session Idle Timeout*: max idle time before logout (e.g., 30m)
+- *SSO Session Max Lifespan*: absolute max session lifetime (e.g., 8h or 24h)
+
+
+== How Redis Session Storage Works
+
+By default, OAuth2 Proxy stores all session data in the browser cookie. With Redis:
+
+1.	OAuth2 Proxy creates a session record in Redis after login
+2.	A lightweight session ID is stored in the cookie
+3.	Each request refreshes the session TTL in Redis
+4.	Sessions stay alive as long as the user is active
+5.	Redis handles scalable, centralized session storage across replicas
+
+This allows OAuth2 Proxy replicas to share session state and enables true session persistence.
+
+== Installing Redis
+
+Redis will serve as the shared session store for OAuth2 Proxy.
+
+[IMPORTANT]
+====
+Bitnami now hosts Redis images in the bitnamilegacy repository.
+
+Only paid customers can access updated images, and the legacy images no longer receive security patches.
+====
+
+.Add Redis Helm repository
+[source,shell]
+----
+$ helm repo add bitnami https://charts.bitnami.com/bitnami
+$ helm repo update
+----
+
+
+=== Custom Values for Redis
+
+.custom-values.yaml
+[source,yaml]
+----
+image:
+  registry: docker.io
+  repository: bitnamilegacy/redis ## <1>
+  tag: 7.2.4-debian-11-r2
+
+architecture: "standalone" # standalone or replication
+
+auth:
+  enable: true
+  existingSecret: redis-credentials ## <2>
+  existingSecretPasswordKey: redis-password
+
+master:
+  count: 1
+----
+<1> Use bitnamilegacy repository for Redis images
+<2> Use existing secret for Redis password
+
+=== Install Redis using Helm
+
+[source,shell]
+----
+$ helm install redis bitnami/redis -n service-foundry --create-namespace -f custom-values.yaml
+----
+
+Redis will be accessible at:
+
+----
+redis://redis-master.service-foundry.svc.cluster.local:6379
+----
+
+== Configure OAuth2 Proxy to Use Redis
+
+=== Session Storage Settings
+
+
+.custom-oauth2-proxy-values.yaml - sessionStorage
+[source,yaml]
+----
+sessionStorage:
+  type: "redis"   # cookie or redis
+  redis:
+    existingSecret: "redis-credentials"
+    clientType: "standalone"
+
+    standalone:
+      connectionUrl: "redis://redis-master.service-foundry.svc.cluster.local:6379"
+----
+
+=== Cookie and Authentication Settings
+
+.custom-oauth2-proxy-values.yaml - cookie settings
+[source,yaml]
+----
+config:
+  existingSecret: oauth2-proxy-secret
+
+  configFile: |
+    provider = "keycloak-oidc"
+    email_domains = ["*"]
+    upstreams = ["static://200"]
+    redirect_url = "https://oauth2-proxy.servicefoundry.org/oauth2/callback"
+    scope = "openid email profile"
+    cookie_secure = true
+    cookie_domains = ".servicefoundry.org"
+    cookie_name = "_oauth2_proxy"
+    cookie_refresh = "10m"
+    cookie_expire = "24h"
+    whitelist_domains = [".servicefoundry.org"]
+    # return authenticated user to nginx
+    set_xauthrequest = true
+
+----
+
+Redis enables session refresh up to Keycloak’s configured lifespan.
+
+== Configuring Keycloak Session Timeouts
+
+Configure the Keycloak realm (example using Terraform):
+
+.Keycloak Session Timeout Settings
+[source,hcl-terraform]
+----
+# Create a new realm
+resource "keycloak_realm" "default" {
+  realm   = "default"
+  enabled = true
+  display_name = "Service Foundry"
+  display_name_html = "<b>Service Foundry</b>"
+  access_code_lifespan = "1h"
+  sso_session_idle_timeout = "30m"
+  sso_session_max_lifespan = "24h"
+}
+----
+
+
+.Keycloak Sessions
+[.img-wide]
+image::keycloak-sessions.png[]
+
+These values define the maximum allowed session length, even if OAuth2 Proxy tries to refresh the session.
+
+== An Example of Extended Sessions
+
+.Session Expiration Screenshot
+[.img-wide]
+image::session-expiration.png[]
+
+The screenshot above shows that the OAuth2 Proxy cookie expires after 24 hours, while the Keycloak SSO session idle timeout is set to 30 minutes.
+As long as the user remains active, the session will be refreshed every 10 minutes by OAuth2 Proxy—keeping the user logged in without interruptions.
+If the user is inactive for more than 30 minutes, they will be logged out due to Keycloak’s idle timeout.
+
+
+== Conclusion
+
+.Session Management With Redis
+[.img-wide]
+image::architecture-with-session-store.png[]
+
+By adding Redis as a session store and tuning timeout settings in both OAuth2 Proxy and Keycloak, you can provide long‑lasting, seamless user sessions.
+This significantly improves authentication stability and delivers a better user experience across all Service Foundry applications.
+
+
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+
+
+[.img-wide]
+image::thnak-you-for-watching.png[]
+
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
