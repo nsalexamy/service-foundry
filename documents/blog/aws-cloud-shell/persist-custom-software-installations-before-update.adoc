@@ -1,0 +1,144 @@
+= AWS Cloud Shell - Persisting Custom Software Installations
+
+:imagesdir: images
+
+[.img-wide]
+image::persist-custom-software-installations.png[]
+
+== Overview
+
+In the previous article, we discussed setting up AWS Cloud Shell for deploying Service Foundry. One important aspect of using Cloud Shell is understanding how to persist custom software installations across sessions.
+We installed several tools like helm and yq in the /usr/local/bin directory, but these installations do not persist after the session ends.
+
+The following installations will be lost after the Cloud Shell session ends:
+
+- /usr/local/bin/helm
+- /usr/local/bin/yq
+
+
+This article explains how to use the 1 GB of persistent storage provided by AWS Cloud Shell to store custom software installations, configuration files, and scripts.
+
+
+=== Persistent storage
+
+With AWS CloudShell, you can use up to 1 GB of persistent storage in each AWS Region at no additional cost. Persistent storage is located in your home directory ($HOME) and is private to you. Unlike ephemeral environment resources that are recycled after each shell session ends, data in your home directory persists between sessions.
+
+For more information, refer to the official documentation: link:https://docs.aws.amazon.com/cloudshell/latest/userguide/limits.html#persistent-storage-limitations[AWS CloudShell Persistent Storage].
+
+
+== Add $HOME/bin to PATH
+
+To ensure that custom software installations in your persistent storage are easily accessible, you should add the $HOME/bin directory to your PATH environment variable.
+By default, AWS Cloud Shell includes $HOME/bin in the PATH, but if it's not present, you can add it by appending the following line to your ~/.bashrc file:
+
+.Check if $HOME/bin is in PATH,
+[source,shell]
+----
+$ echo $PATH
+----
+
+See if $HOME/bin is listed. If not, add it with the following command:
+
+
+[source,shell]
+----
+$ echo 'export PATH=$HOME/bin:$PATH' >> $HOME/.bashrc
+$ source $HOME/.bashrc
+----
+
+Create the bin directory if it doesn't exist:
+[source,shell]
+----
+$ mkdir -p $HOME/bin
+----
+
+== Install Custom Software in Persistent Storage
+
+We are going to install helm and yq in the $HOME/bin directory to ensure they persist across sessions.
+
+=== Install Helm
+
+Run the following commands to download and install Helm in your persistent storage:
+
+[source,shell]
+----
+$ curl -L https://get.helm.sh/helm-v3.14.2-linux-amd64.tar.gz -o helm.tar.gz
+$ tar -zxvf helm.tar.gz
+$ mv linux-amd64/helm ~/bin/
+$ rm -rf helm.tar.gz linux-amd64
+----
+
+Verify the installation:
+[source,shell]
+----
+$ helm version
+----
+
+=== Install yq
+
+Run the following commands to download and install yq in your persistent storage:
+
+[source,shell]
+----
+$ wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O ~/bin/yq
+chmod +x ~/bin/yq
+----
+
+Verify the installation:
+[source,shell]
+----
+$ yq --version
+----
+
+== Restart Cloud Shell
+
+To apply the changes and ensure that the installed software is available, restart your Cloud Shell session by clicking on the gear icon in the top-right corner and selecting "Restart."
+
+And run the following command to reload your bash configuration:
+
+[source,shell]
+----
+$ helm version
+$ yq --version
+----
+
+== Walk-around
+
+If you prefer not to install software in your persistent storage, you can create a setup script that installs the required tools each time you start a new Cloud Shell session.
+Here is an example script that installs Helm and yq:
+
+[source,shell]
+----
+$ cat << 'EOF' > $HOME/setup-cloudshell.sh
+
+#!/bin/bash
+# Install Helm
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+
+# Install yq
+wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O ./yq
+chmod +x ./yq
+sudo mv ./yq /usr/local/bin/yq
+
+# Install any other tools you need here
+
+EOF
+----
+
+Make the script executable:
+[source,shell]
+----
+$ chmod +x $HOME/setup-cloudshell.sh
+----
+You can run this script whenever you start a new Cloud Shell session to set up your environment quickly:
+[source,shell]
+----
+$ $HOME/setup-cloudshell.sh
+----
+
+
+
+== Conclusion
+
+By utilizing the persistent storage in AWS Cloud Shell, you can ensure that your custom software installations remain available across sessions.
