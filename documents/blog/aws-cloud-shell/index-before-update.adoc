@@ -1,0 +1,247 @@
+= AWS Cloud Shell Setup Guide
+
+:imagesdir: images
+
+[.img-wide]
+image::cloud-shell-architecture.png[]
+
+== Overview
+
+This article provides a step-by-step guide to setting up AWS Cloud Shell for deploying Service Foundry using Helm charts.
+
+It can be helpful for users who want to manage their AWS resources and Kubernetes clusters directly from the browser without needing to install any software locally.
+
+
+=== Prerequisites
+
+* An AWS account with necessary permissions.
+* Basic knowledge of AWS Cloud Shell and Kubernetes.
+
+=== Topics Covered
+
+* AWS Cloud Shell overview
+* Steps to set up AWS Cloud Shell
+* Installing and configuring AWS CLI, kubectl, and Helm
+* Connecting to an EKS cluster
+* Setting up Git credentials (optional)
+
+
+== What is AWS Cloud Shell?
+
+AWS Cloud Shell is a browser-based shell that provides you with command-line access to your AWS resources. It comes pre-installed with essential tools like AWS CLI, kubectl,  and git, making it easier to manage your AWS services without needing to set up a local environment.
+
+For AIM users, free tier usage includes 1 GB of persistent storage. And remember that you cannot run a single task for more than 1 hour.
+
+=== Features of AWS Cloud Shell
+
+* Pre-configured with AWS CLI and other essential tools.
+* Automatically authenticated with your AWS credentials.
+* Fully managed by AWS, so no setup is required.
+* 1 GB of persistent storage
+
+=== Shell sessions
+
+* Inactive sessions: After 20 minutes of inactivity, your AWS Cloud Shell session will automatically pause. You can resume it by clicking the "Resume Session" button.
+* Long-running sessions: A shell session that runs continuously for 12 hours will be automatically terminated even if the user is regularly interacting with it.
+
+== Steps to Set Up AWS Cloud Shell
+
+=== 1. Open AWS Cloud Shell
+
+To open AWS Cloud Shell, log in to your AWS Management Console. In the top-right corner, click on the Cloud Shell icon (a terminal icon) to launch the shell environment.
+
+.AWS Cloud Shell - Launch
+[.img-wide]
+image::aws-console.png[]
+
+=== 2. Configure AWS CLI
+
+When using AWS Cloud Shell, the AWS CLI is already installed and configured with your credentials. However, you can verify your configuration by running:
+
+[source,shell]
+----
+$ aws configure list
+----
+
+Sample output:
+[source,shell]
+----
+ aws configure list
+NAME       : VALUE                    : TYPE             : LOCATION
+profile    : <not set>                : None             : None
+access_key : ****************HXWO     : container-role   :
+secret_key : ****************99Rl     : container-role   :
+region     : ca-central-1             : env              : ['AWS_REGION', 'AWS_DEFAULT_REGION']
+----
+
+=== 3. Verify tools installation
+
+AWS Cloud Shell comes pre-installed with several essential tools. You can verify their installation by checking their versions:
+
+[source,shell]
+----
+$ aws --version
+$ kubectl version --client
+$ git --version
+
+$ helm version
+bash: helm: command not found
+----
+
+=== 4. Install Helm
+
+If Helm is not installed, you can install it by running the following commands:
+[source,shell]
+----
+$ curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+$ helm version
+----
+
+=== 5. Update Kubernetes configuration for EKS cluster
+
+To update your Kubernetes configuration to connect to your EKS cluster, use the following command:
+
+[source,shell]
+----
+# Set your EKS cluster name
+$ EKS_CLUSTER_NAME="your-eks-cluster-name"
+$ aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
+
+# Verify the connection
+$ kubectl get nodes
+
+# Permission denied error
+E1126 19:22:33.267316     882 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: the server has asked for the client to provide credentials"
+----
+
+If you encounter a permission denied error, ensure that your AWS IAM user has the necessary permissions to access the EKS cluster.
+
+[source,shell]
+----
+$ aws sts get-caller-identity
+
+# Output
+{
+    "UserId": "AID---------",
+    "Account": "44------",
+    "Arn": "arn:aws:iam::44-----:user/your-iam-user"
+}
+
+$ aws sts get-caller-identity --query Arn --output text
+arn:aws:iam::44------:user/your-iam-user
+----
+
+
+Verify that the IAM user has the required EKS permissions.
+
+This exact ARN must be allowed in the EKS aws-auth ConfigMap.
+
+[source,shell]
+----
+$ kubectl -n kube-system get configmap aws-auth -o yaml
+----
+
+INFO:: This can be done by an admin user of the EKS cluster outside of Cloud Shell.
+
+[source,shell]
+----
+$ kubectl edit configmap aws-auth -n kube-system
+----
+
+Add the following under `mapUsers:` section:
+[source,yaml]
+----
+data:
+  mapUsers:
+    - userarn: arn:aws:iam::445567090745:user/emillian
+      username: cloudshell-emillian
+      groups:
+        - system:masters
+----
+
+Save and exit the editor.
+
+After updating the aws-auth ConfigMap, try running the `kubectl get nodes` command again to verify that you can access the EKS cluster.
+
+.kubectl get nodes
+[source,shell]
+----
+$ kubectl get nodes
+
+NAME                                             STATUS   ROLES    AGE     VERSION
+ip-192-168-18-56.ca-central-1.compute.internal   Ready    <none>   3h14m   v1.33.5-eks-ecaa3a6
+----
+
+.helm list all namespaces
+[source,shell]
+----
+$  helm list -A
+NAME                    NAMESPACE       REVISION        UPDATED                                 STATUS          CHART                           APP VERSION
+aws-cluster-autoscaler  kube-system     1               2025-11-26 09:25:19.295873 -0800 -0800  deployed        cluster-autoscaler-9.50.1       1.33.0
+----
+
+=== 6. Set up Git credentials (optional)
+
+If you plan to clone private repositories, you may need to set up Git credentials. You can do this by configuring SSH keys.
+
+.Generate SSH keys
+[source,shell]
+----
+$ ssh-keygen -t rsa -b 4096 -C "emillian@servicefoundry.org" -f ~/.ssh/id_rsa
+
+$ ls ~/.ssh/
+
+id_rsa  id_rsa.pub
+----
+
+.Upload the public key to your Git hosting service (e.g., GitHub, GitLab).
+[source,shell]
+----
+$ cat ~/.ssh/id_rsa.pub
+----
+
+.Add the deploy key to your GitHub repository
+[.img-wide]
+image::github-add-deploy-key-1.png[]
+
+
+
+Add GitHub's host key automatically to the list of known hosts
+
+[source,shell]
+----
+$ ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+$ cat ~/.ssh/known_hosts
+----
+
+Clone a private repository using SSH
+[source,shell]
+----
+$ git clone git@github.com:nsalexamy/service-foundry-demo.git
+----
+
+// .Add the private key to the SSH agent
+// [source,shell]
+// ----
+// $ eval "$(ssh-agent -s)"
+// $ ssh-add ~/.ssh/id_rsa
+// ----
+
+=== 7. You're all set!
+
+You have now set up AWS Cloud Shell with AWS CLI, kubectl, and Helm. You can use this environment to manage your AWS resources and Kubernetes clusters.
+
+Additional Tools in AWS Cloud Shell:
+
+* yq: A lightweight and portable command-line YAML processor.
+* jq: A lightweight and flexible command-line JSON processor.
+
+
+== Conclusion
+
+You have successfully set up AWS Cloud Shell for managing your AWS resources and Kubernetes clusters. You can now use this environment to deploy and manage Service Foundry using Helm charts.
+
+Service Foundry provides bootstrap scripts that can be executed in AWS Cloud Shell to simplify the deployment process. For more information, refer to the Service Foundry documentation.
+

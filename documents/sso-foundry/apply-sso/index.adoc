@@ -1,0 +1,296 @@
+
+
+= Securing Kubernetes Web Applications with Single Sign-On (SSO)
+
+
+:imagesdir: images
+
+[.img-wide]
+image::architecture.png[]
+
+== Introduction
+
+*YouTube Video Tutorial*: https://youtu.be/Hus8WK_3K9k
+
+This guide walks you through securing a web application on Kubernetes using Single Sign-On (SSO). With the Service Foundry Console, you'll configure Traefik Ingress to delegate authentication to OAuth2 Proxy, which integrates with Keycloak as the identity provider.
+
+== Prerequisites
+
+Before you begin, ensure the following components are installed in your Kubernetes cluster:
+
+* Traefik Ingress Controller
+* OAuth2 Proxy
+* Keycloak
+
+
+== What is OAuth2 Proxy?
+
+OAuth2 Proxy is a reverse proxy that provides authentication using third-party providers, including Keycloak. It acts as a gatekeeper, ensuring only authenticated users can access protected resources.
+
+== How OAuth2 Proxy Uses Session Cookies
+
+OAuth2 Proxy uses encrypted session cookies to maintain user login state. These cookies are stored in the user's browser and sent with each request to prove authentication. They typically include:
+
+* User ID from Keycloak
+* Optional access and ID tokens
+* Expiration timestamps
+* A session identifier (if using Redis for session storage)
+
+=== Cookie Name
+
+By default, OAuth2 Proxy uses _oauth2_proxy as the cookie name, but it can be customized using the --cookie-name flag.
+
+
+
+== Sample Web Application
+
+For this demo, we'll use a Node.js application that echoes all HTTP request headers. This helps visualize what headers are passed through after authentication.
+
+.project structure
+----
+k8s
+├── base
+│   ├── configmap.yaml
+│   ├── deployment.yaml
+│   ├── kustomization.yaml
+│   ├── namespace.yaml
+│   └── service.yaml
+└── overlays
+    └── dev
+        ├── kustomization.yaml
+        ├── pod-label-patch.yaml
+        └── server.js
+----
+
+=== server.js
+
+This Node.js script displays incoming request headers:
+
+.k8s/overlays/dev/server.js
+[source,javascript]
+----
+const http = require('http');
+const port = 3000;
+
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "text/html" });
+
+    res.end(`
+        <html>
+        <body>
+          <h1>Request Headers After oauth2-proxy</h1>
+          <pre>${JSON.stringify(req.headers, null, 2)}</pre>
+        </body>
+        </html>
+      `);
+});
+
+server.listen(port, () => {
+    console.log("Header dump server running on port", port);
+});
+----
+
+=== base/deployment.yaml
+
+This Deployment launches the Node.js header-dump server:
+
+.k8s/base/deployment.yaml
+[source,yaml]
+----
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web-app
+  template:
+    metadata:
+      labels:
+        app: web-app
+    spec:
+      containers:
+        - name: node-header-dump
+          image: node:22-alpine
+          command: ["node", "/app/server.js"]
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - name: node-sources
+              mountPath: /app/server.js
+              subPath: server.js
+      volumes:
+        - name: node-sources
+          configMap:
+            name: node-sources
+----
+
+== Configure Traefik Ingress
+
+We'll now set up Traefik to enforce authentication before routing traffic to our app.
+
+.traefik-ingress directory
+----
+k8s/traefik-ingress
+├── forward-auth-middleware.yaml
+├── ingressroute-dev.yaml
+└── kustomization.yaml
+----
+
+=== kustomization.yaml file
+
+.k8s/traefik-ingress/kustomization.yaml
+[source,yaml]
+----
+namespace: dev
+
+resources:
+  - ingressroute-dev.yaml
+  - forward-auth-middleware.yaml
+----
+
+=== ingressroute-dev.yaml
+
+This IngressRoute includes the *forward-auth* middleware to redirect unauthenticated users.
+
+[source,yaml]
+----
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: dev-ingress-route
+  namespace: dev
+spec:
+  entryPoints:
+    - web
+    - websecure
+
+  routes:
+    - match: Host(`dev.servicefoundry.org`) && PathPrefix(`/`)
+      kind: Rule
+      services:
+        - name: dev-web-service
+          port: 80
+
+      middlewares:
+        - name: forward-auth
+----
+
+=== forward-auth-middleware.yaml
+
+This middleware forwards authentication to the OAuth2 Proxy service:
+
+.k8s/traefik-ingress/forward-auth-middleware.yaml
+[source,yaml]
+----
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: forward-auth
+  namespace: service-foundry
+spec:
+  forwardAuth:
+    address: http://oauth2-proxy.service-foundry.svc.cluster.local/oauth2/
+    trustForwardHeader: true
+    authResponseHeaders:
+      - "X-Auth-Request-User"
+      - "X-Auth-Request-Email"
+      - "X-Auth-Request-Preferred-Username"
+      - "Authorization"
+----
+
+These headers are passed to your app after authentication:
+
+* *X-Auth-Request-User*: Keycloak user ID
+* *X-Auth-Request-Email*: Email address
+* *X-Auth-Request-Preferred-Username*: Preferred username
+* *Authorization*: Access token (if provided)
+
+
+== Deploying the Application
+
+Apply the deployment and ingress configurations:
+
+
+[source,shell]
+----
+$ kubectl apply -k k8s/overlays/dev
+
+$ kubectl apply -k k8s/traefik-ingress
+----
+
+== Signing In and Accessing the App
+
+Visit: https://dev.servicefoundry.org
+You’ll be redirected to the Keycloak login screen.
+
+.Sign-In Page
+[.img-wide]
+image::sign-in.png[]
+
+After signing in, you'll see your request headers as returned by the app.
+
+.Headers After Authentication
+[.img-wide]
+image::request-headers.png[]
+
+=== Example Cookie and Header Values
+
+The _oauth2-proxy cookie and authResponseHeaders set by oauth2-proxy are as follows:
+
+.oauth2-proxy cookie
+[source,plaintext]
+----
+"cookie": "_oauth2_proxy=ch6QXiH-Qv-Bpt...(truncated for brevity)..",
+----
+
+.authResponseHeaders
+[source,plaintext]
+----
+  "x-auth-request-email": "devops@nsa2.com",
+  "x-auth-request-preferred-username": "devops",
+  "x-auth-request-user": "1bb013b8-ed9e-4466-b058-8b6c616cf2d3",
+----
+
+These values come from Keycloak and are also visible in the Keycloak user info panel.
+
+.Keycloak User Info
+[.img-wide]
+image::keycloak-user.png[]
+
+== What’s Next?
+
+This guide showed how to implement SSO for your Kubernetes applications using Traefik, OAuth2 Proxy, and Keycloak. With this setup, you can secure internal apps and streamline user access with centralized authentication.
+
+
+== Conclusion
+
+[.img-wide]
+image::architecture.png[]
+
+In this guide, we demonstrated how to secure a web application running on Kubernetes using oauth2-proxy and Keycloak for Single Sign-On (SSO). By integrating these components with the Traefik Ingress Controller, we ensured that only authenticated users can access the application, enhancing its security and user management capabilities.
+
+
+
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+
+image::thnak-you-for-watching.png[]
+
+
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
