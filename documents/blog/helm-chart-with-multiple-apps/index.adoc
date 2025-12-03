@@ -1,0 +1,405 @@
+= Building a Helm Chart for Multi-App Deployments
+
+:imagesdir: images
+
+[.img-wide]
+image::organizing-helm-chart.png[]
+
+== Overview
+
+Modern applications often consist of multiple services such as a frontend web interface and a backend API. When these services are tightly coupled, it makes sense to deploy and manage them together. Helm, Kubernetes’ package manager, provides a powerful feature called sub-charts, which allows you to organize and manage multiple related applications within a single parent chart.
+
+In this guide, we will walk through the process of creating a Helm chart that includes two applications—*a React-based frontend* and *a Go-based backend*—as sub-charts under a common parent chart named service-foundry-community.
+
+
+== Why Use Sub-Charts?
+
+Sub-charts help:
+
+- Organize components cleanly in modular Helm packages
+- Manage shared configuration centrally in the parent chart
+- Deploy related services together using a single Helm install
+- Reuse components across different deployments
+
+== File Structure Overview
+
+This is the final directory layout for the parent chart with two sub-charts:
+
+.Service Foundry Community Helm Chart File Structure
+[source,tree]
+----
+$ tree service-foundry-community
+
+service-foundry-community
+├── charts
+│   ├── backend
+│   │   ├── charts
+│   │   ├── templates
+│   │   │   ├── tests
+│   │   │   │   └── test-connection.yaml
+│   │   │   ├── NOTES.txt
+│   │   │   ├── _helpers.tpl
+│   │   │   ├── deployment.yaml
+│   │   │   ├── hpa.yaml
+│   │   │   ├── ingress.yaml
+│   │   │   ├── secret.yaml
+│   │   │   ├── service.yaml
+│   │   │   └── serviceaccount.yaml
+│   │   ├── Chart.yaml
+│   │   └── values.yaml
+│   └── frontend
+│       ├── charts
+│       ├── templates
+│       │   ├── tests
+│       │   │   └── test-connection.yaml
+│       │   ├── NOTES.txt
+│       │   ├── _helpers.tpl
+│       │   ├── configmap.yaml
+│       │   ├── deployment.yaml
+│       │   ├── hpa.yaml
+│       │   ├── ingress.yaml
+│       │   ├── service.yaml
+│       │   └── serviceaccount.yaml
+│       ├── Chart.yaml
+│       └── values.yaml
+├── templates
+│   ├── _helpers.tpl
+│   └── ingressroute.yaml
+├── Chart.yaml
+└── values.yaml
+
+----
+
+The charts/ folder automatically includes Helm sub-charts. You do not need to manually reference them in Chart.yaml.
+
+
+== Creating the Helm Charts
+
+=== 1. Create Parent Chart
+
+
+.Create main Helm Chart directory
+[source,shell]
+----
+$ mkdir helm-chart
+$ cd helm-chart
+----
+
+.Create the parent Helm Chart
+[source,shell]
+----
+$ helm create service-foundry-community
+$ cd service-foundry-community
+----
+
+.Remove unneeded default files from the parent chart:
+[source,shell]
+----
+$ rm -rf \
+  templates/tests \
+  templates/deployment.yaml \
+  templates/hpa.yaml \
+  templates/ingress.yaml \
+  templates/NOTES.txt \
+    templates/service.yaml \
+  templates/serviceaccount.yaml
+----
+
+Then add only the shared templates (like ingress routing) that apply to both backend and frontend.
+
+Resulting structure:
+[source,shell]
+----
+service-foundry-community
+├── Chart.yaml
+├── templates
+│   ├── _helpers.tpl
+│   └── ingressroute.yaml
+└── values.yaml
+----
+
+=== 2. Parent Chart: Chart.yaml
+
+
+=== Chart.yaml (Parent Chart)
+
+.service-foundry-community/Chart.yaml
+[source,yaml]
+----
+apiVersion: v2
+name: service-foundry-community
+description: A Helm chart for Kubernetes
+
+type: application
+version: 0.1.0
+#appVersion: "0.1.0"
+----
+
+appVersion is not set here because we will manage versions in sub-charts.
+
+
+=== 3. Parent Chart: values.yaml
+
+This file contains shared/global values and references for both sub-charts.
+
+.service-foundry-community/values.yaml
+[source,yaml]
+----
+global:
+  version: "0.1.0"
+
+# The host under which the Service Foundry Community app will be accessible
+host: community.servicefoundry.org
+
+frontend:
+  enabled: true
+  image:
+    repository: credemol/service-foundry-community-frontend
+    pullPolicy: IfNotPresent
+    # tag left empty to use global.version by default
+    tag: ""
+  service:
+    port: 80
+  config:
+    enabled: true
+    # Default config.json content for the React app (will be put into a ConfigMap)
+    content: |
+      {
+        "backendServer": "https://community.servicefoundry.org/api"
+      }
+
+backend:
+  enabled: true
+  image:
+    repository: credemol/service-foundry-community-backend
+    pullPolicy: IfNotPresent
+    tag: ""
+  service:
+    port: 8080
+
+----
+
+This values.yaml enables coordinated deployment by:
+
+- Setting a shared version for all images
+- Defining routing domain
+- Providing config for the frontend app (via ConfigMap)
+
+=== 4. Parent Chart: _helpers.tpl
+
+This template file defines reusable functions for generating unique names:
+
+.service-foundry-community/templates/_helpers.tpl
+[source]
+----
+{{- define "service-foundry-community.backendFullname" -}}
+{{ printf "%s-backend" .Release.Name }}
+{{- end }}
+
+{{- define "service-foundry-community.frontendFullname" -}}
+{{ printf "%s-frontend" .Release.Name }}
+{{- end }}
+----
+
+These helpers ensure consistency in service names.
+
+=== 5. Parent Chart: ingressroute.yaml
+
+This file defines routing rules for Traefik based on the host and path prefixes.
+
+.service-foundry-community/templates/ingressroute.yaml
+[source]
+----
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "service-foundry-community.fullname" . }}-ingress-route
+  namespace: {{ .Release.Namespace }}
+spec:
+  entryPoints:
+    - web
+    - websecure
+
+  routes:
+
+    - match: Host(`{{ .Values.host }}`) && PathPrefix(`/api`)
+      kind: Rule
+      services:
+        - name: {{ include "service-foundry-community.backendFullname" . }}
+          port: http
+      middlewares:
+        - name: cors-headers
+        #- name: forward-auth
+        - name: api-stripprefix
+
+    - match: Host(`{{ .Values.host }}`) && PathPrefix(`/`)
+      kind: Rule
+      services:
+        - name: {{ include "service-foundry-community.frontendFullname" . }}
+          port: http
+      middlewares:
+        - name: cors-headers
+        #- name: forward-auth
+----
+
+We intentionally omit forward-auth middleware so users can access the site without login.
+
+== Creating the Sub-Charts
+
+From within the parent chart directory:
+
+[source,shell]
+----
+$ cd charts
+
+$ helm create backend
+$ helm create frontend
+----
+
+Each sub-chart is a fully independent Helm chart. Customize the following as needed:
+
+
+=== Backend Helm Chart
+
+Tree structure:
+
+[source,shell]
+----
+$ tree backend
+
+backend
+├── Chart.yaml
+├── charts
+├── templates
+│   ├── NOTES.txt
+│   ├── _helpers.tpl
+│   ├── deployment.yaml
+│   ├── hpa.yaml
+│   ├── ingress.yaml
+│   ├── secret.yaml
+│   ├── service.yaml
+│   ├── serviceaccount.yaml
+│   └── tests
+│       └── test-connection.yaml
+└── values.yaml
+----
+
+You can define secrets, configure autoscaling, and more.
+
+
+=== Frontend Helm Chart
+
+Tree structure:
+
+[source,shell]
+----
+$ tree frontend
+
+frontend
+├── Chart.yaml
+├── charts
+├── templates
+│   ├── NOTES.txt
+│   ├── _helpers.tpl
+│   ├── configmap.yaml
+│   ├── deployment.yaml
+│   ├── hpa.yaml
+│   ├── ingress.yaml
+│   ├── service.yaml
+│   ├── serviceaccount.yaml
+│   └── tests
+│       └── test-connection.yaml
+└── values.yaml
+----
+
+The configmap.yaml will use .Values.config.content to mount JSON into the container.
+
+
+== Helm Commands
+
+.Install:
+[source,shell]
+----
+$ helm install service-foundry-community ./service-foundry-community -n service-foundry --create-namespace
+----
+
+.Upgrade:
+[source,shell]
+----
+$ helm upgrade --install service-foundry-community ./service-foundry-community -n service-foundry
+----
+
+Uninstall:
+[source,shell]
+----
+$ helm uninstall service-foundry-community -n service-foundry
+----
+
+== Publishing the Chart to a Private Repository
+
+You can push the chart to AWS ECR as a Helm OCI repository.
+
+=== Enable OCI Support (Helm 3.8+ has it by default)
+
+[source,shell]
+----
+$ export HELM_EXPERIMENTAL_OCI=1
+----
+
+=== Authenticate with AWS ECR
+
+[source,shell]
+----
+$ aws ecr get-login-password --region $AWS_REGION \
+  | helm registry login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+----
+
+* AWS_REGION: The AWS region where your ECR is located (e.g., us-west-2).
+* AWS_ACCOUNT_ID: Your AWS account ID. e.g., 123456789012.
+
+=== Create Helm Repository in ECR
+[source,shell]
+----
+$ aws ecr create-repository \
+  --repository-name helm-charts/service-foundry-community \
+  --region $AWS_REGION
+----
+
+=== Package and Push
+
+
+
+[source,shell]
+----
+$ helm package service-foundry-community
+
+$ helm push service-foundry-community-0.1.0.tgz oci://$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/helm-charts
+----
+
+.Pushed Chart in AWS ECR
+[.img-wide]
+image::aws-ecr-helm-charts.png[]
+
+=== 6. Pull or Install from ECR
+
+.Pull the Helm chart from ECR:
+[source,shell]
+----
+$ helm pull oci://$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/helm-charts/service-foundry-community --version 0.1.0
+----
+
+
+.Install the Helm chart from ECR:
+[source,shell]
+----
+$ helm install service-foundry-community oci://$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/helm-charts/service-foundry-community -n service-foundry --create-namespace
+----
+
+== Final Thoughts
+
+Using sub-charts with Helm is a powerful way to group related applications together. You get modularity, flexibility, and clean separation of logic, while still being able to deploy and manage the full stack from a single entry point.
+
+This structure is ideal for Kubernetes-native platforms like Service Foundry, where frontend, backend, and shared infrastructure (like IngressRoutes) need to work in harmony.
+
+Let us know if you’d like a follow-up on GitOps integration or advanced templating for these charts!
+
