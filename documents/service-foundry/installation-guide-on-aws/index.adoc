@@ -1,0 +1,465 @@
+---
+layout: documents
+title: Service Foundry Installation Guide for AWS Users
+author: Young Gyu Kim
+email: credemol@gmail.com
+summary: "WIP"
+tags: "#Kubernetes #DevOps #CloudNative #ServiceFoundry #EKS"
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Service Foundry
+    url: /documents/service-foundry/
+---
+
+
+= Service Foundry Installation Guide for AWS Users
+
+:imagesdir: images
+
+== Introduction
+
+This guide provides step-by-step instructions for installing Service Foundry on Amazon Web Services (AWS) using AWS Cloud Shell and an existing EKS cluster.
+
+=== Prerequisites
+
+* An AWS account with necessary permissions to create and manage EKS clusters and related resources.
+* An existing EKS cluster. If you don't have one, this guide includes steps to create one.
+* Basic knowledge of AWS Cloud Shell, Kubernetes, and Git.
+* A GitHub account to create a repository for GitOps.
+
+
+
+== Steps to Install Service Foundry on AWS
+
+. Set up AWS Cloud Shell
+. Create an EKS Cluster(if not already created)
+. Configure kubectl to connect to the EKS Cluster
+. Create a GitHub Repository for GitOps and Configure SSH Access to GitHub Repository
+. Download Bootstrap Scripts for Service Foundry
+. Set Environment Variables
+. Run the Bootstrap Script to Install Service Foundry
+. DNS Configuration (if applicable)
+
+
+== 1. Set up AWS Cloud Shell
+
+AWS Cloud Shell is a browser-based shell that provides you with command-line access to AWS resources. It comes pre-installed with essential tools like AWS CLI, kubectl, and Helm, making it easier to manage your AWS infrastructure.
+
+For more information on AWS CloudShell, refer to documents below:
+
+- link:https://nsalexamy.github.io/service-foundry/pages/documents/blog/aws-cloud-shell/[AWS Cloud Shell Setup Guide]
+- link:https://nsalexamy.github.io/service-foundry/pages/documents/blog/aws-cloud-shell/persist-custom-software-installations.html[Persist Custom Software Installations in AWS Cloud Shell]
+
+
+=== Install CLI Tools
+
+- AWS CLI: Pre-installed
+- kubectl: Pre-installed
+- git: Pre-installed. Need to configure SSH keys for GitHub access
+- jq: Pre-installed
+- Helm: Needs to be installed
+- yq: Needs to be installed
+- eksctl: Needs to be installed if you plan to create an EKS cluster
+
+=== Cloud Shell Storage
+Note: AWS Cloud Shell provides 1 GB of persistent storage for your files and configurations.
+
+You can install custom tools for temporary use in /usr/local/bin or for persistent use in $HOME/bin.
+
+Here, you can see how big the installed tools are:
+[source,shell]
+----
+$ ls -l --block-size=M
+total 203M
+-rwxr-xr-x. 1 cloudshell-user cloudshell-user 144M Nov 27 04:35 eksctl
+-rwxr-xr-x. 1 cloudshell-user cloudshell-user  49M Feb 21  2024 helm
+-rwxr-xr-x. 1 cloudshell-user cloudshell-user  11M Nov 24 23:59 yq
+----
+
+If you need to free up space, you can install tools in /usr/local/bin for temporary use.
+This document shows how to install them in $HOME/bin for persistent use.
+
+==== Configure GitHub SSH Access
+
+[source,shell]
+----
+$ mkdir -p ~/.ssh
+$ ssh-keygen -t rsa -b 4096 -C "your-github-email" -f ~/.ssh/id_rsa
+----
+
+Trust GitHub host key:
+[source,shell]
+----
+$ ssh-keyscan github.com >> ~/.ssh/known_hosts
+----
+
+Click on your GitHub profile -> Settings -> SSH and GPG keys -> New SSH key. Paste the contents of the public key (~/.ssh/id_rsa.pub) there.
+
+==== Add $HOME/bin to PATH
+
+To make custom-installed tools accessible from the command line, you should store them in a dedicated folder like ~/bin and ensure it’s part of your PATH.
+CloudShell usually includes $HOME/bin in the PATH by default. But if for any reason it isn’t, follow these steps:
+.Check if $HOME/bin is already in your PATH:
+[source,shell]
+----
+$ echo $PATH
+----
+.If it’s not included, add it manually:
+[source,shell]
+----
+$ echo 'export PATH=$HOME/bin:$PATH' >> $HOME/.bashrc
+$ source $HOME/.bashrc
+----
+.Then, create the directory (if it doesn’t already exist):
+[source,shell]
+----
+$ mkdir -p $HOME/bin
+----
+
+==== Install Helm
+
+Run the following commands to download and install Helm in your persistent storage:
+[source,shell]
+----
+$ curl -L https://get.helm.sh/helm-v3.14.2-linux-amd64.tar.gz -o helm.tar.gz
+$ tar -zxvf helm.tar.gz
+$ mv linux-amd64/helm ~/bin/
+$ rm -rf helm.tar.gz linux-amd64
+----
+
+Verify the installation:
+[source,shell]
+----
+$ helm version
+----
+
+==== Install yq
+
+Run the following commands to download and install yq in your persistent storage:
+[source,shell]
+----
+$ wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O ~/bin/yq
+$ chmod +x ~/bin/yq
+----
+
+Verify the installation:
+[source,shell]
+----
+$ yq --version
+----
+
+==== Install eksctl
+
+This is optional, only if you plan to create an EKS cluster.
+
+First, download the latest eksctl binary and move it to your persistent bin directory:
+[source,shell]
+----
+$ curl --silent --location "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" \
+  -o eksctl.tar.gz
+$ tar -xzf eksctl.tar.gz
+$ mv eksctl $HOME/bin/
+$ rm -rf eksctl.tar.gz
+----
+
+Verify installation:
+[source,shell]
+----
+$ eksctl version
+----
+
+== 2. Create an EKS Cluster
+
+If you don’t have an existing EKS cluster, you can create one using eksctl. *eksctl* simplifies the process of creating and managing EKS clusters. Install eksctl as described in the previous section.
+
+Service Foundry provides 'create-eks.sh' to streamline creating an EKS cluster with recommended settings.
+
+- Installing EBS CSI Driver for dynamic volume provisioning
+- Installing Autoscaler for automatic node scaling
+- Creating PriorityClasses for pod scheduling
+
+Download the cloud-tools repository:
+[source,shell]
+----
+$ git clone https://github.com/nsalexamy/cloud-tools.git
+$ cd cloud-tools/aws/eks
+----
+
+Configure the required environment variables:
+[source,shell]
+----
+$ export EKS_CLUSTER_NAME="your-cluster-name"
+$ export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+----
+
+The default settings in 'create-eks.sh' are optimized for Service Foundry. You can modify them as needed.
+
+- EKS_NODE_MIN: Minimum number of nodes in the node group (default: 2)
+- EKS_NODE_MAX: Maximum number of nodes in the node group (default: 4)
+- EKS_NODE_DESIRED: Desired number of nodes in the node group (default: 2)
+- EKS_NODE_TYPE: EC2 instance type for the nodes (default: t3a.xlarge)
+
+Run the script to create the EKS cluster:
+[source,shell]
+----
+$ ./create-eks.sh
+----
+
+This process may take several minutes. Once completed, your EKS cluster will be ready for use with Service Foundry and No need to manually configure kubectl to connect to the cluster, as the script handles that automatically.
+
+Verify the cluster is up and running:
+[source,shell]
+----
+$ kubectl get nodes
+----
+
+To clean up and delete the EKS cluster when no longer needed, you can run the 'delete-eks.sh' script:
+
+[source,shell]
+----
+$ ./delete-eks.sh
+----
+
+== 3. Configure kubectl to Connect to the EKS Cluster
+
+If you have created the EKS cluster using the 'create-eks.sh' script, your kubectl should already be configured to connect to the cluster. So you can skip this step.
+
+To connect your kubectl to the EKS cluster, use the following command:
+
+[source,shell]
+----
+$ aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
+----
+
+
+Verify the connection by listing the nodes in the cluster:
+
+[source,shell]
+----
+$ kubectl get nodes
+----
+
+== 4. Create a GitHub Repository for GitOps
+
+Service Foundry uses GitOps principles for managing configurations and deployments. You need to create a GitHub repository to store the configuration files.
+
+1. Go to GitHub and create a new repository (public or private).
+2. Initialize the repository with a README file as GitHub suggests.
+3. Add Deploy Keys so that Service Foundry can push changes to this repository.
+
+.Create SSH Keys for GitHub Access
+[source,shell]
+----
+$ mkdir -p ~/service-foundry/gitops-ssh
+$ ssh-keygen -t rsa -b 4096 -C "your-github-email" -f ~/service-foundry/gitops-ssh/id_rsa
+
+# Copy the public key to add as a Deploy Key in GitHub
+$ cat ~/service-foundry/gitops-ssh/id_rsa.pub
+----
+
+Go to your GitHub repository -> Settings -> Deploy Keys -> Add deploy key. Paste the public key you generated above. Make sure to check "Allow write access" so that Service Foundry can push changes to the repository.
+
+[.img-wide]
+image::github-deploy-key.png[]
+
+The private key will be used later during the Service Foundry installation as an environment variable named *GIT_OPS_REPO_SSH_KEY_PATH*.
+
+== 5. Download Bootstrap Scripts and Install Service Foundry
+
+Follow these steps to download the bootstrap scripts and install Service Foundry on your EKS cluster.
+
+. Create the Community Edition license key.
+. Fill out the form to download the bootstrap scripts.
+. Upload the bootstrap script zip file to AWS Cloud Shell.
+. Unzip the downloaded file in AWS Cloud Shell.
+. Set Environment Variables
+. Run the Bootstrap Script to Install Service Foundry
+
+=== Create a Community Edition License Key
+
+Navigate to the Service Foundry Community website to get the latest bootstrap scripts. You can get the license key for Community Edition during this step.
+
+https://community.servicefoundry.org/
+
+.Navigate to the Service Foundry Community Website
+[.img-wide]
+image::community-home.png[]
+
+Click on "Community License" to create a new license key.
+
+.Community License Form
+[.img-wide]
+image::community-license.png[]
+
+Fill out the fields below:
+
+Customer Name: Use Your Email Address or Your Organization Name
+Installation ID: Use your Kubenetes Cluster Name
+
+Click on "Generate License" to create the license key.
+
+.Generated License Key
+[.img-wide]
+image::community-license-generate.png[]
+
+Copy the generated license key, as you will need it for the bootstrap script generation.
+
+=== Fill out the Form to Download Bootstrap Scripts
+
+Click on "Bootstrap Scripts" to access the download form.
+
+.Bootstrap Scripts Form
+[.img-wide]
+image::community-bootstrap-scripts.png[]
+
+==== Component Versions
+
+- Service foundry App Version: Select the latest stable version.
+- Service Foundry Builder Version: Select the latest stable version.
+
+==== Cloud Provider
+
+- Cloud Provider: Select "AWS". As of now, only AWS is supported.
+- AWS Account ID: Enter your AWS Account ID where the EKS cluster is created.
+- AWS Region: Enter the AWS region where the EKS cluster is located (e.g., us-west-2).
+- Kubernetes Cluster Name: Enter the name of your EKS cluster.
+
+==== Core Configuration
+
+- Service Foundry Namespace: Default is "service-foundry". You can change it if needed.
+- GitOps Repository URL: Enter the SSH URL of the GitHub repository you created earlier.
+- GitOps Repository Branch: Default is "main". Change it if your repository uses a different branch.
+- GitOps User Email: Enter your email address that will be used for Git commits.
+- Root Domain Name: Enter your domain name if you have one. If not, use arbitrary value for testing purposes (e.g., your-domain.com).
+
+// In terms of SSH Key, we recommend using an environment variable named *GIT_OPS_REPO_SSH_KEY_PATH* to store the private key for Git operations for better security.
+
+==== Load Balancer Configuration
+
+- Use TLS: Leave it unchecked for now.
+- Use AWS ACM: Leave it unchecked for now.
+- ACM Certificate ARN: Leave it blank for now.
+
+==== Secrets
+
+- POSTGRES_PASSWORD: Enter a strong password for the PostgreSQL database.
+- REDIS_PASSWORD: Enter a strong password for the Redis instance.
+- DevOps User Password: Enter a strong password for the DevOps user. This user is used to access the Service Foundry Admin Console.
+// - KEYCLOAK_ADMIN_PASSWORD: Enter a strong password for the Keycloak admin user.
+
+==== License
+
+- License Payload: Paste the Community Edition license key you generated earlier.
+
+==== Download Bootstrap Scripts
+
+Click on "Generate Bootstrap Scripts" to download the zip file containing the bootstrap scripts.
+
+=== Upload the Bootstrap Script Zip File to AWS Cloud Shell
+
+On the AWS Cloud Shell interface, click on the "Actions" menu (three vertical dots) in the top-right corner and select "Upload file".
+
+.Upload File in AWS Cloud Shell
+[.img-wide]
+image::aws-cloudshell-upload-file.png[]
+
+Select the downloaded *bootstrap-scripts.zip* file from your local machine to upload it to AWS Cloud Shell.
+
+Then you will see the uploaded file in your Cloud Shell home directory.
+
+=== Unzip the Downloaded File in AWS Cloud Shell
+
+
+[source,shell]
+----
+$ mkdir ~/service-foundry
+$ mv bootstrap-scripts.zip ~/service-foundry/
+$ cd ~/service-foundry
+$ unzip bootstrap-scripts.zip
+----
+
+Verify that bootstrap.sh is present:
+[source,shell]
+----
+$ ls -l
+----
+
+
+
+=== Set Environment Variables
+
+Before running the bootstrap script, you need to set several environment variables to configure the installation.
+
+Mandatory Environment Variables:
+
+* GIT_OPS_REPO_SSH_KEY_PATH - Path to the private SSH key for GitOps repository access.
+
+Upload the private SSH key you created earlier to AWS Cloud Shell and set this variable to its path.
+
+[source,shell]
+----
+$ mkdir -p ~/service-foundry/gitops-ssh
+$ mv ~/uploaded_id_rsa ~/service-foundry/gitops-ssh/id_rsa
+$ chmod 600 ~/service-foundry/gitops-ssh/id_rsa
+$ export GIT_OPS_REPO_SSH_KEY_PATH="~/service-foundry/gitops-ssh/id_rsa"
+----
+
+=== Run the Bootstrap Script to Install Service Foundry
+[source,shell]
+----
+$ ./bootstrap.sh
+----
+
+The bootstrap script will install all required components with the settings you provided. This process may take some time, depending on your internet connection and AWS resources.
+
+== 6. DNS Configuration (if applicable)
+
+We recommend using a public DNS name for accessing Service Foundry. If you do not have a domain name, you can use the hosts file for testing purposes.
+
+- sfapp.your-domain.com
+- oauth2-proxy.your-domain.com
+- grafana.your-domain.com (if O11y is enabled)
+
+Use the IP address of the Traffic Load Balancer created during the installation.
+
+.Get the IP Address of the Traffic Load Balancer
+[source,shell]
+----
+$ kubectl -n traefik get svc traefik
+
+$ ping <LOAD_BALANCER_DNS_NAME>
+----
+
+
+Sample hosts file entry:
+
+./etc/hosts
+----
+12.34.12.34 sfapp.your-domain.com oauth2-proxy.your-domain.com grafana.your-domain.com
+----
+
+== 7. Load Balancers
+
+Two load balancers will be created in your AWS account:
+
+- Traffic Load Balancer (Always created).
+- Keycloak Load Balancer (Created if Public Domain is not available. https://keycloak.your-domain.com will be used when public Domain ).
+
+
+== 8. Access Service Foundry
+
+Once the installation is complete and DNS is configured, you can access the Service Foundry Admin Console using the following URL:
+
+http://sfapp.your-domain.com
+
+Use the *devops* user credentials you set during the bootstrap script execution to log in.
+
+== Conclusion
+
+You have successfully installed Service Foundry on your AWS EKS cluster using AWS Cloud Shell. You can now start using Service Foundry to manage your applications and services.
+
+
+

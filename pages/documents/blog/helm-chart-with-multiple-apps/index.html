@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Building a Helm Chart for Multi-App Deployments</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a></li>
+<li><a href="#why-use-sub-charts">Why Use Sub-Charts?</a></li>
+<li><a href="#file-structure-overview">File Structure Overview</a></li>
+<li><a href="#creating-the-helm-charts">Creating the Helm Charts</a>
+<ul class="sectlevel2">
+<li><a href="#1-create-parent-chart">1. Create Parent Chart</a></li>
+<li><a href="#2-parent-chart-chart-yaml">2. Parent Chart: Chart.yaml</a></li>
+<li><a href="#chart-yaml-parent-chart">Chart.yaml (Parent Chart)</a></li>
+<li><a href="#3-parent-chart-values-yaml">3. Parent Chart: values.yaml</a></li>
+<li><a href="#4-parent-chart-_helpers-tpl">4. Parent Chart: _helpers.tpl</a></li>
+<li><a href="#5-parent-chart-ingressroute-yaml">5. Parent Chart: ingressroute.yaml</a></li>
+</ul>
+</li>
+<li><a href="#creating-the-sub-charts">Creating the Sub-Charts</a>
+<ul class="sectlevel2">
+<li><a href="#backend-helm-chart">Backend Helm Chart</a></li>
+<li><a href="#frontend-helm-chart">Frontend Helm Chart</a></li>
+</ul>
+</li>
+<li><a href="#helm-commands">Helm Commands</a></li>
+<li><a href="#publishing-the-chart-to-a-private-repository">Publishing the Chart to a Private Repository</a>
+<ul class="sectlevel2">
+<li><a href="#enable-oci-support-helm-3-8-has-it-by-default">Enable OCI Support (Helm 3.8+ has it by default)</a></li>
+<li><a href="#authenticate-with-aws-ecr">Authenticate with AWS ECR</a></li>
+<li><a href="#create-helm-repository-in-ecr">Create Helm Repository in ECR</a></li>
+<li><a href="#package-and-push">Package and Push</a></li>
+<li><a href="#6-pull-or-install-from-ecr">6. Pull or Install from ECR</a></li>
+</ul>
+</li>
+<li><a href="#final-thoughts">Final Thoughts</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/organizing-helm-chart.png" alt="organizing helm chart">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Modern applications often consist of multiple services such as a frontend web interface and a backend API. When these services are tightly coupled, it makes sense to deploy and manage them together. Helm, Kubernetes’ package manager, provides a powerful feature called sub-charts, which allows you to organize and manage multiple related applications within a single parent chart.</p>
+</div>
+<div class="paragraph">
+<p>In this guide, we will walk through the process of creating a Helm chart that includes two applications—<strong>a React-based frontend</strong> and <strong>a Go-based backend</strong>—as sub-charts under a common parent chart named service-foundry-community.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="why-use-sub-charts">Why Use Sub-Charts?</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Sub-charts help:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Organize components cleanly in modular Helm packages</p>
+</li>
+<li>
+<p>Manage shared configuration centrally in the parent chart</p>
+</li>
+<li>
+<p>Deploy related services together using a single Helm install</p>
+</li>
+<li>
+<p>Reuse components across different deployments</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="file-structure-overview">File Structure Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This is the final directory layout for the parent chart with two sub-charts:</p>
+</div>
+<div class="listingblock">
+<div class="title">Service Foundry Community Helm Chart File Structure</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="tree">$ tree service-foundry-community
+
+service-foundry-community
+├── charts
+│   ├── backend
+│   │   ├── charts
+│   │   ├── templates
+│   │   │   ├── tests
+│   │   │   │   └── test-connection.yaml
+│   │   │   ├── NOTES.txt
+│   │   │   ├── _helpers.tpl
+│   │   │   ├── deployment.yaml
+│   │   │   ├── hpa.yaml
+│   │   │   ├── ingress.yaml
+│   │   │   ├── secret.yaml
+│   │   │   ├── service.yaml
+│   │   │   └── serviceaccount.yaml
+│   │   ├── Chart.yaml
+│   │   └── values.yaml
+│   └── frontend
+│       ├── charts
+│       ├── templates
+│       │   ├── tests
+│       │   │   └── test-connection.yaml
+│       │   ├── NOTES.txt
+│       │   ├── _helpers.tpl
+│       │   ├── configmap.yaml
+│       │   ├── deployment.yaml
+│       │   ├── hpa.yaml
+│       │   ├── ingress.yaml
+│       │   ├── service.yaml
+│       │   └── serviceaccount.yaml
+│       ├── Chart.yaml
+│       └── values.yaml
+├── templates
+│   ├── _helpers.tpl
+│   └── ingressroute.yaml
+├── Chart.yaml
+└── values.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The charts/ folder automatically includes Helm sub-charts. You do not need to manually reference them in Chart.yaml.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="creating-the-helm-charts">Creating the Helm Charts</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="1-create-parent-chart">1. Create Parent Chart</h3>
+<div class="listingblock">
+<div class="title">Create main Helm Chart directory</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">mkdir </span>helm-chart
+<span class="nv">$ </span><span class="nb">cd </span>helm-chart</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">Create the parent Helm Chart</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm create service-foundry-community
+<span class="nv">$ </span><span class="nb">cd </span>service-foundry-community</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">Remove unneeded default files from the parent chart:</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">rm</span> <span class="nt">-rf</span> <span class="se">\</span>
+  templates/tests <span class="se">\</span>
+  templates/deployment.yaml <span class="se">\</span>
+  templates/hpa.yaml <span class="se">\</span>
+  templates/ingress.yaml <span class="se">\</span>
+  templates/NOTES.txt <span class="se">\</span>
+    templates/service.yaml <span class="se">\</span>
+  templates/serviceaccount.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Then add only the shared templates (like ingress routing) that apply to both backend and frontend.</p>
+</div>
+<div class="paragraph">
+<p>Resulting structure:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">service-foundry-community
+├── Chart.yaml
+├── templates
+│   ├── _helpers.tpl
+│   └── ingressroute.yaml
+└── values.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="2-parent-chart-chart-yaml">2. Parent Chart: Chart.yaml</h3>
+
+</div>
+<div class="sect2">
+<h3 id="chart-yaml-parent-chart">Chart.yaml (Parent Chart)</h3>
+<div class="listingblock">
+<div class="title">service-foundry-community/Chart.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v2</span>
+<span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-community</span>
+<span class="na">description</span><span class="pi">:</span> <span class="s">A Helm chart for Kubernetes</span>
+
+<span class="na">type</span><span class="pi">:</span> <span class="s">application</span>
+<span class="na">version</span><span class="pi">:</span> <span class="s">0.1.0</span>
+<span class="c1">#appVersion: "0.1.0"</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>appVersion is not set here because we will manage versions in sub-charts.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="3-parent-chart-values-yaml">3. Parent Chart: values.yaml</h3>
+<div class="paragraph">
+<p>This file contains shared/global values and references for both sub-charts.</p>
+</div>
+<div class="listingblock">
+<div class="title">service-foundry-community/values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">global</span><span class="pi">:</span>
+  <span class="na">version</span><span class="pi">:</span> <span class="s2">"</span><span class="s">0.1.0"</span>
+
+<span class="c1"># The host under which the Service Foundry Community app will be accessible</span>
+<span class="na">host</span><span class="pi">:</span> <span class="s">community.servicefoundry.org</span>
+
+<span class="na">frontend</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="na">image</span><span class="pi">:</span>
+    <span class="na">repository</span><span class="pi">:</span> <span class="s">credemol/service-foundry-community-frontend</span>
+    <span class="na">pullPolicy</span><span class="pi">:</span> <span class="s">IfNotPresent</span>
+    <span class="c1"># tag left empty to use global.version by default</span>
+    <span class="na">tag</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span>
+  <span class="na">service</span><span class="pi">:</span>
+    <span class="na">port</span><span class="pi">:</span> <span class="m">80</span>
+  <span class="na">config</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="c1"># Default config.json content for the React app (will be put into a ConfigMap)</span>
+    <span class="na">content</span><span class="pi">:</span> <span class="pi">|</span>
+      <span class="s">{</span>
+        <span class="s">"backendServer": "https://community.servicefoundry.org/api"</span>
+      <span class="s">}</span>
+
+<span class="na">backend</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+  <span class="na">image</span><span class="pi">:</span>
+    <span class="na">repository</span><span class="pi">:</span> <span class="s">credemol/service-foundry-community-backend</span>
+    <span class="na">pullPolicy</span><span class="pi">:</span> <span class="s">IfNotPresent</span>
+    <span class="na">tag</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span>
+  <span class="na">service</span><span class="pi">:</span>
+    <span class="na">port</span><span class="pi">:</span> <span class="m">8080</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This values.yaml enables coordinated deployment by:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Setting a shared version for all images</p>
+</li>
+<li>
+<p>Defining routing domain</p>
+</li>
+<li>
+<p>Providing config for the frontend app (via ConfigMap)</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="4-parent-chart-_helpers-tpl">4. Parent Chart: _helpers.tpl</h3>
+<div class="paragraph">
+<p>This template file defines reusable functions for generating unique names:</p>
+</div>
+<div class="listingblock">
+<div class="title">service-foundry-community/templates/_helpers.tpl</div>
+<div class="content">
+<pre class="rouge highlight"><code>{{- define "service-foundry-community.backendFullname" -}}
+{{ printf "%s-backend" .Release.Name }}
+{{- end }}
+
+{{- define "service-foundry-community.frontendFullname" -}}
+{{ printf "%s-frontend" .Release.Name }}
+{{- end }}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>These helpers ensure consistency in service names.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="5-parent-chart-ingressroute-yaml">5. Parent Chart: ingressroute.yaml</h3>
+<div class="paragraph">
+<p>This file defines routing rules for Traefik based on the host and path prefixes.</p>
+</div>
+<div class="listingblock">
+<div class="title">service-foundry-community/templates/ingressroute.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code>apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "service-foundry-community.fullname" . }}-ingress-route
+  namespace: {{ .Release.Namespace }}
+spec:
+  entryPoints:
+    - web
+    - websecure
+
+  routes:
+
+    - match: Host(`{{ .Values.host }}`) &amp;&amp; PathPrefix(`/api`)
+      kind: Rule
+      services:
+        - name: {{ include "service-foundry-community.backendFullname" . }}
+          port: http
+      middlewares:
+        - name: cors-headers
+        #- name: forward-auth
+        - name: api-stripprefix
+
+    - match: Host(`{{ .Values.host }}`) &amp;&amp; PathPrefix(`/`)
+      kind: Rule
+      services:
+        - name: {{ include "service-foundry-community.frontendFullname" . }}
+          port: http
+      middlewares:
+        - name: cors-headers
+        #- name: forward-auth</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We intentionally omit forward-auth middleware so users can access the site without login.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="creating-the-sub-charts">Creating the Sub-Charts</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>From within the parent chart directory:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">cd </span>charts
+
+<span class="nv">$ </span>helm create backend
+<span class="nv">$ </span>helm create frontend</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Each sub-chart is a fully independent Helm chart. Customize the following as needed:</p>
+</div>
+<div class="sect2">
+<h3 id="backend-helm-chart">Backend Helm Chart</h3>
+<div class="paragraph">
+<p>Tree structure:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>tree backend
+
+backend
+├── Chart.yaml
+├── charts
+├── templates
+│   ├── NOTES.txt
+│   ├── _helpers.tpl
+│   ├── deployment.yaml
+│   ├── hpa.yaml
+│   ├── ingress.yaml
+│   ├── secret.yaml
+│   ├── service.yaml
+│   ├── serviceaccount.yaml
+│   └── tests
+│       └── test-connection.yaml
+└── values.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>You can define secrets, configure autoscaling, and more.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="frontend-helm-chart">Frontend Helm Chart</h3>
+<div class="paragraph">
+<p>Tree structure:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>tree frontend
+
+frontend
+├── Chart.yaml
+├── charts
+├── templates
+│   ├── NOTES.txt
+│   ├── _helpers.tpl
+│   ├── configmap.yaml
+│   ├── deployment.yaml
+│   ├── hpa.yaml
+│   ├── ingress.yaml
+│   ├── service.yaml
+│   ├── serviceaccount.yaml
+│   └── tests
+│       └── test-connection.yaml
+└── values.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The configmap.yaml will use .Values.config.content to mount JSON into the container.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="helm-commands">Helm Commands</h2>
+<div class="sectionbody">
+<div class="listingblock">
+<div class="title">Install:</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nb">install </span>service-foundry-community ./service-foundry-community <span class="nt">-n</span> service-foundry <span class="nt">--create-namespace</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">Upgrade:</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm upgrade <span class="nt">--install</span> service-foundry-community ./service-foundry-community <span class="nt">-n</span> service-foundry</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Uninstall:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm uninstall service-foundry-community <span class="nt">-n</span> service-foundry</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="publishing-the-chart-to-a-private-repository">Publishing the Chart to a Private Repository</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>You can push the chart to AWS ECR as a Helm OCI repository.</p>
+</div>
+<div class="sect2">
+<h3 id="enable-oci-support-helm-3-8-has-it-by-default">Enable OCI Support (Helm 3.8+ has it by default)</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">export </span><span class="nv">HELM_EXPERIMENTAL_OCI</span><span class="o">=</span>1</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="authenticate-with-aws-ecr">Authenticate with AWS ECR</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>aws ecr get-login-password <span class="nt">--region</span> <span class="nv">$AWS_REGION</span> <span class="se">\</span>
+  | helm registry login <span class="nt">--username</span> AWS <span class="nt">--password-stdin</span> <span class="nv">$AWS_ACCOUNT_ID</span>.dkr.ecr.<span class="nv">$AWS_REGION</span>.amazonaws.com</code></pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>AWS_REGION: The AWS region where your ECR is located (e.g., us-west-2).</p>
+</li>
+<li>
+<p>AWS_ACCOUNT_ID: Your AWS account ID. e.g., 123456789012.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-helm-repository-in-ecr">Create Helm Repository in ECR</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>aws ecr create-repository <span class="se">\</span>
+  <span class="nt">--repository-name</span> helm-charts/service-foundry-community <span class="se">\</span>
+  <span class="nt">--region</span> <span class="nv">$AWS_REGION</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="package-and-push">Package and Push</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm package service-foundry-community
+
+<span class="nv">$ </span>helm push service-foundry-community-0.1.0.tgz oci://<span class="nv">$AWS_ACCOUNT_ID</span>.dkr.ecr.<span class="nv">$AWS_REGION</span>.amazonaws.com/helm-charts</code></pre>
+</div>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/aws-ecr-helm-charts.png" alt="aws ecr helm charts">
+</div>
+<div class="title">Figure 1. Pushed Chart in AWS ECR</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="6-pull-or-install-from-ecr">6. Pull or Install from ECR</h3>
+<div class="listingblock">
+<div class="title">Pull the Helm chart from ECR:</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm pull oci://<span class="nv">$AWS_ACCOUNT_ID</span>.dkr.ecr.<span class="nv">$AWS_REGION</span>.amazonaws.com/helm-charts/service-foundry-community <span class="nt">--version</span> 0.1.0</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">Install the Helm chart from ECR:</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nb">install </span>service-foundry-community oci://<span class="nv">$AWS_ACCOUNT_ID</span>.dkr.ecr.<span class="nv">$AWS_REGION</span>.amazonaws.com/helm-charts/service-foundry-community <span class="nt">-n</span> service-foundry <span class="nt">--create-namespace</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="final-thoughts">Final Thoughts</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Using sub-charts with Helm is a powerful way to group related applications together. You get modularity, flexibility, and clean separation of logic, while still being able to deploy and manage the full stack from a single entry point.</p>
+</div>
+<div class="paragraph">
+<p>This structure is ideal for Kubernetes-native platforms like Service Foundry, where frontend, backend, and shared infrastructure (like IngressRoutes) need to work in harmony.</p>
+</div>
+<div class="paragraph">
+<p>Let us know if you’d like a follow-up on GitOps integration or advanced templating for these charts!</p>
+</div>
+</div>
+</div>
+</body>
+</html>
