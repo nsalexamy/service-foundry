@@ -1,3 +1,20 @@
+---
+layout: documents
+title: Building a Helm Chart for Multi-App Deployments
+summary: "In this article, I explore how to structure a Helm chart that manages multiple applications—such as a frontend and backend—using sub-charts. You’ll learn how to set up the directory layout, configure values.yaml files to pass global or app-specific values, and deploy all components together. I also walk through best practices for organizing chart dependencies, writing IngressRoute manifests, and publishing the final chart to a container registry like AWS ECR. This setup is perfect for Kubernetes-native microservice environments where modular, repeatable deployments are key."
+tags: "#HelmCharts #Kubernetes #DevOps #Microservices #GitOps #CloudNative #ServiceFoundry #HelmSubcharts #InfrastructureAsCode #AWS #ContainerOrchestration #PlatformEngineering #K8sTools"
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Blog
+    url: /documents/blog/
+---
+
+
 = Building a Helm Chart for Multi-App Deployments
 
 :imagesdir: images
@@ -6,6 +23,10 @@
 image::organizing-helm-chart.png[]
 
 == Overview
+
+*YouTube Video Tutorial*: link:https://youtu.be/mGtIVDMaUkg[How to Build a Helm Chart with Multiple Applications (Frontend + Backend with Sub‑Charts)]
+
+{empty} +
 
 Modern applications often consist of multiple services such as a frontend web interface and a backend API. When these services are tightly coupled, it makes sense to deploy and manage them together. Helm, Kubernetes’ package manager, provides a powerful feature called sub-charts, which allows you to organize and manage multiple related applications within a single parent chart.
 
@@ -112,13 +133,27 @@ Resulting structure:
 ----
 service-foundry-community
 ├── Chart.yaml
+├── charts
 ├── templates
 │   ├── _helpers.tpl
 │   └── ingressroute.yaml
 └── values.yaml
 ----
 
-=== 2. Parent Chart: Chart.yaml
+=== Creating the Sub-Charts
+
+From within the parent chart directory:
+
+[source,shell]
+----
+$ cd charts
+
+$ helm create backend
+$ helm create frontend
+----
+
+Each sub-chart is a fully independent Helm chart. Customize the following as needed:
+
 
 
 === Chart.yaml (Parent Chart)
@@ -244,20 +279,9 @@ spec:
 
 We intentionally omit forward-auth middleware so users can access the site without login.
 
-== Creating the Sub-Charts
 
-From within the parent chart directory:
 
-[source,shell]
-----
-$ cd charts
-
-$ helm create backend
-$ helm create frontend
-----
-
-Each sub-chart is a fully independent Helm chart. Customize the following as needed:
-
+== Sub Charts
 
 === Backend Helm Chart
 
@@ -314,26 +338,38 @@ frontend
 
 The configmap.yaml will use .Values.config.content to mount JSON into the container.
 
+{empty} +
+{empty} +
+{empty} +
 
 == Helm Commands
 
 .Install:
 [source,shell]
 ----
-$ helm install service-foundry-community ./service-foundry-community -n service-foundry --create-namespace
+$ helm install service-foundry-community ./service-foundry-community \
+  -n service-foundry --create-namespace
 ----
 
 .Upgrade:
 [source,shell]
 ----
-$ helm upgrade --install service-foundry-community ./service-foundry-community -n service-foundry
+$ helm upgrade --install service-foundry-community ./service-foundry-community \
+  -n service-foundry
 ----
 
-Uninstall:
+.Uninstall:
 [source,shell]
 ----
-$ helm uninstall service-foundry-community -n service-foundry
+$ helm uninstall service-foundry-community \
+  -n service-foundry
 ----
+
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
 
 == Publishing the Chart to a Private Repository
 
@@ -354,31 +390,31 @@ $ aws ecr get-login-password --region $AWS_REGION \
   | helm registry login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
 ----
 
-* AWS_REGION: The AWS region where your ECR is located (e.g., us-west-2).
-* AWS_ACCOUNT_ID: Your AWS account ID. e.g., 123456789012.
+// * AWS_REGION: The AWS region where your ECR is located (e.g., us-west-2).
+// * AWS_ACCOUNT_ID: Your AWS account ID. e.g., 123456789012.
 
 === Create Helm Repository in ECR
 [source,shell]
 ----
 $ aws ecr create-repository \
-  --repository-name helm-charts/service-foundry-community \
-  --region $AWS_REGION
+  --repository-name helm-charts/service-foundry-community --region $AWS_REGION
 ----
 
 === Package and Push
 
-
-
 [source,shell]
 ----
 $ helm package service-foundry-community
-
 $ helm push service-foundry-community-0.1.0.tgz oci://$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/helm-charts
 ----
 
 .Pushed Chart in AWS ECR
 [.img-wide]
 image::aws-ecr-helm-charts.png[]
+
+// {empty} +
+// {empty} +
+// {empty} +
 
 === 6. Pull or Install from ECR
 
@@ -403,3 +439,9 @@ This structure is ideal for Kubernetes-native platforms like Service Foundry, wh
 
 Let us know if you’d like a follow-up on GitOps integration or advanced templating for these charts!
 
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
+{empty} +
