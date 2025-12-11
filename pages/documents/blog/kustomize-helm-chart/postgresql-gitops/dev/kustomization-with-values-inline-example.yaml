@@ -1,0 +1,57 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: dev
+
+resources:
+  - ../base
+  - postgresql-credentials-secret.yaml
+
+helmCharts:
+  - name: postgresql
+    repo: https://charts.bitnami.com/bitnami
+    version: 16.7.27
+    releaseName: postgresql
+    namespace: dev
+    # Use base values file
+    valuesFile: ../base/values.yaml
+    # Add/override environment-specific values inline
+    valuesInline:
+      auth:
+        username: "nsa2"
+        database: "postgres"
+        existingSecret: postgresql-credentials
+      
+      primary:
+        pgHbaConfiguration: |-
+          local   all             all                                     trust
+          host    all             all             127.0.0.1/32            trust
+          host    all             all             ::1/128                 trust
+          local   replication     all                                     trust
+          host    replication     all             127.0.0.1/32            trust
+          host    replication     all             ::1/128                 trust
+          host    all             all             10.0.0.0/8              trust
+          host    all             all             192.168.0.0/16          trust
+        
+        extendedConfiguration: |-
+          wal_level = logical
+          max_replication_slots = 10
+          max_wal_senders = 10
+          max_connections = 200
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 512Mi
+          limits:
+            cpu: 500m
+            memory: 1024Mi
+        
+        initdb:
+          scripts:
+            create-databases.sql: |-
+              CREATE DATABASE service_foundry;
+              GRANT ALL PRIVILEGES ON DATABASE service_foundry TO nsa2;
+              
+              CREATE DATABASE keycloak;
+              GRANT ALL PRIVILEGES ON DATABASE keycloak TO nsa2;

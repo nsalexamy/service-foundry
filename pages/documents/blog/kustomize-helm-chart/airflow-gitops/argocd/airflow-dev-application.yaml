@@ -1,0 +1,44 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: airflow-dev
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  
+  source:
+    # Update this with your Git repository URL
+    repoURL: https://github.com/nsalexamy/service-foundry.git
+    targetRevision: main
+    path: documents/blog/kustomize-helm-chart/airflow-gitops/dev
+    
+    kustomize:
+      # REQUIRED: Enable Helm chart inflation
+      buildOptions: "--enable-helm"
+  
+  destination:
+    # Target cluster (default is the cluster where ArgoCD is installed)
+    server: https://kubernetes.default.svc
+    namespace: airflow-dev
+  
+  syncPolicy:
+    automated:
+      # Automatically sync when Git changes are detected
+      prune: true
+      # Automatically revert manual changes
+      selfHeal: true
+      # Don't sync if there are no resources
+      allowEmpty: false
+    
+    syncOptions:
+      # Create namespace if it doesn't exist
+      - CreateNamespace=true
+    
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
