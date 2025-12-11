@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Using Kustomize With Helm Charts: A Hybrid Approach to Kubernetes Configuration Management</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#why-use-kustomize-with-helm-charts">Why Use Kustomize With Helm Charts?</a></li>
+<li><a href="#considerations">Considerations</a>
+<ul class="sectlevel2">
+<li><a href="#values-file">Values file</a></li>
+<li><a href="#overlays">overlays</a></li>
+</ul>
+</li>
+<li><a href="#install-kustomize">Install Kustomize</a></li>
+<li><a href="#kustomize-directory-structure">Kustomize Directory Structure</a>
+<ul class="sectlevel2">
+<li><a href="#devkustomization-yaml-kustomize-configuration-for-postgresql-helm-chart">dev/kustomization.yaml – Kustomize Configuration for PostgreSQL Helm Chart</a></li>
+<li><a href="#devvalues-dev-yaml-helm-values-for-development-environment">dev/values-dev.yaml – Helm Values for Development Environment</a></li>
+</ul>
+</li>
+<li><a href="#install-postgresql-with-kustomize">Install PostgreSQL with Kustomize</a>
+<ul class="sectlevel2">
+<li><a href="#enable-helm-why-its-required">--enable-helm (Why it’s required)</a></li>
+</ul>
+</li>
+<li><a href="#install-argo-cd-application-with-kustomize-postgresql-dev-application-yaml">Install Argo CD Application with Kustomize (postgresql-dev-application.yaml)</a>
+<ul class="sectlevel2">
+<li><a href="#highlights-of-postgresql-dev-application-yaml">Highlights of postgresql-dev-application.yaml</a></li>
+<li><a href="#how-to-apply-the-application">How to apply the application</a></li>
+<li><a href="#benefits-of-using-kustomize-with-argo-cd">Benefits of Using Kustomize with Argo CD</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+</ul>
+</li>
+<li><a href="#install-argo-cd-applicationset-with-kustomize-postgresql-applicationset-yaml">Install Argo CD ApplicationSet with Kustomize (postgresql-applicationset.yaml)</a>
+<ul class="sectlevel2">
+<li><a href="#what-is-applicationset">What is ApplicationSet?</a></li>
+<li><a href="#how-applicationset-works">How ApplicationSet Works</a></li>
+<li><a href="#highlights-of-postgresql-applicationset-yaml">Highlights of postgresql-applicationset.yaml</a></li>
+<li><a href="#how-to-apply-the-applicationset">How to apply the applicationset</a></li>
+<li><a href="#why-use-applicationset">Why Use ApplicationSet?</a></li>
+</ul>
+</li>
+<li><a href="#sealedsecrets">SealedSecrets</a>
+<ul class="sectlevel2">
+<li><a href="#why-use-sealedsecrets-to-seal-kubernetes-secrets">Why Use SealedSecrets to Seal Kubernetes Secrets?</a></li>
+<li><a href="#what-is-a-sealedsecret">What Is a SealedSecret?</a></li>
+<li><a href="#seal-secrets-using-sealedsecrets">Seal Secrets using SealedSecrets</a></li>
+</ul>
+</li>
+<li><a href="#sample-output">Sample output</a>
+<ul class="sectlevel1">
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/intro.png" alt="intro">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This article will guide you through the process of using Kustomize with Helm charts to manage Kubernetes configurations in a GitOps environment.</p>
+</div>
+<div class="paragraph">
+<p>I will use the PostgreSQL chart as an example to demonstrate how to use Kustomize with Helm charts.</p>
+</div>
+<div class="paragraph">
+<p>We will more focus on the Argo CD Application manifest and how to use Kustomize with Helm charts including single application per environment and application set for all environments.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="why-use-kustomize-with-helm-charts">Why Use Kustomize With Helm Charts?</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>When you define an Argo CD Application using a Helm chart, the typical approach is to embed the Helm values.yaml or use inline overrides directly in the application manifest. While this may work for simple use cases, it quickly becomes unmanageable as your deployment grows to support multiple environments (e.g., dev, staging, production).</p>
+</div>
+<div class="paragraph">
+<p>This tightly couples configuration values to the Argo CD Application definition, making it difficult to:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Reuse the same Helm chart across different environments</p>
+</li>
+<li>
+<p>Store and version different values.yaml files cleanly</p>
+</li>
+<li>
+<p>Apply GitOps practices like pull-request-based changes and environment promotion</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>By using Kustomize, you can organize your Helm values and Argo CD application manifests in a structured directory layout (e.g., dev, prod). This allows you to:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Use separate values.yaml files per environment</p>
+</li>
+<li>
+<p>Apply environment-specific patches to the application manifest (e.g., namespace, image tag)</p>
+</li>
+<li>
+<p>Enable clean GitOps workflows where all configuration is declaratively stored in Git</p>
+</li>
+<li>
+<p>Promote changes between environments by copying or updating overlays</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Kustomize gives you a layer of abstraction that makes Helm-based deployments more flexible, maintainable, and GitOps-friendly.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="considerations">Considerations</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="values-file">Values file</h3>
+<div class="paragraph">
+<p>Unfortunately, Kustomize&#8217;s valuesFile property does NOT support merging multiple values files. Unlike helm install --values base.yaml --values dev.yaml, you can only specify a single valuesFile in the Kustomize helmCharts configuration.</p>
+</div>
+<div class="paragraph">
+<p>This means each environment&#8217;s values file must contain all the custom values (both common and environment-specific).</p>
+</div>
+<div class="paragraph">
+<p>There are two options:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Option 1: Include Common Values in Each Environment File (Recommended)</p>
+</li>
+<li>
+<p>Option 2: Use valuesInline for Environment-Specific Overrides</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>You can combine valuesFile (pointing to base values) with valuesInline for environment-specific values:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">helmCharts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">postgresql</span>
+    <span class="na">repo</span><span class="pi">:</span> <span class="s">https://charts.bitnami.com/bitnami</span>
+    <span class="na">version</span><span class="pi">:</span> <span class="s">16.7.27</span>
+    <span class="na">releaseName</span><span class="pi">:</span> <span class="s">postgresql</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="s">dev</span>
+    <span class="c1"># Use base values file</span>
+    <span class="na">valuesFile</span><span class="pi">:</span> <span class="s">../base/values.yaml</span>
+    <span class="c1"># Add/override environment-specific values inline</span>
+    <span class="na">valuesInline</span><span class="pi">:</span>
+      <span class="na">auth</span><span class="pi">:</span>
+        <span class="na">username</span><span class="pi">:</span> <span class="s2">"</span><span class="s">nsa2"</span>
+        <span class="na">database</span><span class="pi">:</span> <span class="s2">"</span><span class="s">postgres"</span>
+        <span class="na">existingSecret</span><span class="pi">:</span> <span class="s">postgresql-credentials</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>My Recommendation
+Stick with Option 1: Keep all values in each environment&#8217;s values file (
+values-dev.yaml, values-staging.yaml, etc.).</p>
+</div>
+<div class="paragraph">
+<p>Why?</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>✅ Simpler and more explicit - each environment file is self-contained</p>
+</li>
+<li>
+<p>✅ Easier to troubleshoot - you can see all values in one place</p>
+</li>
+<li>
+<p>✅ Standard Helm pattern - matches how most teams use Helm</p>
+</li>
+<li>
+<p>✅ GitOps friendly - clear diff when values change</p>
+</li>
+<li>
+<p>❌ valuesInline gets messy with complex configurations (lots of formatting issues with multiline strings)</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="overlays">overlays</h3>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">NOTE</dt>
+<dd>
+<p>Moving helmCharts configuration from base to dev. If base is intended to be used directly without overlays, this change might affect that usage. However, for a proper GitOps workflow with Kustomize handling Helm charts, defining charts in overlays is the recommended pattern to allow value overrides.</p>
+</dd>
+</dl>
+</div>
+<div class="paragraph">
+<p>You can use Kustomize overlays to manage environment-specific values. This is a more advanced approach that requires more setup but provides more flexibility. However, some Helm charts do not need to be overlayed at all because they are simple and do not have any Kubernetes resources that need to be modified or shared between environments. For example, the Bitnami PostgreSQL chart is a good candidate for this approach because it has a simple configuration and does not have any Kubernetes resources but secrets that need to be defined in each environment. Even in this case, you can keep the Kustomize overlay directory structure but only use the values.yaml file from the overlay directory.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>postgresql-gitops
+├── argocd
+├── base
+├── dev
+├── prod
+└── staging</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="install-kustomize">Install Kustomize</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To install Kustomize, you can use the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>curl <span class="nt">-s</span> <span class="s2">"https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"</span> | bash
+<span class="nv">$ </span><span class="nb">sudo mv </span>kustomize /usr/local/bin</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Verify the installation by checking the version:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kustomize version
+
+v5.8.0</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="kustomize-directory-structure">Kustomize Directory Structure</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To support reusable and environment-specific configurations, we organize our manifests using a standard Kustomize structure. Here’s how it works:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>tree postgresql-gitops
+
+postgresql-gitops
+├── argocd
+│   ├── postgresql-applicationset.yaml
+│   ├── postgresql-dev-application.yaml
+│   ├── postgresql-prod-application.yaml
+│   └── postgresql-staging-application.yaml
+├── base
+│   └── kustomization.yaml
+├── dev
+│   ├── kustomization-with-values-inline-example.yaml
+│   ├── kustomization.yaml
+│   ├── postgresql-credentials-secret.yaml
+│   └── values-dev.yaml
+├── prod
+│   ├── kustomization.yaml
+│   ├── postgresql-credentials-secret.yaml
+│   └── values-prod.yaml
+├── staging
+│   ├── kustomization.yaml
+│   ├── postgresql-credentials-secret.yaml
+│   └── values-staging.yaml
+└── seal-postgresql-secret.sh</code></pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>The base/ directory contains shared Helm chart configurations and resources common across all environments.</p>
+</li>
+<li>
+<p>Each environment directory (dev/, staging/, prod/) overlays the base with environment-specific changes such as replica count, CPU/memory limits, or different storage settings.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Using this structure allows you to:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Maintain a single source of truth in base/</p>
+</li>
+<li>
+<p>Customize configuration per environment without duplication</p>
+</li>
+<li>
+<p>Manage everything under version control using GitOps</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="devkustomization-yaml-kustomize-configuration-for-postgresql-helm-chart">dev/kustomization.yaml – Kustomize Configuration for PostgreSQL Helm Chart</h3>
+<div class="paragraph">
+<p>The kustomization.yaml file in the dev/ directory defines how Kubernetes resources should be assembled and customized for the development environment using Kustomize with Helm chart integration.</p>
+</div>
+<div class="listingblock">
+<div class="title">dev/kustomization.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">kustomize.config.k8s.io/v1beta1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Kustomization</span>
+
+<span class="na">namespace</span><span class="pi">:</span> <span class="s">dev</span>
+
+<span class="na">resources</span><span class="pi">:</span>
+  <span class="c1"># - ../base # base is empty and causes error if commented out</span>
+  <span class="pi">-</span> <span class="s">postgresql-credentials-secret.yaml</span>  <span class="c1"># sealed secret for credentials</span>
+
+<span class="na">helmCharts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">postgresql</span>
+    <span class="na">repo</span><span class="pi">:</span> <span class="s">https://charts.bitnami.com/bitnami</span>
+    <span class="na">version</span><span class="pi">:</span> <span class="s">16.7.27</span>
+    <span class="na">releaseName</span><span class="pi">:</span> <span class="s">postgresql</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="s">dev</span>
+    <span class="na">valuesFile</span><span class="pi">:</span> <span class="s">values-dev.yaml</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="devvalues-dev-yaml-helm-values-for-development-environment">dev/values-dev.yaml – Helm Values for Development Environment</h3>
+<div class="paragraph">
+<p>This file customizes the PostgreSQL Helm chart specifically for the development environment. It defines the container image, authentication details, PostgreSQL configuration, resource limits, and initialization SQL scripts.</p>
+</div>
+<div class="listingblock">
+<div class="title">dev/values-dev.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">image</span><span class="pi">:</span>
+  <span class="na">registry</span><span class="pi">:</span> <span class="s">docker.io</span>
+  <span class="na">repository</span><span class="pi">:</span> <span class="s">bitnamilegacy/postgresql</span>
+  <span class="na">tag</span><span class="pi">:</span> <span class="s">17.6.0-debian-12-r4</span> <span class="c1">#16.2.0-debian-12-r20</span>
+
+
+<span class="na">auth</span><span class="pi">:</span>
+  <span class="na">username</span><span class="pi">:</span> <span class="s2">"</span><span class="s">dev"</span>
+  <span class="na">database</span><span class="pi">:</span> <span class="s2">"</span><span class="s">postgres"</span>  <span class="c1"># we create the specific database in initdb scripts</span>
+  <span class="na">existingSecret</span><span class="pi">:</span> <span class="s">postgresql-credentials</span>
+
+<span class="na">primary</span><span class="pi">:</span>
+
+  <span class="c1">## pgHbaConfiguration: |-</span>
+  <span class="c1">##   local all all trust</span>
+  <span class="c1">##   host all all localhost trust</span>
+  <span class="c1">##   host mydatabase mysuser 192.168.0.0/24 md5</span>
+  <span class="c1">##</span>
+  <span class="na">pgHbaConfiguration</span><span class="pi">:</span> <span class="pi">|-</span>
+    <span class="s">local   all             all                                     trust</span>
+    <span class="s">host    all             all             127.0.0.1/32            trust</span>
+    <span class="s">host    all             all             ::1/128                 trust</span>
+    <span class="s">local   replication     all                                     trust</span>
+    <span class="s">host    replication     all             127.0.0.1/32            trust</span>
+    <span class="s">host    replication     all             ::1/128                 trust</span>
+
+    <span class="s">host    all             all             10.0.0.0/8              trust</span>
+    <span class="s">host    all             all             192.168.0.0/16              trust</span>
+
+
+  <span class="na">extendedConfiguration</span><span class="pi">:</span> <span class="pi">|-</span>
+    <span class="s">wal_level = logical</span>
+    <span class="s">max_replication_slots = 10</span>
+    <span class="s">max_wal_senders = 10</span>
+    <span class="s">max_connections = 200</span>
+
+
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">100m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">512Mi</span>
+    <span class="na">limits</span><span class="pi">:</span>
+      <span class="na">cpu</span><span class="pi">:</span> <span class="s">500m</span>
+      <span class="na">memory</span><span class="pi">:</span> <span class="s">1024Mi</span>
+
+  <span class="na">initdb</span><span class="pi">:</span>
+    <span class="na">scripts</span><span class="pi">:</span>
+      <span class="c1"># create</span>
+      <span class="na">create-databases.sql</span><span class="pi">:</span> <span class="pi">|</span>
+        <span class="s">CREATE DATABASE service_foundry;</span>
+        <span class="s">GRANT ALL PRIVILEGES ON DATABASE service_foundry TO dev;</span>
+
+        <span class="s">--CREATE EXTENSION IF NOT EXISTS pg_stat_statements;</span>
+        <span class="s">--CREATE EXTENSION IF NOT EXISTS pgcrypto;</span>
+        <span class="s">--CREATE EXTENSION IF NOT EXISTS "uuid-ossp";</span>
+        <span class="s">--CREATE EXTENSION IF NOT EXISTS citext;</span>
+
+        <span class="s">CREATE DATABASE keycloak;</span>
+        <span class="s">GRANT ALL PRIVILEGES ON DATABASE keycloak TO dev;</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="install-postgresql-with-kustomize">Install PostgreSQL with Kustomize</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To deploy PostgreSQL using Kustomize, navigate to your GitOps project directory and run the following command:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">cd </span>postgresql-gitops
+<span class="nv">$ </span>kustomize build dev <span class="nt">--enable-helm</span> | kubectl apply <span class="nt">-f</span> -</code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="enable-helm-why-its-required">--enable-helm (Why it’s required)</h3>
+<div class="paragraph">
+<p>Helm charts are not natively supported by Kustomize without this flag.</p>
+</div>
+<div class="paragraph">
+<p>If your base/kustomization.yaml or any environment-level kustomization.yaml includes the helmCharts: directive like below:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">helmCharts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">postgresql</span>
+    <span class="na">repo</span><span class="pi">:</span> <span class="s">https://charts.bitnami.com/bitnami</span>
+    <span class="na">version</span><span class="pi">:</span> <span class="s">16.7.27</span>
+    <span class="na">releaseName</span><span class="pi">:</span> <span class="s">postgresql</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="s">dev</span>
+    <span class="na">valuesFile</span><span class="pi">:</span> <span class="s">values-dev.yaml</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Then you must use --enable-helm so that Kustomize knows to:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Treat the helmCharts: block as valid input</p>
+</li>
+<li>
+<p>Download the specified Helm chart</p>
+</li>
+<li>
+<p>Render it as plain Kubernetes manifests</p>
+</li>
+<li>
+<p>Merge the rendered output with the rest of your resources</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Without --enable-helm, Kustomize will ignore the helmCharts block and fail to render the Helm-based resources, meaning your PostgreSQL deployment won’t happen.</p>
+</div>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">WARNING</dt>
+<dd>
+<p>This flag is available in kustomize versions 4.1.0 and above. Always verify your version by running kustomize version.</p>
+</dd>
+</dl>
+</div>
+<div class="paragraph">
+<p>Later in this document, we will add 'kustomize.buildOptions' to argocd-cm configmap to enable --enable-helm.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="install-argo-cd-application-with-kustomize-postgresql-dev-application-yaml">Install Argo CD Application with Kustomize (postgresql-dev-application.yaml)</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>When deploying PostgreSQL to a specific environment like dev, we can define an individual Argo CD Application using Kustomize. The file postgresql-dev-application.yaml is an Argo CD Application manifest that tells Argo CD to deploy PostgreSQL using the configurations found in the dev/ directory of your Git repository.</p>
+</div>
+<div class="paragraph">
+<p>This is a good starting point for simple setups or for testing a single environment before scaling out to multiple environments.</p>
+</div>
+<div class="sect2">
+<h3 id="highlights-of-postgresql-dev-application-yaml">Highlights of postgresql-dev-application.yaml</h3>
+<div class="listingblock">
+<div class="title">postgresql-dev-application.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">argoproj.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Application</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">demo-postgresql-dev</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">argocd</span>
+  <span class="na">finalizers</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">resources-finalizer.argocd.argoproj.io</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">project</span><span class="pi">:</span> <span class="s">default</span>
+
+  <span class="na">source</span><span class="pi">:</span>
+    <span class="c1"># Update this with your Git repository URL</span>
+    <span class="na">repoURL</span><span class="pi">:</span> <span class="s">git@github.com:nsalexamy/service-foundry-argocd.git</span>
+    <span class="na">targetRevision</span><span class="pi">:</span> <span class="s">main</span>
+    <span class="na">path</span><span class="pi">:</span> <span class="s">demo-apps/postgresql-gitops/dev</span>
+
+  <span class="na">destination</span><span class="pi">:</span>
+    <span class="c1"># Target cluster (default is the cluster where ArgoCD is installed)</span>
+    <span class="na">server</span><span class="pi">:</span> <span class="s">https://kubernetes.default.svc</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="s">dev</span>
+
+  <span class="na">syncPolicy</span><span class="pi">:</span>
+    <span class="na">automated</span><span class="pi">:</span>
+      <span class="c1"># Automatically sync when Git changes are detected</span>
+      <span class="na">prune</span><span class="pi">:</span> <span class="kc">true</span>
+      <span class="c1"># Automatically revert manual changes</span>
+      <span class="na">selfHeal</span><span class="pi">:</span> <span class="kc">true</span>
+      <span class="c1"># Don't sync if there are no resources</span>
+      <span class="na">allowEmpty</span><span class="pi">:</span> <span class="kc">false</span>
+
+    <span class="na">syncOptions</span><span class="pi">:</span>
+      <span class="c1"># Create namespace if it doesn't exist</span>
+      <span class="pi">-</span> <span class="s">CreateNamespace=true</span>
+
+    <span class="na">retry</span><span class="pi">:</span>
+      <span class="na">limit</span><span class="pi">:</span> <span class="m">5</span>
+      <span class="na">backoff</span><span class="pi">:</span>
+        <span class="na">duration</span><span class="pi">:</span> <span class="s">5s</span>
+        <span class="na">factor</span><span class="pi">:</span> <span class="m">2</span>
+        <span class="na">maxDuration</span><span class="pi">:</span> <span class="s">3m</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This file defines a single Argo CD Application with the following key fields:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>metadata.name: demo-postgresql-dev</p>
+</li>
+<li>
+<p>spec.source.repoURL: URL of the Git repository that contains the manifests</p>
+</li>
+<li>
+<p>spec.source.path: dev/ — points to the Kustomize overlay directory</p>
+</li>
+<li>
+<p>spec.source.kustomize: Tells Argo CD to use Kustomize</p>
+</li>
+<li>
+<p>spec.destination: Namespace and Kubernetes cluster where the app should be deployed</p>
+</li>
+<li>
+<p>spec.syncPolicy: Optional auto-sync settings</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="how-to-apply-the-application">How to apply the application</h3>
+<div class="paragraph">
+<p>Run the following command to apply the application:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> argocd/postgresql-dev-application.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>If everything goes well, you will see the application in the Argo CD UI.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/argocd-postgresql-dev.png" alt="argocd postgresql dev">
+</div>
+<div class="title">Figure 1. ArgoCD UI - demo-postgresql-dev</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="benefits-of-using-kustomize-with-argo-cd">Benefits of Using Kustomize with Argo CD</h3>
+<div class="ulist">
+<ul>
+<li>
+<p>Clean separation of configuration per environment</p>
+</li>
+<li>
+<p>Easier to review changes via Git diffs</p>
+</li>
+<li>
+<p>Great compatibility with Helm charts (via helmCharts: in Kustomization)</p>
+</li>
+<li>
+<p>Simpler scaling to multi-env deployment using ApplicationSet (next section)</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="troubleshooting">Troubleshooting</h3>
+<div class="paragraph">
+<p>You might see a comparison error in ArgoCD. This is because the application is not in sync with the repository.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/argocd-comparison-error.png" alt="argocd comparison error">
+</div>
+<div class="title">Figure 2. Argocd Comparison Error</div>
+</div>
+<div class="listingblock">
+<div class="title">Error message</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="text">Failed to load target state: failed to generate manifest for source 1 of 1: pc error:
+code = Unknown desc = 'kustomize build &lt; path to cached source&gt;/demo-
+apps/postgresql-gitops/dev failed exit status 1: Error: trouble configuring builtin HelmChartInflationGenerator with config: * name: postgresql namespace: dev releaseName: postgresql repo: https://charts.bitnami.com/bitnami valuesFile: values-dev.yaml version: 16.7.27*: must specify -enable-helm</code></pre>
+</div>
+</div>
+<div class="sect3">
+<h4 id="the-cause-of-the-issue">The cause of the issue</h4>
+<div class="paragraph">
+<p>The issue is that the argocd-cm configmap does not have the -enable-helm option enabled. Without this option, Argo CD will not be able to render the Helm chart.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="how-to-fix-the-issue-by-patching-argocd-cm">How to fix the issue by patching argocd-cm</h4>
+<div class="paragraph">
+<p>Run the following command to fix the issue:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c"># patch argocd configmap</span>
+<span class="nv">$ </span>kubectl patch configmap argocd-cm <span class="nt">-n</span> argocd <span class="nt">--type</span> merge <span class="nt">-p</span> <span class="s1">'{"data":{"kustomize.buildOptions":"--enable-helm"}}'</span>
+
+<span class="c"># restart argocd repo server</span>
+<span class="nv">$ </span>kubectl rollout restart deployment argocd-repo-server <span class="nt">-n</span> argocd
+
+<span class="c"># wait for argocd repo server to be ready</span>
+<span class="nv">$ </span>kubectl rollout status deployment argocd-repo-server <span class="nt">-n</span> argocd <span class="nt">--timeout</span><span class="o">=</span>60s
+
+<span class="c"># verify argocd configmap</span>
+<span class="nv">$ </span>kubectl get configmap argocd-cm <span class="nt">-n</span> argocd <span class="nt">-o</span> <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.data.kustomize\.buildOptions}'</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Run the following command to sync the application again:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c"># delete the application</span>
+<span class="nv">$ </span>kubectl delete <span class="nt">-f</span> argocd/postgresql-dev-application.yaml
+
+<span class="c"># create the application again</span>
+<span class="nv">$ </span>kubectl apply <span class="nt">-f</span> argocd/postgresql-dev-application.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Or you can refresh the application</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">kubectl patch application postgresql-dev <span class="nt">-n</span> argocd <span class="nt">--type</span> merge <span class="nt">-p</span> <span class="s1">'{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}'</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The default argocd-cm configmap is as following link:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://github.com/argoproj/argo-cd/blob/master/docs/operator-manual/argocd-cm.yaml" class="bare">https://github.com/argoproj/argo-cd/blob/master/docs/operator-manual/argocd-cm.yaml</a></p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="how-to-set-argocd-cm-configmap-on-installation-argo-cd">How to set argocd-cm configmap on Installation Argo CD</h4>
+<div class="paragraph">
+<p>You can set argocd-cm configmap on Installation Argo CD by creating a custom values file.</p>
+</div>
+<div class="listingblock">
+<div class="title">argocd-custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">configs</span><span class="pi">:</span>
+
+  <span class="c1"># 172</span>
+  <span class="c1"># General Argo CD configuration. Any values you put under `.configs.cm` are passed to argocd-cm ConfigMap.</span>
+  <span class="c1">## Ref: https://github.com/argoproj/argo-cd/blob/master/docs/operator-manual/argocd-cm.yaml</span>
+  <span class="na">cm</span><span class="pi">:</span>
+    <span class="c1"># add '--enable-helm' to enable helm support</span>
+    <span class="na">kustomize.buildOptions</span><span class="pi">:</span> <span class="s">--enable-helm</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="install-argo-cd-applicationset-with-kustomize-postgresql-applicationset-yaml">Install Argo CD ApplicationSet with Kustomize (postgresql-applicationset.yaml)</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>As your Kubernetes environment grows, managing each Argo CD Application file manually becomes inefficient. Instead, you can automate the creation of applications for each environment using Argo CD’s ApplicationSet feature.</p>
+</div>
+<div class="paragraph">
+<p>The file postgresql-applicationset.yaml defines an ApplicationSet resource that dynamically generates Argo CD Application objects for multiple environments—such as dev, staging, and prod—using a declarative generator.</p>
+</div>
+<div class="sect2">
+<h3 id="what-is-applicationset">What is ApplicationSet?</h3>
+<div class="paragraph">
+<p>Argo CD’s ApplicationSet is a controller that creates and manages multiple Applications using a declarative template. It uses generators like List, Git, or Cluster to dynamically produce applications.</p>
+</div>
+<div class="paragraph">
+<p>In our use case:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>We use the List generator to enumerate environments.</p>
+</li>
+<li>
+<p>For each environment like dev, staging, or prod, a corresponding Argo CD Application is created.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="how-applicationset-works">How ApplicationSet Works</h3>
+<div class="paragraph">
+<p>ApplicationSet uses a generator (like List, Git, Cluster, etc.) to dynamically produce one or more Application resources from a reusable template. In this case:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>The List generator defines a list of environments (dev, staging, prod)</p>
+</li>
+<li>
+<p>The template uses the environment name to:</p>
+</li>
+<li>
+<p>Construct the application name</p>
+</li>
+<li>
+<p>Set the path to the corresponding directory (dev/, staging/, prod/)</p>
+</li>
+<li>
+<p>Specify the namespace and sync behavior</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="highlights-of-postgresql-applicationset-yaml">Highlights of postgresql-applicationset.yaml</h3>
+<div class="ulist">
+<ul>
+<li>
+<p>kind: ApplicationSet</p>
+</li>
+<li>
+<p>metadata.name: Something like demo-postgresql-environments</p>
+</li>
+<li>
+<p>spec.generators: A list of environments (dev, staging, prod)</p>
+</li>
+<li>
+<p>spec.template: Defines a reusable Argo CD Application template</p>
+</li>
+<li>
+<p>Uses {{name}} as a placeholder</p>
+</li>
+<li>
+<p>Sets Git repo, target revision, and directory path ({{name}}/)</p>
+</li>
+<li>
+<p>Points to Kubernetes namespace (e.g., {{namespace}})</p>
+</li>
+<li>
+<p>Enables auto-sync or manual sync</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="title">argocd/postgresql-applicationset.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">argoproj.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ApplicationSet</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">demo-postgresql-environments</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">argocd</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">generators</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">list</span><span class="pi">:</span>
+      <span class="na">elements</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">env</span><span class="pi">:</span> <span class="s">dev</span>
+        <span class="na">namespace</span><span class="pi">:</span> <span class="s">dev</span>
+      <span class="c1"># Uncomment when you create staging and prod overlays</span>
+      <span class="pi">-</span> <span class="na">env</span><span class="pi">:</span> <span class="s">staging</span>
+        <span class="na">namespace</span><span class="pi">:</span> <span class="s">staging</span>
+      <span class="pi">-</span> <span class="na">env</span><span class="pi">:</span> <span class="s">prod</span>
+        <span class="na">namespace</span><span class="pi">:</span> <span class="s">prod</span>
+
+  <span class="na">template</span><span class="pi">:</span>
+    <span class="na">metadata</span><span class="pi">:</span>
+      <span class="na">name</span><span class="pi">:</span> <span class="s1">'</span><span class="s">postgresql-{{env}}'</span>
+      <span class="na">finalizers</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="s">resources-finalizer.argocd.argoproj.io</span>
+    <span class="na">spec</span><span class="pi">:</span>
+      <span class="na">project</span><span class="pi">:</span> <span class="s">default</span>
+
+      <span class="na">source</span><span class="pi">:</span>
+        <span class="c1"># Update this with your Git repository URL</span>
+        <span class="na">repoURL</span><span class="pi">:</span> <span class="s">git@github.com:nsalexamy/service-foundry-argocd.git</span>
+        <span class="na">targetRevision</span><span class="pi">:</span> <span class="s">main</span>
+        <span class="na">path</span><span class="pi">:</span> <span class="s1">'</span><span class="s">demo-apps/postgresql-gitops/{{env}}'</span>
+
+      <span class="na">destination</span><span class="pi">:</span>
+        <span class="na">server</span><span class="pi">:</span> <span class="s">https://kubernetes.default.svc</span>
+        <span class="na">namespace</span><span class="pi">:</span> <span class="s1">'</span><span class="s">{{namespace}}'</span>
+
+      <span class="na">syncPolicy</span><span class="pi">:</span>
+        <span class="na">automated</span><span class="pi">:</span>
+          <span class="na">prune</span><span class="pi">:</span> <span class="kc">true</span>
+          <span class="na">selfHeal</span><span class="pi">:</span> <span class="kc">true</span>
+          <span class="na">allowEmpty</span><span class="pi">:</span> <span class="kc">false</span>
+
+        <span class="na">syncOptions</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="s">CreateNamespace=true</span>
+
+        <span class="na">retry</span><span class="pi">:</span>
+          <span class="na">limit</span><span class="pi">:</span> <span class="m">5</span>
+          <span class="na">backoff</span><span class="pi">:</span>
+            <span class="na">duration</span><span class="pi">:</span> <span class="s">5s</span>
+            <span class="na">factor</span><span class="pi">:</span> <span class="m">2</span>
+            <span class="na">maxDuration</span><span class="pi">:</span> <span class="s">3m</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="how-to-apply-the-applicationset">How to apply the applicationset</h3>
+<div class="paragraph">
+<p>Run the following command to apply the applicationset:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> argocd/postgresql-applicationset.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>If everything goes well, you will see the applicationset in the Argo CD UI.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/argocd-postgresql-applicationset.png" alt="argocd postgresql applicationset">
+</div>
+<div class="title">Figure 3. ArgoCD UI - demo-postgresql-all-environments</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="why-use-applicationset">Why Use ApplicationSet?</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Dynamic Application Creation</strong>: Automatically creates apps for each environment</p>
+</li>
+<li>
+<p><strong>Cleaner Repos</strong>: Avoids duplicate Application YAML files</p>
+</li>
+<li>
+<p><strong>GitOps Friendly</strong>: All environment settings tracked in Git</p>
+</li>
+<li>
+<p><strong>Easy to Extend</strong>: Add new env? Just create a new folder and update the list</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="sealedsecrets">SealedSecrets</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="why-use-sealedsecrets-to-seal-kubernetes-secrets">Why Use SealedSecrets to Seal Kubernetes Secrets?</h3>
+<div class="paragraph">
+<p>By default, Kubernetes Secrets are only base64-encoded, not encrypted. This means if you store these secrets (such as passwords, tokens, or credentials) in your Git repository—even in Secret YAML files—they can be easily decoded and exposed to anyone with access to the repo. This is a significant security risk in GitOps workflows where everything is stored and version-controlled in Git.</p>
+</div>
+<div class="paragraph">
+<p>To address this, the SealedSecrets controller by Bitnami offers a secure and Git-friendly way to manage secrets in Kubernetes.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="what-is-a-sealedsecret">What Is a SealedSecret?</h3>
+<div class="paragraph">
+<p>A SealedSecret is a custom Kubernetes resource that contains an encrypted version of a Secret. Only the SealedSecrets controller running inside your Kubernetes cluster can decrypt it using a private key. The encrypted version—safe for public repositories—is committed to Git, while the actual Secret is decrypted and created inside the cluster at runtime.</p>
+</div>
+<div class="paragraph">
+<p>Benefits of Using SealedSecrets</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>✅ Secure by design – Encrypts secrets using public-key cryptography.</p>
+</li>
+<li>
+<p>✅ GitOps-compatible – You can safely commit and push SealedSecrets to Git.</p>
+</li>
+<li>
+<p>✅ Environment-independent – You can manage different secrets per environment using the same kubeseal workflow.</p>
+</li>
+<li>
+<p>✅ Declarative – All secrets are managed as code and handled through CI/CD pipelines.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Workflow Overview</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Create a regular Kubernetes Secret manifest locally.</p>
+</li>
+<li>
+<p>Use the kubeseal CLI to encrypt the Secret into a SealedSecret using the cluster’s public key.</p>
+</li>
+<li>
+<p>Commit and push the SealedSecret to your Git repository.</p>
+</li>
+<li>
+<p>Argo CD (or another GitOps tool) deploys the SealedSecret to the cluster.</p>
+</li>
+<li>
+<p>The SealedSecrets controller decrypts it and creates a real Secret inside the cluster.</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>This workflow provides a secure, version-controlled, and automated way to manage Kubernetes secrets across environments.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="seal-secrets-using-sealedsecrets">Seal Secrets using SealedSecrets</h3>
+<div class="paragraph">
+<p>I have created a script to simplify the process of sealing secrets for the PostgreSQL chart.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ POSTGRES_PASSWORD</span><span class="o">=</span><span class="s2">"postgres"</span> <span class="nv">DBUSER_PASSWARD</span><span class="o">=</span><span class="s2">"changeit"</span> <span class="se">\</span>
+    <span class="nv">REPLICATION_PASSWORD</span><span class="o">=</span><span class="s2">"replication"</span> <span class="nv">NAMESPACE</span><span class="o">=</span>prod <span class="se">\</span>
+    ./seal-postgresql-secret.sh</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>After running the script, you will get a sealed secret file.</p>
+</div>
+</div>
+</div>
+</div>
+<h1 id="sample-output" class="sect0">Sample output</h1>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell">Sealed secret created at postgresql-credentials-prod-sealed.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Here is the script:</p>
+</div>
+<div class="listingblock">
+<div class="title">seal-postgresql-secret.sh</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c">#!/bin/bash</span>
+
+<span class="nv">POSTGRES_PASSWORD</span><span class="o">=</span><span class="k">${</span><span class="nv">POSTGRES_PASSWORD</span><span class="k">:-</span><span class="nv">postgres</span><span class="k">}</span>
+<span class="nv">DBUSER_PASSWORD</span><span class="o">=</span><span class="k">${</span><span class="nv">DBUSER_PASSWORD</span><span class="k">:-</span><span class="nv">postgres</span><span class="k">}</span>
+<span class="nv">REPLICATION_PASSWORD</span><span class="o">=</span><span class="k">${</span><span class="nv">REPLICATION_PASSWORD</span><span class="k">:-</span><span class="nv">replication</span><span class="k">}</span>
+<span class="nv">NAMESPACE</span><span class="o">=</span><span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">:-</span><span class="nv">dev</span><span class="k">}</span>
+
+<span class="nv">SECRET_YAML_FILE</span><span class="o">=</span><span class="s2">"postgresql-credentials-</span><span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span><span class="s2">.yaml"</span>
+<span class="nv">SEALED_SECRET_YAML_FILE</span><span class="o">=</span><span class="s2">"postgresql-credentials-</span><span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span><span class="s2">-sealed.yaml"</span>
+<span class="nv">K8S_PUBLIC_CERT_FILE</span><span class="o">=</span><span class="s2">"pub-cert.pem"</span>
+
+kubectl create secret generic postgresql-credentials <span class="se">\</span>
+    <span class="nt">--from-literal</span><span class="o">=</span>postgres-password<span class="o">=</span><span class="nv">$POSTGRES_PASSWORD</span> <span class="se">\</span>
+    <span class="nt">--from-literal</span><span class="o">=</span><span class="nv">password</span><span class="o">=</span><span class="nv">$DBUSER_PASSWORD</span> <span class="se">\</span>
+    <span class="nt">--from-literal</span><span class="o">=</span>replication-password<span class="o">=</span><span class="nv">$REPLICATION_PASSWORD</span> <span class="se">\</span>
+    <span class="nt">--namespace</span><span class="o">=</span><span class="nv">$NAMESPACE</span> <span class="nt">--dry-run</span><span class="o">=</span>client <span class="nt">-o</span> yaml <span class="o">&gt;</span> <span class="nv">$SECRET_YAML_FILE</span>
+
+
+kubeseal <span class="nt">--fetch-cert</span> <span class="se">\</span>
+    <span class="nt">--controller-name</span><span class="o">=</span>sealed-secrets-controller <span class="se">\</span>
+    <span class="nt">--controller-namespace</span><span class="o">=</span>kube-system <span class="se">\</span>
+    <span class="o">&gt;</span> <span class="nv">$K8S_PUBLIC_CERT_FILE</span>
+
+kubeseal <span class="nt">--cert</span> <span class="nv">$K8S_PUBLIC_CERT_FILE</span> <span class="nt">--format</span> yaml &lt; <span class="nv">$SECRET_YAML_FILE</span> <span class="o">&gt;</span> <span class="nv">$SEALED_SECRET_YAML_FILE</span>
+
+<span class="nb">echo</span> <span class="s2">"Clean up temp files"</span>
+<span class="nb">rm</span> <span class="nv">$SECRET_YAML_FILE</span>
+<span class="nb">rm</span> <span class="nv">$K8S_PUBLIC_CERT_FILE</span>
+
+<span class="nb">echo</span> <span class="s2">"Sealed secret created at </span><span class="nv">$SEALED_SECRET_YAML_FILE</span><span class="s2">"</span></code></pre>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this article, we have learned how to use Kustomize with Helm charts to manage Kubernetes configurations in a GitOps environment. We have also learned how to use SealedSecrets to manage Kubernetes secrets in a GitOps environment.</p>
+</div>
+<div class="paragraph">
+<p>I hope this article has been helpful in understanding how to use Kustomize with Helm charts to manage Kubernetes configurations in a GitOps environment.</p>
+</div>
+</div>
+</div>
+</body>
+</html>

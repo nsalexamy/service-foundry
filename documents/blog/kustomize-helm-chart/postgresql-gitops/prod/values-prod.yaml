@@ -1,0 +1,63 @@
+image:
+  registry: docker.io
+  repository: bitnamilegacy/postgresql
+  tag: 17.6.0-debian-12-r4 #16.2.0-debian-12-r20
+
+auth:
+  username: "prod"
+  database: "postgres"  # we create the specific database in initdb scripts
+  existingSecret: postgresql-credentials
+
+primary:
+
+  ## pgHbaConfiguration: |-
+  ##   local all all trust
+  ##   host all all localhost trust
+  ##   host mydatabase mysuser 192.168.0.0/24 md5
+  ##
+  pgHbaConfiguration: |-
+    local   all             all                                     trust
+    host    all             all             127.0.0.1/32            trust
+    host    all             all             ::1/128                 trust
+    local   replication     all                                     trust
+    host    replication     all             127.0.0.1/32            trust
+    host    replication     all             ::1/128                 trust
+
+    host    all             all             10.0.0.0/8              trust
+    host    all             all             192.168.0.0/16              trust    
+    
+
+  extendedConfiguration: |-
+    wal_level = logical
+    max_replication_slots = 10
+    max_wal_senders = 10
+    max_connections = 200
+
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1024Mi
+
+#  nodeSelector:
+#    agentpool: depnodes
+  
+
+
+  initdb:
+    scripts:
+      # create
+      create-databases.sql: |
+        CREATE DATABASE service_foundry;
+        GRANT ALL PRIVILEGES ON DATABASE service_foundry TO prod;
+        
+        --CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+        --CREATE EXTENSION IF NOT EXISTS pgcrypto;
+        --CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+        --CREATE EXTENSION IF NOT EXISTS citext;
+
+        CREATE DATABASE keycloak;
+        GRANT ALL PRIVILEGES ON DATABASE keycloak TO prod;

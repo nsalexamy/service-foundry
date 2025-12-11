@@ -1,0 +1,1130 @@
+= Presenter Scripts: Using Kustomize With Helm Charts for Argo CD Applications
+:toc:
+:toclevels: 2
+
+== Introduction Script
+
+[.script]
+****
+Hello and welcome! In this video, we're going to explore how to combine two powerful Kubernetes tools, Kustomize and Helm, to manage your applications across multiple environments using GitOps principles with Argo CD.
+
+If you've ever struggled with managing different configurations for development, staging, and production environments, or found yourself copying and pasting Helm values files everywhere, this video is for you.
+
+We'll use PostgreSQL as our example application, but the patterns you'll learn can be applied to any Helm chart you want to deploy.
+
+By the end of this video, you'll understand why combining Kustomize and Helm makes sense, how to structure your Git repository for multi-environment deployments, how to configure Argo CD to work with both tools, and how to securely manage secrets using Sealed Secrets.
+
+Let's get started!
+****
+
+== Section 1: The Challenge
+
+[.script]
+****
+Let's start by talking about the challenge we're trying to solve.
+
+When deploying Helm charts with Argo CD, the typical approach is to embed your values directly in the Argo CD Application manifest or use inline overrides. While this works fine for simple, single-environment setups, it quickly becomes a pain as you scale.
+
+Here are the problems you'll face.
+
+First, tight coupling. Your configuration values are embedded directly in the Argo CD Application definition, making it hard to separate concerns.
+
+Second, poor reusability. It becomes difficult to use the same Helm chart across development, staging, and production environments.
+
+Third, version control becomes a mess. Different values files are scattered across multiple Application manifests, making it hard to track changes.
+
+Fourth, changes are difficult to review. When you modify values, those changes get mixed with application configuration changes, making pull requests confusing.
+
+And fifth, there's no clear promotion path. How do you promote changes from development to staging to production in a controlled way?
+
+These problems add up quickly as your infrastructure grows.
+****
+
+== Section 2: The Better Way
+
+[.script]
+****
+So what's the better approach? By introducing Kustomize as a layer between Argo CD and Helm, you gain several important benefits.
+
+First, clean separation. Each environment gets its own directory with its own values file. Everything is organized and easy to find.
+
+Second, reusability. You use the same Helm chart, just pointing to different values files for each environment.
+
+Third, GitOps-friendly structure. All configuration lives in Git with a clear directory structure that makes sense.
+
+Fourth, easy promotion. You can copy or merge changes between environment directories using standard Git workflows.
+
+And fifth, better code reviews. Git diffs clearly show what changed for each environment, making pull request reviews much easier.
+
+Think of Kustomize as the organizer for your Helm charts. It allows you to maintain environment-specific configurations in a structured, maintainable way.
+****
+
+== Section 3: Understanding Values Files
+
+[.script]
+****
+Before we dive into the implementation, there are two important concepts you need to understand about how Kustomize and Helm work together.
+
+Let's talk about values files first.
+
+Here's something important to know. Unlike the Helm command-line interface, which lets you merge multiple values files together, Kustomize's values file property does NOT support merging.
+
+This means each environment's values file must contain all the values you want to customize, both common settings and environment-specific settings.
+
+You have two options here.
+
+Option one is to keep complete values in each environment's file. This is the recommended approach. You include all configuration, both common and environment-specific, in files like values-dev.yaml, values-staging.yaml, and values-prod.yaml.
+
+Why do we recommend this approach? Let me give you four reasons.
+
+First, it's simpler and more explicit. Everything is in one place, so you see the complete picture.
+
+Second, it's easier to troubleshoot. When something goes wrong, you don't have to trace through multiple files to understand the configuration.
+
+Third, it's the standard Helm pattern. This matches how most teams already work with Helm.
+
+And fourth, it's GitOps friendly. When you look at Git diffs, you can clearly see what changed for each environment.
+
+Option two is to use values inline for overrides. You can combine a values file with inline overrides, but we don't recommend this approach for several reasons.
+
+First, it gets messy with complex configurations.
+
+Second, you'll run into YAML formatting issues with multiline strings.
+
+Third, it's harder to validate because you can't test it with the helm template command.
+
+And fourth, it's less familiar to most engineers.
+
+Our strong recommendation? Embrace some duplication. Keep complete values files per environment. It's clearer and much easier to maintain in the long run.
+****
+
+== Section 4: Understanding Overlays
+
+[.script]
+****
+Now let's talk about overlays and directory structure.
+
+You might be wondering, why not put the Helm chart in a base directory that all environments share?
+
+That's a good question! For simple Helm charts like PostgreSQL that don't have shared Kubernetes resources beyond secrets, we actually don't need a base directory at all. Each environment can directly reference the Helm chart with its own values.
+
+Our directory structure looks like this. We have an argocd folder that contains our Argo CD Application manifests. We have a base folder that's actually empty for this use case. And then we have separate folders for dev, staging, and production environments.
+
+Each environment folder contains three files. A kustomization.yaml file that tells Kustomize what to build, a values file specific to that environment, and a sealed secret file for encrypted credentials.
+
+The key insight here is that the base directory is optional. Use it only when you have shared Kubernetes resources. For Helm charts where everything is environment-specific, you can skip it entirely.
+
+This keeps things simple and easy to understand.
+****
+
+== Section 5: Installing Kustomize
+
+[.script]
+****
+Alright, let's get practical. First, you'll need to install Kustomize on your local machine.
+
+You'll need version 4.1.0 or later to use Helm chart inflation, which is the feature we'll be using.
+
+On your screen, you'll see the installation commands. After installing, verify that it's working by checking the version. You should see version 5.8.0 or later.
+
+Once you have Kustomize installed, you're ready to proceed with the setup.
+****
+
+== Section 6: Directory Structure Walkthrough
+
+[.script]
+****
+Let's take a closer look at how we organize our PostgreSQL deployment.
+
+At the top level, we have the postgresql-gitops directory. Inside that, you'll find four main folders.
+
+The argocd folder contains our Argo CD configuration files. This includes an ApplicationSet for managing multiple environments, and individual Application files for dev, staging, and production if you want to manage them separately.
+
+The base folder typically holds shared resources, but it's empty in our case since we don't have any shared Kubernetes resources.
+
+Then we have three environment folders: dev, staging, and prod.
+
+Each environment folder contains the same three types of files. A kustomization.yaml file that tells Kustomize what to include and how to build it, a values file with Helm values specific to that environment, and a sealed secret file containing encrypted credentials.
+
+This structure gives you clear separation between environments while keeping everything in version control. When you want to change something in development, you know exactly which folder to look in. Same for staging and production.
+
+It's simple, organized, and scales well as your infrastructure grows.
+****
+
+== Section 7: Dev Environment Configuration
+
+[.script]
+****
+Now let's examine the development environment configuration in detail.
+
+The kustomization.yaml file is the heart of each environment. Let me walk you through what it does.
+
+At the top, we specify that this is a Kustomization resource and set the namespace to dev. This means all resources will be deployed to the dev namespace.
+
+In the resources section, we include our sealed secret for PostgreSQL credentials.
+
+The most important part is the helmCharts section. This is where we tell Kustomize about the Helm chart we want to use.
+
+We specify postgresql as the chart name, and provide the Bitnami Helm repository URL. We pin the version to 16.7.27 for reproducibility. This is important because it ensures everyone gets the same version of PostgreSQL.
+
+We set the release name to postgresql and the namespace to dev. And finally, we point to our dev-specific values file, which is values-dev.yaml.
+
+So what happens when you build this? Let me break it down.
+
+First, Kustomize fetches the PostgreSQL Helm chart from the Bitnami repository.
+
+Second, it renders the chart using the values from values-dev.yaml.
+
+Third, it combines the rendered manifests with our sealed secret.
+
+Fourth, it sets the namespace to dev for all resources.
+
+And finally, it outputs complete, ready-to-deploy Kubernetes manifests.
+
+All of this happens automatically when you run the kustomize build command.
+****
+
+== Section 8: Helm Values Explained
+
+[.script]
+****
+Now let's look at the Helm values file for development.
+
+This file customizes the PostgreSQL Helm chart specifically for the development environment.
+
+At the top, we configure the container image. We're using the Bitnami legacy PostgreSQL image, version 17.6.0.
+
+Next, we configure authentication. We set the username to dev, which is environment-specific. We use postgres as the default database. And we reference an existing secret called postgresql-credentials for the password. This is the sealed secret we mentioned earlier.
+
+Then we have the primary instance configuration. This includes several important settings.
+
+First, the pg_hba configuration file. This controls client authentication. For development, we're using trust-based authentication for local connections and connections from private IP ranges. This makes development easier, but you'd lock this down more in production.
+
+Second, we have extended PostgreSQL configuration. We're setting up logical replication with specific settings for write-ahead logging, replication slots, and maximum connections.
+
+Third, we define resource limits. For development, we're requesting 100 millicores of CPU and 512 megabytes of memory, with limits of 500 millicores and 1 gigabyte. These are smaller than what you'd use in production.
+
+Finally, we have initialization scripts. When PostgreSQL starts for the first time, it will create two databases: service_foundry and keycloak. It will also grant privileges to the dev user on both databases.
+
+When you compare this to production, your prod values file would have higher resource limits, stricter authentication rules, a production-specific username, and possibly different PostgreSQL settings based on your production requirements.
+
+This is the power of having separate values files per environment. You can tune each environment independently.
+****
+
+== Section 9: Testing Locally
+
+[.script]
+****
+Before we set up Argo CD, it's a good idea to test that our Kustomize configuration actually works.
+
+You can do this locally by navigating to your postgresql-gitops directory and running the kustomize build command with the enable-helm flag.
+
+This will show you all the Kubernetes manifests that would be deployed, without actually deploying them. It's a great way to verify everything looks correct.
+
+If you want to actually deploy to your cluster, you can pipe the output to kubectl apply.
+
+Now, let's talk about that enable-helm flag. Why is it required?
+
+Kustomize doesn't natively support Helm charts. When you include a helmCharts section in your kustomization.yaml file, you must use the enable-helm flag to tell Kustomize four things.
+
+First, "Hey, I have Helm charts in here".
+
+Second, "Please download these charts from the specified repository".
+
+Third, "Render them using the values file I specified".
+
+And fourth, "Include the rendered manifests in the final output".
+
+Without this flag, Kustomize will simply ignore the helmCharts section, and your PostgreSQL won't be deployed.
+
+One important note: the enable-helm flag requires Kustomize version 4.1.0 or later. Make sure you have a recent version installed.
+
+Soon, we'll learn how to enable this flag in Argo CD as well.
+****
+
+== Section 10: Argo CD Application
+
+[.script]
+****
+Now let's move to Argo CD. We'll start by deploying just the development environment to keep things simple.
+
+First, let's understand what an Argo CD Application is.
+
+An Application is a custom Kubernetes resource that tells Argo CD four key things.
+
+First, where to find your manifests. This includes the Git repository URL and the path within that repository.
+
+Second, what cluster and namespace to deploy to.
+
+Third, how to sync. Should it happen automatically or manually?
+
+And fourth, when to sync. Should it sync on Git changes, or only when you tell it to?
+
+Think of it as a deployment configuration that Argo CD watches and keeps in sync with your desired state in Git.
+
+Now let's look at our Application manifest for the dev environment.
+
+At the top, we give it a name: postgresql-dev. We create it in the argocd namespace, and we add a finalizer that ensures resources are cleaned up when the Application is deleted.
+
+In the spec section, we define the source. This includes your Git repository URL, which you'll need to update to point to your own repository. We set the target revision to main, which means we track the main branch. And we set the path to the dev directory in our repository.
+
+Next, we define the destination. We specify the Kubernetes cluster to deploy to. The default value means the cluster where Argo CD is running. And we set the namespace to dev.
+
+Finally, we configure the sync policy. We enable automated sync, which means Argo CD will automatically sync when it detects changes in Git.
+
+We enable pruning, which removes resources that have been deleted from Git.
+
+We enable self-heal, which reverts manual changes back to the Git state.
+
+We tell it to create the namespace if it doesn't exist.
+
+And we configure retry logic for handling transient failures.
+
+To deploy this Application, you simply apply the manifest with kubectl. Then you can check the status using kubectl or the Argo CD command-line interface.
+
+If everything is configured correctly, you'll see your application appear in the Argo CD web interface with a nice visual representation of all the deployed resources.
+****
+
+== Section 11: Benefits Recap
+
+[.script]
+****
+Let's take a moment to recap the benefits of this approach.
+
+First, we have clear separation. Development configuration lives in the dev directory, completely isolated from staging and production.
+
+Second, we get easy code reviews. Git diffs show exactly what changed for each environment, making pull requests much easier to review.
+
+Third, we have Helm compatibility. We're leveraging the full Helm chart ecosystem while maintaining the structure of Kustomize.
+
+And fourth, it's scalable. Adding staging and production environments is straightforward. Just create new directories with their own values files.
+
+This architecture gives you the best of both worlds: the flexibility of Helm charts and the organization of Kustomize.
+****
+
+== Section 12: Troubleshooting the Enable-Helm Error
+
+[.script]
+****
+Now, you might encounter an error when Argo CD tries to sync your application. Don't panic! This is completely expected and easy to fix.
+
+The error message will say something like: "Failed to load target state, kustomize build failed, must specify enable-helm".
+
+Let me explain why this happens.
+
+Remember the enable-helm flag we used with the Kustomize command-line tool? Well, Argo CD uses Kustomize internally to build your manifests, but by default, it doesn't enable Helm support.
+
+We need to tell Argo CD: "Please use enable-helm when building Kustomize applications."
+
+Unfortunately, Argo CD doesn't provide a way to enable this flag per-application. You must configure it globally for all Kustomize applications by updating a ConfigMap called argocd-cm.
+
+Here's how to fix it.
+
+First, you'll patch the argocd-cm ConfigMap to add the enable-helm build option.
+
+Second, you'll restart the Argo CD repo server so it picks up the new configuration.
+
+Third, you'll wait for the repo server to be ready.
+
+And finally, you'll verify that the configuration was applied correctly.
+
+You'll see the commands on screen. After running these, you need to refresh your application. You can do this by patching the Application with a hard refresh annotation, or you can delete and recreate the Application.
+
+After these steps, your application should sync successfully!
+
+If you're installing Argo CD fresh, you can configure this from the start by creating a custom values file that includes the kustomize build options. This way, you won't encounter the error at all.
+
+For reference, all available Argo CD ConfigMap options are documented in the official Argo CD repository.
+****
+
+== Section 13: Scaling to Multiple Environments
+
+[.script]
+****
+So far, we've deployed just the development environment. But what about staging and production?
+
+You could create individual Application manifests for each environment. That would give you postgresql-dev-application.yaml, postgresql-staging-application.yaml, and postgresql-prod-application.yaml.
+
+But this creates duplication and becomes tedious to manage. There's a better way: ApplicationSet.
+
+Let me explain what ApplicationSet is.
+
+Argo CD's ApplicationSet is like a template engine for Applications. It automatically creates multiple Application resources from a single, reusable template using generators.
+
+Think of it this way: You have a generator that produces a list of environments, plus a template that defines how each Application should look. The result is multiple Applications, one for each environment.
+
+In our case, the generator is a simple list of environments: dev, staging, and prod. The template is a reusable Application configuration. And the result is three Argo CD Applications, automatically created for us.
+
+ApplicationSet uses generators to produce data, then applies that data to a template. There are several types of generators available.
+
+The List generator uses a hardcoded list of values. This is what we'll use.
+
+The Git generator discovers directories or files in a repository automatically.
+
+And the Cluster generator discovers registered Kubernetes clusters.
+
+For each item produced by the generator, ApplicationSet creates an Application by filling in template variables.
+
+Let me walk you through our ApplicationSet configuration.
+****
+
+== Section 14: ApplicationSet Configuration
+
+[.script]
+****
+Our ApplicationSet manifest starts with a name: postgresql-environments. This is created in the argocd namespace, just like individual Applications.
+
+In the spec section, we define our generator. We're using a list generator with three elements: dev, staging, and prod. Each element specifies both an environment name and a namespace.
+
+Next, we define the template. This is where the magic happens.
+
+The template metadata includes the application name, which uses a variable: postgresql-{{env}}. This means for dev, it becomes postgresql-dev. For staging, it becomes postgresql-staging. And for prod, it becomes postgresql-prod.
+
+In the source section, we specify our Git repository and target revision. The path also uses a variable: demo-apps/postgresql-gitops/{{env}}. This points to the environment-specific directory.
+
+The destination uses another variable for the namespace, so each environment deploys to its own namespace.
+
+And finally, we configure the sync policy just like we did for the individual Application.
+
+What gets created from this single ApplicationSet? Three complete Applications.
+
+Application one: postgresql-dev deploys from the dev directory to the dev namespace.
+
+Application two: postgresql-staging deploys from the staging directory to the staging namespace.
+
+Application three: postgresql-prod deploys from the prod directory to the prod namespace.
+
+To deploy the ApplicationSet, you simply apply the manifest with kubectl. Then you can check what Applications were created by listing all applications in the argocd namespace.
+
+You should see all three: postgresql-dev, postgresql-staging, and postgresql-prod.
+
+In the Argo CD web interface, you'll see a beautiful visualization of all three environments, each with its own deployment status.
+****
+
+== Section 15: Why Use ApplicationSet
+
+[.script]
+****
+Let's talk about why ApplicationSet is so powerful.
+
+First, it follows the DRY principle: Don't Repeat Yourself. You have one template instead of multiple duplicate manifests.
+
+Second, it ensures consistency. All environments use the same configuration pattern, reducing the chance of configuration drift.
+
+Third, it's easy to scale. Want to add a new environment? Just add one line to the elements list in your generator.
+
+Fourth, it's GitOps-friendly. The environment list is tracked in Git, so all changes are version-controlled and reviewable.
+
+And fifth, you have a cleaner repository. Fewer files to maintain means less clutter and easier navigation.
+
+When should you use ApplicationSet versus individual Applications?
+
+Use individual Applications when you only have one or two environments, when your environments differ significantly in structure, or when you're just getting started and want to keep things simple.
+
+Use ApplicationSet when you have three or more environments, when your environments follow the same pattern, or when you want to scale easily in the future.
+
+For most production use cases, ApplicationSet is the way to go.
+****
+
+== Section 16: Securing Secrets
+
+[.script]
+****
+Now let's talk about one of the most important topics in GitOps: secrets management.
+
+So far, we've been referencing postgresql-credentials-secret files but haven't explained what they are. Let's fix that.
+
+The problem is this: GitOps means everything in Git. But Kubernetes Secrets are only base64-encoded, not encrypted. Anyone with access to your repository can easily decode them.
+
+This is a huge security risk. If you commit a regular Kubernetes Secret to your Git repository, it's not really secret at all.
+
+The solution is called SealedSecrets, developed by Bitnami.
+
+SealedSecrets solves this problem using public-key cryptography. Here's how it works.
+
+Step one: You encrypt your secret using a public key. This encrypted secret is safe to commit to Git.
+
+Step two: Only the SealedSecrets controller running inside your Kubernetes cluster has the private key needed to decrypt it.
+
+Step three: You commit the encrypted SealedSecret to your Git repository. It's completely safe.
+
+Step four: Argo CD deploys the SealedSecret to your cluster, just like any other resource.
+
+Step five: The SealedSecrets controller detects the new SealedSecret, decrypts it using its private key, and creates the actual Secret in your cluster.
+
+The benefits are clear.
+
+First, it's secure. Secrets are properly encrypted, not just encoded.
+
+Second, it's GitOps-compatible. You can safely commit encrypted secrets to Git.
+
+Third, it supports per-environment secrets. You can have different secrets for dev, staging, and production.
+
+And fourth, it's declarative. Secrets are managed as code through your CI/CD pipelines.
+****
+
+== Section 17: Creating Sealed Secrets
+
+[.script]
+****
+To make creating sealed secrets easy, I've created a helper script.
+
+You run the script with environment variables for your passwords and the target namespace. The script outputs an encrypted secret file that you can safely commit to Git.
+
+Let me explain what the script does step by step.
+
+First, it creates a regular Kubernetes Secret manifest, but with the dry-run flag. This means it doesn't actually create the secret in your cluster, it just generates the YAML file.
+
+Second, it fetches the public encryption key from your SealedSecrets controller running in the cluster.
+
+Third, it encrypts the secret using that public key. This is the critical step.
+
+Fourth, it outputs a SealedSecret YAML file that's safe to commit to Git.
+
+And finally, it cleans up the temporary files.
+
+The resulting SealedSecret can only be decrypted by the controller in your cluster. Even if someone gets access to your Git repository, they cannot decrypt your secrets.
+
+Once you've created your sealed secret, you commit it to Git and push it. Argo CD will deploy it automatically.
+
+Then, the SealedSecrets controller in your cluster detects the new SealedSecret, decrypts it using its private key, and creates the actual Secret. PostgreSQL can then use this secret for authentication.
+
+Perfect! You now have secure secrets in a GitOps workflow.
+****
+
+== Section 18: Putting It All Together
+
+[.script]
+****
+Let's review what we've built and how all the pieces fit together.
+
+We have a clear directory structure with an argocd folder for configurations, and separate folders for dev, staging, and prod environments.
+
+Each environment has three key files: a kustomization file that tells Kustomize what to build, environment-specific Helm values, and encrypted secrets.
+
+For Argo CD configuration, we have two approaches available. We can use individual Applications, one per environment. Or we can use a single ApplicationSet for all environments, which is the recommended approach.
+
+Now let me walk you through the complete workflow.
+
+It starts when you push a change to Git.
+
+Argo CD detects the change within seconds.
+
+It runs Kustomize build with the enable-helm flag.
+
+Kustomize downloads the specified Helm chart from the repository.
+
+It renders the chart using the environment-specific values.
+
+The rendered manifests are deployed to your cluster.
+
+The SealedSecrets controller automatically decrypts any sealed secrets.
+
+And finally, PostgreSQL starts using the decrypted credentials.
+
+This entire process is automated, auditable, and secure. Every change is tracked in Git. Every deployment is reproducible. And every secret is encrypted.
+****
+
+== Conclusion Script
+
+[.script]
+****
+Congratulations! You've learned how to combine Kustomize and Helm to manage multi-environment deployments with Argo CD.
+
+Let's recap the key takeaways from this video.
+
+First, combining Kustomize and Helm gives you the best of both worlds: the structure and organization of Kustomize with the flexibility and power of Helm charts.
+
+Second, using one complete values file per environment may involve some duplication, but it's much clearer and easier to maintain than trying to merge multiple files.
+
+Third, you must enable the enable-helm flag in Argo CD's ConfigMap for Helm chart inflation to work.
+
+Fourth, ApplicationSet makes managing multiple environments incredibly easy. One template, multiple environments.
+
+And fifth, SealedSecrets lets you safely store encrypted secrets in Git, solving one of the biggest challenges in GitOps.
+
+What should you do next?
+
+Try this pattern with your own Helm charts. Start with something simple, like nginx or postgresql.
+
+Explore Argo CD's other ApplicationSet generators, like the Git generator and Cluster generator.
+
+Set up promotion workflows to move changes from dev to staging to production in a controlled way.
+
+And consider adding automated tests that run before deployment to catch issues early.
+
+I hope this video has been helpful! If you found it useful, please give it a thumbs up and subscribe for more Kubernetes and DevOps content.
+
+If you have questions or want to share your own experiences with Kustomize and Helm, please leave a comment below. I'd love to hear from you.
+
+Thanks for watching, and happy deploying!
+****
+
+== Video Production Notes
+
+=== Suggested Video Structure
+
+[NOTE]
+====
+**Total estimated runtime: 35-45 minutes**
+
+**Part 1: Introduction and Problem (5-7 minutes)**
+
+* Introduction script
+* The Challenge script
+* The Better Way script
+
+**Part 2: Core Concepts (8-10 minutes)**
+
+* Understanding Values Files script
+* Understanding Overlays script
+* Installing Kustomize script
+* Directory Structure Walkthrough script
+
+**Part 3: Implementation (12-15 minutes)**
+
+* Dev Environment Configuration script
+* Helm Values Explained script
+* Testing Locally script
+* Argo CD Application script
+* Benefits Recap script
+
+**Part 4: Advanced Topics (8-10 minutes)**
+
+* Troubleshooting the Enable-Helm Error script
+* Scaling to Multiple Environments script
+* ApplicationSet Configuration script
+* Why Use ApplicationSet script
+
+**Part 5: Security and Conclusion (7-8 minutes)**
+
+* Securing Secrets script
+* Creating Sealed Secrets script
+* Putting It All Together script
+* Conclusion script
+====
+
+=== Screen Recording Suggestions
+
+[TIP]
+====
+**For each section, consider showing:**
+
+* **Introduction**: Show the final demo of all three environments running
+* **Problem/Solution**: Show side-by-side comparison of old vs new approach
+* **Directory Structure**: Show file explorer or terminal tree view
+* **Configuration files**: Show the actual YAML files with syntax highlighting
+* **Kustomize build**: Show terminal output of kustomize build command
+* **Argo CD**: Show the Argo CD web UI with applications syncing
+* **Troubleshooting**: Show the actual error in Argo CD UI
+* **ApplicationSet**: Show all three applications being created automatically
+* **Sealed Secrets**: Show the script running and the encrypted output
+
+**Timing suggestions:**
+
+* Pause for 2-3 seconds after introducing a new concept
+* Slow down when explaining complex topics like SealedSecrets
+* Speed up slightly during review/recap sections
+* Add music during transitions between major sections
+====
+
+=== Voiceover Tips
+
+[IMPORTANT]
+====
+**For best results with text-to-speech:**
+
+* Use short, declarative sentences
+* Add pauses with punctuation (commas, periods)
+* Emphasize key terms by putting them in their own sentence
+* Repeat important concepts in different words
+* Use transitions like "Now", "Next", "First", "Finally"
+* End sections with summaries
+
+**Recommended TTS settings:**
+
+* Speed: 0.9x (slightly slower than normal)
+* Pause at periods: 0.5 seconds
+* Pause at commas: 0.3 seconds
+* Pitch: Neutral to slightly warm
+====
+
+<<<
+
+== YouTube Publishing Content
+
+=== Video Title
+
+[source,text]
+----
+Kustomize + Helm + Argo CD: The Complete Guide to Multi-Environment GitOps Deployments
+----
+
+**Alternative titles:**
+
+* _How to Manage Multiple Environments with Kustomize, Helm, and Argo CD_
+* _GitOps Made Easy: Kustomize with Helm Charts in Argo CD (Complete Tutorial)_
+* _Deploy to Dev, Staging & Prod Automatically with Kustomize and Argo CD_
+
+=== Video Description
+
+[source,text]
+----
+Learn how to combine Kustomize and Helm to manage Kubernetes applications across multiple environments (dev, staging, production) using GitOps with Argo CD.
+
+In this comprehensive tutorial, I'll show you how to solve the common problem of managing different configurations for multiple environments while keeping everything version-controlled in Git.
+
+🎯 What You'll Learn:
+• Why combining Kustomize and Helm makes sense
+• How to structure your Git repository for multi-environment deployments
+• Setting up Kustomize with Helm chart inflation
+• Deploying single environments with Argo CD Applications
+• Scaling to multiple environments with ApplicationSet
+• Securing secrets with SealedSecrets
+• Troubleshooting common issues
+
+📚 Chapters:
+00:00 Introduction
+05:00 The Challenge with Multi-Environment Deployments
+07:30 Why Kustomize + Helm?
+12:00 Understanding Values Files (Can't Merge!)
+17:00 Directory Structure Best Practices
+22:00 Development Environment Configuration
+27:00 Testing Locally with Kustomize
+30:00 Deploying with Argo CD
+35:00 Troubleshooting: The --enable-helm Error
+40:00 ApplicationSet for Multiple Environments
+48:00 Securing Secrets with SealedSecrets
+55:00 Complete Workflow Overview
+58:00 Conclusion & Next Steps
+
+💻 Example Repository:
+https://github.com/nsalexamy/service-foundry-argocd
+
+📖 Blog Article:
+[Link to your blog post]
+
+🔧 Tools Used:
+• Kustomize v5.8.0+
+• Helm Charts (Bitnami PostgreSQL)
+• Argo CD
+• SealedSecrets
+• Kubernetes
+
+⚠️ Important Notes:
+• You MUST use --enable-helm with Kustomize for Helm charts
+• Configure kustomize.buildOptions in argocd-cm ConfigMap
+• Values files cannot be merged (one complete file per environment)
+
+🎓 Prerequisites:
+• Basic Kubernetes knowledge
+• Understanding of Helm charts
+• Familiarity with GitOps concepts
+• kubectl and kustomize installed
+
+💡 Key Takeaways:
+✅ One complete values file per environment (embrace duplication!)
+✅ Use ApplicationSet for 3+ environments
+✅ SealedSecrets for secure GitOps
+✅ Enable Helm globally in Argo CD ConfigMap
+
+📱 Connect with me:
+• LinkedIn: [Your LinkedIn]
+• GitHub: [Your GitHub]
+• Blog: [Your Blog]
+
+#Kubernetes #ArgoCD #Kustomize #Helm #GitOps #DevOps #CloudNative #CNCF
+
+👍 If this video helped you, please like and subscribe for more Kubernetes and DevOps content!
+💬 Have questions? Drop them in the comments below!
+
+---
+Music: [If applicable]
+Video Editing: [If applicable]
+----
+
+=== YouTube Tags
+
+[source,text]
+----
+kubernetes
+argocd
+kustomize
+helm
+gitops
+devops
+cloud native
+kubernetes tutorial
+argocd tutorial
+kustomize tutorial
+helm charts
+multi environment deployment
+kubernetes deployment
+continuous deployment
+infrastructure as code
+kubernetes gitops
+applicationset
+sealed secrets
+kubernetes secrets
+helm values
+kustomize overlay
+kubernetes environments
+dev staging production
+kubernetes best practices
+cloud native applications
+CNCF
+postgresql kubernetes
+bitnami helm charts
+kubernetes automation
+declarative kubernetes
+kubernetes configuration management
+helm chart customization
+kustomize helm integration
+----
+
+<<<
+
+== LinkedIn Publishing Content
+
+=== Article Title
+
+[source,text]
+----
+The Complete Guide to Multi-Environment Kubernetes Deployments with Kustomize, Helm, and Argo CD
+----
+
+=== LinkedIn Summary
+
+[source,text]
+----
+Managing Kubernetes applications across dev, staging, and production environments shouldn't feel like herding cats. Yet many teams struggle with configuration management, ending up with duplicated Application manifests, scattered values files, and no clear promotion path.
+
+I've written a comprehensive guide that shows you how to solve this problem by combining three powerful tools: Kustomize, Helm, and Argo CD.
+
+🎯 The Problem:
+When deploying Helm charts with Argo CD, the typical approach of embedding values in Application manifests quickly becomes unmanageable as you scale. You face:
+• Tight coupling between configuration and deployment definitions
+• Poor reusability across environments
+• Difficult code reviews
+• No clear promotion strategy
+
+✅ The Solution:
+By introducing Kustomize as a layer between Argo CD and Helm, you gain:
+• Clean separation: Each environment gets its own directory
+• GitOps-friendly: Everything version-controlled with clear structure
+• Easy promotion: Standard Git workflows for moving changes
+• Better reviews: Clear diffs showing environment-specific changes
+
+📖 What's Covered:
+
+**Core Concepts:**
+• Why Kustomize values files can't be merged (and what to do about it)
+• Directory structure best practices
+• When to use base overlays vs. per-environment configs
+
+**Implementation:**
+• Setting up Kustomize with Helm chart inflation
+• Configuring Argo CD Applications
+• Using ApplicationSet for multiple environments
+• The critical --enable-helm flag (and how to fix errors)
+
+**Security:**
+• Managing secrets with SealedSecrets
+• Encrypting credentials for GitOps workflows
+
+**Real Example:**
+I use PostgreSQL deployment across three environments (dev, staging, prod) to demonstrate every concept with working code.
+
+💡 Key Insight:
+One of the most important lessons? Don't fight Kustomize's design. Each environment should have a complete values file. Yes, there's duplication. But the clarity and maintainability you gain far outweigh the DRY principle here.
+
+🎥 I've also created a companion YouTube video (35-45 minutes) with voiceover narration walking through every step. Perfect for visual learners or those who want to follow along.
+
+Whether you're managing 3 environments or 30, this pattern scales beautifully. It's how we manage production Kubernetes workloads across multiple teams.
+
+Have you tried combining Kustomize and Helm? What challenges have you faced? Let's discuss in the comments!
+
+#Kubernetes #ArgoCD #Kustomize #Helm #GitOps #DevOps #CloudNative #CNCF #PlatformEngineering #InfrastructureAsCode #SRE #KubernetesBestPractices
+
+📖 Read the full article: [Link]
+🎥 Watch the video tutorial: [Link]
+💻 Example code: [Link]
+----
+
+=== LinkedIn Article Opening Hook
+
+[source,text]
+----
+You've got three environments. Three sets of Kubernetes resources. Three different configurations. And somehow, you're managing them with copy-paste and prayer.
+
+There's a better way.
+
+In this guide, I'll show you exactly how to manage multi-environment Kubernetes deployments using Kustomize, Helm, and Argo CD—the GitOps way.
+----
+
+=== LinkedIn Hashtags (Optimized Set)
+
+**Primary hashtags (High engagement):**
+
+[source,text]
+----
+#Kubernetes
+#DevOps
+#CloudNative
+#GitOps
+#ArgoCD
+----
+
+**Secondary hashtags (Targeted):**
+
+[source,text]
+----
+#Kustomize
+#Helm
+#CNCF
+#PlatformEngineering
+#SRE
+#InfrastructureAsCode
+#ContainerOrchestration
+#CloudComputing
+#DevSecOps
+#KubernetesBestPractices
+----
+
+**Long-tail hashtags (Specific):**
+
+[source,text]
+----
+#KubernetesTutorial
+#ArgoCDTutorial
+#HelmCharts
+#MultiEnvironmentDeployment
+#KubernetesDeployment
+#ContinuousDeployment
+#DeclarativeKubernetes
+#KubernetesAutomation
+----
+
+=== LinkedIn Posting Strategy
+
+[TIP]
+====
+**Best times to post on LinkedIn:**
+
+* Tuesday to Thursday: 8-10 AM, 12-1 PM (your timezone)
+* Avoid Mondays (people catching up) and Fridays (winding down)
+
+**Engagement tactics:**
+
+1. **Ask a question** in the first comment to start discussion
+2. **Tag relevant people** or companies (Argo CD project, CNCF, etc.)
+3. **Respond quickly** to early comments (first 2 hours are critical)
+4. **Share in relevant groups** (Kubernetes, DevOps, Cloud Native)
+5. **Pin a top comment** with links to resources
+
+**Sample first comment to pin:**
+
+"👋 Hey everyone! I spent the last month refining this approach in production. Here are the key resources:
+
+📖 Full article with code examples: [link]
+🎥 Video walkthrough (35 min): [link]
+💻 GitHub repo with working examples: [link]
+🔐 SealedSecrets setup guide: [link]
+
+What's your biggest challenge with multi-environment Kubernetes deployments? I'll try to answer questions in the comments!"
+====
+
+=== LinkedIn Article Tags (Backend)
+
+[NOTE]
+====
+When publishing on LinkedIn as an article, use these tags in the LinkedIn article editor:
+
+**Skills to tag:**
+
+* Kubernetes
+* DevOps
+* Helm (Package Manager)
+* GitOps
+* Argo CD
+* Cloud Computing
+* Container Orchestration
+* Infrastructure as Code
+* Site Reliability Engineering
+* Platform Engineering
+* Continuous Integration and Continuous Delivery (CI/CD)
+* Configuration Management
+====
+
+<<<
+
+== Social Media Promotion Plan
+
+=== Twitter/X Thread (7 tweets)
+
+[source,text]
+----
+Tweet 1/7 🧵
+Managing Kubernetes apps across dev, staging & prod shouldn't be this hard.
+
+I just published a complete guide on combining Kustomize + Helm + Argo CD for GitOps multi-environment deployments.
+
+Here's what you need to know 👇
+
+#Kubernetes #DevOps #GitOps
+
+---
+
+Tweet 2/7
+The Problem: Most teams embed Helm values in Argo CD manifests.
+
+This creates:
+❌ Tight coupling
+❌ Poor reusability
+❌ Messy Git diffs
+❌ No clear promotion path
+
+There's a better way...
+
+---
+
+Tweet 3/7
+The Solution: Use Kustomize as an organizer for your Helm charts.
+
+✅ Each environment = its own directory
+✅ Clear Git structure
+✅ Easy promotion (just merge PRs!)
+✅ Better code reviews
+
+---
+
+Tweet 4/7
+Key Insight #1:
+
+Kustomize CANNOT merge Helm values files.
+
+Unlike helm install --values base.yaml --values dev.yaml, you can only use ONE values file per environment.
+
+The fix? Embrace duplication. One complete values file per env.
+
+---
+
+Tweet 5/7
+Key Insight #2:
+
+You MUST enable --enable-helm in Argo CD.
+
+Add this to argocd-cm ConfigMap:
+kustomize.buildOptions: "--enable-helm"
+
+Then restart the repo-server.
+
+This trips up everyone the first time!
+
+---
+
+Tweet 6/7
+Pro tip: Use ApplicationSet for 3+ environments.
+
+One template = Multiple apps automatically created.
+
+Way better than copy-pasting Application manifests for each environment.
+
+---
+
+Tweet 7/7
+I covered everything:
+• Directory structure
+• Values file patterns
+• ApplicationSet
+• SealedSecrets
+• Real PostgreSQL example
+
+📖 Full guide: [link]
+🎥 Video tutorial: [link]
+💻 Code: [link]
+
+Questions? Drop them below! 👇
+----
+
+=== Reddit Posts
+
+**For r/kubernetes:**
+
+[source,text]
+----
+Title: [Tutorial] Complete Guide to Multi-Environment Deployments with Kustomize, Helm, and Argo CD
+
+Body:
+I've written a comprehensive guide on managing Kubernetes applications across multiple environments using Kustomize with Helm charts in Argo CD.
+
+This was born from production pain points managing 10+ environments across multiple teams. The common approach of embedding Helm values in Argo CD Application manifests doesn't scale.
+
+**What's covered:**
+- Why combine Kustomize and Helm (and when not to)
+- Directory structure patterns
+- Configuration file examples
+- ApplicationSet for automation
+- SealedSecrets for GitOps-safe secrets
+- Common gotchas and how to fix them
+
+**Key takeaway:** 
+Kustomize can't merge Helm values files. You need one complete values file per environment. Fighting this design decision will only bring pain.
+
+📖 Article: [link]
+🎥 Video walkthrough: [link]
+💻 Example repo: [link]
+
+Happy to answer questions!
+----
+
+**For r/devops:**
+
+[source,text]
+----
+Title: How I Solved Multi-Environment Config Management with GitOps (Kustomize + Helm + Argo CD)
+
+Body:
+After months of wrestling with configuration management across dev, staging, and prod environments, I finally landed on a pattern that works beautifully.
+
+The stack: Kustomize + Helm + Argo CD
+
+The insight: Stop trying to merge values files. Embrace duplication.
+
+I documented the entire approach with a real PostgreSQL deployment example.
+
+**Covers:**
+- GitOps directory structure
+- Helm values organization
+- Argo CD ApplicationSet patterns
+- Secret management with SealedSecrets
+- The critical --enable-helm flag everyone forgets
+
+Full write-up: [link]
+Video tutorial: [link]
+
+What's your approach to multi-env config management?
+----
+
+=== Dev.to Post Excerpt
+
+[source,markdown]
+----
+---
+title: The Complete Guide to Multi-Environment Kubernetes Deployments with Kustomize, Helm, and Argo CD
+published: true
+description: Learn how to manage dev, staging, and production Kubernetes deployments using GitOps with Kustomize, Helm charts, and Argo CD ApplicationSets.
+tags: kubernetes, devops, gitops, argocd
+cover_image: [your-cover-image-url]
+canonical_url: [your-blog-url]
+---
+
+Managing Kubernetes applications across multiple environments shouldn't feel like juggling chainsaws. Yet here we are, copy-pasting Application manifests, scattering values files, and hoping nothing breaks in production.
+
+In this guide, I'll show you how to solve this problem by combining three powerful tools: Kustomize, Helm, and Argo CD.
+
+[Read more...]
+----
+
+
+

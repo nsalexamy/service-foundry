@@ -1,0 +1,667 @@
+= Using Kustomize With Helm Charts: A Hybrid Approach to Kubernetes Configuration Management
+
+:imagesdir: images
+
+[.img-wide]
+image::intro.png[]
+
+== Introduction
+
+This article will guide you through the process of using Kustomize with Helm charts to manage Kubernetes configurations in a GitOps environment.
+
+I will use the PostgreSQL chart as an example to demonstrate how to use Kustomize with Helm charts.
+
+We will more focus on the Argo CD Application manifest and how to use Kustomize with Helm charts including single application per environment and application set for all environments.
+
+
+== Why Use Kustomize With Helm Charts?
+
+When you define an Argo CD Application using a Helm chart, the typical approach is to embed the Helm values.yaml or use inline overrides directly in the application manifest. While this may work for simple use cases, it quickly becomes unmanageable as your deployment grows to support multiple environments (e.g., dev, staging, production).
+
+This tightly couples configuration values to the Argo CD Application definition, making it difficult to:
+
+	•	Reuse the same Helm chart across different environments
+	•	Store and version different values.yaml files cleanly
+	•	Apply GitOps practices like pull-request-based changes and environment promotion
+
+By using Kustomize, you can organize your Helm values and Argo CD application manifests in a structured directory layout (e.g., dev, prod). This allows you to:
+
+	•	Use separate values.yaml files per environment
+	•	Apply environment-specific patches to the application manifest (e.g., namespace, image tag)
+	•	Enable clean GitOps workflows where all configuration is declaratively stored in Git
+	•	Promote changes between environments by copying or updating overlays
+
+Kustomize gives you a layer of abstraction that makes Helm-based deployments more flexible, maintainable, and GitOps-friendly.
+
+== Considerations
+
+=== Values file
+
+Unfortunately, Kustomize's valuesFile property does NOT support merging multiple values files. Unlike helm install --values base.yaml --values dev.yaml, you can only specify a single valuesFile in the Kustomize helmCharts configuration.
+
+This means each environment's values file must contain all the custom values (both common and environment-specific).
+
+There are two options:
+
+- Option 1: Include Common Values in Each Environment File (Recommended)
+- Option 2: Use valuesInline for Environment-Specific Overrides
+
+You can combine valuesFile (pointing to base values) with valuesInline for environment-specific values:
+
+[source,yaml]
+----
+helmCharts:
+  - name: postgresql
+    repo: https://charts.bitnami.com/bitnami
+    version: 16.7.27
+    releaseName: postgresql
+    namespace: dev
+    # Use base values file
+    valuesFile: ../base/values.yaml
+    # Add/override environment-specific values inline
+    valuesInline:
+      auth:
+        username: "nsa2"
+        database: "postgres"
+        existingSecret: postgresql-credentials
+----        
+
+My Recommendation
+Stick with Option 1: Keep all values in each environment's values file (
+values-dev.yaml, values-staging.yaml, etc.).
+
+Why?
+
+- ✅ Simpler and more explicit - each environment file is self-contained
+- ✅ Easier to troubleshoot - you can see all values in one place
+- ✅ Standard Helm pattern - matches how most teams use Helm
+- ✅ GitOps friendly - clear diff when values change
+- ❌ valuesInline gets messy with complex configurations (lots of formatting issues with multiline strings)
+
+=== overlays 
+
+NOTE::
+Moving helmCharts configuration from base to dev. If base is intended to be used directly without overlays, this change might affect that usage. However, for a proper GitOps workflow with Kustomize handling Helm charts, defining charts in overlays is the recommended pattern to allow value overrides.
+
+You can use Kustomize overlays to manage environment-specific values. This is a more advanced approach that requires more setup but provides more flexibility. However, some Helm charts do not need to be overlayed at all because they are simple and do not have any Kubernetes resources that need to be modified or shared between environments. For example, the Bitnami PostgreSQL chart is a good candidate for this approach because it has a simple configuration and does not have any Kubernetes resources but secrets that need to be defined in each environment. Even in this case, you can keep the Kustomize overlay directory structure but only use the values.yaml file from the overlay directory.
+
+----
+postgresql-gitops
+├── argocd
+├── base
+├── dev
+├── prod
+└── staging
+----
+
+
+== Install Kustomize
+
+To install Kustomize, you can use the following command:
+[source,shell]
+----
+$ curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+$ sudo mv kustomize /usr/local/bin
+----
+
+Verify the installation by checking the version:
+[source,shell]
+----
+$ kustomize version
+
+v5.8.0
+----
+
+==  Kustomize Directory Structure
+
+To support reusable and environment-specific configurations, we organize our manifests using a standard Kustomize structure. Here’s how it works:
+
+
+[source,shell]
+----
+$ tree postgresql-gitops
+
+postgresql-gitops
+├── argocd
+│   ├── postgresql-applicationset.yaml
+│   ├── postgresql-dev-application.yaml
+│   ├── postgresql-prod-application.yaml
+│   └── postgresql-staging-application.yaml
+├── base
+│   └── kustomization.yaml
+├── dev
+│   ├── kustomization-with-values-inline-example.yaml
+│   ├── kustomization.yaml
+│   ├── postgresql-credentials-secret.yaml
+│   └── values-dev.yaml
+├── prod
+│   ├── kustomization.yaml
+│   ├── postgresql-credentials-secret.yaml
+│   └── values-prod.yaml
+├── staging
+│   ├── kustomization.yaml
+│   ├── postgresql-credentials-secret.yaml
+│   └── values-staging.yaml
+└── seal-postgresql-secret.sh
+----
+
+	•	The base/ directory contains shared Helm chart configurations and resources common across all environments.
+	•	Each environment directory (dev/, staging/, prod/) overlays the base with environment-specific changes such as replica count, CPU/memory limits, or different storage settings.
+
+Using this structure allows you to:
+
+	•	Maintain a single source of truth in base/
+	•	Customize configuration per environment without duplication
+	•	Manage everything under version control using GitOps
+
+
+=== dev/kustomization.yaml – Kustomize Configuration for PostgreSQL Helm Chart
+
+The kustomization.yaml file in the dev/ directory defines how Kubernetes resources should be assembled and customized for the development environment using Kustomize with Helm chart integration.
+
+.dev/kustomization.yaml
+[source,yaml]
+----
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: dev
+
+resources:
+  # - ../base # base is empty and causes error if commented out
+  - postgresql-credentials-secret.yaml  # sealed secret for credentials
+
+helmCharts:
+  - name: postgresql
+    repo: https://charts.bitnami.com/bitnami
+    version: 16.7.27
+    releaseName: postgresql
+    namespace: dev
+    valuesFile: values-dev.yaml
+----  
+
+=== dev/values-dev.yaml – Helm Values for Development Environment
+
+This file customizes the PostgreSQL Helm chart specifically for the development environment. It defines the container image, authentication details, PostgreSQL configuration, resource limits, and initialization SQL scripts.
+
+.dev/values-dev.yaml
+[source,yaml]
+----
+image:
+  registry: docker.io
+  repository: bitnamilegacy/postgresql
+  tag: 17.6.0-debian-12-r4 #16.2.0-debian-12-r20
+
+
+auth:
+  username: "dev"
+  database: "postgres"  # we create the specific database in initdb scripts
+  existingSecret: postgresql-credentials
+
+primary:
+
+  ## pgHbaConfiguration: |-
+  ##   local all all trust
+  ##   host all all localhost trust
+  ##   host mydatabase mysuser 192.168.0.0/24 md5
+  ##
+  pgHbaConfiguration: |-
+    local   all             all                                     trust
+    host    all             all             127.0.0.1/32            trust
+    host    all             all             ::1/128                 trust
+    local   replication     all                                     trust
+    host    replication     all             127.0.0.1/32            trust
+    host    replication     all             ::1/128                 trust
+
+    host    all             all             10.0.0.0/8              trust
+    host    all             all             192.168.0.0/16              trust    
+
+
+  extendedConfiguration: |-
+    wal_level = logical
+    max_replication_slots = 10
+    max_wal_senders = 10
+    max_connections = 200
+
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1024Mi
+
+  initdb:
+    scripts:
+      # create
+      create-databases.sql: |
+        CREATE DATABASE service_foundry;
+        GRANT ALL PRIVILEGES ON DATABASE service_foundry TO dev;
+        
+        --CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+        --CREATE EXTENSION IF NOT EXISTS pgcrypto;
+        --CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+        --CREATE EXTENSION IF NOT EXISTS citext;
+
+        CREATE DATABASE keycloak;
+        GRANT ALL PRIVILEGES ON DATABASE keycloak TO dev;
+----  
+
+
+== Install PostgreSQL with Kustomize
+
+To deploy PostgreSQL using Kustomize, navigate to your GitOps project directory and run the following command:
+
+[source,shell]
+----
+$ cd postgresql-gitops
+$ kustomize build dev --enable-helm | kubectl apply -f -
+----
+
+=== --enable-helm (Why it’s required)
+Helm charts are not natively supported by Kustomize without this flag.
+
+If your base/kustomization.yaml or any environment-level kustomization.yaml includes the helmCharts: directive like below:
+
+[source,yaml]
+----
+helmCharts:
+  - name: postgresql
+    repo: https://charts.bitnami.com/bitnami
+    version: 16.7.27
+    releaseName: postgresql
+    namespace: dev
+    valuesFile: values-dev.yaml
+----
+
+Then you must use --enable-helm so that Kustomize knows to:
+
+	•	Treat the helmCharts: block as valid input
+	•	Download the specified Helm chart
+	•	Render it as plain Kubernetes manifests
+	•	Merge the rendered output with the rest of your resources
+
+Without --enable-helm, Kustomize will ignore the helmCharts block and fail to render the Helm-based resources, meaning your PostgreSQL deployment won’t happen.
+
+WARNING:: This flag is available in kustomize versions 4.1.0 and above. Always verify your version by running kustomize version.
+
+Later in this document, we will add 'kustomize.buildOptions' to argocd-cm configmap to enable --enable-helm.
+
+
+== Install Argo CD Application with Kustomize (postgresql-dev-application.yaml)
+
+When deploying PostgreSQL to a specific environment like dev, we can define an individual Argo CD Application using Kustomize. The file postgresql-dev-application.yaml is an Argo CD Application manifest that tells Argo CD to deploy PostgreSQL using the configurations found in the dev/ directory of your Git repository.
+
+This is a good starting point for simple setups or for testing a single environment before scaling out to multiple environments.
+
+
+=== Highlights of postgresql-dev-application.yaml
+
+.postgresql-dev-application.yaml
+[source,yaml]
+----
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: demo-postgresql-dev
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  
+  source:
+    # Update this with your Git repository URL
+    repoURL: git@github.com:nsalexamy/service-foundry-argocd.git
+    targetRevision: main
+    path: demo-apps/postgresql-gitops/dev
+  
+  destination:
+    # Target cluster (default is the cluster where ArgoCD is installed)
+    server: https://kubernetes.default.svc
+    namespace: dev
+  
+  syncPolicy:
+    automated:
+      # Automatically sync when Git changes are detected
+      prune: true
+      # Automatically revert manual changes
+      selfHeal: true
+      # Don't sync if there are no resources
+      allowEmpty: false
+    
+    syncOptions:
+      # Create namespace if it doesn't exist
+      - CreateNamespace=true
+    
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+----
+
+This file defines a single Argo CD Application with the following key fields:
+
+	•	metadata.name: demo-postgresql-dev
+	•	spec.source.repoURL: URL of the Git repository that contains the manifests
+	•	spec.source.path: dev/ — points to the Kustomize overlay directory
+	•	spec.source.kustomize: Tells Argo CD to use Kustomize
+	•	spec.destination: Namespace and Kubernetes cluster where the app should be deployed
+	•	spec.syncPolicy: Optional auto-sync settings
+
+
+=== How to apply the application
+
+Run the following command to apply the application:
+
+[source,shell]
+----
+$ kubectl apply -f argocd/postgresql-dev-application.yaml
+----
+
+If everything goes well, you will see the application in the Argo CD UI.
+
+.ArgoCD UI - demo-postgresql-dev
+[.img-wide]
+image::argocd-postgresql-dev.png[]
+
+
+=== Benefits of Using Kustomize with Argo CD
+
+	•	Clean separation of configuration per environment
+	•	Easier to review changes via Git diffs
+	•	Great compatibility with Helm charts (via helmCharts: in Kustomization)
+	•	Simpler scaling to multi-env deployment using ApplicationSet (next section)
+
+=== Troubleshooting
+
+You might see a comparison error in ArgoCD. This is because the application is not in sync with the repository.
+
+.Argocd Comparison Error
+[.img-wide]
+image::argocd-comparison-error.png[]
+
+.Error message
+[source,text]
+----
+Failed to load target state: failed to generate manifest for source 1 of 1: pc error:
+code = Unknown desc = 'kustomize build < path to cached source>/demo-
+apps/postgresql-gitops/dev failed exit status 1: Error: trouble configuring builtin HelmChartInflationGenerator with config: * name: postgresql namespace: dev releaseName: postgresql repo: https://charts.bitnami.com/bitnami valuesFile: values-dev.yaml version: 16.7.27*: must specify -enable-helm
+----
+
+==== The cause of the issue
+
+The issue is that the argocd-cm configmap does not have the -enable-helm option enabled. Without this option, Argo CD will not be able to render the Helm chart. 
+
+==== How to fix the issue by patching argocd-cm
+
+Run the following command to fix the issue:
+[source,shell]
+----
+# patch argocd configmap
+$ kubectl patch configmap argocd-cm -n argocd --type merge -p '{"data":{"kustomize.buildOptions":"--enable-helm"}}'
+
+# restart argocd repo server
+$ kubectl rollout restart deployment argocd-repo-server -n argocd
+
+# wait for argocd repo server to be ready
+$ kubectl rollout status deployment argocd-repo-server -n argocd --timeout=60s
+
+# verify argocd configmap
+$ kubectl get configmap argocd-cm -n argocd -o jsonpath='{.data.kustomize\.buildOptions}'
+----
+
+Run the following command to sync the application again:
+
+[source,shell]
+----
+# delete the application
+$ kubectl delete -f argocd/postgresql-dev-application.yaml
+
+# create the application again
+$ kubectl apply -f argocd/postgresql-dev-application.yaml
+----
+
+Or you can refresh the application
+
+[source,shell]
+----
+kubectl patch application postgresql-dev -n argocd --type merge -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}'
+----
+
+The default argocd-cm configmap is as following link:
+
+- https://github.com/argoproj/argo-cd/blob/master/docs/operator-manual/argocd-cm.yaml
+
+==== How to set argocd-cm configmap on Installation Argo CD
+
+You can set argocd-cm configmap on Installation Argo CD by creating a custom values file.
+
+.argocd-custom-values.yaml
+[source,yaml]
+----
+configs:
+
+  # 172
+  # General Argo CD configuration. Any values you put under `.configs.cm` are passed to argocd-cm ConfigMap.
+  ## Ref: https://github.com/argoproj/argo-cd/blob/master/docs/operator-manual/argocd-cm.yaml
+  cm:
+    # add '--enable-helm' to enable helm support
+    kustomize.buildOptions: --enable-helm
+----
+
+== Install Argo CD ApplicationSet with Kustomize (postgresql-applicationset.yaml)
+
+As your Kubernetes environment grows, managing each Argo CD Application file manually becomes inefficient. Instead, you can automate the creation of applications for each environment using Argo CD’s ApplicationSet feature.
+
+The file postgresql-applicationset.yaml defines an ApplicationSet resource that dynamically generates Argo CD Application objects for multiple environments—such as dev, staging, and prod—using a declarative generator.
+
+=== What is ApplicationSet?
+
+Argo CD’s ApplicationSet is a controller that creates and manages multiple Applications using a declarative template. It uses generators like List, Git, or Cluster to dynamically produce applications.
+
+In our use case:
+
+	•	We use the List generator to enumerate environments.
+	•	For each environment like dev, staging, or prod, a corresponding Argo CD Application is created.
+
+=== How ApplicationSet Works
+
+ApplicationSet uses a generator (like List, Git, Cluster, etc.) to dynamically produce one or more Application resources from a reusable template. In this case:
+
+	•	The List generator defines a list of environments (dev, staging, prod)
+	•	The template uses the environment name to:
+	•	Construct the application name
+	•	Set the path to the corresponding directory (dev/, staging/, prod/)
+	•	Specify the namespace and sync behavior
+
+
+
+=== Highlights of postgresql-applicationset.yaml
+
+	•	kind: ApplicationSet
+	•	metadata.name: Something like demo-postgresql-environments
+	•	spec.generators: A list of environments (dev, staging, prod)
+	•	spec.template: Defines a reusable Argo CD Application template
+	•	Uses {{name}} as a placeholder
+	•	Sets Git repo, target revision, and directory path ({{name}}/)
+	•	Points to Kubernetes namespace (e.g., {{namespace}})
+	•	Enables auto-sync or manual sync
+
+.argocd/postgresql-applicationset.yaml
+[source,yaml]
+----
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: demo-postgresql-environments
+  namespace: argocd
+spec:
+  generators:
+  - list:
+      elements:
+      - env: dev
+        namespace: dev
+      # Uncomment when you create staging and prod overlays
+      - env: staging
+        namespace: staging
+      - env: prod
+        namespace: prod
+  
+  template:
+    metadata:
+      name: 'postgresql-{{env}}'
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+      
+      source:
+        # Update this with your Git repository URL
+        repoURL: git@github.com:nsalexamy/service-foundry-argocd.git
+        targetRevision: main
+        path: 'demo-apps/postgresql-gitops/{{env}}'
+      
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{namespace}}'
+      
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        
+        syncOptions:
+          - CreateNamespace=true
+        
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+
+----
+
+=== How to apply the applicationset
+
+Run the following command to apply the applicationset:
+
+[source,shell]
+----
+$ kubectl apply -f argocd/postgresql-applicationset.yaml
+----
+
+If everything goes well, you will see the applicationset in the Argo CD UI.
+
+.ArgoCD UI - demo-postgresql-all-environments
+[.img-wide]
+image::argocd-postgresql-applicationset.png[]
+
+=== Why Use ApplicationSet?
+
+- *Dynamic Application Creation*: Automatically creates apps for each environment
+- *Cleaner Repos*: Avoids duplicate Application YAML files
+- *GitOps Friendly*: All environment settings tracked in Git
+- *Easy to Extend*: Add new env? Just create a new folder and update the list
+
+
+== SealedSecrets
+
+=== Why Use SealedSecrets to Seal Kubernetes Secrets?
+
+By default, Kubernetes Secrets are only base64-encoded, not encrypted. This means if you store these secrets (such as passwords, tokens, or credentials) in your Git repository—even in Secret YAML files—they can be easily decoded and exposed to anyone with access to the repo. This is a significant security risk in GitOps workflows where everything is stored and version-controlled in Git.
+
+To address this, the SealedSecrets controller by Bitnami offers a secure and Git-friendly way to manage secrets in Kubernetes.
+
+=== What Is a SealedSecret?
+
+A SealedSecret is a custom Kubernetes resource that contains an encrypted version of a Secret. Only the SealedSecrets controller running inside your Kubernetes cluster can decrypt it using a private key. The encrypted version—safe for public repositories—is committed to Git, while the actual Secret is decrypted and created inside the cluster at runtime.
+
+Benefits of Using SealedSecrets
+
+	•	✅ Secure by design – Encrypts secrets using public-key cryptography.
+	•	✅ GitOps-compatible – You can safely commit and push SealedSecrets to Git.
+	•	✅ Environment-independent – You can manage different secrets per environment using the same kubeseal workflow.
+	•	✅ Declarative – All secrets are managed as code and handled through CI/CD pipelines.
+
+Workflow Overview
+
+	1.	Create a regular Kubernetes Secret manifest locally.
+	2.	Use the kubeseal CLI to encrypt the Secret into a SealedSecret using the cluster’s public key.
+	3.	Commit and push the SealedSecret to your Git repository.
+	4.	Argo CD (or another GitOps tool) deploys the SealedSecret to the cluster.
+	5.	The SealedSecrets controller decrypts it and creates a real Secret inside the cluster.
+
+This workflow provides a secure, version-controlled, and automated way to manage Kubernetes secrets across environments.
+
+
+=== Seal Secrets using SealedSecrets
+
+I have created a script to simplify the process of sealing secrets for the PostgreSQL chart.
+
+[source,shell]
+----
+$ POSTGRES_PASSWORD="postgres" DBUSER_PASSWARD="changeit" \
+    REPLICATION_PASSWORD="replication" NAMESPACE=prod \
+    ./seal-postgresql-secret.sh
+----
+
+
+After running the script, you will get a sealed secret file.
+
+# Sample output
+[source,shell]
+----
+Sealed secret created at postgresql-credentials-prod-sealed.yaml
+----
+
+
+Here is the script:
+
+.seal-postgresql-secret.sh
+[source,shell]
+----
+#!/bin/bash
+
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+DBUSER_PASSWORD=${DBUSER_PASSWORD:-postgres}
+REPLICATION_PASSWORD=${REPLICATION_PASSWORD:-replication}
+NAMESPACE=${NAMESPACE:-dev}
+
+SECRET_YAML_FILE="postgresql-credentials-${NAMESPACE}.yaml"
+SEALED_SECRET_YAML_FILE="postgresql-credentials-${NAMESPACE}-sealed.yaml"
+K8S_PUBLIC_CERT_FILE="pub-cert.pem"
+
+kubectl create secret generic postgresql-credentials \
+    --from-literal=postgres-password=$POSTGRES_PASSWORD \
+    --from-literal=password=$DBUSER_PASSWORD \
+    --from-literal=replication-password=$REPLICATION_PASSWORD \
+    --namespace=$NAMESPACE --dry-run=client -o yaml > $SECRET_YAML_FILE
+
+
+kubeseal --fetch-cert \
+    --controller-name=sealed-secrets-controller \
+    --controller-namespace=kube-system \
+    > $K8S_PUBLIC_CERT_FILE
+
+kubeseal --cert $K8S_PUBLIC_CERT_FILE --format yaml < $SECRET_YAML_FILE > $SEALED_SECRET_YAML_FILE
+
+echo "Clean up temp files"
+rm $SECRET_YAML_FILE
+rm $K8S_PUBLIC_CERT_FILE
+
+echo "Sealed secret created at $SEALED_SECRET_YAML_FILE"
+----
+
+
+== Conclusion
+
+In this article, we have learned how to use Kustomize with Helm charts to manage Kubernetes configurations in a GitOps environment. We have also learned how to use SealedSecrets to manage Kubernetes secrets in a GitOps environment.
+
+I hope this article has been helpful in understanding how to use Kustomize with Helm charts to manage Kubernetes configurations in a GitOps environment.

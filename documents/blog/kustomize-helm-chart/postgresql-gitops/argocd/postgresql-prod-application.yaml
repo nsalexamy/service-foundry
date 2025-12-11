@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: demo-postgresql-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  
+  source:
+    # Update this with your Git repository URL
+    repoURL: git@github.com:nsalexamy/service-foundry-argocd.git
+    targetRevision: main
+    path: demo-apps/postgresql-gitops/prod
+  
+  destination:
+    # Target cluster (default is the cluster where ArgoCD is installed)
+    server: https://kubernetes.default.svc
+    namespace: prod
+  
+  syncPolicy:
+    automated:
+      # Automatically sync when Git changes are detected
+      prune: true
+      # Automatically revert manual changes
+      selfHeal: true
+      # Don't sync if there are no resources
+      allowEmpty: false
+    
+    syncOptions:
+      # Create namespace if it doesn't exist
+      - CreateNamespace=true
+    
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
