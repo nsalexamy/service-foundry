@@ -1,0 +1,535 @@
+= Using Kustomize With Custom Helm Charts for Argo CD Applications
+
+:imagesdir: images
+
+[.img-wide]
+image::intro.png[]
+
+== Introduction
+
+In this article, we'll explore how to combine two powerful Kubernetes tools—Kustomize and Helm—to manage your applications across multiple environments using GitOps principles with Argo CD.
+
+We'll use service-foundry-community chart that we created in the previous article. It has two subcharts: backend and frontend. I pushed it to AWS ECR repository as OCI artifact.
+
+
+At the end of this article, you'll be able to deploy the service-foundry-community chart to different environments using Kustomize and Argo CD and access it at the following URLs:
+
+
+- dev: https://community-dev.servicefoundry.org
+- staging: https://community-staging.servicefoundry.org
+- prod: https://community.servicefoundry.org
+
+
+
+== Custom Helm Chart
+
+The custom Helm chart we'll use is service-foundry-community chart that we created in the previous article. It has two subcharts: backend and frontend. I pushed it to AWS ECR repository as OCI artifact.
+
+Here is the chart structure:
+
+----
+$  tree service-foundry-community --dirsfirst
+service-foundry-community
+├── charts
+│   ├── backend
+│   │   ├── charts
+│   │   ├── templates
+│   │   │   ├── tests
+│   │   │   │   └── test-connection.yaml
+│   │   │   ├── _helpers.tpl
+│   │   │   ├── deployment.yaml
+│   │   │   ├── hpa.yaml
+│   │   │   ├── ingress.yaml
+│   │   │   ├── NOTES.txt
+│   │   │   ├── secret.yaml
+│   │   │   ├── service.yaml
+│   │   │   └── serviceaccount.yaml
+│   │   ├── Chart.yaml
+│   │   └── values.yaml
+│   └── frontend
+│       ├── charts
+│       ├── templates
+│       │   ├── tests
+│       │   │   └── test-connection.yaml
+│       │   ├── _helpers.tpl
+│       │   ├── configmap.yaml
+│       │   ├── deployment.yaml
+│       │   ├── hpa.yaml
+│       │   ├── ingress.yaml
+│       │   ├── NOTES.txt
+│       │   ├── service.yaml
+│       │   └── serviceaccount.yaml
+│       ├── Chart.yaml
+│       └── values.yaml
+├── templates
+│   ├── _helpers.tpl
+│   ├── api-stripprefix-middleware.yaml
+│   └── ingressroute.yaml
+├── Chart.yaml
+└── values.yaml
+----
+
+The backend and frontend subcharts are in the charts directory and they are normal Helm charts with deployment, ingress, service, etc.
+
+The parent chart has a ingressroute.yaml file and api-stripprefix-middleware.yaml file.
+
+.ingressroute.yaml
+[source,yaml]
+----
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "service-foundry-community.fullname" . }}-ingress-route
+  namespace: {{ .Release.Namespace }}
+spec:
+  entryPoints:
+    - web
+    - websecure
+
+  routes:
+
+    - match: Host(`{{ .Values.host }}`) && PathPrefix(`/api`)
+      kind: Rule
+      services:
+        - name: {{ include "service-foundry-community.backendFullname" . }}
+          port: http
+      middlewares:
+        - name: api-stripprefix
+
+    - match: Host(`{{ .Values.host }}`) && PathPrefix(`/`)
+      kind: Rule
+      services:
+        - name: {{ include "service-foundry-community.frontendFullname" . }}
+          port: http
+      middlewares: []
+----
+
+In the ingressroute.yaml file, we define the following:
+
+* entryPoints: web, websecure
+* routes: 
+  * match: Host(`{{ .Values.host }}`) && PathPrefix(`/api`)
+  * match: Host(`{{ .Values.host }}`) && PathPrefix(`/`)
+  
+And api-stripprefix middleware is defined in the base directory.  
+
+.api-stripprefix-middleware.yaml
+[source,yaml]
+----
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: api-stripprefix
+  namespace: {{ .Release.Namespace }}
+spec:
+  stripPrefix:
+    prefixes:
+      - /api
+----    
+
+This middleware is used to strip the /api prefix from the request path.
+
+
+For more information on service-foundry-community chart, see links below:
+
+* https://youtu.be/mGtIVDMaUkg
+* https://nsalexamy.github.io/service-foundry/pages/documents/blog/helm-chart-with-multiple-apps/
+
+== Directory Structure
+
+
+Here are top level folders in the service-foundry-community-gitops directory:
+
+----
+$ tree service-foundry-community-gitops
+service-foundry-community-gitops
+├── argocd
+├── base
+├── chart-home
+├── dev
+├── prod
+└── staging
+----
+
+Folders:
+
+* argocd: Argo CD Application manifests
+* base: Base directory for common values. It is empty in this example.
+* chart-home: Custom Helm chart shared between environments. If different versions of chart are needed for a specific environment, create a new directory in the environment directory.
+* dev: Dev environment
+* prod: Production environment
+* staging: Staging environment
+
+
+
+== Why We use Local Chart
+
+Kustomize running on ArgoCD has a limitation that it cannot access private chart repository. To avoid this, we use local chart in this example.
+
+
+Login to ECR repository
+
+[source,shell]
+----
+$ aws ecr get-login-password --region ${AWS_REGION} | helm registry login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+----
+
+We assume that your AWS credentials are already configured and you have access to the ECR repository.
+
+
+Pull the chart from ECR repository
+[source,shell]
+----
+$ mkdir -p chart-home
+
+# remove service-foundry-community folder if it exists
+$ rm -rf chart-home/service-foundry-community   
+
+$ helm pull oci://${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/helm-charts/service-foundry-community --version ${CHART_VERSION} --untar --destination chart-home/
+----
+
+The tgz file is not supported by Kustomize. We need to extract with --untar option.
+
+
+
+Now we have the chart in the chart-home directory.
+
+== base directory
+
+WARNING:: The base directory will not be used. This section is just for reference to explain how sealed secret works.
+
+----
+$ tree base
+
+base
+├── kustomization.yaml
+└── service-foundry-license-keys-sealed.yaml
+----
+
+.kustomization.yaml
+[source,yaml]
+----
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources: 
+  - service-foundry-license-keys-sealed.yaml
+----    
+
+The 'service-foundry-license-keys-sealed.yaml' is a sealed secret that contains private and public keys used to encrypt the license keys.
+
+.base/service-foundry-license-keys-sealed.yaml
+[source,yaml]
+----
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  creationTimestamp: null
+  name: service-foundry-license-keys
+spec:
+  encryptedData:
+    private.pem: AgBJYtdv...qgHA==
+    public.pem: AgBs+fTs...KcDw==
+  template:
+    metadata:
+      creationTimestamp: null
+      name: service-foundry-license-keys
+      # <1>
+      # namespace: dev, staging or prod. Needs to be updated for each environment
+----
+
+<1> Namespace: To create Kubernetes secret, the namespace needs to be specified. This value will be updated for each environment.
+
+
+And here is the kustomization.yaml file in dev directory to override the namespace.
+
+.dev/kustomization.yaml
+[source,yaml]
+----
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: dev
+
+resources:
+  - ../base 
+
+patches:
+  - target:
+      kind: SealedSecret
+      name: service-foundry-license-keys
+    patch: |-
+      - op: add
+        path: /spec/template/metadata/namespace
+        value: dev
+----
+
+WARNING:: This approach is not working as expected because a sealed secret can not be shared between namespaces. Let's look at why.
+
+=== How SealedSecret Encryption Works
+
+By default, SealedSecrets use "strict" scope, which means the encryption includes:
+
+. Secret name
+. Namespace
+
+This means a SealedSecret encrypted for dev namespace cannot be decrypted in prod or staging namespaces. This is by design for security - it prevents secrets from being accidentally or maliciously moved between namespaces.
+
+=== Solution: Create Separate SealedSecrets for Each Environment
+
+You need to create three separate sealed secrets - one for each environment.
+
+
+== dev directory
+
+----
+$ tree dev
+
+dev
+├── kustomization.yaml
+├── service-foundry-license-keys-dev-sealed.yaml
+└── values-dev.yaml
+----
+
+.kustomization.yaml
+[source,yaml]
+----
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: dev
+
+resources:
+  - service-foundry-license-keys-dev-sealed.yaml    # <1>
+
+
+# <2>
+helmGlobals:
+  chartHome: ../chart-home
+
+# <3>
+helmCharts:
+  - name: service-foundry-community
+    #repo: oci://445567090745.dkr.ecr.ca-central-1.amazonaws.com/helm-charts
+    #repo: sf-apps/service-foundry-community/charts/service-foundry-community-0.1.0.tgz
+    # repo: file://charts/service-foundry-community 
+    # version: 0.1.0
+    releaseName: service-foundry-community
+    namespace: dev
+    valuesFile: values-dev.yaml
+----
+
+<1> The sealed secret for dev environment
+<2> Chart home directory where the chart is stored
+<3> The values file for dev environment
+
+.values-dev.yaml
+[source,yaml]
+----
+global:
+  version: 0.2.0    # <1>
+
+host: community-dev.servicefoundry.org    # <2>
+
+frontend:
+  config:
+    enabled: true
+    # Default config.json content for the React app (will be put into a ConfigMap)
+    # <3>
+    content: |
+      {
+        "backendServer": "https://community-dev.servicefoundry.org/api",
+        "appVersion": "0.14.0",
+        "builderVersion": "0.14.0",
+      }
+----
+
+<1> Service Foundry Community backend and frontend version
+<2> Hostname for the Service Foundry Community dev environment
+<3> Config for the frontend React app   
+
+
+The staging and prod directories are similar to dev directory.
+
+== argocd directory
+
+
+.Direcotry Structure
+[source,shell]
+----
+$ tree argocd
+argocd
+├── service-foundry-community-applicationset.yaml
+├── service-foundry-community-dev-application.yaml
+├── service-foundry-community-prod-application.yaml
+└── service-foundry-community-staging-application.yaml
+----
+
+
+Argocd ApplicationSet is used to create ArgoCD Application for all environments. If you want to create ArgoCD Application for each environment, you can use one of the following manifests:
+
+* service-foundry-community-dev-application.yaml
+* service-foundry-community-staging-application.yaml
+* service-foundry-community-prod-application.yaml
+
+We are going to look at the dev environment first and then look at the ApplicationSet.
+
+=== service-foundry-community-dev-application.yaml
+
+Here is the Application manifest for dev environment:
+
+[source,yaml]
+----
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: service-foundry-community-dev
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  
+  source:
+    # Update this with your Git repository URL
+    repoURL: git@github.com:nsalexamy/service-foundry-argocd.git
+    targetRevision: main
+    path: sf-apps/service-foundry-community/dev
+  
+  destination:
+    # Target cluster (default is the cluster where ArgoCD is installed)
+    server: https://kubernetes.default.svc
+    namespace: dev
+  
+  syncPolicy:
+    automated:
+      # Automatically sync when Git changes are detected
+      prune: true
+      # Automatically revert manual changes
+      selfHeal: true
+      # Don't sync if there are no resources
+      allowEmpty: false
+    
+    syncOptions:
+      # Create namespace if it doesn't exist
+      - CreateNamespace=true
+    
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+----
+
+=== service-foundry-community-applicationset.yaml
+
+Here is the ApplicationSet manifest:
+
+[source,yaml]
+----
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: service-foundry-community-environments
+  namespace: argocd
+spec:
+  generators:
+  - list:
+      elements:
+      - env: dev
+        namespace: dev
+      # Uncomment when you create staging and prod overlays
+      - env: staging
+        namespace: staging
+      - env: prod
+        namespace: prod
+  
+  template:
+    metadata:
+      name: 'service-foundry-community-{{env}}'
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+      
+      source:
+        # Update this with your Git repository URL
+        repoURL: git@github.com:nsalexamy/service-foundry-argocd.git
+        targetRevision: main
+        path: 'sf-apps/service-foundry-community/{{env}}'
+      
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{namespace}}'
+      
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        
+        syncOptions:
+          - CreateNamespace=true
+        
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+
+----
+
+
+== Deploy Service Foundry Community Applications
+
+=== Deploy ArgoCD Dev Application
+
+[source,shell]
+----
+$ kubectl apply -f argocd/service-foundry-community-dev-application.yaml
+----
+
+.ArgoCD UI: service-foundry-community-dev
+[.img-wide]
+image::argocd-sf-dev-app.png[]
+
+And you can see the Service Foundry Community frontend at https://community-dev.servicefoundry.org
+
+.community-dev-web
+[.img-wide]
+image::community-dev-web.png[]  
+
+You can deploy Staging and Prod applications in the same way.
+
+=== Deploy ArgoCD Applications using ApplicationSet
+
+[source,shell]
+----
+$ kubectl apply -f argocd/service-foundry-community-applicationset.yaml
+----
+
+.ArgoCD UI: service-foundry-community-applicationset
+[.img-wide]
+image::argocd-all-community-apps.png[]
+
+This time, ArgoCD will create three applications: dev, staging, and prod.
+
+* https://community-dev.servicefoundry.org
+* https://community-staging.servicefoundry.org
+* https://community.servicefoundry.org
+
+And you can see the Service Foundry Community frontend at https://community.servicefoundry.org
+
+.community-prod-web
+[.img-wide]
+image::community-prod-web.png[]
+
+== Conclusion
+
+In this article, we have shown how to deploy Service Foundry Community using ArgoCD and Kustomize. We have also shown how to use ApplicationSet to deploy multiple environments.
+
+
+

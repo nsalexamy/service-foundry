@@ -1,0 +1,50 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: service-foundry-community-environments
+  namespace: argocd
+spec:
+  generators:
+  - list:
+      elements:
+      - env: dev
+        namespace: dev
+      # Uncomment when you create staging and prod overlays
+      - env: staging
+        namespace: staging
+      - env: prod
+        namespace: prod
+  
+  template:
+    metadata:
+      name: 'service-foundry-community-{{env}}'
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+      
+      source:
+        # Update this with your Git repository URL
+        repoURL: git@github.com:nsalexamy/service-foundry-argocd.git
+        targetRevision: main
+        path: 'sf-apps/service-foundry-community/{{env}}'
+      
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{namespace}}'
+      
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        
+        syncOptions:
+          - CreateNamespace=true
+        
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
