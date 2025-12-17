@@ -1,0 +1,729 @@
+---
+layout: documents"
+title: "Deploy Multi-Environment Apps with Kustomize, Helm & ArgoCD | GitOps Tutorial"
+summary: ""
+tags: ""
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Blog
+    url: /documents/blog/
+---
+
+
+
+= Deploy Multi-Environment Apps with Kustomize, Helm & ArgoCD | GitOps Tutorial
+
+:imagesdir: images
+
+[.img-wide]
+image::intro.png[]
+
+== Introduction
+
+YouTube Tutorial: link:https://youtu.be/o7s0VGVSeuE[Deploy Multi-Environment Apps with Kustomize, Helm & ArgoCD | GitOps Tutorial]
+
+In this article, we'll explore how to combine two powerful Kubernetes tools—**Kustomize** and **Helm**—to manage your applications across multiple environments using GitOps principles with ArgoCD.
+
+=== What We'll Build
+
+We'll deploy the `service-foundry-community` Helm chart (which we created in the link:https://nsalexamy.github.io/service-foundry/pages/documents/blog/helm-chart-with-multiple-apps/[previous article]) to three different environments using Kustomize overlays and ArgoCD. This chart contains:
+
+* A **backend** subchart (Go-based API server)
+* A **frontend** subchart (React application)
+* Traefik IngressRoute for routing traffic
+
+The chart is stored in AWS ECR as an OCI artifact, and we'll pull it locally for use with Kustomize.
+
+=== What You'll Learn
+
+By the end of this guide, you'll have:
+
+* Deployed the same application to three environments with different configurations
+* Set up environment-specific sealed secrets
+* Configured ArgoCD Applications for each environment
+* Used ArgoCD ApplicationSets to manage multiple environments efficiently
+
+Your deployments will be accessible at:
+
+* **Development**: https://community-dev.servicefoundry.org
+* **Staging**: https://community-staging.servicefoundry.org
+* **Production**: https://community.servicefoundry.org
+
+=== Prerequisites
+
+Before we begin, you should have:
+
+* A Kubernetes cluster with ArgoCD installed
+* AWS CLI configured with ECR access
+* Helm CLI installed
+* Basic understanding of Kubernetes, Helm, and Kustomize concepts
+
+
+
+== Understanding the Custom Helm Chart
+
+Before diving into the Kustomize configuration, let's quickly review the structure of our `service-foundry-community` chart.
+
+=== Chart Structure
+
+Here's the complete directory tree:
+
+----
+$  tree service-foundry-community --dirsfirst
+service-foundry-community
+├── charts
+│   ├── backend
+│   │   ├── charts
+│   │   ├── templates
+│   │   │   ├── tests
+│   │   │   │   └── test-connection.yaml
+│   │   │   ├── _helpers.tpl
+│   │   │   ├── deployment.yaml
+│   │   │   ├── hpa.yaml
+│   │   │   ├── ingress.yaml
+│   │   │   ├── NOTES.txt
+│   │   │   ├── secret.yaml
+│   │   │   ├── service.yaml
+│   │   │   └── serviceaccount.yaml
+│   │   ├── Chart.yaml
+│   │   └── values.yaml
+│   └── frontend
+│       ├── charts
+│       ├── templates
+│       │   ├── tests
+│       │   │   └── test-connection.yaml
+│       │   ├── _helpers.tpl
+│       │   ├── configmap.yaml
+│       │   ├── deployment.yaml
+│       │   ├── hpa.yaml
+│       │   ├── ingress.yaml
+│       │   ├── NOTES.txt
+│       │   ├── service.yaml
+│       │   └── serviceaccount.yaml
+│       ├── Chart.yaml
+│       └── values.yaml
+├── templates
+│   ├── _helpers.tpl
+│   ├── api-stripprefix-middleware.yaml
+│   └── ingressroute.yaml
+├── Chart.yaml
+└── values.yaml
+----
+
+As you can see:
+
+* **Backend and frontend subcharts** live in the `charts/` directory
+* Each subchart is a standard Helm chart with typical Kubernetes resources
+* The **parent chart** contains shared resources like the IngressRoute and middleware
+
+=== Routing Configuration
+
+The parent chart includes a Traefik `IngressRoute` that handles traffic routing:
+
+.ingressroute.yaml
+[source,yaml]
+----
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "service-foundry-community.fullname" . }}-ingress-route
+  namespace: {{ .Release.Namespace }}
+spec:
+  entryPoints:
+    - web
+    - websecure
+
+  routes:
+
+    - match: Host(`{{ .Values.host }}`) && PathPrefix(`/api`)
+      kind: Rule
+      services:
+        - name: {{ include "service-foundry-community.backendFullname" . }}
+          port: http
+      middlewares:
+        - name: api-stripprefix
+
+    - match: Host(`{{ .Values.host }}`) && PathPrefix(`/`)
+      kind: Rule
+      services:
+        - name: {{ include "service-foundry-community.frontendFullname" . }}
+          port: http
+      middlewares: []
+----
+
+This configuration:
+
+* Routes requests to `/api/*` to the backend service
+* Routes all other requests to the frontend service
+* Uses the `api-stripprefix` middleware to remove `/api` from backend requests
+
+The middleware is defined as:
+
+.api-stripprefix-middleware.yaml
+[source,yaml]
+----
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: api-stripprefix
+  namespace: {{ .Release.Namespace }}
+spec:
+  stripPrefix:
+    prefixes:
+      - /api
+----    
+
+This strips the `/api` prefix from incoming requests so the backend receives clean paths (e.g., `/api/health` becomes `/health`).
+
+TIP: For more details on how this chart was created, check out the link:https://youtu.be/mGtIVDMaUkg[video tutorial] or the link:https://nsalexamy.github.io/service-foundry/pages/documents/blog/helm-chart-with-multiple-apps/[written guide].
+
+== GitOps Repository Structure
+
+Now let's look at how we organize our GitOps repository for managing multiple environments.
+
+=== Top-Level Directory Layout
+
+----
+$ tree service-foundry-community-gitops
+service-foundry-community-gitops
+├── argocd
+├── base
+├── chart-home
+├── dev
+├── prod
+└── staging
+----
+
+Here's what each directory contains:
+
+[cols="1,3"]
+|===
+|Directory |Purpose
+
+|`argocd/`
+|ArgoCD Application and ApplicationSet manifests that tell ArgoCD what to deploy
+
+|`base/`
+|Base directory for shared resources (currently unused in this example, but useful for common configurations)
+
+|`chart-home/`
+|The unpacked Helm chart that's shared across all environments. You can also create environment-specific chart directories if different versions are needed
+
+|`dev/`
+|Development environment overlay with dev-specific values and secrets
+
+|`staging/`
+|Staging environment overlay with staging-specific values and secrets
+
+|`prod/`
+|Production environment overlay with prod-specific values and secrets
+|===
+
+== Pulling the Helm Chart from ECR
+
+=== Why Use a Local Chart?
+
+When using Kustomize with ArgoCD, there's an important limitation: **Kustomize cannot directly access private OCI registries** like AWS ECR. This means we can't reference our chart directly from ECR in our `kustomization.yaml` files.
+
+The solution? Pull the chart once and commit it to our Git repository. This approach:
+
+* Works seamlessly with ArgoCD and Kustomize
+* Ensures all environments use the same chart version
+* Follows GitOps principles (everything in Git)
+* Eliminates the need for ArgoCD to authenticate with ECR
+
+=== Authenticating with ECR
+
+First, we need to log in to the AWS ECR registry using Helm:
+
+[source,shell]
+----
+$ aws ecr get-login-password --region ${AWS_REGION} | \
+    helm registry login --username AWS --password-stdin \
+    ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+----
+
+NOTE: This assumes your AWS CLI is already configured with valid credentials and you have permission to access the ECR repository.
+
+=== Pulling and Extracting the Chart
+
+Now let's pull the chart and extract it to our `chart-home/` directory:
+
+[source,shell]
+----
+# Create the chart-home directory
+$ mkdir -p chart-home
+
+# Clean up any existing chart
+$ rm -rf chart-home/service-foundry-community   
+
+# Pull and extract the chart from ECR
+$ helm pull \
+    oci://${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/helm-charts/service-foundry-community \
+    --version ${CHART_VERSION} \
+    --untar \
+    --destination chart-home/
+----
+
+IMPORTANT: The `--untar` flag is crucial here. Kustomize cannot work with `.tgz` archives—it needs the extracted chart directory.
+
+After running these commands, you'll have the chart ready in `chart-home/service-foundry-community/`.
+
+== Managing Secrets Across Environments
+
+One of the challenges with multi-environment deployments is managing secrets securely. Let's explore how SealedSecrets work and why we need a specific approach for multiple namespaces.
+
+=== The Base Directory (Why It Doesn't Work)
+
+Initially, you might think of creating a single sealed secret in the `base/` directory and patching it for each environment:
+
+----
+$ tree base
+base
+├── kustomization.yaml
+└── service-foundry-license-keys-sealed.yaml
+----
+
+.base/kustomization.yaml
+[source,yaml]
+----
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources: 
+  - service-foundry-license-keys-sealed.yaml
+----    
+
+The sealed secret would look like this:
+
+.base/service-foundry-license-keys-sealed.yaml
+[source,yaml]
+----
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  creationTimestamp: null
+  name: service-foundry-license-keys
+spec:
+  encryptedData:
+    private.pem: AgBJYtdv...qgHA==
+    public.pem: AgBs+fTs...KcDw==
+  template:
+    metadata:
+      creationTimestamp: null
+      name: service-foundry-license-keys
+      # Needs to be updated for each environment (dev, staging, or prod)
+----
+
+Then, you might try to patch the namespace in each environment overlay:
+
+.dev/kustomization.yaml (This approach DOES NOT work!)
+[source,yaml]
+----
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: dev
+
+resources:
+  - ../base 
+
+patches:
+  - target:
+      kind: SealedSecret
+      name: service-foundry-license-keys
+    patch: |-
+      - op: add
+        path: /spec/template/metadata/namespace
+        value: dev
+----
+
+=== Why This Doesn't Work: Understanding SealedSecret Encryption Scope
+
+WARNING: The shared secret approach fails because of how SealedSecrets encryption works!
+
+By default, SealedSecrets use **strict scope**, which means the encryption is bound to:
+
+. The secret name
+. The target namespace
+
+This is a security feature that prevents secrets from being accidentally or  maliciously moved between namespaces. A SealedSecret encrypted for the `dev` namespace **cannot** be decrypted in `staging` or `prod` namespaces—the sealed-secrets controller will reject it.
+
+=== The Solution: Environment-Specific Sealed Secrets
+
+Instead of sharing one sealed secret, we need to create **three separate sealed secrets**—one for each environment, each encrypted with its target namespace:
+
+* `dev/service-foundry-license-keys-dev-sealed.yaml` (encrypted for `dev` namespace)
+* `staging/service-foundry-license-keys-staging-sealed.yaml` (encrypted for `staging` namespace)
+* `prod/service-foundry-license-keys-prod-sealed.yaml` (encrypted for `prod` namespace)
+
+This ensures each secret can only be decrypted in its intended namespace.
+
+== Configuring the Development Environment
+
+Now let's look at how the `dev/` environment overlay is structured. The same pattern applies to `staging/` and `prod/`.
+
+=== Development Directory Structure
+
+----
+$ tree dev
+dev
+├── kustomization.yaml
+├── service-foundry-license-keys-dev-sealed.yaml
+└── values-dev.yaml
+----
+
+Each environment contains:
+
+* **kustomization.yaml**: Kustomize configuration that references the Helm chart
+* **service-foundry-license-keys-dev-sealed.yaml**: Environment-specific sealed secret
+* **values-dev.yaml**: Environment-specific Helm values
+
+=== The Kustomization File
+
+Here's the `kustomization.yaml` for the dev environment:
+
+.dev/kustomization.yaml
+[source,yaml]
+----
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: dev  # <1>
+
+resources:
+  - service-foundry-license-keys-dev-sealed.yaml  # <2>
+
+helmGlobals:  # <3>
+  chartHome: ../chart-home
+
+helmCharts:  # <4>
+  - name: service-foundry-community
+    releaseName: service-foundry-community
+    namespace: dev
+    valuesFile: values-dev.yaml
+----
+
+Let's break this down:
+
+<1> **namespace**: All resources will be deployed to the `dev` namespace
+<2> **resources**: Include the dev-specific sealed secret
+<3> **helmGlobals.chartHome**: Points to the directory containing our extracted Helm chart
+<4> **helmCharts**: Configure which chart to render and which values file to use
+
+NOTE: You might notice the commented-out `repo:` lines. Those are alternative ways to reference charts (OCI registry, tgz file), but we're using the local chart approach via `chartHome`.
+
+=== Environment-Specific Values
+
+The `values-dev.yaml` file contains dev environment overrides:
+
+.dev/values-dev.yaml
+[source,yaml]
+----
+global:
+  version: 0.2.0  # <1>
+
+host: community-dev.servicefoundry.org  # <2>
+
+frontend:
+  config:
+    enabled: true
+    content: |  # <3>
+      {
+        "backendServer": "https://community-dev.servicefoundry.org/api",
+        "appVersion": "0.14.0",
+        "builderVersion": "0.14.0"
+      }
+----
+
+<1> **version**: Specifies which version of the backend and frontend images to deploy
+<2> **host**: The hostname for this environment (used in the IngressRoute)
+<3> **frontend.config.content**: Runtime configuration for the React app, including the backend API endpoint
+
+TIP: The staging and prod directories follow the exact same structure—just with different values in their respective `values-staging.yaml` and `values-prod.yaml` files.
+
+== ArgoCD Application Manifests
+
+Now that we've set up our environment overlays, we need to tell ArgoCD what to deploy. We have two approaches: individual Applications or an ApplicationSet.
+
+=== Directory Structure
+
+----
+$ tree argocd
+argocd
+├── service-foundry-community-applicationset.yaml
+├── service-foundry-community-dev-application.yaml
+├── service-foundry-community-prod-application.yaml
+└── service-foundry-community-staging-application.yaml
+----
+
+You can choose either approach:
+
+* **Individual Applications**: Use the separate `*-application.yaml` files if you want fine-grained control over each environment
+* **ApplicationSet**: Use the `*-applicationset.yaml` file to manage all three environments with a single manifest (DRY principle)
+
+Let's explore both approaches.
+
+=== Approach 1: Individual ArgoCD Application (Development Example)
+
+Here's the ArgoCD Application manifest for the development environment:
+
+.argocd/service-foundry-community-dev-application.yaml
+[source,yaml]
+----
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: service-foundry-community-dev
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io  # <1>
+spec:
+  project: default
+  
+source:
+    repoURL: git@github.com:nsalexamy/service-foundry-argocd.git  # <2>
+    targetRevision: main
+    path: sf-apps/service-foundry-community/dev  # <3>
+  
+  destination:
+    server: https://kubernetes.default.svc  # <4>
+    namespace: dev
+  
+  syncPolicy:
+    automated:  # <5>
+      prune: true  # <6>
+      selfHeal: true  # <7>
+      allowEmpty: false
+    
+    syncOptions:
+      - CreateNamespace=true  # <8>
+    
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+----
+
+Key configuration points:
+
+<1> **finalizers**: Ensures ArgoCD cleans up resources when the Application is deleted
+<2> **repoURL**: Your GitOps repository (update this to your own repo)
+<3> **path**: Points to the `dev/` directory in your repo
+<4> **server**: The Kubernetes cluster (default means the cluster where ArgoCD is running)
+<5> **automated**: Enables automatic synchronization from Git
+<6> **prune**: Deletes resources removed from Git
+<7> **selfHeal**: Reverts manual changes to match Git state
+<8> **CreateNamespace**: Automatically creates the target namespace
+
+NOTE: You would create similar manifests for staging and prod, just changing the name, path, and target namespace.
+
+=== Approach 2: ApplicationSet for All Environments
+
+Instead of managing three separate Application manifests, you can use an ApplicationSet to generate them dynamically:
+
+.argocd/service-foundry-community-applicationset.yaml
+[source,yaml]
+----
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: service-foundry-community-environments
+  namespace: argocd
+spec:
+  generators:
+  - list:  # <1>
+      elements:
+      - env: dev
+        namespace: dev
+      - env: staging
+        namespace: staging
+      - env: prod
+        namespace: prod
+  
+  template:  # <2>
+    metadata:
+      name: 'service-foundry-community-{{env}}'  # <3>
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+      
+      source:
+        repoURL: git@github.com:nsalexamy/service-foundry-argocd.git
+        targetRevision: main
+        path: 'sf-apps/service-foundry-community/{{env}}'  # <4>
+      
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{namespace}}'  # <5>
+      
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        
+        syncOptions:
+          - CreateNamespace=true
+        
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+----
+
+How this works:
+
+<1> **generators.list**: Defines a list of environments with their parameters
+<2> **template**: A template that's rendered once for each list element
+<3> **{{env}}**: Template variable that gets replaced with `dev`, `staging`, or `prod`
+<4> **path**: Dynamically points to the correct environment directory
+<5> **namespace**: Dynamically sets the target namespace
+
+The ApplicationSet will create three Applications automatically:
+
+* `service-foundry-community-dev` → deploys `dev/` to `dev` namespace
+* `service-foundry-community-staging` → deploys `staging/` to `staging` namespace
+* `service-foundry-community-prod` → deploys `prod/` to `prod` namespace
+
+TIP: ApplicationSets are great for reducing duplication and ensuring consistency across environments. They're especially useful when you have many similar environments.
+== Deploying to Kubernetes
+
+Now that we've configured everything, let's deploy! You can choose to deploy a single environment first, or deploy all three at once.
+
+=== Option 1: Deploy a Single Environment (Dev)
+
+Let's start with the development environment to test the setup:
+
+[source,shell]
+----
+$ kubectl apply -f argocd/service-foundry-community-dev-application.yaml
+application.argoproj.io/service-foundry-community-dev created
+----
+
+ArgoCD will now:
+
+1. Clone your Git repository
+2. Run Kustomize to render the `dev/` overlay
+3. Execute Helm template rendering using `values-dev.yaml`
+4. Create the sealed secret in the `dev` namespace
+5. Deploy all resources to the `dev` namespace
+
+=== Viewing in ArgoCD UI
+
+After a few moments, you can view the application in the ArgoCD UI:
+
+.ArgoCD UI: service-foundry-community-dev
+[.img-wide]
+image::argocd-sf-dev-app.png[]
+
+The UI shows:
+
+* The application sync status (Synced/OutOfSync)
+* Health status of all resources
+* The complete resource tree (Deployments, Services, IngressRoutes, etc.)
+
+=== Accessing the Application
+
+Once the application is healthy, you can access it at:
+
+https://community-dev.servicefoundry.org
+
+.Service Foundry Community - Development Environment
+[.img-wide]
+image::community-dev-web.png[]
+
+TIP: You can deploy staging and prod environments the same way by applying their respective Application manifests.
+
+=== Option 2: Deploy All Environments with ApplicationSet
+
+If you want to deploy all three environments at once, use the ApplicationSet:
+
+[source,shell]
+----
+$ kubectl apply -f argocd/service-foundry-community-applicationset.yaml
+applicationset.argoproj.io/service-foundry-community-environments created
+----
+
+The ApplicationSet will automatically create three ArgoCD Applications, one for each environment.
+
+=== Viewing All Applications in ArgoCD
+
+You'll see all three applications in the ArgoCD UI:
+
+.ArgoCD UI: All Service Foundry Community Environments
+[.img-wide]
+image::argocd-all-community-apps.png[]
+
+ArgoCD manages three separate applications:
+
+* **service-foundry-community-dev** → https://community-dev.servicefoundry.org
+* **service-foundry-community-staging** → https://community-staging.servicefoundry.org
+* **service-foundry-community-prod** → https://community.servicefoundry.org
+
+=== Production is Live!
+
+Here's the production environment running:
+
+.Service Foundry Community - Production Environment
+[.img-wide]
+image::community-prod-web.png[]
+
+Each environment is completely isolated with its own:
+
+* Namespace (`dev`, `staging`, `prod`)
+* Sealed secrets (encrypted for the specific namespace)
+* Helm values (different hostnames, versions, configurations)
+* Resources (Deployments, Services, IngressRoutes)
+
+== Conclusion
+
+In this guide, we've built a complete multi-environment deployment system for the Service Foundry Community application using Kustomize, Helm, and ArgoCD.
+
+=== What We Accomplished
+
+* **Pulled a custom Helm chart from AWS ECR** and made it usable with Kustomize by extracting it locally
+* **Created environment-specific overlays** (dev, staging, prod) with different hostnames, versions, and configurations
+* **Managed secrets securely** using SealedSecrets with proper namespace scoping
+* **Set up ArgoCD Applications** to automatically deploy and sync from Git
+* **Used ArgoCD ApplicationSets** to manage multiple environments with a single manifest
+
+=== Key Takeaways
+
+. **Kustomize cannot access private OCI registries**: Pull charts locally and commit them to Git for Kustomize to use
+. **SealedSecrets are namespace-scoped**: Create separate sealed secrets for each namespace—they cannot be shared
+. **ApplicationSets reduce duplication**: Use them to manage similar applications across multiple environments
+. **GitOps in action**: All configuration is versioned in Git, and ArgoCD ensures the cluster matches the desired state
+
+=== Next Steps
+
+Here are some ways to extend this setup:
+
+* **Add more environments**: Create `qa/` or `staging-2/` directories following the same pattern
+* **Implement promotion workflows**: Use Git tags or branches to promote releases between environments
+* **Add Helm hooks**: Include pre-install or post-install jobs for database migrations
+* **Configure notifications**: Set up ArgoCD to notify Slack or email on sync failures
+* **Implement progressive rollouts**: Use ArgoCD's sync waves and hooks for controlled deployments
+
+=== Resources
+
+* link:https://nsalexamy.github.io/service-foundry/pages/documents/blog/helm-chart-with-multiple-apps/[Creating the Service Foundry Helm Chart]
+* link:https://youtu.be/mGtIVDMaUkg[Video Tutorial: Multi-App Helm Charts]
+* link:https://kustomize.io/[Kustomize Documentation]
+* link:https://argo-cd.readthedocs.io/[ArgoCD Documentation]
+* link:https://github.com/bitnami-labs/sealed-secrets[Sealed Secrets Documentation]
+
+Happy deploying! 🚀
+
+
+

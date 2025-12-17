@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Using Kustomize With Custom Helm Charts for Argo CD Applications</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#custom-helm-chart">Custom Helm Chart</a></li>
+<li><a href="#directory-structure">Directory Structure</a></li>
+<li><a href="#why-we-use-local-chart">Why We use Local Chart</a></li>
+<li><a href="#base-directory">base directory</a>
+<ul class="sectlevel2">
+<li><a href="#how-sealedsecret-encryption-works">How SealedSecret Encryption Works</a></li>
+<li><a href="#solution-create-separate-sealedsecrets-for-each-environment">Solution: Create Separate SealedSecrets for Each Environment</a></li>
+</ul>
+</li>
+<li><a href="#dev-directory">dev directory</a></li>
+<li><a href="#argocd-directory">argocd directory</a>
+<ul class="sectlevel2">
+<li><a href="#service-foundry-community-dev-application-yaml">service-foundry-community-dev-application.yaml</a></li>
+<li><a href="#service-foundry-community-applicationset-yaml">service-foundry-community-applicationset.yaml</a></li>
+</ul>
+</li>
+<li><a href="#deploy-service-foundry-community-applications">Deploy Service Foundry Community Applications</a>
+<ul class="sectlevel2">
+<li><a href="#deploy-argocd-dev-application">Deploy ArgoCD Dev Application</a></li>
+<li><a href="#deploy-argocd-applications-using-applicationset">Deploy ArgoCD Applications using ApplicationSet</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/intro.png" alt="intro">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this article, we&#8217;ll explore how to combine two powerful Kubernetes tools—Kustomize and Helm—to manage your applications across multiple environments using GitOps principles with Argo CD.</p>
+</div>
+<div class="paragraph">
+<p>We&#8217;ll use service-foundry-community chart that we created in the previous article. It has two subcharts: backend and frontend. I pushed it to AWS ECR repository as OCI artifact.</p>
+</div>
+<div class="paragraph">
+<p>At the end of this article, you&#8217;ll be able to deploy the service-foundry-community chart to different environments using Kustomize and Argo CD and access it at the following URLs:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>dev: <a href="https://community-dev.servicefoundry.org" class="bare">https://community-dev.servicefoundry.org</a></p>
+</li>
+<li>
+<p>staging: <a href="https://community-staging.servicefoundry.org" class="bare">https://community-staging.servicefoundry.org</a></p>
+</li>
+<li>
+<p>prod: <a href="https://community.servicefoundry.org" class="bare">https://community.servicefoundry.org</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="custom-helm-chart">Custom Helm Chart</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The custom Helm chart we&#8217;ll use is service-foundry-community chart that we created in the previous article. It has two subcharts: backend and frontend. I pushed it to AWS ECR repository as OCI artifact.</p>
+</div>
+<div class="paragraph">
+<p>Here is the chart structure:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$  tree service-foundry-community --dirsfirst
+service-foundry-community
+├── charts
+│   ├── backend
+│   │   ├── charts
+│   │   ├── templates
+│   │   │   ├── tests
+│   │   │   │   └── test-connection.yaml
+│   │   │   ├── _helpers.tpl
+│   │   │   ├── deployment.yaml
+│   │   │   ├── hpa.yaml
+│   │   │   ├── ingress.yaml
+│   │   │   ├── NOTES.txt
+│   │   │   ├── secret.yaml
+│   │   │   ├── service.yaml
+│   │   │   └── serviceaccount.yaml
+│   │   ├── Chart.yaml
+│   │   └── values.yaml
+│   └── frontend
+│       ├── charts
+│       ├── templates
+│       │   ├── tests
+│       │   │   └── test-connection.yaml
+│       │   ├── _helpers.tpl
+│       │   ├── configmap.yaml
+│       │   ├── deployment.yaml
+│       │   ├── hpa.yaml
+│       │   ├── ingress.yaml
+│       │   ├── NOTES.txt
+│       │   ├── service.yaml
+│       │   └── serviceaccount.yaml
+│       ├── Chart.yaml
+│       └── values.yaml
+├── templates
+│   ├── _helpers.tpl
+│   ├── api-stripprefix-middleware.yaml
+│   └── ingressroute.yaml
+├── Chart.yaml
+└── values.yaml</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The backend and frontend subcharts are in the charts directory and they are normal Helm charts with deployment, ingress, service, etc.</p>
+</div>
+<div class="paragraph">
+<p>The parent chart has a ingressroute.yaml file and api-stripprefix-middleware.yaml file.</p>
+</div>
+<div class="listingblock">
+<div class="title">ingressroute.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">traefik.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">IngressRoute</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="pi">{{</span> <span class="nv">include "service-foundry-community.fullname" .</span> <span class="pi">}}</span><span class="s">-ingress-route</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="pi">{{</span> <span class="nv">.Release.Namespace</span> <span class="pi">}}</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">entryPoints</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">web</span>
+    <span class="pi">-</span> <span class="s">websecure</span>
+
+  <span class="na">routes</span><span class="pi">:</span>
+
+    <span class="pi">-</span> <span class="na">match</span><span class="pi">:</span> <span class="s">Host(`{{ .Values.host }}`) &amp;&amp; PathPrefix(`/api`)</span>
+      <span class="na">kind</span><span class="pi">:</span> <span class="s">Rule</span>
+      <span class="na">services</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="pi">{{</span> <span class="nv">include "service-foundry-community.backendFullname" .</span> <span class="pi">}}</span>
+          <span class="na">port</span><span class="pi">:</span> <span class="s">http</span>
+      <span class="na">middlewares</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">api-stripprefix</span>
+
+    <span class="pi">-</span> <span class="na">match</span><span class="pi">:</span> <span class="s">Host(`{{ .Values.host }}`) &amp;&amp; PathPrefix(`/`)</span>
+      <span class="na">kind</span><span class="pi">:</span> <span class="s">Rule</span>
+      <span class="na">services</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="pi">{{</span> <span class="nv">include "service-foundry-community.frontendFullname" .</span> <span class="pi">}}</span>
+          <span class="na">port</span><span class="pi">:</span> <span class="s">http</span>
+      <span class="na">middlewares</span><span class="pi">:</span> <span class="pi">[]</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In the ingressroute.yaml file, we define the following:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>entryPoints: web, websecure</p>
+</li>
+<li>
+<p>routes:</p>
+</li>
+<li>
+<p>match: Host(<code>{{ .Values.host }}</code>) &amp;&amp; PathPrefix(<code>/api</code>)</p>
+</li>
+<li>
+<p>match: Host(<code>{{ .Values.host }}</code>) &amp;&amp; PathPrefix(<code>/</code>)</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>And api-stripprefix middleware is defined in the base directory.</p>
+</div>
+<div class="listingblock">
+<div class="title">api-stripprefix-middleware.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">traefik.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Middleware</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">api-stripprefix</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="pi">{{</span> <span class="nv">.Release.Namespace</span> <span class="pi">}}</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">stripPrefix</span><span class="pi">:</span>
+    <span class="na">prefixes</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="s">/api</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This middleware is used to strip the /api prefix from the request path.</p>
+</div>
+<div class="paragraph">
+<p>For more information on service-foundry-community chart, see links below:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://youtu.be/mGtIVDMaUkg" class="bare">https://youtu.be/mGtIVDMaUkg</a></p>
+</li>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/blog/helm-chart-with-multiple-apps/" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/blog/helm-chart-with-multiple-apps/</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="directory-structure">Directory Structure</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Here are top level folders in the service-foundry-community-gitops directory:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ tree service-foundry-community-gitops
+service-foundry-community-gitops
+├── argocd
+├── base
+├── chart-home
+├── dev
+├── prod
+└── staging</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Folders:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>argocd: Argo CD Application manifests</p>
+</li>
+<li>
+<p>base: Base directory for common values. It is empty in this example.</p>
+</li>
+<li>
+<p>chart-home: Custom Helm chart shared between environments. If different versions of chart are needed for a specific environment, create a new directory in the environment directory.</p>
+</li>
+<li>
+<p>dev: Dev environment</p>
+</li>
+<li>
+<p>prod: Production environment</p>
+</li>
+<li>
+<p>staging: Staging environment</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="why-we-use-local-chart">Why We use Local Chart</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Kustomize running on ArgoCD has a limitation that it cannot access private chart repository. To avoid this, we use local chart in this example.</p>
+</div>
+<div class="paragraph">
+<p>Login to ECR repository</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>aws ecr get-login-password <span class="nt">--region</span> <span class="k">${</span><span class="nv">AWS_REGION</span><span class="k">}</span> | helm registry login <span class="nt">--username</span> AWS <span class="nt">--password-stdin</span> <span class="k">${</span><span class="nv">AWS_ACCOUNT_ID</span><span class="k">}</span>.dkr.ecr.<span class="k">${</span><span class="nv">AWS_REGION</span><span class="k">}</span>.amazonaws.com</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We assume that your AWS credentials are already configured and you have access to the ECR repository.</p>
+</div>
+<div class="paragraph">
+<p>Pull the chart from ECR repository</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span><span class="nb">mkdir</span> <span class="nt">-p</span> chart-home
+
+<span class="c"># remove service-foundry-community folder if it exists</span>
+<span class="nv">$ </span><span class="nb">rm</span> <span class="nt">-rf</span> chart-home/service-foundry-community
+
+<span class="nv">$ </span>helm pull oci://<span class="k">${</span><span class="nv">AWS_ACCOUNT_ID</span><span class="k">}</span>.dkr.ecr.<span class="k">${</span><span class="nv">AWS_REGION</span><span class="k">}</span>.amazonaws.com/helm-charts/service-foundry-community <span class="nt">--version</span> <span class="k">${</span><span class="nv">CHART_VERSION</span><span class="k">}</span> <span class="nt">--untar</span> <span class="nt">--destination</span> chart-home/</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The tgz file is not supported by Kustomize. We need to extract with --untar option.</p>
+</div>
+<div class="paragraph">
+<p>Now we have the chart in the chart-home directory.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="base-directory">base directory</h2>
+<div class="sectionbody">
+<div class="dlist">
+<dl>
+<dt class="hdlist1">WARNING</dt>
+<dd>
+<p>The base directory will not be used. This section is just for reference to explain how sealed secret works.</p>
+</dd>
+</dl>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ tree base
+
+base
+├── kustomization.yaml
+└── service-foundry-license-keys-sealed.yaml</pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">kustomization.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">kustomize.config.k8s.io/v1beta1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Kustomization</span>
+
+<span class="na">resources</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">service-foundry-license-keys-sealed.yaml</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The 'service-foundry-license-keys-sealed.yaml' is a sealed secret that contains private and public keys used to encrypt the license keys.</p>
+</div>
+<div class="listingblock">
+<div class="title">base/service-foundry-license-keys-sealed.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">bitnami.com/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">SealedSecret</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">creationTimestamp</span><span class="pi">:</span> <span class="kc">null</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-license-keys</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">encryptedData</span><span class="pi">:</span>
+    <span class="na">private.pem</span><span class="pi">:</span> <span class="s">AgBJYtdv...qgHA==</span>
+    <span class="na">public.pem</span><span class="pi">:</span> <span class="s">AgBs+fTs...KcDw==</span>
+  <span class="na">template</span><span class="pi">:</span>
+    <span class="na">metadata</span><span class="pi">:</span>
+      <span class="na">creationTimestamp</span><span class="pi">:</span> <span class="kc">null</span>
+      <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-license-keys</span>
+      <i class="conum" data-value="1"></i><b>(1)</b>
+      <span class="c1"># namespace: dev, staging or prod. Needs to be updated for each environment</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Namespace: To create Kubernetes secret, the namespace needs to be specified. This value will be updated for each environment.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>And here is the kustomization.yaml file in dev directory to override the namespace.</p>
+</div>
+<div class="listingblock">
+<div class="title">dev/kustomization.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">kustomize.config.k8s.io/v1beta1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Kustomization</span>
+
+<span class="na">namespace</span><span class="pi">:</span> <span class="s">dev</span>
+
+<span class="na">resources</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">../base</span>
+
+<span class="na">patches</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">target</span><span class="pi">:</span>
+      <span class="na">kind</span><span class="pi">:</span> <span class="s">SealedSecret</span>
+      <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-license-keys</span>
+    <span class="na">patch</span><span class="pi">:</span> <span class="pi">|-</span>
+      <span class="s">- op: add</span>
+        <span class="s">path: /spec/template/metadata/namespace</span>
+        <span class="s">value: dev</span></code></pre>
+</div>
+</div>
+<div class="dlist">
+<dl>
+<dt class="hdlist1">WARNING</dt>
+<dd>
+<p>This approach is not working as expected because a sealed secret can not be shared between namespaces. Let&#8217;s look at why.</p>
+</dd>
+</dl>
+</div>
+<div class="sect2">
+<h3 id="how-sealedsecret-encryption-works">How SealedSecret Encryption Works</h3>
+<div class="paragraph">
+<p>By default, SealedSecrets use "strict" scope, which means the encryption includes:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Secret name</p>
+</li>
+<li>
+<p>Namespace</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>This means a SealedSecret encrypted for dev namespace cannot be decrypted in prod or staging namespaces. This is by design for security - it prevents secrets from being accidentally or maliciously moved between namespaces.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="solution-create-separate-sealedsecrets-for-each-environment">Solution: Create Separate SealedSecrets for Each Environment</h3>
+<div class="paragraph">
+<p>You need to create three separate sealed secrets - one for each environment.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="dev-directory">dev directory</h2>
+<div class="sectionbody">
+<div class="listingblock">
+<div class="content">
+<pre>$ tree dev
+
+dev
+├── kustomization.yaml
+├── service-foundry-license-keys-dev-sealed.yaml
+└── values-dev.yaml</pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">kustomization.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">kustomize.config.k8s.io/v1beta1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Kustomization</span>
+
+<span class="na">namespace</span><span class="pi">:</span> <span class="s">dev</span>
+
+<span class="na">resources</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">service-foundry-license-keys-dev-sealed.yaml</span>    <i class="conum" data-value="1"></i><b>(1)</b>
+
+
+<i class="conum" data-value="2"></i><b>(2)</b>
+<span class="na">helmGlobals</span><span class="pi">:</span>
+  <span class="na">chartHome</span><span class="pi">:</span> <span class="s">../chart-home</span>
+
+<i class="conum" data-value="3"></i><b>(3)</b>
+<span class="na">helmCharts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-community</span>
+    <span class="c1">#repo: oci://445567090745.dkr.ecr.ca-central-1.amazonaws.com/helm-charts</span>
+    <span class="c1">#repo: sf-apps/service-foundry-community/charts/service-foundry-community-0.1.0.tgz</span>
+    <span class="c1"># repo: file://charts/service-foundry-community</span>
+    <span class="c1"># version: 0.1.0</span>
+    <span class="na">releaseName</span><span class="pi">:</span> <span class="s">service-foundry-community</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="s">dev</span>
+    <span class="na">valuesFile</span><span class="pi">:</span> <span class="s">values-dev.yaml</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The sealed secret for dev environment</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Chart home directory where the chart is stored</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>The values file for dev environment</td>
+</tr>
+</table>
+</div>
+<div class="listingblock">
+<div class="title">values-dev.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">global</span><span class="pi">:</span>
+  <span class="na">version</span><span class="pi">:</span> <span class="s">0.2.0</span>    <i class="conum" data-value="1"></i><b>(1)</b>
+
+<span class="na">host</span><span class="pi">:</span> <span class="s">community-dev.servicefoundry.org</span>    <i class="conum" data-value="2"></i><b>(2)</b>
+
+<span class="na">frontend</span><span class="pi">:</span>
+  <span class="na">config</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="c1"># Default config.json content for the React app (will be put into a ConfigMap)</span>
+    <i class="conum" data-value="3"></i><b>(3)</b>
+    <span class="na">content</span><span class="pi">:</span> <span class="pi">|</span>
+      <span class="s">{</span>
+        <span class="s">"backendServer": "https://community-dev.servicefoundry.org/api",</span>
+        <span class="s">"appVersion": "0.14.0",</span>
+        <span class="s">"builderVersion": "0.14.0",</span>
+      <span class="s">}</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Service Foundry Community backend and frontend version</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Hostname for the Service Foundry Community dev environment</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Config for the frontend React app</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>The staging and prod directories are similar to dev directory.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="argocd-directory">argocd directory</h2>
+<div class="sectionbody">
+<div class="listingblock">
+<div class="title">Direcotry Structure</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>tree argocd
+argocd
+├── service-foundry-community-applicationset.yaml
+├── service-foundry-community-dev-application.yaml
+├── service-foundry-community-prod-application.yaml
+└── service-foundry-community-staging-application.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Argocd ApplicationSet is used to create ArgoCD Application for all environments. If you want to create ArgoCD Application for each environment, you can use one of the following manifests:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>service-foundry-community-dev-application.yaml</p>
+</li>
+<li>
+<p>service-foundry-community-staging-application.yaml</p>
+</li>
+<li>
+<p>service-foundry-community-prod-application.yaml</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>We are going to look at the dev environment first and then look at the ApplicationSet.</p>
+</div>
+<div class="sect2">
+<h3 id="service-foundry-community-dev-application-yaml">service-foundry-community-dev-application.yaml</h3>
+<div class="paragraph">
+<p>Here is the Application manifest for dev environment:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">argoproj.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Application</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-community-dev</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">argocd</span>
+  <span class="na">finalizers</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">resources-finalizer.argocd.argoproj.io</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">project</span><span class="pi">:</span> <span class="s">default</span>
+
+  <span class="na">source</span><span class="pi">:</span>
+    <span class="c1"># Update this with your Git repository URL</span>
+    <span class="na">repoURL</span><span class="pi">:</span> <span class="s">git@github.com:nsalexamy/service-foundry-argocd.git</span>
+    <span class="na">targetRevision</span><span class="pi">:</span> <span class="s">main</span>
+    <span class="na">path</span><span class="pi">:</span> <span class="s">sf-apps/service-foundry-community/dev</span>
+
+  <span class="na">destination</span><span class="pi">:</span>
+    <span class="c1"># Target cluster (default is the cluster where ArgoCD is installed)</span>
+    <span class="na">server</span><span class="pi">:</span> <span class="s">https://kubernetes.default.svc</span>
+    <span class="na">namespace</span><span class="pi">:</span> <span class="s">dev</span>
+
+  <span class="na">syncPolicy</span><span class="pi">:</span>
+    <span class="na">automated</span><span class="pi">:</span>
+      <span class="c1"># Automatically sync when Git changes are detected</span>
+      <span class="na">prune</span><span class="pi">:</span> <span class="kc">true</span>
+      <span class="c1"># Automatically revert manual changes</span>
+      <span class="na">selfHeal</span><span class="pi">:</span> <span class="kc">true</span>
+      <span class="c1"># Don't sync if there are no resources</span>
+      <span class="na">allowEmpty</span><span class="pi">:</span> <span class="kc">false</span>
+
+    <span class="na">syncOptions</span><span class="pi">:</span>
+      <span class="c1"># Create namespace if it doesn't exist</span>
+      <span class="pi">-</span> <span class="s">CreateNamespace=true</span>
+
+    <span class="na">retry</span><span class="pi">:</span>
+      <span class="na">limit</span><span class="pi">:</span> <span class="m">5</span>
+      <span class="na">backoff</span><span class="pi">:</span>
+        <span class="na">duration</span><span class="pi">:</span> <span class="s">5s</span>
+        <span class="na">factor</span><span class="pi">:</span> <span class="m">2</span>
+        <span class="na">maxDuration</span><span class="pi">:</span> <span class="s">3m</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="service-foundry-community-applicationset-yaml">service-foundry-community-applicationset.yaml</h3>
+<div class="paragraph">
+<p>Here is the ApplicationSet manifest:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">argoproj.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ApplicationSet</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">service-foundry-community-environments</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">argocd</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">generators</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">list</span><span class="pi">:</span>
+      <span class="na">elements</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">env</span><span class="pi">:</span> <span class="s">dev</span>
+        <span class="na">namespace</span><span class="pi">:</span> <span class="s">dev</span>
+      <span class="c1"># Uncomment when you create staging and prod overlays</span>
+      <span class="pi">-</span> <span class="na">env</span><span class="pi">:</span> <span class="s">staging</span>
+        <span class="na">namespace</span><span class="pi">:</span> <span class="s">staging</span>
+      <span class="pi">-</span> <span class="na">env</span><span class="pi">:</span> <span class="s">prod</span>
+        <span class="na">namespace</span><span class="pi">:</span> <span class="s">prod</span>
+
+  <span class="na">template</span><span class="pi">:</span>
+    <span class="na">metadata</span><span class="pi">:</span>
+      <span class="na">name</span><span class="pi">:</span> <span class="s1">'</span><span class="s">service-foundry-community-{{env}}'</span>
+      <span class="na">finalizers</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="s">resources-finalizer.argocd.argoproj.io</span>
+    <span class="na">spec</span><span class="pi">:</span>
+      <span class="na">project</span><span class="pi">:</span> <span class="s">default</span>
+
+      <span class="na">source</span><span class="pi">:</span>
+        <span class="c1"># Update this with your Git repository URL</span>
+        <span class="na">repoURL</span><span class="pi">:</span> <span class="s">git@github.com:nsalexamy/service-foundry-argocd.git</span>
+        <span class="na">targetRevision</span><span class="pi">:</span> <span class="s">main</span>
+        <span class="na">path</span><span class="pi">:</span> <span class="s1">'</span><span class="s">sf-apps/service-foundry-community/{{env}}'</span>
+
+      <span class="na">destination</span><span class="pi">:</span>
+        <span class="na">server</span><span class="pi">:</span> <span class="s">https://kubernetes.default.svc</span>
+        <span class="na">namespace</span><span class="pi">:</span> <span class="s1">'</span><span class="s">{{namespace}}'</span>
+
+      <span class="na">syncPolicy</span><span class="pi">:</span>
+        <span class="na">automated</span><span class="pi">:</span>
+          <span class="na">prune</span><span class="pi">:</span> <span class="kc">true</span>
+          <span class="na">selfHeal</span><span class="pi">:</span> <span class="kc">true</span>
+          <span class="na">allowEmpty</span><span class="pi">:</span> <span class="kc">false</span>
+
+        <span class="na">syncOptions</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="s">CreateNamespace=true</span>
+
+        <span class="na">retry</span><span class="pi">:</span>
+          <span class="na">limit</span><span class="pi">:</span> <span class="m">5</span>
+          <span class="na">backoff</span><span class="pi">:</span>
+            <span class="na">duration</span><span class="pi">:</span> <span class="s">5s</span>
+            <span class="na">factor</span><span class="pi">:</span> <span class="m">2</span>
+            <span class="na">maxDuration</span><span class="pi">:</span> <span class="s">3m</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deploy-service-foundry-community-applications">Deploy Service Foundry Community Applications</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="deploy-argocd-dev-application">Deploy ArgoCD Dev Application</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> argocd/service-foundry-community-dev-application.yaml</code></pre>
+</div>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/argocd-sf-dev-app.png" alt="argocd sf dev app">
+</div>
+<div class="title">Figure 1. ArgoCD UI: service-foundry-community-dev</div>
+</div>
+<div class="paragraph">
+<p>And you can see the Service Foundry Community frontend at <a href="https://community-dev.servicefoundry.org" class="bare">https://community-dev.servicefoundry.org</a></p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/community-dev-web.png" alt="community dev web">
+</div>
+<div class="title">Figure 2. community-dev-web</div>
+</div>
+<div class="paragraph">
+<p>You can deploy Staging and Prod applications in the same way.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="deploy-argocd-applications-using-applicationset">Deploy ArgoCD Applications using ApplicationSet</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> argocd/service-foundry-community-applicationset.yaml</code></pre>
+</div>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/argocd-all-community-apps.png" alt="argocd all community apps">
+</div>
+<div class="title">Figure 3. ArgoCD UI: service-foundry-community-applicationset</div>
+</div>
+<div class="paragraph">
+<p>This time, ArgoCD will create three applications: dev, staging, and prod.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://community-dev.servicefoundry.org" class="bare">https://community-dev.servicefoundry.org</a></p>
+</li>
+<li>
+<p><a href="https://community-staging.servicefoundry.org" class="bare">https://community-staging.servicefoundry.org</a></p>
+</li>
+<li>
+<p><a href="https://community.servicefoundry.org" class="bare">https://community.servicefoundry.org</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>And you can see the Service Foundry Community frontend at <a href="https://community.servicefoundry.org" class="bare">https://community.servicefoundry.org</a></p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/community-prod-web.png" alt="community prod web">
+</div>
+<div class="title">Figure 4. community-prod-web</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this article, we have shown how to deploy Service Foundry Community using ArgoCD and Kustomize. We have also shown how to use ApplicationSet to deploy multiple environments.</p>
+</div>
+</div>
+</div>
+</body>
+</html>
