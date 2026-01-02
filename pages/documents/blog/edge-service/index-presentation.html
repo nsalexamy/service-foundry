@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Hostname based Gateway API Service using Traefik, ALB, and Route 53</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#what-we-build">What We Build</a></li>
+</ul>
+</li>
+<li><a href="#key-concepts">Key Concepts</a>
+<ul class="sectlevel2">
+<li><a href="#edge-service-gateway-api">Edge Service &amp; Gateway API</a></li>
+<li><a href="#traefik-ingressroute-vs-kubernetes-httproute">Traefik IngressRoute vs. Kubernetes HTTPRoute</a></li>
+</ul>
+</li>
+<li><a href="#architecture">Architecture</a>
+<ul class="sectlevel2">
+<li><a href="#components">Components</a></li>
+<li><a href="#traffic-flow">Traffic Flow</a></li>
+<li><a href="#dns-configuration">DNS Configuration</a></li>
+</ul>
+</li>
+<li><a href="#aws-load-balancer-controller">AWS Load Balancer Controller</a>
+<ul class="sectlevel2">
+<li><a href="#resource-map">Resource Map</a></li>
+</ul>
+</li>
+<li><a href="#installing-traefik-with-gateway-api">Installing Traefik with Gateway API</a></li>
+<li><a href="#exposing-services-the-evolution">Exposing Services: The Evolution</a>
+<ul class="sectlevel2">
+<li><a href="#option-1-using-ingressroute-traefik-native">Option 1: using IngressRoute (Traefik Native)</a></li>
+<li><a href="#option-2-using-httproute-gateway-api-standard">Option 2: using HTTPRoute (Gateway API Standard)</a></li>
+</ul>
+</li>
+<li><a href="#summary">Summary</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/intro.png" alt="intro">
+</div>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In the modern Kubernetes ecosystem, exposing services to the internet securely and efficiently is a critical requirement. The traditional Ingress API has served us well, but the newer <strong>Gateway API</strong> offers a more expressive, extensible, and role-oriented standard for service networking.</p>
+</div>
+<div class="paragraph">
+<p>In this article, we will build a production-grade Edge Service layer using <strong>Traefik</strong> as our Gateway, an <strong>AWS Application Load Balancer (ALB)</strong> for TLS termination, and <strong>Route 53</strong> for DNS management. We will explore how to transition from Traefik&#8217;s custom <code>IngressRoute</code> CRD to the Kubernetes-standard <code>HTTPRoute</code>, empowering developers to manage their own routing configurations independently.</p>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+<div class="sect2">
+<h3 id="what-we-build">What We Build</h3>
+<div class="paragraph">
+<p>By the end of this guide, we will have a fully functional Edge Service extending our Kubernetes cluster to the internet. We will expose the following secure endpoints:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Platform Services:</strong></p>
+</li>
+<li>
+<p><code>argocd.servicefoundry.org</code> (ArgoCD - GitOps)</p>
+</li>
+<li>
+<p><code>argo-rollouts.servicefoundry.org</code> (Argo Rollouts - Progressive Delivery)</p>
+</li>
+<li>
+<p><code>grafana.servicefoundry.org</code> (Monitoring Dashboard)</p>
+</li>
+<li>
+<p><strong>Authentication Services:</strong></p>
+</li>
+<li>
+<p><code>keycloak.servicefoundry.org</code> (Identity Provider)</p>
+</li>
+<li>
+<p><code>oauth2-proxy.servicefoundry.org</code> (SSO Proxy)</p>
+</li>
+<li>
+<p><strong>Application Services:</strong></p>
+</li>
+<li>
+<p><code>sfapp.servicefoundry.org</code> (Demo Application)</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>This setup ensures that all public traffic is encrypted via AWS ACM, load-balanced by ALB, and routed intelligently by Traefik to the correct services within the cluster.</p>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="key-concepts">Key Concepts</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="edge-service-gateway-api">Edge Service &amp; Gateway API</h3>
+<div class="paragraph">
+<p>An <strong>Edge Service</strong> acts as the entry point for all external traffic entering your cluster. It handles concerns like TLS termination, routing, rate limiting, and authentication.</p>
+</div>
+<div class="paragraph">
+<p>The <strong>Gateway API</strong> is the next generation of Kubernetes service networking. Unlike the monolithic Ingress resource, it splits responsibilities into three distinct personas:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Infrastructure Provider</strong>: Manages the <code>GatewayClass</code> (defines the controller, e.g., Traefik).</p>
+</li>
+<li>
+<p><strong>Cluster Operator</strong>: Manages the <code>Gateway</code> (instantiates the load balancer).</p>
+</li>
+<li>
+<p><strong>Application Developer</strong>: Manages <code>HTTPRoute</code> (defines routing rules for specific apps).</p>
+</li>
+</ul>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="images/k8s-gateway-api.png" alt="k8s gateway api">
+</div>
+<div class="title">Figure 1. Personas of Kubernetes Gateway API</div>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="traefik-ingressroute-vs-kubernetes-httproute">Traefik IngressRoute vs. Kubernetes HTTPRoute</h3>
+<div class="paragraph">
+<p>Traefik offers two main ways to configure routing:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>IngressRoute</strong>: Traefik&#8217;s custom Custom Resource Definition (CRD). It&#8217;s mature and feature-rich, supporting advanced Traefik-specific middleware directly.</p>
+</li>
+<li>
+<p><strong>HTTPRoute</strong>: The Kubernetes Gateway API standard. It provides a vendor-agnostic way to define routing logic, making your configuration more portable and consistent with the broader ecosystem.</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>Our team is adopting <strong>HTTPRoute</strong> to align with Kubernetes standards while still leveraging Traefik&#8217;s power via ExtensionRefs.</p>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="architecture">Architecture</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Our architecture leverages managed AWS services for reliability and Kubernetes resources for flexibility.</p>
+</div>
+<div class="sect2">
+<h3 id="components">Components</h3>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Route 53</strong>: Manages the DNS records (<code>*.servicefoundry.org</code>), pointing them to our AWS Load Balancer.</p>
+</li>
+<li>
+<p><strong>AWS Certificate Manager (ACM)</strong>: Provisions and manages the wildcard SSL/TLS certificate for our domain.</p>
+</li>
+<li>
+<p><strong>AWS Load Balancer Controller (ALBC)</strong>: An operator in the cluster that automatically provisions an AWS ALB based on our Ingress configuration.</p>
+</li>
+<li>
+<p><strong>Traefik Proxy</strong>: Runs as a Deployment in the cluster, acting as the Gateway to route traffic to pods.</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="traffic-flow">Traffic Flow</h3>
+<div class="paragraph">
+<p>The following diagram illustrates how a user request reaches an application pod:</p>
+</div>
+<div class="literalblock">
+<div class="content">
+<pre>Route 53 (DNS)
+  └──&gt; AWS Application Load Balancer (ALB) [TLS Termination]
+         └──&gt; Traefik Service (NodePort)
+                └──&gt; Traefik Pods (Gateway)
+                       ├──&gt; HTTPRoute (argocd)
+                       ├──&gt; HTTPRoute (keycloak)
+                       └──&gt; HTTPRoute (sfapp)</pre>
+</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>DNS Resolution</strong>: The client resolves <code>argocd.servicefoundry.org</code> to the ALB&#8217;s IP address.</p>
+</li>
+<li>
+<p><strong>TLS Termination</strong>: The ALB receives the HTTPS request, decrypts it using the ACM certificate, and forwards it as HTTP to the Kubernetes cluster.</p>
+</li>
+<li>
+<p><strong>Ingress</strong>: The traffic hits the Traefik Service (exposed via <code>NodePort</code>).</p>
+</li>
+<li>
+<p><strong>Routing</strong>: Traefik analyzes the <code>Host</code> header and path, matches it against an <code>HTTPRoute</code> or <code>IngressRoute</code>, and proxies the request to the destination Service/Pod.</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="dns-configuration">DNS Configuration</h3>
+<div class="paragraph">
+<p>We use an <strong>Alias Record</strong> in Route 53 pointing to the ALB&#8217;s DNS name. This ensures that if the ALB&#8217;s underlying IPs change, DNS remains valid.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Record Name</strong>: <code>*.servicefoundry.org</code></p>
+</li>
+<li>
+<p><strong>Type</strong>: A (Alias)</p>
+</li>
+<li>
+<p><strong>Target</strong>: <code>traefik-alb-dns-name</code> (Managed by Terraform/ALBC)</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="aws-load-balancer-controller">AWS Load Balancer Controller</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We use the <strong>AWS Load Balancer Controller</strong> to bridge our Kubernetes Ingress resources with AWS infrastructure. Instead of manually creating an ALB, we define an <code>Ingress</code> resource in Kubernetes, and the controller provisions the ALB for us.</p>
+</div>
+<div class="paragraph">
+<p>For a deep dive into setting up the ALBC, refer to our previous guide:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://youtu.be/EW4uJ6hUIRE">YouTube: AWS Load Balancer Controller Setup</a></p>
+</li>
+<li>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/sso-foundry/k8s-https-aws/albc.html">Documentation: ALBC Setup</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+<div class="sect2">
+<h3 id="resource-map">Resource Map</h3>
+<div class="paragraph">
+<p>When the controller provisions an ALB for Traefik, it creates a listener and target groups mapping to Traefik&#8217;s NodePorts.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/aws-load-balancer-resource-map.png" alt="aws load balancer resource map">
+</div>
+<div class="title">Figure 2. AWS Load Balancer Resource Map (traefik-alb)</div>
+</div>
+<div class="paragraph">
+<p>The diagram above shows the relationship:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>ALB Listener (443)</strong>: Binds to the ACM certificate.</p>
+</li>
+<li>
+<p><strong>Target Group</strong>: Forwards traffic to the EC2 instances on Traefik&#8217;s <strong>NodePort</strong> (e.g., <code>30080</code> for web traffic).</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="installing-traefik-with-gateway-api">Installing Traefik with Gateway API</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To use the Gateway API, we must configure Traefik to enable the <code>kubernetesGateway</code> provider and define the Gateway listener settings.</p>
+</div>
+<div class="paragraph">
+<p>Below is our <code>custom-values.yaml</code> for the Traefik Helm chart (or ArgoCD Application):</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">ingressRoute</span><span class="pi">:</span>
+  <span class="na">dashboard</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span> <span class="c1"># Expose Traefik dashboard</span>
+  <span class="na">healthcheck</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span> <span class="c1"># Enable healthcheck endpoints</span>
+
+<span class="na">experimental</span><span class="pi">:</span>
+  <span class="na">kubernetesGateway</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span> <span class="c1"># &lt;1&gt; Enable experimental Gateway API features</span>
+<span class="na">providers</span><span class="pi">:</span>
+  <span class="na">kubernetesGateway</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span> <span class="c1"># &lt;1&gt; Enable the Gateway API provider</span>
+<span class="na">gateway</span><span class="pi">:</span>
+  <span class="na">listeners</span><span class="pi">:</span>
+    <span class="na">web</span><span class="pi">:</span>
+      <span class="na">port</span><span class="pi">:</span> <span class="m">80</span>
+      <span class="na">namespacePolicy</span><span class="pi">:</span> <span class="c1"># &lt;2&gt; Allow routes from all namespaces</span>
+        <span class="na">from</span><span class="pi">:</span> <span class="s">All</span>
+
+<span class="na">resources</span><span class="pi">:</span> <span class="c1"># &lt;3&gt; Resource limits for stability</span>
+  <span class="na">limits</span><span class="pi">:</span>
+    <span class="na">cpu</span><span class="pi">:</span> <span class="s">500m</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s">1024Mi</span>
+  <span class="na">requests</span><span class="pi">:</span>
+    <span class="na">cpu</span><span class="pi">:</span> <span class="s">200m</span>
+    <span class="na">memory</span><span class="pi">:</span> <span class="s">512Mi</span>
+
+<span class="na">env</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">USER</span>
+    <span class="na">value</span><span class="pi">:</span> <span class="s2">"</span><span class="s">traefik"</span>
+
+<span class="na">service</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s">NodePort</span> <span class="c1"># &lt;4&gt; Expose Traefik via NodePort for ALB Target Group</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td><strong>Gateway API Support</strong>: Must be explicitly enabled in both <code>experimental</code> and <code>providers</code> sections.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td><strong>Namespace Policy</strong>: By default, Gateways might restrict routes to the same namespace. We use <code>from: All</code> so developers in any namespace (e.g., <code>argocd</code>, <code>keycloak</code>) can attach their <code>HTTPRoutes</code> to this central Gateway.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td><strong>Resource Management</strong>: Defining requests and limits is a production best practice.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td><strong>Service Type</strong>: We use <code>NodePort</code> so the AWS Application Load Balancer can route traffic to these specific ports on the worker nodes.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>After installation, verify the Gateway resources:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl <span class="nt">-n</span> traefik get gatewayclass,gateway
+
+NAME                                             CONTROLLER                      ACCEPTED   AGE
+gatewayclass.gateway.networking.k8s.io/traefik   traefik.io/gateway-controller   True       3h15m
+
+NAME                                                CLASS     ADDRESS   PROGRAMMED   AGE
+gateway.gateway.networking.k8s.io/traefik-gateway   traefik             True       3h15m</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="exposing-services-the-evolution">Exposing Services: The Evolution</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We will compare exposing the <strong>Argo Rollouts Dashboard</strong> using the traditional <code>IngressRoute</code> and the modern <code>HTTPRoute</code>.</p>
+</div>
+<div class="sect2">
+<h3 id="option-1-using-ingressroute-traefik-native">Option 1: using IngressRoute (Traefik Native)</h3>
+<div class="paragraph">
+<p><code>IngressRoute</code> is Traefik&#8217;s native CRD. It is powerful and allows direct reference to Middleware.</p>
+</div>
+<div class="listingblock">
+<div class="title">argo-rollouts-ingressroute.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">traefik.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">IngressRoute</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-ingressroute</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">argo-rollouts</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">entryPoints</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">web</span>
+    <span class="pi">-</span> <span class="s">websecure</span>
+
+  <span class="na">routes</span><span class="pi">:</span>
+    <span class="c1"># 1. Dashboard UI Route</span>
+    <span class="pi">-</span> <span class="na">match</span><span class="pi">:</span> <span class="s">Host(`argo-rollouts.servicefoundry.org`) &amp;&amp; PathPrefix(`/rollouts`)</span>
+      <span class="na">kind</span><span class="pi">:</span> <span class="s">Rule</span>
+      <span class="na">services</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-dashboard</span> <span class="c1"># &lt;1&gt; Target Service</span>
+          <span class="na">port</span><span class="pi">:</span> <span class="m">3100</span>
+      <span class="na">middlewares</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-forward-auth</span> <span class="c1"># &lt;2&gt; SSO Middleware</span>
+
+    <span class="c1"># 2. API Route (No Auth for API calls for demonstration, or same Auth)</span>
+    <span class="pi">-</span> <span class="na">match</span><span class="pi">:</span> <span class="s">Host(`argo-rollouts.servicefoundry.org`) &amp;&amp; PathPrefix(`/api`)</span>
+      <span class="na">kind</span><span class="pi">:</span> <span class="s">Rule</span>
+      <span class="na">services</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-dashboard</span>
+          <span class="na">port</span><span class="pi">:</span> <span class="m">3100</span>
+      <span class="na">middlewares</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-forward-auth</span>
+
+    <span class="c1"># 3. Root Redirect</span>
+    <span class="pi">-</span> <span class="na">match</span><span class="pi">:</span> <span class="s">Host(`argo-rollouts.servicefoundry.org`) &amp;&amp; Path(`/`)</span>
+      <span class="na">kind</span><span class="pi">:</span> <span class="s">Rule</span>
+      <span class="na">services</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-dashboard</span>
+          <span class="na">port</span><span class="pi">:</span> <span class="m">3100</span>
+      <span class="na">middlewares</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-redirect</span> <span class="c1"># &lt;3&gt; Redirect Middleware</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td><strong>Service Backend</strong>: Points to the <code>argo-rollouts-dashboard</code> Kubernetes Service on port 3100.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td><strong>Middleware</strong>: Uses <code>forward-auth</code> to delegate authentication to OAuth2 Proxy (Keycloak).</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td><strong>Redirect</strong>: Automatically redirects users from <code>/</code> to <code>/rollouts</code>.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="option-2-using-httproute-gateway-api-standard">Option 2: using HTTPRoute (Gateway API Standard)</h3>
+<div class="paragraph">
+<p><code>HTTPRoute</code> is the Kubernetes standard. It achieves the same goal but uses a vendor-agnostic structure. Traefik-specific features (Middlewares) are attached via <code>filters</code>.</p>
+</div>
+<div class="listingblock">
+<div class="title">argo-rollouts-httproute.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">gateway.networking.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">HTTPRoute</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-httproute</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">argo-rollouts</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">parentRefs</span><span class="pi">:</span> <span class="c1"># &lt;1&gt; Bind to the Gateway</span>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">traefik-gateway</span>
+      <span class="na">namespace</span><span class="pi">:</span> <span class="s">traefik</span>
+  <span class="na">hostnames</span><span class="pi">:</span> <span class="c1"># &lt;2&gt; Define Domain</span>
+    <span class="pi">-</span> <span class="s">argo-rollouts.servicefoundry.org</span>
+  <span class="na">rules</span><span class="pi">:</span>
+    <span class="c1"># Rule 1: Dashboard UI</span>
+    <span class="pi">-</span> <span class="na">matches</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">path</span><span class="pi">:</span>
+          <span class="na">type</span><span class="pi">:</span> <span class="s">PathPrefix</span>
+          <span class="na">value</span><span class="pi">:</span> <span class="s">/rollouts</span>
+      <span class="na">filters</span><span class="pi">:</span> <span class="c1"># &lt;3&gt; Attach Middleware</span>
+        <span class="pi">-</span> <span class="na">type</span><span class="pi">:</span> <span class="s">ExtensionRef</span>
+          <span class="na">extensionRef</span><span class="pi">:</span>
+            <span class="na">group</span><span class="pi">:</span> <span class="s">traefik.io</span>
+            <span class="na">kind</span><span class="pi">:</span> <span class="s">Middleware</span>
+            <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-forward-auth</span>
+      <span class="na">backendRefs</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-dashboard</span>
+          <span class="na">port</span><span class="pi">:</span> <span class="m">3100</span>
+
+    <span class="c1"># Rule 2: API</span>
+    <span class="pi">-</span> <span class="na">matches</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">path</span><span class="pi">:</span>
+          <span class="na">type</span><span class="pi">:</span> <span class="s">PathPrefix</span>
+          <span class="na">value</span><span class="pi">:</span> <span class="s">/api</span>
+      <span class="na">filters</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">type</span><span class="pi">:</span> <span class="s">ExtensionRef</span>
+          <span class="na">extensionRef</span><span class="pi">:</span>
+            <span class="na">group</span><span class="pi">:</span> <span class="s">traefik.io</span>
+            <span class="na">kind</span><span class="pi">:</span> <span class="s">Middleware</span>
+            <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-forward-auth</span>
+      <span class="na">backendRefs</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-dashboard</span>
+          <span class="na">port</span><span class="pi">:</span> <span class="m">3100</span>
+
+    <span class="c1"># Rule 3: Root Redirect</span>
+    <span class="pi">-</span> <span class="na">matches</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">path</span><span class="pi">:</span>
+          <span class="na">type</span><span class="pi">:</span> <span class="s">PathPrefix</span>
+          <span class="na">value</span><span class="pi">:</span> <span class="s">/</span>
+      <span class="na">filters</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">type</span><span class="pi">:</span> <span class="s">ExtensionRef</span>
+          <span class="na">extensionRef</span><span class="pi">:</span>
+            <span class="na">group</span><span class="pi">:</span> <span class="s">traefik.io</span>
+            <span class="na">kind</span><span class="pi">:</span> <span class="s">Middleware</span>
+            <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-redirect</span>
+      <span class="na">backendRefs</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-dashboard</span>
+          <span class="na">port</span><span class="pi">:</span> <span class="s">3100</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td><strong>ParentRefs</strong>: Explicitly links this route to the <code>traefik-gateway</code> in the <code>traefik</code> namespace. This is permitted because we set <code>namespacePolicy: from: All</code> in the Gateway config.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td><strong>Hostnames</strong>: Limits this route to traffic matching the specific domain.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td><strong>ExtensionRef</strong>: The standard way to plug in vendor-specific functionality. Here, we reference the Traefik Middleware CRD exactly as we did in <code>IngressRoute</code>.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+<div class="paragraph">
+<p>Now the Argo Rollouts Dashboard is accessible at <code>argo-rollouts.servicefoundry.org</code>.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/edge-argo-rollouts.png" alt="edge argo rollouts">
+</div>
+<div class="title">Figure 3. Argo Rollouts Dashboard</div>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="summary">Summary</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We have successfully built a robust Edge Service layer.</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Architecture</strong>: We leveraged AWS ALB for TLS termination and Traefik for flexible routing.</p>
+</li>
+<li>
+<p><strong>Standards</strong>: We migrated from proprietary <code>IngressRoute</code> to the standardized <code>HTTPRoute</code>, future-proofing our specification.</p>
+</li>
+<li>
+<p><strong>Security</strong>: We secured our endpoints with SSO using <code>forward-auth</code> middleware attached directly to our routes.</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>By adopting Gateway API, our platform provides a self-service model where developers can manage their routing requirements using standard Kubernetes resources.</p>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+</body>
+</html>

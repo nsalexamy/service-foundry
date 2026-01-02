@@ -1,0 +1,326 @@
+---
+layout: documents
+title: Hostname based Gateway API Service using Traefik, ALB, and Route 53
+summary: "Gateway API is the future of Kubernetes networking. In my latest article (and video), I break down how to build a scalable Edge Service using Traefik, AWS ALB, and Route 53. We dive deep into the differences between Traefik's native `IngressRoute` and the new Kubernetes standard `HTTPRoute`, showing you how to empower your backend engineers with self-service routing while keeping your platform secure."
+tags: "#Kubernetes #Traefik #GatewayAPI #AWS #DevOps #CloudNative #SRE #PlatformEngineering"
+author: Young Gyu Kim
+email: credemol@gmail.com
+breadcrumb:
+  - name: Home
+    url: /
+  - name: Docs
+    url: /documents/
+  - name: Blog
+    url: /documents/blog/
+---
+
+
+
+= Hostname based Gateway API Service using Traefik, ALB, and Route 53
+
+:imagesdir: images
+
+[.img-wide]
+image::intro.png[]
+
+== Introduction
+
+YouTube Tutorial:: https://youtu.be/qjaFVdAZ1xk
+
+In the modern Kubernetes ecosystem, exposing services to the internet securely and efficiently is a critical requirement. The traditional Ingress API has served us well, but the newer **Gateway API** offers a more expressive, extensible, and role-oriented standard for service networking.
+
+In this article, we will build a production-grade Edge Service layer using **Traefik** as our Gateway, an **AWS Application Load Balancer (ALB)** for TLS termination, and **Route 53** for DNS management. We will explore how to transition from Traefik's custom `IngressRoute` CRD to the Kubernetes-standard `HTTPRoute`, empowering developers to manage their own routing configurations independently.
+
+=== What We Build
+
+By the end of this guide, we will have a fully functional Edge Service extending our Kubernetes cluster to the internet. We will expose the following secure endpoints:
+
+*   **Platform Services:**
+    *   `argocd.servicefoundry.org` (ArgoCD - GitOps)
+    *   `argo-rollouts.servicefoundry.org` (Argo Rollouts - Progressive Delivery)
+    *   `grafana.servicefoundry.org` (Monitoring Dashboard)
+*   **Authentication Services:**
+    *   `keycloak.servicefoundry.org` (Identity Provider)
+    *   `oauth2-proxy.servicefoundry.org` (SSO Proxy)
+*   **Application Services:**
+    *   `sfapp.servicefoundry.org` (Demo Application)
+
+This setup ensures that all public traffic is encrypted via AWS ACM, load-balanced by ALB, and routed intelligently by Traefik to the correct services within the cluster.
+
+== Key Concepts
+
+=== Edge Service & Gateway API
+An **Edge Service** acts as the entry point for all external traffic entering your cluster. It handles concerns like TLS termination, routing, rate limiting, and authentication.
+
+The **Gateway API** is the next generation of Kubernetes service networking. Unlike the monolithic Ingress resource, it splits responsibilities into three distinct personas:
+
+*   **Infrastructure Provider**: Manages the `GatewayClass` (defines the controller, e.g., Traefik).
+*   **Cluster Operator**: Manages the `Gateway` (instantiates the load balancer).
+*   **Application Developer**: Manages `HTTPRoute` (defines routing rules for specific apps).
+
+.Personas of Kubernetes Gateway API
+image::k8s-gateway-api.png[]
+
+=== Traefik IngressRoute vs. Kubernetes HTTPRoute
+Traefik offers two main ways to configure routing:
+
+1.  **IngressRoute**: Traefik's custom Custom Resource Definition (CRD). It's mature and feature-rich, supporting advanced Traefik-specific middleware directly.
+2.  **HTTPRoute**: The Kubernetes Gateway API standard. It provides a vendor-agnostic way to define routing logic, making your configuration more portable and consistent with the broader ecosystem.
+
+Our team is adopting **HTTPRoute** to align with Kubernetes standards while still leveraging Traefik's power via ExtensionRefs.
+
+== Architecture
+
+Our architecture leverages managed AWS services for reliability and Kubernetes resources for flexibility.
+
+=== Components
+
+1.  **Route 53**: Manages the DNS records (`*.servicefoundry.org`), pointing them to our AWS Load Balancer.
+2.  **AWS Certificate Manager (ACM)**: Provisions and manages the wildcard SSL/TLS certificate for our domain.
+3.  **AWS Load Balancer Controller (ALBC)**: An operator in the cluster that automatically provisions an AWS ALB based on our Ingress configuration.
+4.  **Traefik Proxy**: Runs as a Deployment in the cluster, acting as the Gateway to route traffic to pods.
+
+=== Traffic Flow
+
+The following diagram illustrates how a user request reaches an application pod:
+
+....
+Route 53 (DNS)
+  └──> AWS Application Load Balancer (ALB) [TLS Termination]
+         └──> Traefik Service (NodePort)
+                └──> Traefik Pods (Gateway)
+                       ├──> HTTPRoute (argocd)
+                       ├──> HTTPRoute (keycloak)
+                       └──> HTTPRoute (sfapp)
+....
+
+1.  **DNS Resolution**: The client resolves `argocd.servicefoundry.org` to the ALB's IP address.
+2.  **TLS Termination**: The ALB receives the HTTPS request, decrypts it using the ACM certificate, and forwards it as HTTP to the Kubernetes cluster.
+3.  **Ingress**: The traffic hits the Traefik Service (exposed via `NodePort`).
+4.  **Routing**: Traefik analyzes the `Host` header and path, matches it against an `HTTPRoute` or `IngressRoute`, and proxies the request to the destination Service/Pod.
+
+=== DNS Configuration
+We use an **Alias Record** in Route 53 pointing to the ALB's DNS name. This ensures that if the ALB's underlying IPs change, DNS remains valid.
+
+*   **Record Name**: `*.servicefoundry.org`
+*   **Type**: A (Alias)
+*   **Target**: `traefik-alb-dns-name` (Managed by Terraform/ALBC)
+
+== AWS Load Balancer Controller
+
+We use the **AWS Load Balancer Controller** to bridge our Kubernetes Ingress resources with AWS infrastructure. Instead of manually creating an ALB, we define an `Ingress` resource in Kubernetes, and the controller provisions the ALB for us.
+
+For a deep dive into setting up the ALBC, refer to our previous guide:
+
+*   link:https://youtu.be/EW4uJ6hUIRE[YouTube: AWS Load Balancer Controller Setup]
+*   link:https://nsalexamy.github.io/service-foundry/pages/documents/sso-foundry/k8s-https-aws/albc.html[Documentation: ALBC Setup]
+
+=== Resource Map
+When the controller provisions an ALB for Traefik, it creates a listener and target groups mapping to Traefik's NodePorts.
+
+.AWS Load Balancer Resource Map (traefik-alb)
+[.img-wide]
+image::aws-load-balancer-resource-map.png[]
+
+The diagram above shows the relationship:
+
+*   **ALB Listener (443)**: Binds to the ACM certificate.
+*   **Target Group**: Forwards traffic to the EC2 instances on Traefik's **NodePort** (e.g., `30080` for web traffic).
+
+== Installing Traefik with Gateway API
+
+To use the Gateway API, we must configure Traefik to enable the `kubernetesGateway` provider and define the Gateway listener settings.
+
+Below is our `custom-values.yaml` for the Traefik Helm chart (or ArgoCD Application):
+
+.custom-values.yaml
+[source,yaml]
+----
+ingressRoute:
+  dashboard:
+    enabled: true # Expose Traefik dashboard
+  healthcheck:
+    enabled: true # Enable healthcheck endpoints
+
+experimental:
+  kubernetesGateway:
+    enabled: true # <1> Enable experimental Gateway API features
+providers:
+  kubernetesGateway:
+    enabled: true # <1> Enable the Gateway API provider
+gateway:
+  listeners: 
+    web:
+      port: 80
+      namespacePolicy: # <2> Allow routes from all namespaces
+        from: All 
+
+resources: # <3> Resource limits for stability
+  limits:
+    cpu: 500m
+    memory: 1024Mi
+  requests:
+    cpu: 200m
+    memory: 512Mi
+
+env:
+  - name: USER
+    value: "traefik"
+
+service:
+  type: NodePort # <4> Expose Traefik via NodePort for ALB Target Group
+----
+<1> **Gateway API Support**: Must be explicitly enabled in both `experimental` and `providers` sections.
+<2> **Namespace Policy**: By default, Gateways might restrict routes to the same namespace. We use `from: All` so developers in any namespace (e.g., `argocd`, `keycloak`) can attach their `HTTPRoutes` to this central Gateway.
+<3> **Resource Management**: Defining requests and limits is a production best practice.
+<4> **Service Type**: We use `NodePort` so the AWS Application Load Balancer can route traffic to these specific ports on the worker nodes.
+
+After installation, verify the Gateway resources:
+
+[source,shell]
+----
+$ kubectl -n traefik get gatewayclass,gateway
+
+NAME                                             CONTROLLER                      ACCEPTED   AGE
+gatewayclass.gateway.networking.k8s.io/traefik   traefik.io/gateway-controller   True       3h15m
+
+NAME                                                CLASS     ADDRESS   PROGRAMMED   AGE
+gateway.gateway.networking.k8s.io/traefik-gateway   traefik             True       3h15m
+----
+
+== Exposing Services: The Evolution
+
+We will compare exposing the **Argo Rollouts Dashboard** using the traditional `IngressRoute` and the modern `HTTPRoute`.
+
+=== Option 1: using IngressRoute (Traefik Native)
+
+`IngressRoute` is Traefik's native CRD. It is powerful and allows direct reference to Middleware.
+
+.argo-rollouts-ingressroute.yaml
+[source,yaml]
+----
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: argo-rollouts-ingressroute
+  namespace: argo-rollouts
+spec:
+  entryPoints:  
+    - web
+    - websecure
+  
+  routes:
+    # 1. Dashboard UI Route
+    - match: Host(`argo-rollouts.servicefoundry.org`) && PathPrefix(`/rollouts`)
+      kind: Rule
+      services:
+        - name: argo-rollouts-dashboard # <1> Target Service
+          port: 3100
+      middlewares:
+        - name: argo-rollouts-forward-auth # <2> SSO Middleware
+          
+    # 2. API Route (No Auth for API calls for demonstration, or same Auth)
+    - match: Host(`argo-rollouts.servicefoundry.org`) && PathPrefix(`/api`)
+      kind: Rule
+      services:
+        - name: argo-rollouts-dashboard
+          port: 3100
+      middlewares:
+        - name: argo-rollouts-forward-auth          
+
+    # 3. Root Redirect
+    - match: Host(`argo-rollouts.servicefoundry.org`) && Path(`/`)
+      kind: Rule
+      services:
+        - name: argo-rollouts-dashboard
+          port: 3100
+      middlewares:
+        - name: argo-rollouts-redirect # <3> Redirect Middleware
+----
+<1> **Service Backend**: Points to the `argo-rollouts-dashboard` Kubernetes Service on port 3100.
+<2> **Middleware**: Uses `forward-auth` to delegate authentication to OAuth2 Proxy (Keycloak).
+<3> **Redirect**: Automatically redirects users from `/` to `/rollouts`.
+
+=== Option 2: using HTTPRoute (Gateway API Standard)
+
+`HTTPRoute` is the Kubernetes standard. It achieves the same goal but uses a vendor-agnostic structure. Traefik-specific features (Middlewares) are attached via `filters`.
+
+.argo-rollouts-httproute.yaml
+[source,yaml]
+----
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: argo-rollouts-httproute
+  namespace: argo-rollouts
+spec:
+  parentRefs: # <1> Bind to the Gateway
+    - name: traefik-gateway
+      namespace: traefik
+  hostnames: # <2> Define Domain
+    - argo-rollouts.servicefoundry.org
+  rules:
+    # Rule 1: Dashboard UI
+    - matches:
+      - path: 
+          type: PathPrefix
+          value: /rollouts
+      filters: # <3> Attach Middleware
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: argo-rollouts-forward-auth
+      backendRefs:
+        - name: argo-rollouts-dashboard
+          port: 3100
+          
+    # Rule 2: API
+    - matches:
+      - path: 
+          type: PathPrefix
+          value: /api
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: argo-rollouts-forward-auth
+      backendRefs:
+        - name: argo-rollouts-dashboard
+          port: 3100
+
+    # Rule 3: Root Redirect
+    - matches:
+      - path: 
+          type: PathPrefix
+          value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: argo-rollouts-redirect
+      backendRefs:
+        - name: argo-rollouts-dashboard
+          port: 3100
+----
+<1> **ParentRefs**: Explicitly links this route to the `traefik-gateway` in the `traefik` namespace. This is permitted because we set `namespacePolicy: from: All` in the Gateway config.
+<2> **Hostnames**: Limits this route to traffic matching the specific domain.
+<3> **ExtensionRef**: The standard way to plug in vendor-specific functionality. Here, we reference the Traefik Middleware CRD exactly as we did in `IngressRoute`.
+
+Now the Argo Rollouts Dashboard is accessible at `argo-rollouts.servicefoundry.org`.
+
+.Argo Rollouts Dashboard
+[.img-wide]
+image::edge-argo-rollouts.png[]
+
+== Summary
+
+We have successfully built a robust Edge Service layer.
+
+1.  **Architecture**: We leveraged AWS ALB for TLS termination and Traefik for flexible routing.
+2.  **Standards**: We migrated from proprietary `IngressRoute` to the standardized `HTTPRoute`, future-proofing our specification.
+3.  **Security**: We secured our endpoints with SSO using `forward-auth` middleware attached directly to our routes.
+
+By adopting Gateway API, our platform provides a self-service model where developers can manage their routing requirements using standard Kubernetes resources.
