@@ -1,0 +1,342 @@
+= Hostname based Gateway API Service using Traefik, ALB, and Route 53
+
+:imagesdir: images
+
+== Introduction
+
+YouTube Tutorial:: https://youtu.be/5XpWZpZpZpZ
+
+Among many applications running on Kubernetes, we want to expose some of our services to the internet. In this article, we will use Traefik Gateway API to expose our services to the internet using Kubernetes standard like Gateway API and HttpRoute. With separate personas of Gateway API, developers can expose their services to the internet in a more flexible way without depending on the infrastructure team.
+
+Topics covered:
+
+- Route 53 Hosted Zone
+- AWS Load Balancer Controller(ALBC)
+- AWS Certificate Manager(ACM)
+- Traefik Ingress Controller 
+- Traefik Gateway API
+- Traefik IngressRoute and Kubernetes HttpRoute
+
+== What we build
+
+We want to expose some of our services running on Kubernetes to the internet using Traefik Gateway API.
+
+Endpoints below are exposed to the internet.
+
+- argocd.servicefoundry.org (ArgoCD)
+- argo-rollouts.servicefoundry.org (Argo Rollouts)
+- keycloak.servicefoundry.org (Authentication)
+- oauth2-proxy.servicefoundry.org (Authentication)
+- sfapp.servicefoundry.org (Application)
+- grafana.servicefoundry.org (Monitoring)
+
+Leveraging the concepts of Gateway API, we can expose our services to the internet in a more flexible way without depending on the infrastructure team.
+
+== What is Edge Service and Gateway API?
+
+
+Edge Service is a service that is exposed to the internet. In latest Kubernetes, we can use Gateway API to expose our service to the internet.
+
+Traefik supports Gateway API as well as Ingress API.
+
+== Traefik IngressRoute vs Kubernetes HttpRoute
+
+Both IngressRoute and HttpRoute are used to expose our service to the internet.
+
+- IngressRoute is used to expose our service to the internet with Traefik Ingress Controller.
+- HttpRoute is used to expose our service to the internet with our GatewayClass and Gateway. Traefik also supports Gateway API.
+
+Our team chose to use HttpRoute to expose our service to the internet with our GatewayClass and Gateway because it is Kubernetes standard and it is more flexible than IngressRoute.
+
+== 3 Separate Personas of Kubernetes Gateway API
+
+There are 3 separate personas of Kubernetes Gateway API.
+
+- Infrastructure Provider: GatewayClass
+- Cluster Operator: Gateway
+- Application Developer: HttpRoute and TLSRoute
+
+
+.Personas of Kubernetes Gateway API
+image::k8s-gateway-api.png[]
+
+Once the GatewayClass and Gateway are created, application developers can create HttpRoute to expose their service to the internet.
+
+== Architectural Components
+
+- AWS Certificate Manager (ACM)
+- AWS Load Balancer Controller (ALBC)
+- Route 53 Hosted Zone
+- Traefik Ingress Controller
+- Traefik Gateway API
+- Traefik IngressRoute and Kubernetes HttpRoute
+
+
+=== DNS Record for Edge Service using Ingress
+
+We can use Route 53 to create a Alias record to point to the ALB.
+
+Record Name: *.servicefoundry.org
+Record Type: A
+Alias: Yes
+Route traffic to: traefik-alb-url (Configured by Terraform)
+
+
+Route 53 
+└──> AWS Load Balancer (traefik-alb)
+     └──> Traefik Gateway API or Traefik Ingress
+          ├───> HttpRoute or IngressRoute (argocd.servicefoundry.org)
+          ├───> HttpRoute or IngressRoute (argocd-rollouts.servicefoundry.org)
+          ├───> HttpRoute or IngressRoute (keycloak.servicefoundry.org)
+          ├───> HttpRoute or IngressRoute (oauth2-proxy.servicefoundry.org)
+          ├───> HttpRoute or IngressRoute (sfapp.servicefoundry.org)
+          └─-─> HttpRoute or IngressRoute (grafana.servicefoundry.org)    
+
+
+
+
+
+== AWS Load Balancer Controller
+
+In this document, we will use AWS Load Balancer Controller to create an ALB for our Traefik Ingress Controller. If you are not familiar with AWS Load Balancer Controller, please refer to my previous document.
+
+- https://youtu.be/EW4uJ6hUIRE
+- https://nsalexamy.github.io/service-foundry/pages/documents/sso-foundry/k8s-https-aws/albc.html
+
+== AWS Certificate Manager and TLS Termination
+
+We will use AWS Certificate Manager to create a certificate for our edge service.
+
+We created a certificate for *.servicefoundry.org in AWS Certificate Manager and the ARN of the certificate is required for our ALB Ingress.
+
+The Certificate Termination is handled by ALB Ingress Controller which means ALB Ingress Controller will terminate the TLS traffic and forward the traffic to our Traefik Ingress Controller using HTTP.
+
+== AWS Load Balancer and Target Group
+
+AWS Load Balancer Controller will create an ALB and a Target Group for our Traefik Ingress Controller.
+
+
+.AWS Load Balancer Resource Map(traefik-alb)
+[.img-wide]
+image::aws-load-balancer-resource-map.png[]
+
+The image above shows the resource map of the ALB created by AWS Load Balancer Controller. The Port 30080 of each target is used for HTTP that are NodePort of Traefik Ingress Controller.
+
+== Installing Traefik with Gateway API
+
+Here is the custom values for Traefik with Gateway API.
+
+.custom-values.yaml
+[source,yaml]
+----
+ingressRoute:
+  dashboard:
+    enabled: true
+
+  healthcheck:
+    enabled: true
+
+experimental:
+  kubernetesGateway:
+    enabled: true
+providers:
+  kubernetesGateway:
+    enabled: true
+gateway:
+  listeners: 
+    web:
+      port: 80  # Without this, Traefik will cause an error. ERROR: port 8000 is not declared in ports Use --debug flag to render out invalid YAML
+      namespacePolicy:
+        # Crucial: Allow HTTPRoutes from ALL namespaces to bind to this gateway
+        from: All 
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 1024Mi
+  requests:
+    cpu: 200m
+    memory: 512Mi
+
+
+env:
+  - name: USER
+    value: "traefik"
+
+service:
+  type: NodePort
+
+ports:
+  traefik:
+    nodePort: 31080
+    expose:
+      default: true
+  web:
+    port: 80
+    nodePort: 30080
+
+  websecure:
+    port: 443
+    nodePort: 30443
+
+----
+
+In our IDP, we installed Traefik using ArgoCD, but, you can also install Traefik using Helm.
+
+After installing Traefik, we can verify that GatewayClass and Gateway are created in the traefik namespace.
+
+[source,shell]
+----
+$ kubectl -n traefik get gatewayclass,gateway
+
+# example output
+
+NAME                                             CONTROLLER                      ACCEPTED   AGE
+gatewayclass.gateway.networking.k8s.io/traefik   traefik.io/gateway-controller   True       3h15m
+
+NAME                                                CLASS     ADDRESS   PROGRAMMED   AGE
+gateway.gateway.networking.k8s.io/traefik-gateway   traefik             True         3h15m
+----
+
+== Exposing our service using IngressRoute
+
+In IngressRoute, we can use Traefik specific features like Middlewares.
+
+
+.argo-rollouts-ingressroute.yaml
+[source,yaml]
+----
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: argo-rollouts-ingressroute
+spec:
+  entryPoints:  
+    - web
+    - websecure
+  
+  routes:
+    # Dashboard UI
+    - match: Host(`argo-rollouts.servicefoundry.org`) && PathPrefix(`/rollouts`)
+      kind: Rule
+      services:
+        - name: argo-rollouts-dashboard
+          port: 3100
+      middlewares:
+        - name: argo-rollouts-forward-auth           
+          
+    # API endpoints - Frontend calls /api..., we route to backend as /api...
+    - match: Host(`argo-rollouts.servicefoundry.org`) && PathPrefix(`/api`)
+      kind: Rule
+      services:
+        - name: argo-rollouts-dashboard
+          port: 3100
+      middlewares: []
+        - name: argo-rollouts-forward-auth          
+
+    # Redirect root to /rollouts
+    - match: Host(`argo-rollouts.servicefoundry.org`) && Path(`/`)
+      kind: Rule
+      services:
+        - name: argo-rollouts-dashboard
+          port: 3100
+      middlewares:
+        - name: argo-rollouts-redirect
+----      
+
+As you can see, we are using Traefik specific features like Middlewares to expose our service to the internet.
+
+For example, 'argo-rollouts-forward-auth' middleware is used to forward the authentication request to the OAuth2 Proxy for Single Sign On (SSO) to limit access to the Argo Rollouts Dashboard.
+
+
+
+== Exposing our service using HttpRoute
+
+HttpRoute is a Kubernetes resource that is part of the Gateway API. It is used to expose our service to the internet.
+
+The HTTPRoute resource is equivalent to IngressRoute in the previous section.
+
+
+.argo-rollouts-httproute.yaml
+[source,yaml]
+----
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: argo-rollouts-httproute
+spec:
+  parentRefs:
+    - name: traefik-gateway
+      namespace: traefik
+  hostnames:
+    - argo-rollouts.servicefoundry.org
+  rules:
+    - matches:
+      - path: 
+          type: PathPrefix
+          value: /rollouts
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: argo-rollouts-forward-auth
+      backendRefs:
+        - name: argo-rollouts-dashboard
+          port: 3100
+          
+    - matches:
+      - path: 
+          type: PathPrefix
+          value: /api
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: argo-rollouts-forward-auth
+      backendRefs:
+        - name: argo-rollouts-dashboard
+          port: 3100
+
+    - matches:
+      - path: 
+          type: PathPrefix
+          value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: argo-rollouts-redirect
+      backendRefs:
+        - name: argo-rollouts-dashboard
+          port: 3100
+----
+
+== Exposing other services
+
+No further configuration is required for other services.
+
+We can create another HTTPRoute resource for other services.
+
+- sfapp-httproute.yaml (Application)
+- argocd-httproute.yaml (ArgoCD)
+- argo-rollouts-httproute.yaml (Argo Rollouts)
+- keycloak-httproute.yaml (Keycloak)
+- oauth2-proxy-httproute.yaml (OAuth2 Proxy)
+- grafana-httproute.yaml (Grafana)
+- jaeger-httproute.yaml (Jaeger)
+
+Edge Service helps us to expose our services to the internet.
+
+
+
+== Summary
+
+In this article, we have learned how to expose our service to the internet using IngressRoute and HttpRoute.
+
+We have also learned how to use Traefik specific features like Middlewares to expose our service to the internet.
+
+
+
