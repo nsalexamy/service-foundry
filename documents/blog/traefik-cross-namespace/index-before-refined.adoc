@@ -1,0 +1,306 @@
+= Cross-Namespace Middleware Reference with Traefik for IngressRoute and HTTPRoute
+
+:imagesdir: images
+
+[.img-wide]
+image::intro.png[]
+
+== Introduction
+
+YouTube Tutorial:: https://youtu.be/6W4XpWwWwWw
+
+📘 Web version:: https://nsalexamy.github.io/service-foundry/pages/documents/blog/traefik-cross-namespace/
+
+
+When working with Traefik IngressRoute and HTTPRoute with Traefik Gateway API, you may find yourself in a situation where you need to use Middleware from a different namespace. 
+
+For security reasons, Traefik does not allow cross-namespace references by default. And the type of ExtensionRef used in HTTPRoute to reference Middleware does not support namespace property.
+
+LocalObjectReference Fields:
+
+- *group*: Group is the group of the referent. For example, "gateway.networking.k8s.io".
+When unspecified or empty string, core API group is inferred.
+- *kind*: Kind is kind of the referent. For example "HTTPRoute" or "Service".
+- *name*: Name is the name of the referent.
+
+For more details, please refer to the https://gateway-api.sigs.k8s.io/reference/spec/#localobjectreference.
+
+In this article, we will show you how to enable global cross-namespace support for Traefik IngressRoute and HTTPRoute with Traefik Gateway API.
+
+== Use Case Scenario
+
+Our team is using forwardAuth middleware to provide SSO authentication for our applications and third-party services like Grafana, Argo Rollouts, and Jaeger that do not support SSO authentication out of the box. 
+
+We have the forward-auth-middleware.yaml in service-foundry namespace
+
+.forward-auth-middleware.yaml in service-foundry namespace
+[source,yaml]
+----
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: forward-auth
+  namespace: service-foundry
+spec:
+  forwardAuth:
+    address: http://oauth2-proxy.service-foundry.svc.cluster.local/oauth2/
+    trustForwardHeader: true
+    authResponseHeaders:
+      - "X-Auth-Request-User"
+      - "X-Auth-Request-Email"
+      - "Authorization"   
+----
+
+When we try to use this middleware in HTTPRoute in argo-rollouts namespace, for example, we need to create a copy of the middleware in argo-rollouts namespace to use it which means we need to duplicate the middleware in each namespace. It is likely to cause a lot of maintenance work and errors.
+
+== Solution
+
+To enable global cross-namespace support for Traefik IngressRoute and HTTPRoute with Traefik Gateway API, we can use the following approach:
+
+. Enable Global Cross-Namespace Support for Traefik
+. Reference the Middleware in IngressRoute 
+. Reference the Middleware in HTTPRoute using the chain middleware
+
+
+== Enable Global Cross-Namespace Support for Traefik
+
+To enable global cross-namespace support for Traefik IngressRoute and HTTPRoute with Traefik Gateway API, we need to enable the global cross-namespace support for Traefik. 
+
+In the custom-values.yaml, we need to set the following values
+
+- *providers.kubernetesCRD.allowCrossNamespace*: true
+
+Here is the custom-values.yaml snippet with configuration to enable Gateway API and Global Cross-Namespace Support for Traefik
+
+
+.custom-values.yaml
+[source,yaml]
+----
+experimental:
+  kubernetesGateway:
+    enabled: true
+providers:
+  kubernetesGateway:
+    enabled: true
+
+  # Crucial: Allow IngressRoutes and HTTPRoutes to use Traefik Middlewares from ALL 
+  
+  kubernetesCRD:
+    allowCrossNamespace: true # <1>
+    
+gateway:
+  listeners: 
+    web:
+      port: 80  # Without this, Traefik will cause an error. ERROR: port 8000 is not declared in ports Use --debug flag to render out invalid YAML
+      namespacePolicy:
+        # Crucial: Allow HTTPRoutes from ALL namespaces to bind to this gateway
+        from: All 
+----
+
+<1> This is crucial to enable global cross-namespace support for Traefik IngressRoute and HTTPRoute with Traefik Gateway API. 
+
+== Reference the Middleware defined in different namespace in IngressRoute
+
+IngressRoute is a custom resource provided by Traefik to define the routing rules for a specific application. Although Cross-Namespace support is disabled by default, the Middleware object has a namespace property that can be used to reference the Middleware in a different namespace.
+
+.ingressroute.yaml
+[source,yaml]
+----
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: argo-rollouts-ingressroute
+spec:
+  entryPoints:  
+    - web
+    - websecure
+  
+  routes:
+    # Dashboard UI
+    - match: Host(`argo-rollouts.servicefoundry.org`) && PathPrefix(`/rollouts`)
+      kind: Rule
+      services:
+        - name: argo-rollouts-dashboard
+          port: 3100
+      middlewares: 
+        # argo-rollouts-forward-auth middleware used to be in the same namespace 
+        # but now it was duplicated middleware in argo-rollouts namespace
+        #- name: argo-rollouts-forward-auth          
+
+        # This middleware is defined in service-foundry namespace
+        - name: forward-auth
+          namespace: service-foundry
+
+    # API endpoints - Frontend calls /api..., we route to backend as /api...
+    - match: Host(`argo-rollouts.servicefoundry.org`) && PathPrefix(`/api`)
+      kind: Rule
+      services:
+        - name: argo-rollouts-dashboard
+          port: 3100
+      middlewares: 
+        - name: forward-auth
+          namespace: service-foundry        
+
+    # Redirect root to /rollouts
+    - match: Host(`argo-rollouts.servicefoundry.org`) && Path(`/`)
+      kind: Rule
+      services:
+        - name: argo-rollouts-dashboard
+          port: 3100
+      middlewares:
+        # But this middleware is specific to argo-rollouts namespace
+        # We can define and use middlewares in the argo-rollouts namespace if needed
+        - name: argo-rollouts-redirect
+
+----
+
+<1> Use the forward-auth middleware defined in service-foundry namespace in argo-rollouts ingressroute
+
+The argo-rollouts-forward-auth middleware is a duplicate of the forward-auth middleware in service-foundry namespace. We copied and pasted the forward-auth middleware to argo-rollouts namespace to use it in argo-rollouts ingressroute with allowCrossNamespace disabled. But, now we can use the forward-auth middleware in argo-rollouts namespace without duplication.
+
+
+== Reference the Middleware defined in different namespace in HTTPRoute (Deprecated)
+
+HTTPRoute is a standard resource provided by Gateway API to define the routing rules for a specific application. 
+
+Since HTTPRoute does not support namespace property in ExtensionRef, Traefik uses a specific naming convention to reference the Middleware in a different namespace. 
+
+Format the name in your HTTPRoute as below:
+
+- {namespace}-{name}@kubernetescrd
+
+To reference the forward-auth middleware defined in service-foundry namespace in argo-rollouts HTTPRoute, we need to format the name as below:
+
+- service-foundry-forward-auth@kubernetescrd
+
+
+
+Traefik version 3.5.6 causes an error when using the forward-auth middleware defined in service-foundry namespace in argo-rollouts HTTPRoute
+
+----
+2026-01-03T19:24:16Z ERR error="middleware \"argo-rollouts-service-foundry-forward-auth@kubernetescrd@kubernetescrd\" does not exist" entryPointName=web routerName=httproute-argo-rollouts-argo-rollouts-httproute-gw-traefik-traefik-gateway-ep-web-0-4400ce5636ef1eb7cfb4@kubernetesgateway
+----
+
+It seems that Traefik appends {namespace} at the beginning of the name and @kubernetescrd at the end of the name when using the forward-auth middleware defined in service-foundry namespace in argo-rollouts HTTPRoute
+
+== Reference the Middleware defined in different namespace in HTTPRoute (Recommended)
+
+HTTPRoute is a standard resource provided by Gateway API to define the routing rules for a specific application. 
+
+[NOTE]
+====
+While ReferenceGrant is the standard way to handle cross-namespace references like Secrets or Services in the Gateway API, Traefik has not fully extended ReferenceGrant support to include the extensionRef for Middlewares as of early 2026. 
+====
+
+Since HTTPRoute does not support namespace property in ExtensionRef, we need to use 'Chain' middleware to reference the middleware defined in different namespace.
+
+=== Chain Middleware
+
+The chain middleware enables you to define reusable combinations of other pieces of middleware. It makes it effortless to reuse the same groups. 
+
+In this section, we will use the chain middleware to reference the middleware defined in different namespace. This way we can avoid duplication of middlewares and make it easier to manage. 
+
+middleware-chain.yaml
+[source,yaml]
+----
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: forward-auth-delegate
+spec:
+  chain:
+    middlewares:
+      - name: forward-auth
+        namespace: service-foundry
+----
+
+=== Use the Chain Middleware in HTTPRoute
+
+Now we can use the forward-auth-delegate middleware in argo-rollouts HTTPRoute
+
+.httproute.yaml
+[source,yaml]
+----
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: argo-rollouts-httproute
+spec:
+  parentRefs:
+    - name: traefik-gateway
+      namespace: traefik
+  hostnames:
+    - argo-rollouts.servicefoundry.org
+  rules:
+    - matches:
+      - path: 
+          type: PathPrefix
+          value: /rollouts
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: "forward-auth-delegate"   # <1>
+      backendRefs:
+      - name: argo-rollouts-dashboard
+        group: ""
+        kind: Service
+        port: 3100
+        weight: 1
+    - matches:
+      - path: 
+          type: PathPrefix
+          value: /api
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: "forward-auth-delegate"
+      backendRefs:
+      - name: argo-rollouts-dashboard
+        group: ""
+        kind: Service
+        port: 3100
+        weight: 1
+    - matches:
+      - path: 
+          type: PathPrefix
+          value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: argo-rollouts-redirect
+      backendRefs:
+      - name: argo-rollouts-dashboard
+        group: ""
+        kind: Service
+        port: 3100
+        weight: 1
+----
+
+<1> Use the forward-auth-delegate middleware defined in service-foundry namespace in argo-rollouts HTTPRoute
+
+
+== Validate the Configuration
+
+To see if the configuration is valid, we can navigate to https://argo-rollouts.servicefoundry.org
+
+It redirects to Keycloak login page
+
+.Keycloak Login Page (SSO)
+[.img-wide]
+image::argo-rollouts-sso.png[]
+
+If we are logged in, we can see the argo-rollouts dashboard
+
+.Argo Rollouts Dashboard
+[.img-wide]
+image::argo-rollouts-dashboard.png[]
+
+== Summary
+
+
