@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Cross-Namespace Middleware Reference with Traefik for IngressRoute and HTTPRoute</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a>
+<ul class="sectlevel2">
+<li><a href="#understanding-localobjectreference">Understanding LocalObjectReference</a></li>
+</ul>
+</li>
+<li><a href="#the-problem-middleware-duplication">The Problem: Middleware Duplication</a>
+<ul class="sectlevel2">
+<li><a href="#our-use-case">Our Use Case</a></li>
+<li><a href="#the-duplication-problem">The Duplication Problem</a></li>
+</ul>
+</li>
+<li><a href="#solution-overview">Solution Overview</a></li>
+<li><a href="#step-1-enable-global-cross-namespace-support">Step 1: Enable Global Cross-Namespace Support</a>
+<ul class="sectlevel2">
+<li><a href="#configuration">Configuration</a></li>
+<li><a href="#security-considerations">Security Considerations</a></li>
+</ul>
+</li>
+<li><a href="#step-2-using-cross-namespace-middleware-in-ingressroute">Step 2: Using Cross-Namespace Middleware in IngressRoute</a>
+<ul class="sectlevel2">
+<li><a href="#how-it-works">How It Works</a></li>
+<li><a href="#example-argo-rollouts-dashboard">Example: Argo Rollouts Dashboard</a></li>
+<li><a href="#key-benefits">Key Benefits</a></li>
+</ul>
+</li>
+<li><a href="#step-3-using-cross-namespace-middleware-in-httproute">Step 3: Using Cross-Namespace Middleware in HTTPRoute</a>
+<ul class="sectlevel2">
+<li><a href="#the-chain-middleware-pattern">The Chain Middleware Pattern</a></li>
+<li><a href="#creating-the-delegate-middleware">Creating the Delegate Middleware</a></li>
+<li><a href="#using-the-delegate-in-httproute">Using the Delegate in HTTPRoute</a></li>
+<li><a href="#why-this-works">Why This Works</a></li>
+<li><a href="#trade-offs">Trade-offs</a></li>
+</ul>
+</li>
+<li><a href="#verification">Verification</a>
+<ul class="sectlevel2">
+<li><a href="#testing-the-sso-flow">Testing the SSO Flow</a></li>
+</ul>
+</li>
+<li><a href="#summary">Summary</a>
+<ul class="sectlevel2">
+<li><a href="#key-takeaways">Key Takeaways</a></li>
+<li><a href="#best-practices">Best Practices</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/intro.png" alt="intro">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="dlist">
+<dl>
+<dt class="hdlist1">YouTube Tutorial</dt>
+<dd>
+<p><a href="https://youtu.be/r3zaaSM7KAE" class="bare">https://youtu.be/r3zaaSM7KAE</a></p>
+</dd>
+<dt class="hdlist1">📘 Web version</dt>
+<dd>
+<p><a href="https://nsalexamy.github.io/service-foundry/pages/documents/blog/traefik-cross-namespace/" class="bare">https://nsalexamy.github.io/service-foundry/pages/documents/blog/traefik-cross-namespace/</a></p>
+</dd>
+</dl>
+</div>
+<div class="paragraph">
+<p>In Kubernetes, <strong>namespace isolation</strong> is a fundamental security principle. By default, resources in one namespace cannot directly reference resources in another namespace without explicit permission. This design prevents accidental or malicious cross-namespace access and helps maintain clear boundaries between teams and applications.</p>
+</div>
+<div class="paragraph">
+<p>However, when working with <strong>Traefik</strong> as your ingress controller or Gateway API implementation, you may encounter scenarios where you need to share middleware across multiple namespaces. For example, you might have a centralized authentication middleware that should be used by applications in different namespaces.</p>
+</div>
+<div class="paragraph">
+<p>This presents a challenge: Traefik respects Kubernetes security boundaries and <strong>does not allow cross-namespace middleware references by default</strong>. Additionally, the Gateway API&#8217;s <code>ExtensionRef</code> type (used in <code>HTTPRoute</code> to reference Traefik middleware) has a limitation—it uses <code>LocalObjectReference</code>, which does not include a <code>namespace</code> field.</p>
+</div>
+<div class="sect2">
+<h3 id="understanding-localobjectreference">Understanding LocalObjectReference</h3>
+<div class="paragraph">
+<p>The Gateway API specification defines <code>LocalObjectReference</code> with only three fields:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>group</strong>: The API group of the referent (e.g., <code>"traefik.io"</code>)</p>
+</li>
+<li>
+<p><strong>kind</strong>: The resource type (e.g., <code>"Middleware"</code>)</p>
+</li>
+<li>
+<p><strong>name</strong>: The name of the resource</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Notice what&#8217;s missing: there is no <code>namespace</code> field. This means that when you reference a middleware from an <code>HTTPRoute</code> using <code>ExtensionRef</code>, you can only reference middleware in the <strong>same namespace</strong> as the <code>HTTPRoute</code> itself.</p>
+</div>
+<div class="paragraph">
+<p>For more details, refer to the <a href="https://gateway-api.sigs.k8s.io/reference/spec/#localobjectreference">Gateway API LocalObjectReference specification</a>.</p>
+</div>
+<div class="paragraph">
+<p>In this article, we will demonstrate how to overcome this limitation by:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Enabling global cross-namespace support in Traefik</p>
+</li>
+<li>
+<p>Using direct namespace references in <code>IngressRoute</code></p>
+</li>
+<li>
+<p>Leveraging the <strong>Chain middleware pattern</strong> for <code>HTTPRoute</code></p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="the-problem-middleware-duplication">The Problem: Middleware Duplication</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="our-use-case">Our Use Case</h3>
+<div class="paragraph">
+<p>Our platform team maintains a centralized <strong>Single Sign-On (SSO)</strong> solution using OAuth2 Proxy and Keycloak. We use Traefik&#8217;s <code>forwardAuth</code> middleware to protect applications and third-party services (like Grafana, Argo Rollouts, and Jaeger) that don&#8217;t natively support SSO.</p>
+</div>
+<div class="paragraph">
+<p>We have defined a reusable <code>forward-auth</code> middleware in the <code>service-foundry</code> namespace:</p>
+</div>
+<div class="listingblock">
+<div class="title">forward-auth-middleware.yaml in service-foundry namespace</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">traefik.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Middleware</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">forward-auth</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">service-foundry</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">forwardAuth</span><span class="pi">:</span>
+    <span class="na">address</span><span class="pi">:</span> <span class="s">http://oauth2-proxy.service-foundry.svc.cluster.local/oauth2/</span> <i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="na">trustForwardHeader</span><span class="pi">:</span> <span class="kc">true</span> <i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="na">authResponseHeaders</span><span class="pi">:</span> <i class="conum" data-value="3"></i><b>(3)</b>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">X-Auth-Request-User"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">X-Auth-Request-Email"</span>
+      <span class="pi">-</span> <span class="s2">"</span><span class="s">Authorization"</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td><strong>Forward Auth Address</strong>: Points to our OAuth2 Proxy service. All authentication requests are delegated to this endpoint.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td><strong>Trust Forward Header</strong>: Allows Traefik to trust the authentication headers returned by OAuth2 Proxy.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td><strong>Auth Response Headers</strong>: These headers are passed from OAuth2 Proxy to the backend application, providing user identity information.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="the-duplication-problem">The Duplication Problem</h3>
+<div class="paragraph">
+<p>Without cross-namespace support, when we want to protect the Argo Rollouts dashboard (running in the <code>argo-rollouts</code> namespace), we face two options:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Duplicate the middleware</strong>: Copy the entire <code>forward-auth</code> middleware definition into the <code>argo-rollouts</code> namespace</p>
+</li>
+<li>
+<p><strong>Accept the limitation</strong>: Only use middleware defined locally in each namespace</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>Option 1 leads to <strong>maintenance nightmares</strong>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Multiple copies of the same configuration across namespaces</p>
+</li>
+<li>
+<p>Inconsistent behavior if one copy is updated but others are not</p>
+</li>
+<li>
+<p>Increased risk of configuration drift and errors</p>
+</li>
+<li>
+<p>Violation of the DRY (Don&#8217;t Repeat Yourself) principle</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>This is clearly not sustainable for a production environment.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="solution-overview">Solution Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To enable cross-namespace middleware sharing in Traefik, we&#8217;ll implement a three-part solution:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Enable Global Cross-Namespace Support</strong>: Configure Traefik to allow cross-namespace middleware references at the controller level</p>
+</li>
+<li>
+<p><strong>Direct Namespace Reference in IngressRoute</strong>: Use Traefik&#8217;s native <code>namespace</code> property in <code>IngressRoute</code> middleware references</p>
+</li>
+<li>
+<p><strong>Chain Middleware Pattern for HTTPRoute</strong>: Work around the <code>LocalObjectReference</code> limitation by creating a local "delegate" middleware that chains to the remote middleware</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>Let&#8217;s explore each approach in detail.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-1-enable-global-cross-namespace-support">Step 1: Enable Global Cross-Namespace Support</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The first step is to enable cross-namespace middleware references in Traefik&#8217;s configuration. This is a <strong>global setting</strong> that affects all <code>IngressRoute</code> and middleware chain references.</p>
+</div>
+<div class="sect2">
+<h3 id="configuration">Configuration</h3>
+<div class="paragraph">
+<p>In your Traefik Helm chart values (or ArgoCD Application), you need to set the <code>allowCrossNamespace</code> flag:</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">experimental</span><span class="pi">:</span>
+  <span class="na">kubernetesGateway</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span> <i class="conum" data-value="1"></i><b>(1)</b>
+
+<span class="na">providers</span><span class="pi">:</span>
+  <span class="na">kubernetesGateway</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span> <i class="conum" data-value="1"></i><b>(1)</b>
+
+  <span class="na">kubernetesCRD</span><span class="pi">:</span>
+    <span class="na">allowCrossNamespace</span><span class="pi">:</span> <span class="kc">true</span> <i class="conum" data-value="2"></i><b>(2)</b>
+
+<span class="na">gateway</span><span class="pi">:</span>
+  <span class="na">listeners</span><span class="pi">:</span>
+    <span class="na">web</span><span class="pi">:</span>
+      <span class="na">port</span><span class="pi">:</span> <span class="m">80</span>
+      <span class="na">namespacePolicy</span><span class="pi">:</span> <i class="conum" data-value="3"></i><b>(3)</b>
+        <span class="na">from</span><span class="pi">:</span> <span class="s">All</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td><strong>Gateway API Support</strong>: Enables Traefik&#8217;s Gateway API provider, allowing you to use <code>HTTPRoute</code> and other Gateway API resources.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td><strong>Allow Cross-Namespace</strong>: This is the critical setting. When set to <code>true</code>, Traefik will allow <code>IngressRoute</code> resources and middleware chains to reference middleware in other namespaces. <strong>Security Note</strong>: This is a cluster-wide setting. Ensure you have proper RBAC policies in place to control who can create middleware in shared namespaces.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td><strong>Namespace Policy</strong>: Allows <code>HTTPRoute</code> resources from any namespace to bind to this Gateway. This is separate from middleware cross-namespace support but is often needed in multi-tenant environments.</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="security-considerations">Security Considerations</h3>
+<div class="paragraph">
+<p>Enabling <code>allowCrossNamespace: true</code> has security implications:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Positive</strong>: Reduces configuration duplication and ensures consistency</p>
+</li>
+<li>
+<p><strong>Risk</strong>: A malicious or misconfigured middleware in one namespace could potentially affect routes in other namespaces</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Best Practices</strong>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Use RBAC to restrict who can create/modify middleware in shared namespaces (like <code>service-foundry</code>)</p>
+</li>
+<li>
+<p>Treat shared middleware namespaces as "platform" namespaces with strict access controls</p>
+</li>
+<li>
+<p>Regularly audit middleware configurations</p>
+</li>
+<li>
+<p>Consider using admission controllers (like OPA Gatekeeper) to enforce middleware naming conventions and policies</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-2-using-cross-namespace-middleware-in-ingressroute">Step 2: Using Cross-Namespace Middleware in IngressRoute</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p><code>IngressRoute</code> is Traefik&#8217;s native Custom Resource Definition (CRD) for defining routing rules. Unlike the Gateway API&#8217;s <code>HTTPRoute</code>, <code>IngressRoute</code> has built-in support for cross-namespace middleware references through an explicit <code>namespace</code> property.</p>
+</div>
+<div class="sect2">
+<h3 id="how-it-works">How It Works</h3>
+<div class="paragraph">
+<p>Once you&#8217;ve enabled <code>allowCrossNamespace: true</code> in Traefik&#8217;s configuration, you can reference middleware from any namespace by specifying both the <code>name</code> and <code>namespace</code> fields in your middleware reference.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="example-argo-rollouts-dashboard">Example: Argo Rollouts Dashboard</h3>
+<div class="paragraph">
+<p>Let&#8217;s protect the Argo Rollouts dashboard using the centralized <code>forward-auth</code> middleware from the <code>service-foundry</code> namespace:</p>
+</div>
+<div class="listingblock">
+<div class="title">argo-rollouts-ingressroute.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">traefik.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">IngressRoute</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-ingressroute</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">argo-rollouts</span> <i class="conum" data-value="1"></i><b>(1)</b>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">entryPoints</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="s">web</span> <i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="pi">-</span> <span class="s">websecure</span> <i class="conum" data-value="2"></i><b>(2)</b>
+
+  <span class="na">routes</span><span class="pi">:</span>
+    <span class="c1"># Dashboard UI Route</span>
+    <span class="pi">-</span> <span class="na">match</span><span class="pi">:</span> <span class="s">Host(`argo-rollouts.servicefoundry.org`) &amp;&amp; PathPrefix(`/rollouts`)</span> <i class="conum" data-value="3"></i><b>(3)</b>
+      <span class="na">kind</span><span class="pi">:</span> <span class="s">Rule</span>
+      <span class="na">services</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-dashboard</span>
+          <span class="na">port</span><span class="pi">:</span> <span class="m">3100</span>
+      <span class="na">middlewares</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">forward-auth</span> <i class="conum" data-value="4"></i><b>(4)</b>
+          <span class="na">namespace</span><span class="pi">:</span> <span class="s">service-foundry</span> <i class="conum" data-value="5"></i><b>(5)</b>
+
+    <span class="c1"># API Route</span>
+    <span class="pi">-</span> <span class="na">match</span><span class="pi">:</span> <span class="s">Host(`argo-rollouts.servicefoundry.org`) &amp;&amp; PathPrefix(`/api`)</span>
+      <span class="na">kind</span><span class="pi">:</span> <span class="s">Rule</span>
+      <span class="na">services</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-dashboard</span>
+          <span class="na">port</span><span class="pi">:</span> <span class="m">3100</span>
+      <span class="na">middlewares</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">forward-auth</span>
+          <span class="na">namespace</span><span class="pi">:</span> <span class="s">service-foundry</span>
+
+    <span class="c1"># Root Redirect</span>
+    <span class="pi">-</span> <span class="na">match</span><span class="pi">:</span> <span class="s">Host(`argo-rollouts.servicefoundry.org`) &amp;&amp; Path(`/`)</span>
+      <span class="na">kind</span><span class="pi">:</span> <span class="s">Rule</span>
+      <span class="na">services</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-dashboard</span>
+          <span class="na">port</span><span class="pi">:</span> <span class="m">3100</span>
+      <span class="na">middlewares</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-redirect</span> <i class="conum" data-value="6"></i><b>(6)</b></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td><strong>IngressRoute Namespace</strong>: This <code>IngressRoute</code> is defined in the <code>argo-rollouts</code> namespace</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td><strong>Entry Points</strong>: Accepts traffic on both HTTP (web) and HTTPS (websecure) ports</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td><strong>Routing Rule</strong>: Matches requests to <code>argo-rollouts.servicefoundry.org</code> with path <code>/rollouts</code></td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td><strong>Middleware Name</strong>: References the <code>forward-auth</code> middleware</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td><strong>Cross-Namespace Reference</strong>: The key difference—we explicitly specify <code>namespace: service-foundry</code> to reference middleware from a different namespace</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="6"></i><b>6</b></td>
+<td><strong>Local Middleware</strong>: This middleware is defined locally in the <code>argo-rollouts</code> namespace, so no namespace field is needed</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="key-benefits">Key Benefits</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>No Duplication</strong>: We&#8217;re using the exact same <code>forward-auth</code> middleware across all namespaces</p>
+</li>
+<li>
+<p><strong>Centralized Management</strong>: Updates to the <code>forward-auth</code> middleware in <code>service-foundry</code> automatically apply to all routes using it</p>
+</li>
+<li>
+<p><strong>Clear Intent</strong>: The explicit <code>namespace</code> field makes it obvious that we&#8217;re using a shared resource</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-3-using-cross-namespace-middleware-in-httproute">Step 3: Using Cross-Namespace Middleware in HTTPRoute</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p><code>HTTPRoute</code> is part of the Kubernetes Gateway API standard. Unlike <code>IngressRoute</code>, it uses <code>ExtensionRef</code> with <code>LocalObjectReference</code> to reference Traefik middleware, which <strong>does not include a namespace field</strong>.</p>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+<div class="paragraph">
+<p>While <code>ReferenceGrant</code> is the standard Gateway API mechanism for authorizing cross-namespace references (for Secrets, Services, etc.), Traefik has not yet extended <code>ReferenceGrant</code> support to cover <code>ExtensionRef</code> for Middlewares as of early 2026.</p>
+</div>
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Since we cannot directly specify a namespace in <code>HTTPRoute&#8217;s `ExtensionRef</code>, we need a workaround: the <strong>Chain middleware pattern</strong>.</p>
+</div>
+<div class="sect2">
+<h3 id="the-chain-middleware-pattern">The Chain Middleware Pattern</h3>
+<div class="paragraph">
+<p>Traefik&#8217;s Chain middleware allows you to combine multiple middlewares into a single, reusable unit. We can leverage this feature to create a "delegate" middleware in the local namespace that chains to the remote middleware.</p>
+</div>
+<div class="paragraph">
+<p>Here&#8217;s how it works:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Create a Chain middleware in the <code>argo-rollouts</code> namespace</p>
+</li>
+<li>
+<p>Configure it to reference the <code>forward-auth</code> middleware from <code>service-foundry</code> (using the <code>namespace</code> property, which Chain middleware supports)</p>
+</li>
+<li>
+<p>Reference the local Chain middleware from the <code>HTTPRoute</code> (no namespace needed)</p>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect2">
+<h3 id="creating-the-delegate-middleware">Creating the Delegate Middleware</h3>
+<div class="paragraph">
+<p>In the <code>argo-rollouts</code> namespace, create a Chain middleware that delegates to the shared <code>forward-auth</code> middleware:</p>
+</div>
+<div class="listingblock">
+<div class="title">forward-auth-delegate.yaml (in argo-rollouts namespace)</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">traefik.io/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Middleware</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">forward-auth-delegate</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">argo-rollouts</span> <i class="conum" data-value="1"></i><b>(1)</b>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">chain</span><span class="pi">:</span>
+    <span class="na">middlewares</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">forward-auth</span> <i class="conum" data-value="2"></i><b>(2)</b>
+        <span class="na">namespace</span><span class="pi">:</span> <span class="s">service-foundry</span> <i class="conum" data-value="3"></i><b>(3)</b></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td><strong>Local Namespace</strong>: This delegate middleware is created in the <code>argo-rollouts</code> namespace</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td><strong>Target Middleware</strong>: References the <code>forward-auth</code> middleware</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td><strong>Cross-Namespace Reference</strong>: The Chain middleware supports the <code>namespace</code> property, allowing us to reference middleware from <code>service-foundry</code></td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>This is a lightweight "pointer" to the real middleware. It contains no authentication logic itself—it simply delegates to the shared <code>forward-auth</code> middleware.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="using-the-delegate-in-httproute">Using the Delegate in HTTPRoute</h3>
+<div class="paragraph">
+<p>Now we can reference the local <code>forward-auth-delegate</code> middleware from our <code>HTTPRoute</code>:</p>
+</div>
+<div class="listingblock">
+<div class="title">argo-rollouts-httproute.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">gateway.networking.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">HTTPRoute</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-httproute</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">argo-rollouts</span> <i class="conum" data-value="1"></i><b>(1)</b>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">parentRefs</span><span class="pi">:</span> <i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">traefik-gateway</span>
+      <span class="na">namespace</span><span class="pi">:</span> <span class="s">traefik</span>
+  <span class="na">hostnames</span><span class="pi">:</span> <i class="conum" data-value="3"></i><b>(3)</b>
+    <span class="pi">-</span> <span class="s">argo-rollouts.servicefoundry.org</span>
+  <span class="na">rules</span><span class="pi">:</span>
+    <span class="c1"># Dashboard UI Route</span>
+    <span class="pi">-</span> <span class="na">matches</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">path</span><span class="pi">:</span>
+          <span class="na">type</span><span class="pi">:</span> <span class="s">PathPrefix</span>
+          <span class="na">value</span><span class="pi">:</span> <span class="s">/rollouts</span>
+      <span class="na">filters</span><span class="pi">:</span> <i class="conum" data-value="4"></i><b>(4)</b>
+        <span class="pi">-</span> <span class="na">type</span><span class="pi">:</span> <span class="s">ExtensionRef</span>
+          <span class="na">extensionRef</span><span class="pi">:</span>
+            <span class="na">group</span><span class="pi">:</span> <span class="s">traefik.io</span>
+            <span class="na">kind</span><span class="pi">:</span> <span class="s">Middleware</span>
+            <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">forward-auth-delegate"</span> <i class="conum" data-value="5"></i><b>(5)</b>
+      <span class="na">backendRefs</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-dashboard</span>
+        <span class="na">group</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span>
+        <span class="na">kind</span><span class="pi">:</span> <span class="s">Service</span>
+        <span class="na">port</span><span class="pi">:</span> <span class="m">3100</span>
+        <span class="na">weight</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="pi">-</span> <span class="na">matches</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">path</span><span class="pi">:</span>
+          <span class="na">type</span><span class="pi">:</span> <span class="s">PathPrefix</span>
+          <span class="na">value</span><span class="pi">:</span> <span class="s">/api</span>
+      <span class="na">filters</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">type</span><span class="pi">:</span> <span class="s">ExtensionRef</span>
+          <span class="na">extensionRef</span><span class="pi">:</span>
+            <span class="na">group</span><span class="pi">:</span> <span class="s">traefik.io</span>
+            <span class="na">kind</span><span class="pi">:</span> <span class="s">Middleware</span>
+            <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">forward-auth-delegate"</span>
+      <span class="na">backendRefs</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-dashboard</span>
+        <span class="na">group</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span>
+        <span class="na">kind</span><span class="pi">:</span> <span class="s">Service</span>
+        <span class="na">port</span><span class="pi">:</span> <span class="m">3100</span>
+        <span class="na">weight</span><span class="pi">:</span> <span class="m">1</span>
+    <span class="pi">-</span> <span class="na">matches</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">path</span><span class="pi">:</span>
+          <span class="na">type</span><span class="pi">:</span> <span class="s">PathPrefix</span>
+          <span class="na">value</span><span class="pi">:</span> <span class="s">/</span>
+      <span class="na">filters</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">type</span><span class="pi">:</span> <span class="s">ExtensionRef</span>
+          <span class="na">extensionRef</span><span class="pi">:</span>
+            <span class="na">group</span><span class="pi">:</span> <span class="s">traefik.io</span>
+            <span class="na">kind</span><span class="pi">:</span> <span class="s">Middleware</span>
+            <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-redirect</span> <i class="conum" data-value="6"></i><b>(6)</b>
+      <span class="na">backendRefs</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">argo-rollouts-dashboard</span>
+        <span class="na">kind</span><span class="pi">:</span> <span class="s">Service</span>
+        <span class="na">port</span><span class="pi">:</span> <span class="s">3100</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td><strong>HTTPRoute Namespace</strong>: Defined in the <code>argo-rollouts</code> namespace</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td><strong>Parent Gateway</strong>: Binds to the <code>traefik-gateway</code> in the <code>traefik</code> namespace</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td><strong>Hostname Matching</strong>: Routes traffic for <code>argo-rollouts.servicefoundry.org</code></td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td><strong>Filters</strong>: The Gateway API term for middleware/transformations applied to requests</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td><strong>Local Reference</strong>: We reference <code>forward-auth-delegate</code>, which exists in the same namespace as the <code>HTTPRoute</code>. No namespace field needed (or allowed) in <code>ExtensionRef</code></td>
+</tr>
+<tr>
+<td><i class="conum" data-value="6"></i><b>6</b></td>
+<td><strong>Direct Local Middleware</strong>: For middleware that&#8217;s truly local to this namespace, we reference it directly</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="why-this-works">Why This Works</h3>
+<div class="paragraph">
+<p>The Chain middleware pattern creates an indirection layer:</p>
+</div>
+<div class="literalblock">
+<div class="content">
+<pre>HTTPRoute (argo-rollouts)
+  └──&gt; forward-auth-delegate (argo-rollouts) [Chain Middleware]
+         └──&gt; forward-auth (service-foundry) [ForwardAuth Middleware]</pre>
+</div>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>The <code>HTTPRoute</code> only sees a local middleware (<code>forward-auth-delegate</code>)</p>
+</li>
+<li>
+<p>The Chain middleware uses Traefik&#8217;s native cross-namespace support to reference the remote middleware</p>
+</li>
+<li>
+<p>The actual authentication logic remains centralized in <code>service-foundry</code></p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="trade-offs">Trade-offs</h3>
+<div class="paragraph">
+<p><strong>Pros</strong>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Works with standard Gateway API <code>HTTPRoute</code></p>
+</li>
+<li>
+<p>Maintains centralized middleware logic</p>
+</li>
+<li>
+<p>Clear separation of concerns</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Cons</strong>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Requires creating a delegate middleware in each namespace</p>
+</li>
+<li>
+<p>Slightly more complex than direct reference (as in <code>IngressRoute</code>)</p>
+</li>
+<li>
+<p>The delegate is namespace-specific boilerplate</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="verification">Verification</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Let&#8217;s verify that our cross-namespace middleware configuration is working correctly.</p>
+</div>
+<div class="sect2">
+<h3 id="testing-the-sso-flow">Testing the SSO Flow</h3>
+<div class="paragraph">
+<p>Navigate to <code><a href="https://argo-rollouts.servicefoundry.org" class="bare">https://argo-rollouts.servicefoundry.org</a></code> in your browser. If everything is configured correctly, you should be redirected to the Keycloak login page:</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/argo-rollouts-sso.png" alt="argo rollouts sso">
+</div>
+<div class="title">Figure 1. Keycloak Login Page (SSO)</div>
+</div>
+<div class="paragraph">
+<p>This confirms that:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>The <code>HTTPRoute</code> is routing traffic correctly</p>
+</li>
+<li>
+<p>The <code>forward-auth-delegate</code> middleware is being applied</p>
+</li>
+<li>
+<p>The Chain middleware is successfully delegating to the <code>forward-auth</code> middleware in <code>service-foundry</code></p>
+</li>
+<li>
+<p>OAuth2 Proxy is intercepting the request and redirecting to Keycloak</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>After successful authentication, you&#8217;ll see the Argo Rollouts dashboard:</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/argo-rollouts-dashboard.png" alt="argo rollouts dashboard">
+</div>
+<div class="title">Figure 2. Argo Rollouts Dashboard</div>
+</div>
+<div class="paragraph">
+<p>Success! The cross-namespace middleware is working as expected.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="summary">Summary</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>We&#8217;ve successfully implemented cross-namespace middleware sharing in Traefik using three complementary approaches:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Global Configuration</strong>: Enabled <code>allowCrossNamespace: true</code> in Traefik&#8217;s Helm values to permit cross-namespace middleware references</p>
+</li>
+<li>
+<p><strong>IngressRoute</strong>: Used direct namespace references via the <code>namespace</code> property in middleware references</p>
+</li>
+<li>
+<p><strong>HTTPRoute</strong>: Implemented the Chain middleware pattern to work around the <code>LocalObjectReference</code> limitation</p>
+</li>
+</ol>
+</div>
+<div class="sect2">
+<h3 id="key-takeaways">Key Takeaways</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Centralized Management</strong>: We eliminated middleware duplication by maintaining a single source of truth in the <code>service-foundry</code> namespace</p>
+</li>
+<li>
+<p><strong>Security</strong>: We discussed the importance of RBAC and access controls when enabling cross-namespace references</p>
+</li>
+<li>
+<p><strong>Standards Compliance</strong>: We used the Gateway API standard (<code>HTTPRoute</code>) while still leveraging Traefik-specific features</p>
+</li>
+<li>
+<p><strong>Flexibility</strong>: Teams can choose between <code>IngressRoute</code> (simpler) or <code>HTTPRoute</code> (standards-based) depending on their needs</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="best-practices">Best Practices</h3>
+<div class="ulist">
+<ul>
+<li>
+<p>Treat shared middleware namespaces as platform namespaces with strict access controls</p>
+</li>
+<li>
+<p>Use descriptive names for delegate middlewares (e.g., <code>forward-auth-delegate</code> instead of just <code>auth</code>)</p>
+</li>
+<li>
+<p>Document which middlewares are shared vs. namespace-specific</p>
+</li>
+<li>
+<p>Regularly audit middleware configurations for security and consistency</p>
+</li>
+<li>
+<p>Consider using GitOps (ArgoCD) to manage middleware configurations declaratively</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>By following this pattern, you can maintain clean, DRY configurations while respecting Kubernetes namespace boundaries and security principles.</p>
+</div>
+</div>
+</div>
+</div>
+</body>
+</html>

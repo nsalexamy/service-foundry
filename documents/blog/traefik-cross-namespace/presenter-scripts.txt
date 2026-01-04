@@ -1,0 +1,92 @@
+[Intro]
+Hi everyone! In today's video, we're tackling a common challenge when running Traefik in production: Sharing middleware across different Kubernetes namespaces.
+If you've ever found yourself copy-pasting the same Single Sign-On configuration into five different namespaces, you know exactly how painful that is.
+For security reasons, Traefik blocks cross-namespace references by default.
+And if you're using the new Gateway API's H-T-T-P Route, it's even trickier because the spec doesn't natively support cross-namespace middleware.
+But don't worry—we're going to fix this.
+I'll show you how to enable global cross-namespace support and use the "Chain Middleware Pattern" to efficiently manage your policies from a single place.
+
+[The Problem: Middleware Duplication]
+Let's look at the problem.
+Imagine you have a centralized platform namespace called `service-foundry`.
+Inside, you have a `forward-auth` middleware handling SSO with Oh-auth Two Proxy.
+It's defined perfectly in `forward-auth-middleware dot yah-mul`.
+Now, you want to use this same middleware for an application in a different namespace, say, `argo-rollouts`.
+Without cross-namespace support, you're forced to duplicate the entire configuration.
+This violates the "Don't Repeat Yourself" principle and leads to maintenance nightmares.
+
+[Solution Overview]
+Here is our three-step solution to solve this elegantly.
+First, we'll configure Traefik globally to allow cross-namespace references.
+Second, for legacy `IngressRoute` resources, we'll use direct namespace references.
+And Third, for the standard `H-T-T-P Route`, we'll implement a "Delegate Middleware" using Traefik's Chain feature to bridge the gap.
+
+[Step 1: Enable Global Cross-Namespace Support]
+Let's start with the global configuration.
+Open your Traefik Helm chart values, usually `custom-values dot yah-mul`.
+Under the `providers.kubernetesCRD` section, you need to set `allowCrossNamespace` to `true`.
+This acts as the master switch.
+Also, ensure your Gateway listener's `namespacePolicy` is set to `All`, so routes from any namespace can attach to your gateway.
+A quick security note here: Enabling this means any `IngressRoute` can reference any middleware.
+Make sure you trust your middleware namespace, or use R-B-A-C to control who can create resources there.
+
+[Step 2: Using Cross-Namespace Middleware in IngressRoute]
+Now, let's look at Step 2: using `IngressRoute`.
+Traefik's native C-R-D makes this easy.
+In your `argo-rollouts-ingressroute dot yah-mul`, look at the middleware section.
+We reference `forward-auth` by name, but we also add the `namespace` property, pointing to `service-foundry`.
+This tells Traefik: "Don't look locally; go find this middleware in the `service-foundry` namespace."
+It's simple, explicit, and works right out of the box once the global setting is on.
+
+[Step 3: Using Cross-Namespace Middleware in H-T-T-P Route]
+Now for the tricky part: Step 3, the `H-T-T-P Route`.
+The Gateway API standard's `ExtensionRef` unfortunately does *not* have a namespace field.
+So, we use the "Chain Middleware Pattern" as a workaround.
+Here's how it works.
+In the application namespace (`argo-rollouts`), we create a local "Delegate Middleware".
+Let's call it `forward-auth-delegate`.
+This middleware doesn't do any auth itself. It simply uses the `chain` type to reference the *real* `forward-auth` middleware in `service-foundry`.
+Because this is a Traefik middleware resource, it *can* use the namespace field.
+Then, in our `H-T-T-P Route`, we simply reference this local `forward-auth-delegate`.
+The route talks to the local delegate, and the delegate talks to the remote auth service.
+Problem solved!
+
+[Verification]
+Let's verify our work.
+Navigate to your application URL, `argo-rollouts dot servicefoundry dot org`.
+You should be immediately redirected to the Keycloak login page.
+This confirms the entire chain is working: The `H-T-T-P Route` hit the local delegate, which invoked the remote forward-auth middleware, which triggered the SSO flow.
+After logging in, you'll see the dashboard.
+
+[Summary]
+To wrap up:
+We moved from duplicating middleware to centralized management.
+We enabled `allowCrossNamespace` in Traefik.
+We used direct references in `IngressRoute` and the Chain Pattern in `H-T-T-P Route`.
+This keeps your configuration Dry, Secure, and easy to maintain.
+
+Thanks for watching! If you found this helpful, please like and subscribe for more production Kubernetes tips.
+Don't forget to run `kube-control apply` on your new manifests!
+
+[YouTube]
+Title: Share Traefik Middleware Across Namespaces (IngressRoute & Gateway API)
+Description:
+Stop duplicating your Traefik middleware! In this video, I show you how to enable production-grade cross-namespace middleware support for both IngressRoute and the Kubernetes Gateway API (HTTPRoute). We'll solve the "missing namespace field" problem in Gateway API using the Chain Middleware Pattern, allowing you to centrally manage SSO, Rate Limiting, and other policies.
+
+We cover:
+- The Middleware Duplication Problem
+- Enabling `allowCrossNamespace` in Traefik
+- Direct References in IngressRoute
+- The Delegate/Chain Pattern for HTTPRoute
+- Securing your multi-tenant setup
+
+Tags:
+Kubernetes, Traefik, Gateway API, Ingress, HTTPRoute, DevOps, SSO, Middleware, Production, Tutorial
+
+[LinkedIn]
+Title: Stop Duplicating Traefik Configs: Cross-Namespace Middleware Guide
+Summary:
+Are you copy-pasting Traefik middleware across 10 different namespaces? Stop! 🛑
+In my latest guide, I demonstrate how to implement a centralized middleware strategy using Traefik's `allowCrossNamespace` feature. I also share a critical workaround for usage with the Gateway API (`HTTPRoute`), using the "Chain Middleware Pattern" to bypass spec limitations and keep your clusters DRY.
+Tags:
+#Kubernetes #Traefik #GatewayAPI #DevOps #SRE #PlatformEngineering #CloudNative
