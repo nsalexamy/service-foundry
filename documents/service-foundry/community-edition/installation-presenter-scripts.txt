@@ -1,0 +1,472 @@
+SERVICE FOUNDRY COMMUNITY EDITION - INSTALLATION GUIDE
+PRESENTER SCRIPT FOR VOICEOVER
+
+================================================================================
+Section: Introduction
+================================================================================
+
+Welcome to the Service Foundry Community Edition installation guide. In this video, we'll walk you through deploying Service Foundry Community Edition on Amazon Web Services. 
+
+Service Foundry Community Edition is a self-hosted platform engineering solution that empowers development teams to manage their cloud infrastructure and deployments efficiently using GitOps principles and best practices.
+
+Before we begin, it's important to note that the Community Edition is a self-hosted solution where you provide and manage your own infrastructure. Service Foundry will also offer an Enterprise Edition as a fully managed service in the near future, eliminating the need for infrastructure management.
+
+================================================================================
+Section: Prerequisites
+================================================================================
+
+Before beginning the installation process, let's make sure you have everything you need.
+
+First, you'll need an active AWS account with administrative access. This includes permissions to create and manage E-K-S clusters, access to AWS Certificate Manager for SSL and TLS certificates, and Route 53 access for DNS management if you're using custom domains.
+
+You'll also need a GitHub account for hosting your GitOps repository, which serves as the single source of truth for all cluster configurations. This is where you'll store deployment manifests and application definitions, with version control for your infrastructure as code.
+
+This guide assumes you're familiar with Kubernetes concepts and kube control commands, Git version control and basic repository management, AWS services particularly E-K-S, command-line interface operations, and a basic understanding of GitOps principles.
+
+================================================================================
+Section: Getting Started with the Community Portal
+================================================================================
+
+Service Foundry Community Edition is available free of charge with full feature access. To get started, visit community dot service foundry dot org.
+
+This portal provides Community Edition license generation, bootstrap script generation tools, documentation and support resources, and community forums and updates.
+
+================================================================================
+Section: Understanding the Community Edition License
+================================================================================
+
+Let's talk about the license model. The Community Edition license enables you to use the self-hosted Service Foundry with the following terms:
+
+The license is valid for 365 days from the date of issuance. It's completely free with no payment required. You get full access to all Service Foundry capabilities. The license supports up to 10 Kubernetes nodes. There's a simple renewal process through the community portal. The license is delivered as a JSON Web Token, or JWT, for secure validation.
+
+Please note that the license policy may evolve over time, so always check the community portal for the most current license terms and conditions.
+
+================================================================================
+Section: Obtaining Your Community Edition License
+================================================================================
+
+Now let's obtain your license. Navigate to the Service Foundry Community portal, then click on the Community License page or access it directly at community dot service foundry dot org slash community-license.
+
+Complete the registration form with accurate information. You'll need to provide your customer email address, which is required for license delivery and notifications. You'll also provide an Installation ID, which is your Kubernetes cluster name, such as "my-sf-cluster".
+
+The Edition field is pre-filled as "community" and is non-editable. The NBF, or Not Before date, is automatically set to today's date. The EXP, or expiration date, is automatically set to 365 days from today. The Max Nodes field is fixed at 10 nodes.
+
+After completing the form, click the Generate License button. Your license will appear in the License field as a long encoded string. You can click Copy License to copy the JWT to your clipboard for immediate use, or click Save License to download the license as a file for later reference.
+
+Make sure to store your license file securely. You'll need this JWT token during the bootstrap process. Consider saving it in a password manager or secure documentation system.
+
+================================================================================
+Section: Understanding the Bootstrap Process
+================================================================================
+
+Service Foundry provides an automated bootstrap solution that streamlines the installation process. Let me explain what happens during bootstrap.
+
+The bootstrap script performs several operations. First, it installs Argo CD as your GitOps continuous delivery engine. Then it configures your GitOps repository as the source of truth. It deploys all core platform components, sets up networking and ingress configurations, and configures authentication and security components.
+
+================================================================================
+Section: Core Components Overview
+================================================================================
+
+The bootstrap process deploys a comprehensive platform engineering stack. Let me walk you through the key components.
+
+For GitOps and deployment tools, you get Argo CD, which is a GitOps continuous delivery tool that synchronizes your cluster state with Git repository definitions. You also get Argo Rollouts, an advanced deployment controller supporting blue-green and canary deployment strategies.
+
+For networking and ingress, there's Traefik, a modern HTTP reverse proxy and load balancer for routing external traffic to your services. You also get Cert-manager, which automates the management and issuance of TLS certificates.
+
+For authentication and security, we have Keycloak, an open-source identity and access management solution providing single sign-on capabilities. There's also oh-auth-two Proxy, an authentication proxy that integrates with Keycloak for securing applications. And Sealed Secrets encrypts Kubernetes secrets for safe storage in Git repositories.
+
+For data storage, you get PostgreSQL, a relational database for Service Foundry metadata and application data, along with Redis, an in-memory data store for caching and session management.
+
+The Service Foundry components include the Builder for building and managing application deployments, the Console Backend which is the API server providing backend functionality, and the Console Frontend, a web-based user interface for platform management.
+
+Finally, HTTP Routes provide external access. The Argo CD HTTP Route is secured with Argo CD native authentication using username and password. The Argo Rollouts HTTP Route is integrated with Service Foundry single sign-on via Keycloak.
+
+================================================================================
+Section: HTTPS and TLS Certificates
+================================================================================
+
+Let's talk about security considerations. While Service Foundry can operate without HTTPS, using TLS certificates is strongly recommended for several reasons.
+
+For production environments, you need to protect sensitive data in transit. For compliance requirements, you need to meet security and regulatory standards. TLS also provides user trust by providing secure browser connections, and ensures API security through encrypted communication between components.
+
+This guide demonstrates using AWS Certificate Manager, or A-C-M, for TLS certificate management. A-C-M offers automated validation, where it handles certificate validation through DNS. It provides automatic renewal, so certificates are renewed automatically before expiration. You get seamless AWS integration with the AWS Load Balancer Controller, and it's cost-effective since there's no additional charge for certificates used with AWS services.
+
+You'll also use Route 53 to create DNS records that route traffic to your Service Foundry endpoints.
+
+================================================================================
+Section: Generating Bootstrap Scripts
+================================================================================
+
+Now let's generate your bootstrap scripts. Visit the Service Foundry Community portal, navigate to the Bootstrap page, or go directly to community dot service foundry dot org slash bootstrap-scripts.
+
+Complete the bootstrap configuration form with your specific requirements, then click Generate Bootstrap Scripts to create your customized installation package.
+
+================================================================================
+Section: Managing Secure Properties
+================================================================================
+
+Let's discuss security best practices. The bootstrap script supports environment variable overrides for all configuration properties. This approach enhances security in several ways.
+
+It separates secrets from code, keeping sensitive data out of version control. It allows environment-specific values, so you can use different credentials per environment. It provides reduced exposure, minimizing the risk of credential leakage. And it helps with compliance, meeting security audit requirements.
+
+For secure property management, leave sensitive fields empty in the bootstrap configuration form. Define environment variables before running the bootstrap script. The script will automatically use environment variable values when available.
+
+For example, to override the PostgreSQL password, you would export an environment variable called SF_POSTGRES_PASSWORD with your secure password.
+
+Remember: never commit credentials directly in configuration files. Always use environment variables or secret management solutions for production deployments.
+
+================================================================================
+Section: Bootstrap Configuration - Component Versions
+================================================================================
+
+Let's go through the bootstrap configuration properties, starting with component versions.
+
+For Service Foundry Console Helm Version, leave it at the default value for the latest stable release. For Service Foundry Console Application Version, keep it empty to automatically use the most recent version, or specify a version for reproducible deployments. For Service Foundry Builder Helm Version, use the default version unless you have specific version requirements.
+
+Using default versions ensures you receive the latest features and security updates. Specify versions explicitly only when you need version pinning for stability or compatibility reasons.
+
+================================================================================
+Section: Cloud Provider Configuration
+================================================================================
+
+Currently, Service Foundry supports AWS exclusively. Future releases may include additional cloud provider support.
+
+For required configuration, Cloud Provider is set to AWS and is pre-selected. For AWS Account ID, leave it empty to use the environment variable AWS_ACCOUNT_ID, or enter it explicitly. For AWS Region, leave it empty to use the environment variable AWS_REGION, such as "us-east-1", or specify your preferred region. For Kubernetes Cluster Name, enter your E-K-S cluster name or use the environment variable EKS_CLUSTER_NAME.
+
+Using environment variables for AWS credentials and region provides flexibility when working across multiple environments or automating deployments.
+
+================================================================================
+Section: Core Configuration Settings
+================================================================================
+
+These settings define fundamental aspects of your Service Foundry installation.
+
+Service Foundry Namespace is the Kubernetes namespace for platform components, with a default of "service-foundry".
+
+GitOps Repo URL is mandatory. This is the SSH or HTTPS URL of your GitOps repository. This will be your single source of truth.
+
+GitOps User Email is optional but recommended for audit trails. This is the email address for Git commits made by Service Foundry.
+
+GitOps User Name is also optional and defaults to "service-foundry". This is the name for Git commits.
+
+Root Domain is mandatory. This is your base domain for all Service Foundry endpoints, such as "example dot com" or "servicefoundry dot org".
+
+Log Level controls logging verbosity with a default of INFO. Options include DEBUG, INFO, WARN, and ERROR.
+
+For this guide, we'll use "git at github dot com colon nsalexamy slash gitops-demo dot git" as the GitOps Repo URL, and "servicefoundry dot org" as the Root Domain.
+
+All Service Foundry services will be accessible as subdomains of your root domain. For example, console dot servicefoundry dot org, argocd dot servicefoundry dot org, and keycloak dot servicefoundry dot org.
+
+Make sure you have configured an A-C-M certificate that covers your root domain and all required subdomains, either using a wildcard certificate like star dot servicefoundry dot org, or individual certificates for each subdomain.
+
+================================================================================
+Section: Load Balancer and TLS Configuration
+================================================================================
+
+Now let's configure Traefik ingress controller and TLS settings.
+
+For Use TLS, we recommend setting this to true to enable TLS encryption. For Use AWS A-C-M, we also recommend setting this to true to use AWS Certificate Manager for certificate management. For A-C-M Certificate ARN, this is the Amazon Resource Name of your A-C-M certificate, and it's mandatory when AWS A-C-M is enabled.
+
+The configuration steps are simple. Set Use TLS to true, set Use AWS A-C-M to true, and paste your A-C-M certificate ARN in the A-C-M Certificate ARN field.
+
+The ARN format looks like "arn colon aws colon acm colon us-east-1 colon" followed by your account ID and certificate ID.
+
+You can find your certificate ARN in the AWS Certificate Manager console. Ensure the certificate is in the same region as your E-K-S cluster and covers all required domains.
+
+================================================================================
+Section: Credentials Configuration
+================================================================================
+
+Let's define authentication credentials for platform components.
+
+PostgreSQL Username is the database admin username with a default of "admin". PostgreSQL Password is the secure password for PostgreSQL. We recommend using the environment variable SF_POSTGRES_PASSWORD. 
+
+Redis Password is the secure password for Redis. Use the environment variable SF_REDIS_PASSWORD.
+
+Service Foundry Admin Console Username is the initial admin username with a default of "admin". Service Foundry Admin Console Password is the initial admin password. Use the environment variable SF_ADMIN_PASSWORD.
+
+For security, we recommend leaving credential fields empty in the form and setting them via environment variables. You would export SF_POSTGRES_PASSWORD, SF_REDIS_PASSWORD, and SF_ADMIN_PASSWORD with your secure values.
+
+Use strong, randomly generated passwords for all credentials. Avoid using default or simple passwords in any environment. Consider using a password manager to generate and store these credentials securely.
+
+================================================================================
+Section: License Configuration
+================================================================================
+
+For License Payload, paste your complete Community Edition license JWT obtained from the previous step. This is mandatory. This license validates your Service Foundry installation and enables all Community Edition features.
+
+================================================================================
+Section: Downloading Bootstrap Scripts
+================================================================================
+
+After completing all configuration fields, review your settings for accuracy, then click the Download Bootstrap Scripts button. A ZIP file containing your customized bootstrap scripts will be downloaded. Extract the ZIP file to access the installation scripts.
+
+The downloaded package includes the main bootstrap script called bootstrap dot sh, AWS-specific scripts for E-K-S cluster creation, configuration files pre-filled with your inputs, and helper scripts for common tasks.
+
+================================================================================
+Section: AWS CloudShell Setup
+================================================================================
+
+Let's talk about AWS CloudShell. Why should you use it?
+
+AWS CloudShell provides an ideal environment for running Service Foundry bootstrap scripts because it offers several advantages. You get pre-configured AWS credentials with automatic authentication with your AWS account. Essential tools like AWS CLI and kube control are pre-installed. You have 1 gigabyte of home directory storage that persists across sessions. You get browser-based access, so there's no need to configure a local development environment. And it runs within the AWS network with appropriate IAM permissions for security.
+
+For detailed guidance on using AWS CloudShell effectively, you can refer to video tutorials on YouTube about deploying Kubernetes workloads with AWS Cloud Shell and Helm, as well as guides for installing and persisting additional tools.
+
+================================================================================
+Section: Additional Tools Required
+================================================================================
+
+Before running the bootstrap scripts, you need to ensure certain command-line tools are installed in your AWS CloudShell environment. While CloudShell comes with many tools pre-installed, the Service Foundry bootstrap process requires several additional utilities.
+
+Let me walk you through the required tools.
+
+First, you'll need eks-c-t-l, which is the official CLI tool for creating and managing Amazon E-K-S clusters. This tool is essential for creating your Kubernetes cluster on AWS with best-practice configurations.
+
+Second, you need y-q, a lightweight and portable command-line yah-mul processor. The bootstrap scripts use y-q to parse and update yah-mul configuration files during the installation process.
+
+Third, you need Helm, which is the package manager for Kubernetes. Helm is used to install and manage all Service Foundry components and their dependencies.
+
+To install these tools, you can use the persistent installation method. For detailed step-by-step installation instructions, refer to the AWS CloudShell guide on persisting custom software installations available on the Service Foundry documentation site.
+
+This guide demonstrates how to install eks-c-t-l and make it persist across CloudShell sessions, install y-q for yah-mul processing, and configure Helm in your CloudShell environment.
+
+It's important to note that these installations need to be configured to persist across AWS CloudShell sessions. The guide shows you how to use the home directory to ensure tools remain available after your CloudShell session expires.
+
+Make sure all three tools are installed and available in your PATH before proceeding with the bootstrap process.
+
+================================================================================
+Section: Preparing CloudShell Environment
+================================================================================
+
+The default AWS CloudShell home directory is slash home slash cloudshell-user. For organizational purposes, create a dedicated directory for Service Foundry.
+
+First, create a dedicated directory for Service Foundry installation files using the mkdir command. Then navigate to the new directory using the cd command.
+
+This directory structure keeps your Service Foundry installation organized and separate from other CloudShell activities.
+
+================================================================================
+Section: Understanding GitOps Principles
+================================================================================
+
+Let's take a moment to understand GitOps principles. GitOps is a modern approach to infrastructure and application management.
+
+In GitOps, Git serves as the single source of truth where all configuration is version-controlled in Git. You use declarative infrastructure where the desired state is declared in Git repositories. Changes are synchronized automatically, so changes in Git trigger automatic cluster updates. You get a complete audit trail with the history of all infrastructure changes. And you have rollback capability, making recovery easy by reverting Git commits.
+
+Service Foundry uses Argo CD to implement GitOps, continuously synchronizing your cluster state with your Git repository.
+
+================================================================================
+Section: Creating Your GitOps Repository
+================================================================================
+
+For this guide, we'll create a private GitHub repository named "gitops-demo".
+
+The repository name is "gitops-demo". Set the visibility to Private, which is recommended for security. The repository URL will be "https colon slash slash github dot com slash your-username slash gitops-demo dot git".
+
+Make sure to replace "your-username" with your actual GitHub username throughout this guide.
+
+================================================================================
+Section: Deployment Keys
+================================================================================
+
+Now let's prepare SSH deployment keys. Why use deployment keys?
+
+Deployment keys provide secure, repository-specific access with several advantages. You get scoped access, limiting access to a single repository. There's no password needed since you use key-based authentication. You have read-write control, granting write access only when needed. And they're revocable, making it easy to remove access without affecting other repositories.
+
+To generate an SSH key pair, execute the following commands in AWS CloudShell or your local Linux or Mac terminal.
+
+First, navigate to the Service Foundry directory. Create a directory for SSH keys using mkdir. Then generate a 4096-bit RSA key pair using the ssh-keygen command. This command uses the RSA algorithm with a 4096-bit key length for enhanced security. You'll specify a comment to identify the key and an output file path. Finally, display the public key using the cat command. You'll add this public key to GitHub.
+
+The private key must be kept secure and never committed to version control. The public key will be added to GitHub.
+
+================================================================================
+Section: Adding Deployment Key to GitHub
+================================================================================
+
+To add the deployment key to GitHub, follow these configuration steps.
+
+Copy the entire contents of the public key displayed by the cat command. Navigate to your repository's deployment key settings on GitHub. Complete the form with a title like "gitops-demo-ssh" or any descriptive name, and paste the complete public key content in the Key field.
+
+This is important: check the "Allow write access" checkbox. This enables Service Foundry to commit configuration changes back to the repository. Then click the Add key button to save.
+
+Make sure write access is enabled. Service Foundry requires write permission to commit generated configurations and application manifests to your GitOps repository.
+
+================================================================================
+Section: Configuring SSH Key Path
+================================================================================
+
+Set an environment variable pointing to your private key. Export the GIT_OPS_REPO_SSH_KEY_PATH variable with the path to your private key file.
+
+This environment variable will be used by the bootstrap script to authenticate with your GitOps repository.
+
+================================================================================
+Section: Initializing GitOps Repository
+================================================================================
+
+Now let's initialize and push the GitOps repository. First, let's configure your Git identity.
+
+If you haven't configured Git user information in your environment, set it now. Configure your Git user name if not already set using the git config command. The double pipe operator ensures this only runs if no user name is configured. Also configure your Git user email if not already set.
+
+Replace "devops at example dot com" with your actual email address to maintain accurate commit attribution.
+
+For repository initialization, create and initialize your local GitOps repository as follows.
+
+Navigate to the Service Foundry directory, then create the GitOps repository directory and navigate into it.
+
+Configure SSH to use the deployment key by exporting the GIT_SSH_COMMAND environment variable. This specifies the identity file or private key, uses only the specified key, and ignores the user SSH config file.
+
+Initialize a new Git repository using git init. Rename the default branch to "main" using git branch. Add your GitHub repository as the remote origin.
+
+Create a dot gitignore file to exclude macOS metadata files. Stage all files for commit using git add. Create the initial commit with an appropriate message. Push to GitHub and set upstream tracking using git push with the -u flag.
+
+The GIT_SSH_COMMAND configuration ensures Git uses your deployment key instead of your default SSH key, providing repository-specific authentication.
+
+After successful execution, your GitOps repository is initialized and ready to receive Service Foundry configurations during the bootstrap process.
+
+================================================================================
+Section: Running Bootstrap Scripts on CloudShell
+================================================================================
+
+Let's move on to running the bootstrap scripts on AWS CloudShell. First, we need to upload the bootstrap scripts.
+
+Transfer the downloaded bootstrap scripts to AWS CloudShell. In AWS CloudShell, click the Actions menu in the top-right corner. Select Upload File, choose your downloaded bootstrap-scripts dot zip file, and wait for the upload to complete.
+
+The uploaded file will appear in your CloudShell home directory.
+
+================================================================================
+Section: Extracting Bootstrap Scripts
+================================================================================
+
+Move and extract the bootstrap scripts to your Service Foundry directory.
+
+Move the ZIP file to the Service Foundry directory using the mv command. Navigate to the directory, then extract the ZIP file contents using the unzip command.
+
+This creates a directory structure containing bootstrap dot sh, which is the main installation script, an AWS directory with AWS-specific utilities including E-K-S cluster creation, and configuration files with your pre-filled settings.
+
+================================================================================
+Section: Creating a New EKS Cluster
+================================================================================
+
+This section is optional if you already have an E-K-S cluster ready. Skip this section if you already have an E-K-S cluster ready for Service Foundry, or if you're installing on an existing development or testing cluster.
+
+Proceed with cluster creation if this is a fresh Service Foundry installation or if you want a dedicated cluster for platform engineering.
+
+The included create-eks dot sh script automates E-K-S cluster provisioning. It sets up a cluster autoscaler that automatically adjusts node count based on workload demands. It installs the E-B-S CSI driver, enabling persistent volume provisioning using Amazon E-B-S. It configures priority classes for pod priority for critical system components. And it implements AWS-recommended E-K-S configurations.
+
+For cluster creation, retrieve your AWS account ID automatically using the AWS CLI. Set your desired cluster name as an environment variable. Navigate to the AWS scripts directory, make all scripts executable using the chmod command, then execute the E-K-S cluster creation script.
+
+The AWS region is automatically detected from your CloudShell session. The cluster will be created in your CloudShell's current region.
+
+E-K-S cluster creation typically takes 10 to 15 minutes. The script will create the E-K-S control plane, provision managed node groups, install the cluster autoscaler, configure the E-B-S CSI driver, set up priority classes, and configure the kube control context.
+
+You can monitor progress in the CloudShell output. Wait for the script to complete before proceeding.
+
+================================================================================
+Section: Executing the Bootstrap Script
+================================================================================
+
+After your E-K-S cluster is ready, either newly created or pre-existing, run the main bootstrap script.
+
+Navigate to the Service Foundry directory, make the bootstrap script executable using chmod, then execute the bootstrap script.
+
+During bootstrap, the script performs these operations in sequence. It validates prerequisites, checking for required tools and credentials. It configures kube control, setting up cluster access. It installs Argo CD, deploying the GitOps engine. It creates namespaces, setting up organizational boundaries. It deploys core components, installing all platform services. It configures networking, setting up ingress routes. It applies secrets, securely configuring credentials. It syncs with the GitOps repo, committing initial configurations to Git. And finally, it waits for readiness, ensuring all components reach a healthy state.
+
+The bootstrap script provides detailed output. Monitor the logs to track progress and identify any issues that may require attention.
+
+If the bootstrap script encounters errors, review the error messages carefully. Check that all environment variables are set correctly. Verify your GitOps repository is accessible. Ensure your license is valid and correctly pasted. Confirm your E-K-S cluster has sufficient resources.
+
+You can safely re-run the bootstrap script after correcting issues. It's designed to be idempotent.
+
+================================================================================
+Section: Verifying Installation
+================================================================================
+
+After the bootstrap script completes successfully, let's verify your Service Foundry installation by accessing the deployed components.
+
+Based on your configured root domain, you can access these services.
+
+The Service Foundry Console is available at https colon slash slash console dot your-root-domain. This is the main Service Foundry user interface for managing applications and deployments. For authentication, use the admin username and password configured during bootstrap.
+
+Argo CD is available at https colon slash slash argocd dot your-root-domain. This is the GitOps continuous delivery dashboard. For authentication, use the Argo CD admin credentials. The username is "admin". The password can be retrieved using kube control to get the secret from the argocd namespace and decode it from base 64.
+
+Argo Rollouts is at https colon slash slash argo-rollouts dot your-root-domain. This is the progressive delivery dashboard for visualizing canary and blue-green deployments. Authentication is integrated with Service Foundry single sign-on, so use your admin credentials.
+
+Keycloak is at https colon slash slash keycloak dot your-root-domain. This is the identity and access management console. Use the admin credentials configured during bootstrap.
+
+Make sure to replace "your-root-domain" with your actual configured domain, such as "servicefoundry dot org". Ensure DNS records are properly configured to route traffic to your cluster's load balancer.
+
+================================================================================
+Section: DNS Configuration Verification
+================================================================================
+
+Verify that DNS records are resolving correctly using the nslookup command for each endpoint: console, argocd, argo-rollouts, and keycloak.
+
+All domains should resolve to your AWS load balancer address.
+
+================================================================================
+Section: Component Health Checks
+================================================================================
+
+Verify all components are running correctly using kube control.
+
+Check all pods in the service-foundry namespace. Check Argo CD components in the argocd namespace. Verify all applications are synced in Argo CD by getting the applications.
+
+All pods should show Running status, and Argo CD applications should show Synced and Healthy status.
+
+================================================================================
+Section: Next Steps and Conclusion
+================================================================================
+
+After successful installation verification, here are your next steps.
+
+Access the Console and log in to the Service Foundry console to explore the interface. Review Argo CD to check that all applications are synchronized and healthy. Configure Teams by setting up user access and team structures in Keycloak. Deploy Applications and start deploying your first applications using Service Foundry. And explore the documentation to review additional information for advanced features.
+
+Congratulations! You have successfully installed Service Foundry Community Edition.
+
+Thank you for watching this installation guide. If you have any questions or need support, visit the community portal at community dot servicefoundry dot org.
+
+================================================================================
+Metadata: YouTube
+================================================================================
+
+Title: How to Install Service Foundry Community Edition on AWS | Step-by-Step Guide
+
+Description:
+In this video, we walk you through the complete installation process of Service Foundry Community Edition on Amazon Web Services (AWS). Learn how to set up a powerful, self-hosted platform engineering solution using GitOps principles.
+
+We cover:
+- Prerequisites and AWS setup
+- Generating your free Community License
+- Creating necessary IAM roles and EKS clusters
+- Running the automated bootstrap scripts
+- Verifying your installation
+
+Service Foundry empowers development teams to manage cloud infrastructure efficiently.
+
+🔗 Useful Links:
+Community Portal: https://community.servicefoundry.org
+Documentation: https://docs.servicefoundry.org
+
+Tags:
+Service Foundry, Community Edition, Installation Guide, AWS, Amazon Web Services, EKS, Kubernetes, GitOps, ArgoCD, Platform Engineering, Internal Developer Platform, IDP, DevOps, Infrastructure as Code, Bootstrap, Tutorial
+
+================================================================================
+Metadata: LinkedIn
+================================================================================
+
+Title: Complete Guide to Installing Service Foundry Community Edition on AWS
+
+Summary:
+🚀 Ready to build your own Internal Developer Platform? Check out our latest video guide on installing Service Foundry Community Edition on AWS!
+
+We take you through the entire process step-by-step, from generating your free license to running the automated bootstrap scripts and deploying your first GitOps-managed infrastructure.
+
+Service Foundry Community Edition helps you:
+✅ Implement GitOps best practices with ArgoCD
+✅ Manage AWS EKS clusters efficiently
+✅ Secure your infrastructure with industry-standard tools
+
+Watch the full guide here: [Link to Video]
+
+Tags:
+#ServiceFoundry #PlatformEngineering #DevOps #Kubernetes #AWS #GitOps #InternalDeveloperPlatform #IDP #TechTutorial
