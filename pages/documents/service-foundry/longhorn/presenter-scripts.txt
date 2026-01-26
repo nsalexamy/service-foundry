@@ -1,0 +1,295 @@
+### Section: Header
+Longhorn: Highly Available, Distributed Block Storage on AWS E K S
+
+### Section: Overview
+This comprehensive guide walks you through the process of deploying and configuring Longhorn as the default storage class in your Amazon Elastic Kubernetes Service, or E K S, cluster. Longhorn provides a robust, cloud-native storage solution that addresses the limitations of traditional cloud-based block storage solutions like Amazon E B S.
+
+By following this guide, you will learn how to prepare your E K S cluster for Longhorn, install the necessary dependencies, deploy Longhorn using Helm, and configure secure access to the Longhorn management U I through single sign-on integration.
+
+### Section: What is Longhorn?
+Longhorn is a lightweight, reliable, and feature-rich distributed block storage system designed specifically for Kubernetes environments. Originally developed by Rancher Labs and now maintained as an incubating project under the Cloud Native Computing Foundation, Longhorn has become a production-ready solution trusted by organizations worldwide.
+
+### Section: Architecture and Design Philosophy
+Longhorn operates as a cloud-native storage orchestrator that runs entirely within your Kubernetes cluster. Unlike traditional storage solutions that require dedicated storage hardware or cloud provider-specific integrations, Longhorn leverages the local storage available on your Kubernetes nodes and manages it as a unified storage pool.
+
+The system uses a microservices architecture where each volume is managed by its own controller, ensuring isolation and resilience. Storage replicas are distributed across multiple nodes, providing data redundancy and high availability without requiring external storage systems.
+
+### Section: Key Capabilities
+With Longhorn deployed in your cluster, you gain access to a comprehensive set of enterprise-grade storage features:
+
+One. Persistent Storage for Stateful Applications. Use Longhorn volumes as reliable persistent storage for databases, message queues, and other stateful workloads running in your Kubernetes cluster.
+
+Two. Cloud-Agnostic Storage. Partition your block storage into Longhorn volumes, enabling portable storage that works consistently across any Kubernetes environment—whether on-premises, in the public cloud, or in hybrid configurations—without dependency on cloud provider-specific storage services.
+
+Three. Multi-Node Replication. Automatically replicate block storage across multiple nodes and even across availability zones or data centers, significantly increasing data availability and protection against hardware failures.
+
+Four. External Backup Integration. Store backup snapshots in external storage systems such as N F S shares or S 3 compatible object storage, including AWS S 3, MinIO, and other providers, enabling long-term retention and compliance requirements.
+
+Five. Disaster Recovery. Create cross-cluster disaster recovery volumes that allow data from a primary Kubernetes cluster to be quickly recovered from backup in a secondary cluster, supporting business continuity and disaster recovery strategies.
+
+Six. Automated Snapshot and Backup Scheduling. Configure recurring snapshots of volumes for point-in-time recovery, and schedule automated backups to N F S or S 3 compatible secondary storage systems.
+
+Seven. Volume Restoration. Restore volumes from backup snapshots quickly and reliably, minimizing downtime during recovery scenarios.
+
+Eight. Non-Disruptive Upgrades. Upgrade Longhorn components without disrupting running persistent volumes, ensuring continuous availability of your stateful applications.
+
+### Section: Longhorn vs EBS CSI Driver
+When deploying stateful applications on Amazon E K S, storage architecture decisions significantly impact your system's reliability, availability, and operational flexibility. Understanding the differences between Longhorn and the AWS E B S C S I Driver is crucial for making informed infrastructure choices.
+
+### Section: Architectural Differences
+The fundamental difference between these solutions lies in their architecture:
+
+E B S C S I Driver integrates Kubernetes with Amazon Elastic Block Store, a cloud-native block storage service. Each E B S volume is a single block device attached to a specific E C 2 instance in a specific Availability Zone. This architecture inherently ties your storage to the lifecycle and location of individual E C 2 instances.
+
+Longhorn, in contrast, is a distributed storage system that pools local storage across your Kubernetes nodes and manages replication at the software level. This architecture decouples storage from individual nodes and provides flexibility in how data is distributed and accessed across your cluster.
+
+### Section: Key Advantages of Longhorn
+Cross-Availability Zone Access.
+E B S volumes are bound to a single Availability Zone. If a pod needs to migrate to a node in a different A Z, for example, during a node failure or cluster rebalancing, the E B S volume cannot follow it. This limitation requires complex strategies like volume snapshots, restoration, or restricting pod scheduling to specific A Zs.
+
+Longhorn volumes, being distributed across nodes, can be accessed from any node in the cluster regardless of its Availability Zone. This provides true pod mobility and simplifies cluster operations.
+
+Distributed Storage Architecture.
+E B S provides single-instance block storage—each volume exists as a single entity in AWS infrastructure. While E B S itself is highly durable within an A Z, the attachment point is a single instance, creating a potential bottleneck.
+
+Longhorn implements distributed storage with configurable replication. Data is replicated across multiple nodes, typically 3 replicas, providing redundancy at the application level and enabling continued operation even when individual nodes fail.
+
+Access Mode Flexibility.
+E B S C S I Driver supports only Read-Write-Once access mode, meaning a volume can be mounted by only one pod at a time. This limitation restricts certain application architectures that require shared storage.
+
+Longhorn supports both Read-Write-Once and Read-Write-Many access modes. The Read-Write-Many capability enables multiple pods to simultaneously access the same volume, which is essential for certain stateful applications like shared file storage, collaborative systems, or applications requiring shared configuration.
+
+### Section: Production Deployment Considerations
+For production workloads, particularly those involving databases and stateful services, the distributed nature of Longhorn provides several critical advantages:
+
+High Availability. If a database pod restarts and is rescheduled to a different node, Longhorn automatically makes the volume available on the new node without manual intervention.
+
+Data Resilience. With multi-replica architecture, Longhorn protects against node-level failures. If a node hosting a replica fails, the remaining replicas continue to serve requests, and Longhorn automatically creates a new replica on a healthy node to maintain the desired replica count.
+
+Operational Flexibility. Distributed storage eliminates the need to manage pod topology constraints or implement complex automation to handle cross-A Z volume migrations, simplifying cluster operations and improving application resilience.
+
+### Section: Considerations for EKS Cluster Configuration
+Deploying Longhorn successfully requires careful E K S cluster configuration. The following sections outline critical considerations to ensure optimal performance and reliability.
+
+### Section: Instance Types with NVMe SSD Storage
+Longhorn's performance is directly tied to the underlying storage performance of your Kubernetes nodes. For production deployments, it's essential to choose E C 2 instance types that include N V M e S S D instance store volumes, which provide high IOPS and low latency.
+
+Recommended Instance Families include Compute Optimized, Memory Optimized, General Purpose, and Storage Optimized series. The "d" suffix in instance type names indicates that the instance includes N V M e S S D instance store volumes, which Longhorn can utilize for high-performance storage.
+
+### Section: Minimum Node Count for High Availability
+Longhorn uses a replica-based architecture to ensure data durability and availability. The default configuration creates three replicas for each volume, distributing them across different nodes.
+
+The Critical Requirement is to deploy at least 3 worker nodes in your E K S cluster.
+
+With fewer than three nodes, Longhorn cannot maintain its default three-replica configuration, which compromises data redundancy. A three-node minimum ensures that each volume has replicas on three separate nodes, protecting against single-node failures, and allowing for scheduled maintenance without data unavailability.
+
+For production environments with mission-critical data, consider deploying additional nodes to provide extra capacity for replica placement and workload distribution.
+
+### Section: SSH Access Configuration
+Installing Longhorn requires installing system-level dependencies on each worker node. S S H access to nodes enables you to perform these installation steps.
+
+When creating your E K S cluster with eksctl, you should include the S S H access configuration.
+
+The command to create the cluster involves specifying the cluster name, region, and enabling S S H access with a specific public key name.
+
+This configuration modifies the node security groups to allow inbound S S H traffic and associates the specified S S H key pair with the E C 2 instances, enabling you to connect via S S H.
+
+### Section: AWS EBS CSI Driver
+Important. Do not install the AWS E B S C S I Driver add-on when using Longhorn as your storage solution.
+
+Longhorn provides its own Container Storage Interface, or C S I, driver that manages volume provisioning, attachment, and lifecycle. Installing the E B S C S I Driver alongside Longhorn can create conflicts in storage class management and default provisioner behavior.
+
+If you previously installed the E B S C S I Driver, you should either remove it or ensure it's not set as the default storage class.
+
+### Section: Longhorn as Default Storage Class
+After installation, configure Longhorn as the default Storage Class in your cluster. This ensures that Persistent Volume Claims that don't explicitly specify a storage class automatically use Longhorn.
+
+The Longhorn Helm chart automatically creates a Storage Class named `longhorn` and marks it as the default. Any applications deployed via Helm charts or Kubernetes manifests that require persistent storage will automatically provision Longhorn volumes.
+
+### Section: Connecting to Kubernetes Nodes
+Before installing Longhorn, you must prepare each worker node by installing the open-iSCSI package. This section guides you through establishing S S H connections to your E K S nodes.
+
+### Section: Identifying Node IP Addresses
+First, retrieve the list of nodes in your cluster along with their public I P addresses.
+
+You can use the kube control get nodes command with the output wide flag.
+
+The output will show the internal and external I P addresses for each node. You'll use the external I P to establish S S H connections.
+
+### Section: Retrieving Instance Details via AWS CLI
+If you need to correlate node names with AWS E C 2 instance I Ds or retrieve additional instance metadata, use the AWS C L I.
+
+You can query E C 2 for instance details by filtering on the private D N S name and querying for the Instance Id and Public I P address.
+
+This is useful for troubleshooting, auditing, or when you need to perform actions on the underlying E C 2 instances.
+
+### Section: Establishing SSH Connection
+Once you have the public I P address, establish an S S H connection using the key pair specified during cluster creation.
+
+Use the S S H command with your identity file, the default username ec2-user, and the node's public I P address.
+
+You'll need to repeat this process and the subsequent installation steps for each worker node in your cluster.
+
+### Section: Installation Requirements
+Longhorn has specific system-level dependencies that must be installed on each Kubernetes worker node. This section details these requirements and explains their importance.
+
+### Section: System Prerequisites
+According to the official Longhorn documentation, each node in your Kubernetes cluster must satisfy several requirements.
+
+First, a Kubernetes-compatible container runtime must be installed. E K S nodes use containerd by default, which satisfies this requirement.
+
+Second, Longhorn requires Kubernetes version 1.25 or later.
+
+Third, open-iSCSI must be installed, and the iscsid daemon must be running on all nodes. This is the most critical requirement and often the one that requires manual intervention. Longhorn uses the iSCSI protocol to attach block storage volumes to pods.
+
+Fourth, if you plan to use Read-Write-Many volumes, each node must have an N F S version 4 client installed.
+
+Fifth, the host filesystem must support file extents, such as ext4 or X F S.
+
+Finally, standard Linux utilities like bash, curl, and grep must be available.
+
+Note that Amazon Linux 2023, the default operating system for E K S nodes, satisfies all Longhorn requirements except for open-iSCSI. The iscsi-initiator-utils package must be manually installed on each node.
+
+### Section: Quick Installation: Open-iSCSI Setup
+For users who prefer a streamlined approach, you can quickly install and configure open-iSCSI on your Amazon Linux 2023 nodes.
+
+The process involves using dnf to install the iscsi-initiator-utils package, ensuring the service is enabled to start on boot, and then starting the service immediately.
+
+Repeat these commands on every worker node in your cluster.
+
+### Section: Detailed Open-iSCSI Installation and Verification
+This section provides a detailed walkthrough of the open-iSCSI installation process with verification steps.
+
+Step 1 is to install the iSCSI initiator package. Connect to a node via S S H and run the install command using dnf.
+
+Step 2 is to verify the installation. Check that the iscsiadm tool is installed and operational by checking its version.
+
+Step 3 is to enable automatic service startup. Configure the iscsid service to start automatically when the node boots. This is critical because Longhorn needs the iSCSI daemon running to manage volumes.
+
+Step 4 is to start the service immediately. Start the iscsid service without waiting for a reboot.
+
+Step 5 is to verify the service status. Confirm that the service is active and running. If you see any errors, troubleshoot before proceeding with Longhorn installation.
+
+### Section: Installing Longhorn using Helm
+With all nodes prepared, you can now install Longhorn using the Helm package manager. This section walks through the installation process and explains important configuration options.
+
+### Section: Understanding Helm Configuration
+Helm uses a values yah mul file to configure chart deployments. For this deployment, we create a custom values yah mul file with minimal overrides.
+
+In this file, we disable the pre-upgrade checker job. This job typically runs before upgrades to validate cluster readiness, but disabling it during first-time installation avoids unnecessary job creation.
+
+### Section: Executing the Helm Installation
+Run the Helm command to install Longhorn.
+
+The command installs the chart from the Longhorn charts repository into the longhorn-system namespace, creating the namespace if it doesn't exist, and applying our custom configuration.
+
+The installation process deploys several Kubernetes resources including DaemonSets, Deployments, Services, and Custom Resource Definitions.
+
+### Section: Verifying Storage Class Creation
+After installation completes, verify that Longhorn has created and configured Storage Classes.
+
+Use the command kube control get storageclasses.
+
+You should see the longhorn storage class marked as default. The Reclaim Policy should be Delete, and Volume Binding Mode should be Immediate.
+
+### Section: Storage Class in Action
+With Longhorn configured as the default Storage Class, any application that requests persistent storage will automatically receive Longhorn volumes.
+
+For example, checking the persistent volumes in the cluster will show volumes bound to claims, all using the longhorn storage class.
+
+Listing the Persistent Volume Claims across all namespaces will demonstrate that applications deployed after Longhorn installation automatically receive Longhorn-backed storage.
+
+### Section: Accessing the Longhorn UI with HTTPRoute and Single Sign-On
+Longhorn includes a web-based management U I that provides visibility into volume health, node status, backups, and system configuration. This section demonstrates how to expose the Longhorn U I securely using Kubernetes Gateway A P eyes H T T P Route with single sign-on authentication.
+
+### Section: Prerequisites
+This configuration assumes you have already deployed Traefik Gateway, Keycloak, and oh auth two Proxy.
+
+This architecture enables centralized authentication: users authenticate once with Keycloak, and oh auth two Proxy validates their session for subsequent requests.
+
+### Section: Architecture Overview
+The authentication flow works as follows:
+A user navigates to the Longhorn U R L.
+The Traefik Gateway receives the request and routes it to the Longhorn H T T P Route.
+The H T T P Route applies the middleware, which forwards authentication to oh auth two Proxy.
+Oh auth two Proxy checks if the user has a valid session.
+After successful authentication, the request is forwarded to the Longhorn frontend service, and the U I is rendered.
+
+### Section: Traefik Middleware Configuration
+To enable the longhorn-system namespace to use the authentication middleware from the service-foundry namespace, we create a delegating middleware.
+
+The yah mul configuration defines a Middleware resource named forward-auth-delegate in the longhorn-system namespace. It chains to the forward-auth middleware located in the service-foundry namespace.
+
+This delegation pattern allows you to centralize authentication logic while enabling other namespaces to reference it.
+
+### Section: HTTPRoute Configuration
+The H T T P Route resource defines how traffic to the Longhorn domain is routed and authenticated.
+
+The yah mul configuration defines an H T T P Route named longhorn-httproute. It attaches to the Traefik gateway and listens for the longhorn hostname.
+
+The rules match all paths, apply the forward-auth-delegate middleware filter, and forward traffic to the longhorn-frontend service on port 80.
+
+### Section: Accessing the Longhorn UI
+After applying the above configurations, navigate to the Longhorn U R L in your browser.
+
+If you're not already authenticated, you'll be redirected to the Keycloak login page.
+
+After successful authentication, you'll be directed to the Longhorn dashboard, which provides an overview of your storage system, including volume counts, schedulable storage, and node counts.
+
+### Section: Exploring the Nodes Tab
+The Nodes tab provides detailed information about each node in the Longhorn storage pool.
+
+Columns include Status, Readiness, Name, Replicas, Allocated storage, Used storage, and Total Size. Monitoring this view helps you understand storage distribution and plan for scaling.
+
+### Section: Exploring the Volumes Tab
+The Volumes tab lists all Longhorn volumes and their current state.
+
+It shows the Health Status, Name, Size, Actual Size, Creation time, and which Node the volume is attached to. This view is invaluable for troubleshooting and monitoring.
+
+### Section: Conclusion
+Throughout this guide, you've learned how to deploy and configure a production-ready distributed storage solution for Amazon E K S using Longhorn.
+
+You now understand Longhorn's architecture and its advantages over E B S C S I Driver. You've configured your E K S cluster with the right instance types and node counts. You've installed open-iSCSI on all worker nodes. You've deployed Longhorn using Helm and verified the storage class. And finally, you've configured secure U I access using H T T P Route and single sign-on.
+
+### Section: Next Steps
+With Longhorn operational, consider setting up backup targets to S 3 or N F S, implementing snapshot policies, tuning replica counts, and integrating with Prometheus and Grafana for monitoring.
+
+Thank you for watching this guide on Longhorn storage for E K S.
+
+### Section: YouTube Video
+
+Title: Longhorn on EKS: Highly Available Distributed Block Storage | Complete Guide
+
+Description:
+Unlock the full potential of stateful applications on Amazon EKS with Longhorn. In this comprehensive guide, we move beyond the limitations of AWS EBS to implement a robust, cloud-native distributed storage system.
+
+You will learn:
+- Why Longhorn is superior to EBS for Kubernetes (Cross-AZ support, RWX volumes)
+- How to prepare EKS nodes with NVMe SSDs and open-iscsi
+- Step-by-step installation using Helm
+- Configuring Longhorn as the default StorageClass
+- Securing the Longhorn Dashboard with Keycloak SSO and Traefik
+
+#Kubernetes #EKS #Longhorn #DevOps #CloudNative #Storage #AWS
+
+Tags:
+Kubernetes, EKS, Longhorn, AWS, storage, block storage, EBS, cloud native, devops, tutorial, helm, open-iscsi, SSO, Keycloak
+
+### Section: LinkedIn Article
+
+Title: Breaking Free from EBS: A Guide to Distributed Storage on EKS with Longhorn
+
+Summary:
+Are you hitting the limits of AWS EBS in your Kubernetes clusters? 🛑
+
+Single-AZ restrictions and lack of Read-Write-Many (RWX) support can be major bottlenecks for stateful applications. Enter Longhorn: a CNCF-incubating distributed block storage system that turns your EKS nodes into a resilient, high-performance storage pool.
+
+In our latest guide, we cover:
+✅ Architecture: How Longhorn achieves high availability across AZs
+✅ Preparation: Setting up Amazon Linux 2023 nodes with open-iscsi
+✅ Deployment: A complete Helm-based installation workflow
+✅ Security: Exposing the UI securely with Gateway API and OIDC
+
+Read the full guide to transform your EKS storage strategy. 👇
+
+#Kubernetes #CloudNative #Storage #EKS #DevOps #Longhorn #AWS #Engineering
