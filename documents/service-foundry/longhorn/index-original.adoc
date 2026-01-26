@@ -1,0 +1,460 @@
+= Using Longhorn as Storage Class in Service Foundry
+
+:imagesdir: ./images
+
+== Overview
+
+This document provides a step-by-step guide to using Longhorn as a storage class in EKS cluster.
+
+
+
+== What is Longhorn?
+
+Longhorn is a high-performance, open-source, and production-ready distributed block storage system for Kubernetes. It provides a simple, yet powerful, way to manage storage in a Kubernetes cluster.   
+Originally developed by Rancher Labs, it is now being developed as a incubating project of the Cloud Native Computing Foundation (CNCF).
+
+With Longhorn, you can:
+
+- Use Longhorn volumes as persistent storage for the distributed stateful applications in your Kubernetes cluster.
+- Partition your block storage into Longhorn volumes so that you can use Kubernetes volumes with or without a cloud provider.
+- Replicate block storage across multiple nodes and data centers to increase availability.
+- Store backup data in external storage such as NFS or AWS S3.
+- Create cross-cluster disaster recovery volumes so that data from a primary Kubernetes cluster can be quickly recovered from backup in a second Kubernetes cluster.
+- Schedule recurring snapshots of a volume, and schedule recurring backups to NFS or S3-compatible secondary storage.
+- Restore volumes from backup.
+- Upgrade Longhorn without disrupting persistent volumes.
+
+== Longhorn vs EBS CSI Driver
+
+Longhorn provides a more feature-rich storage solution than EBS CSI Driver.
+
+Benefits of Longhorn over EBS CSI Driver:
+
+- EBS CSI Driver can be accessed in the same AZ only while Longhorn can be accessed in multiple AZs.
+- EBS is not a distributed storage while Longhorn is a distributed storage.
+- EBS supports Read-Write-Once (RWO) access mode only while Longhorn supports Read-Write-Many (RWX) access mode.
+
+
+Distributed storage system for stateful applications is a must for production workloads.
+More reliable storage for your database is a must for production workloads.
+
+Suppose you have a stateful application that requires a distributed storage system, Longhorn is the better choice.
+Suppose your database is restarted, and the pod is scheduled to a different node, Longhorn will automatically mount the volume to the new node while EBS CSI Driver will not.
+
+
+
+== Considerations for EKS Cluster
+
+=== Instance types 
+
+Choose instance types that support SSDs. 
+
+m5d series, m5ad series, m6g series, m6gd series, c5d series, c5ad series, c6g series, c6gd series, r5d series, r5ad series, r6g series, r6gd series, t5d series, t5ad series, t6g series, t6gd series, z5d series, z5ad series, z6g series, z6gd series
+
+=== Node Count
+
+Choose at least 3 nodes.
+
+It is critical to have at least 3 nodes to ensure high availability.
+
+
+=== SSH Access
+
+Enable SSH access to the nodes.
+
+.Use ssh-access option
+[source,shell]
+----
+eksctl create cluster --name <cluster-name> --region <region> --ssh-access --ssh-public-key <public-key-name>
+----
+
+=== AWS EBS CSI Driver
+
+DO NOT install the AWS EBS CSI driver. Longhorn provides its own CSI driver.
+
+=== Longhorn Storage Class
+
+Use Longhorn storage class.
+
+
+== How to connect to Kubernetes Nodes
+
+=== Using SSH Key
+
+[source,shell]
+----
+$ kubectl get nodes -o wide
+
+# Example output
+NAME                                              STATUS   ROLES    AGE     VERSION               INTERNAL-IP      EXTERNAL-IP    OS-IMAGE                        KERNEL-VERSION                   CONTAINER-RUNTIME
+ip-192-168-21-231.ca-central-1.compute.internal   Ready    <none>   2m46s   v1.34.2-eks-ecaa3a6   192.168.21.231   15.223.3.109   Amazon Linux 2023.10.20260105   6.12.63-84.121.amzn2023.x86_64   containerd://2.1.5
+ip-192-168-27-255.ca-central-1.compute.internal   Ready    <none>   2m46s   v1.34.2-eks-ecaa3a6   192.168.27.255   3.96.149.66    Amazon Linux 2023.10.20260105   6.12.63-84.121.amzn2023.x86_64   containerd://2.1.5
+ip-192-168-38-165.ca-central-1.compute.internal   Ready    <none>   2m47s   v1.34.2-eks-ecaa3a6   192.168.38.165   3.98.131.80    Amazon Linux 2023.10.20260105   6.12.63-84.121.amzn2023.x86_64   containerd://2.1.5
+
+----
+
+
+[source,shell]
+----
+# Use the name from the previous command
+
+$ NODE_NAME="ip-192-168-21-231.ca-central-1.compute.internal"
+
+$ aws ec2 describe-instances \
+  --filters "Name=private-dns-name,Values=${NODE_NAME}" \
+  --query 'Reservations[].Instances[].[InstanceId,PublicIpAddress,PrivateIpAddress]' \
+  --output table
+
+# Example output
+
+| InstanceId | PublicIpAddress | PrivateIpAddress |
+|------------|-----------------|------------------|
+| i-0123456789abcdef0 | 15.223.3.109 | 192.168.21.231 |
+
+----  
+
+.SSH to node
+
+[source,shell]
+----
+ssh -i ~/.ssh/id_rsa ec2-user@15.223.3.109
+----
+
+== Installation Requirements
+
+TL;DR: Install Open-iscsi on All Nodes and enable and start the iscsid service. 
+
+[source,shell]
+----
+$ sudo dnf install -y iscsi-initiator-utils
+$ sudo systemctl enable iscsid
+$ sudo systemctl start iscsid
+----
+
+
+Each node in the Kubernetes cluster where Longhorn is installed must fulfill the following requirements:
+
+
+- A container runtime compatible with Kubernetes (Docker v1.13+, containerd v1.3.7+, etc.)
+- Kubernetes >= v1.25
+- open-iscsi is installed, and the iscsid daemon is running on all the nodes. This is necessary, since Longhorn relies on iscsiadm on the host to provide persistent volumes to Kubernetes. For help installing open-iscsi, refer to Installing open-iscsi.
+- RWX support requires that each node has a NFSv4 client installed
+- The host filesystem supports the file extents feature to store the data. Currently we support:
+  - ext4
+  - xfs
+- bash, curl, findmnt, grep, awk, blkid, lsblk must be installed.
+
+
+=== Container Runtime
+.In SSH session, run the following command to check the container runtime
+[source,shell]
+----
+$ containerd --version
+containerd github.com/containerd/containerd/v2 2.1.5 fcd43222d6b07379a4be9786bda52438f0dd16a1
+----
+
+=== Kubernetes Version
+
+.On local machine, run the following command to check the Kubernetes version
+[source,shell]
+----
+$ kubectl version
+Client Version: v1.34.1
+Kustomize Version: v5.7.1
+Server Version: v1.34.3-eks-ac2d5a0
+----
+
+=== Install Open-iscsi on All Nodes
+
+By default, Amazon Linux 2023 does not have open-iscsi installed. You need to install it on all the nodes.
+
+.In SSH session, run the following command to install open-iscsi
+[source,shell]
+----
+$ sudo dnf install -y iscsi-initiator-utils
+----
+
+.In SSH session, run the following command to check the open-iscsi version
+[source,shell]
+----
+$ iscsiadm --version
+
+# Example output
+iscsiadm version 6.2.1.4
+----
+
+.Enable and start the iscsid service
+[source,shell]
+----
+$ sudo systemctl enable iscsid
+$ sudo systemctl start iscsid
+----
+
+.In SSH session, run the following command to check the iscsid service status
+[source,shell]
+----
+$ sudo systemctl status iscsid
+
+# Example output
+
+● iscsid.service - Open-iSCSI
+     Loaded: loaded (/usr/lib/systemd/system/iscsid.service; enabled; preset: disabled)
+     Active: active (running) since Sun 2026-01-25 02:13:24 UTC; 7s ago
+----
+
+=== NFSv4 Client
+
+By default, Amazon Linux 2023 kernels typically have NFSv4 enabled by default.
+
+.Check if NFSv4, NFSv4.1, NFSv4.2 support is enabled
+[source,shell]
+----
+$ cat /boot/config-`uname -r`| grep CONFIG_NFS_V4
+$ cat /boot/config-`uname -r`| grep CONFIG_NFS_V4_1
+$ cat /boot/config-`uname -r`| grep CONFIG_NFS_V4_2
+----
+
+.Verify NFSv4 client is installed
+[source,shell]
+----
+$ mount.nfs -V
+
+# Example output
+mount.nfs: (linux nfs-utils 2.5.4)
+----
+
+.
+
+//.In SSH session, run the following command to install nfs-utils
+//[source,shell]
+//----
+//$ sudo dnf install -y nfs-utils
+//----
+
+=== Filesystem
+
+Verify the filesystem supports file extents.
+
+- ext4
+- xfs
+
+.In SSH session, run the following command to check the filesystem
+[source,shell]
+----
+$ df -T
+
+# Example output
+Filesystem     Type     1K-blocks     Used Available Use% Mounted on
+devtmpfs       devtmpfs   1984588        0   1984588   0% /
+devtmpfs       devtmpfs   1984588        0   1984588   0% /dev
+/dev/nvme0n1p1 xfs       8376724 1048576   7328148  13% /
+----    
+
+Make sure the filesystem supports file extents.
+
+=== Utilities
+
+By default, Amazon Linux 2023 has the utilities installed.
+
+- bash
+- curl
+- findmnt
+- grep
+- awk
+- blkid
+- lsblk
+
+=== Mount Propagation
+
+By default, Amazon Linux 2023 has the mount propagation enabled.
+
+
+
+== Install Longhorn CLI
+
+.In SSH session, run the following command to install Longhorn CLI
+[source,shell]
+----
+$ LONGHORN_CLI_VERSION="v1.10.1"
+$ curl -sSfL https://github.com/longhorn/cli/releases/download/${LONGHORN_CLI_VERSION}/longhornctl-linux-amd64 -o longhornctl
+$ chmod +x longhornctl
+$ sudo mv longhornctl /usr/local/bin/
+----
+
+== Install Longhorn using Helm
+
+Once you finish the installation requirements, you can install Longhorn using Helm.
+
+The custom-values.yaml file is used to override the default values in the values.yaml file.
+
+.custom-values.yaml
+[source,yaml]
+----
+preUpgradeChecker:
+  jobEnabled: false
+----
+
+.Install Longhorn using Helm
+[source,shell]
+----
+$ helm install longhorn --repo https://charts.longhorn.io longhorn \
+    --namespace longhorn-system --create-namespace -f custom-values.yaml
+----
+
+=== Storage Class
+
+Once Longhorn is installed, you can use the Longhorn StorageClass to create PersistentVolumes.
+
+.List StorageClasses
+[source,shell]
+----
+$ kubectl get storageclasses
+NAME                 PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+gp2                  kubernetes.io/aws-ebs   Delete          WaitForFirstConsumer   false                  4h2m
+longhorn (default)   driver.longhorn.io      Delete          Immediate              true                   138m
+longhorn-static      driver.longhorn.io      Delete          Immediate              true                   138m
+----
+
+
+Now longhorn is the default StorageClass. If you install a Helm chart that requires a PersistentVolume, it will use the Longhorn StorageClass by default.
+
+For example, PostgreSQL servers and Redis servers used in Service Foundry are using Longhorn StorageClass.
+
+.List PersistentVolumes
+[source,shell]
+----
+$ kubectl get pv
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                                       STORAGECLASS   VOLUMEATTRIBUTESCLASS   REASON   AGE
+pvc-4f9baf6b-dd14-4e8c-87db-bcbc712fbb56   8Gi        RWO            Delete           Bound    keycloak/data-keycloak-postgresql-0         longhorn       <unset>                          95m
+pvc-648a4534-2363-4530-bbef-5284e2e81457   8Gi        RWO            Delete           Bound    service-foundry/redis-data-redis-master-0   longhorn       <unset>                          92m
+pvc-988abaf1-5aa1-4f20-b973-c9ea4856a05d   8Gi        RWO            Delete           Bound    service-foundry/data-postgresql-0           longhorn       <unset>                          95m
+----
+
+.List PersistentVolumeClaims
+[source,shell]
+----
+$  kubectl get pvc -A
+NAMESPACE         NAME                         STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+keycloak          data-keycloak-postgresql-0   Bound    pvc-4f9baf6b-dd14-4e8c-87db-bcbc712fbb56   8Gi        RWO            longhorn       <unset>                 96m
+service-foundry   data-postgresql-0            Bound    pvc-988abaf1-5aa1-4f20-b973-c9ea4856a05d   8Gi        RWO            longhorn       <unset>                 96m
+service-foundry   redis-data-redis-master-0    Bound    pvc-648a4534-2363-4530-bbef-5284e2e81457   8Gi        RWO            longhorn       <unset>                 93m
+
+----
+
+
+== Accessing Longhorn UI using HTTPRoute with Single Sign-On
+
+We have already seen how to expose Kubernetes services using HTTPRoute with Single Sign-On.
+
+- traefik-middlewares.yaml: Deligate the forward-auth middleware so that HTTPRoute can use it in longhorn-system namespace.
+- httproutes.yaml: Expose the longhorn-ui service using HTTPRoute.
+
+=== traefik-middlewares.yaml
+
+In service-foundry namespace, we already have the forward-auth middleware that plays the role of authentication service using Keycloak, OAuth2-proxy, and traefik.
+
+[source,yaml]
+----
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: forward-auth-delegate
+  namespace: longhorn-system
+spec:
+  chain:
+    middlewares:
+      - name: forward-auth 
+        namespace: service-foundry
+----
+
+This middleware will be used by HTTPRoute to delegate the authentication to the forward-auth middleware.
+
+=== httproutes.yaml
+
+[source,yaml]
+----
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: longhorn-httproute
+  namespace: longhorn-system
+spec:
+  parentRefs:
+    - name: traefik-gateway
+      namespace: traefik
+  hostnames:
+    - longhorn.servicefoundry.org
+
+  rules: 
+    - matches:
+      - path: 
+          type: PathPrefix
+          value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: forward-auth-delegate
+      backendRefs:
+      - name: longhorn-frontend
+        port: 80  
+    
+----
+
+
+Navigate to https://longhorn.servicefoundry.org/ to access the Longhorn UI. You should be able to login using your Service Foundry credentials.
+
+[.img-wide]
+image::longhorn-login.png[Longhorn Single Sign-On Login]
+
+There are gauges for the number of volumes, scheduable storage, and nodes.
+[.img-wide]
+image::longhorn-dashboard.png[Longhorn Dashboard]
+
+If you click on 'Nodes' tab, you will see the nodes that are running Longhorn.
+
+[.img-wide]
+image::longhorn-nodes.png[Longhorn Nodes]
+
+On the Nodes, you can see the nodes that are running Longhorn.
+
+- Status: Schedulable
+- Readiness: Ready
+- Name: Node name
+- Replicas: Number of replicas
+- Allocated: Allocated storage
+- Used: Used storage
+- Size: Total storage
+- Tags: Tags
+
+If you click on 'Volumes' tab, you will see the volumes that are running Longhorn.
+
+[.img-wide]
+image::longhorn-volumes.png[Longhorn Volumes]
+
+On the Volumes, you can see the volumes that are running Longhorn.
+
+- Status: Healthy
+- Name: Volume name
+- Size: Volume size
+- Actual Size: Actual size
+- Created: Created time
+- Data Engine: Data engine
+- PV/PVC: Bound or Unbound
+- Namespace: Namespace
+- Attached To: Pod name using the volume
+
+== Conclusion
+
+In this document, we have seen:
+
+- What is Longhorn
+- What are benefits of using Longhorn over EBS volumes
+- How to set up Kubernetes Nodes to run Longhorn
+- How to install Longhorn using Helm
+- How to expose Longhorn using HTTPRoute with Single Sign-On    
+
+== References
+
+- https://longhorn.io/docs/1.10.1/deploy/install/#installation-requirements

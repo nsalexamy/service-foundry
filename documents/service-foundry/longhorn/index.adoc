@@ -1,0 +1,733 @@
+= Longhorn: Highly Available, Distributed Block Storage on AWS EKS
+
+:imagesdir: ./images
+
+[.img-wide]
+image::longhorn-on-eks.png[Longhorn Architecture on EKS]
+
+YouTube video tutorial: https://youtu.be/ykDz3iC-qyY
+
+== Overview
+
+This comprehensive guide walks you through the process of deploying and configuring Longhorn as the default storage class in your Amazon Elastic Kubernetes Service (EKS) cluster. Longhorn provides a robust, cloud-native storage solution that addresses the limitations of traditional cloud-based block storage solutions like Amazon EBS.
+
+By following this guide, you will learn how to prepare your EKS cluster for Longhorn, install the necessary dependencies, deploy Longhorn using Helm, and configure secure access to the Longhorn management UI through single sign-on (SSO) integration.
+
+== What is Longhorn?
+
+Longhorn is a lightweight, reliable, and feature-rich distributed block storage system designed specifically for Kubernetes environments. Originally developed by Rancher Labs and now maintained as an incubating project under the Cloud Native Computing Foundation (CNCF), Longhorn has become a production-ready solution trusted by organizations worldwide.
+
+=== Architecture and Design Philosophy
+
+Longhorn operates as a cloud-native storage orchestrator that runs entirely within your Kubernetes cluster. Unlike traditional storage solutions that require dedicated storage hardware or cloud provider-specific integrations, Longhorn leverages the local storage available on your Kubernetes nodes and manages it as a unified storage pool.
+
+The system uses a microservices architecture where each volume is managed by its own controller, ensuring isolation and resilience. Storage replicas are distributed across multiple nodes, providing data redundancy and high availability without requiring external storage systems.
+
+.Longhorn Architecture on EKS
+[.img-wide]
+image::longhorn-on-eks.png[Longhorn Architecture on EKS]
+
+=== Key Capabilities
+
+With Longhorn deployed in your cluster, you gain access to a comprehensive set of enterprise-grade storage features:
+
+- **Persistent Storage for Stateful Applications**: Use Longhorn volumes as reliable persistent storage for databases, message queues, and other stateful workloads running in your Kubernetes cluster.
+
+- **Cloud-Agnostic Storage**: Partition your block storage into Longhorn volumes, enabling portable storage that works consistently across any Kubernetes environment—whether on-premises, in the public cloud, or in hybrid configurations—without dependency on cloud provider-specific storage services.
+
+- **Multi-Node Replication**: Automatically replicate block storage across multiple nodes and even across availability zones or data centers, significantly increasing data availability and protection against hardware failures.
+
+- **External Backup Integration**: Store backup snapshots in external storage systems such as NFS shares or S3-compatible object storage (including AWS S3, MinIO, and other providers), enabling long-term retention and compliance requirements.
+
+- **Disaster Recovery**: Create cross-cluster disaster recovery volumes that allow data from a primary Kubernetes cluster to be quickly recovered from backup in a secondary cluster, supporting business continuity and disaster recovery strategies.
+
+- **Automated Snapshot and Backup Scheduling**: Configure recurring snapshots of volumes for point-in-time recovery, and schedule automated backups to NFS or S3-compatible secondary storage systems.
+
+- **Volume Restoration**: Restore volumes from backup snapshots quickly and reliably, minimizing downtime during recovery scenarios.
+
+- **Non-Disruptive Upgrades**: Upgrade Longhorn components without disrupting running persistent volumes, ensuring continuous availability of your stateful applications.
+
+== Longhorn vs EBS CSI Driver
+
+When deploying stateful applications on Amazon EKS, storage architecture decisions significantly impact your system's reliability, availability, and operational flexibility. Understanding the differences between Longhorn and the AWS EBS CSI Driver is crucial for making informed infrastructure choices.
+
+=== Architectural Differences
+
+The fundamental difference between these solutions lies in their architecture:
+
+**EBS CSI Driver** integrates Kubernetes with Amazon Elastic Block Store, a cloud-native block storage service. Each EBS volume is a single block device attached to a specific EC2 instance in a specific Availability Zone (AZ). This architecture inherently ties your storage to the lifecycle and location of individual EC2 instances.
+
+**Longhorn**, in contrast, is a distributed storage system that pools local storage across your Kubernetes nodes and manages replication at the software level. This architecture decouples storage from individual nodes and provides flexibility in how data is distributed and accessed across your cluster.
+
+=== Key Advantages of Longhorn
+
+**Cross-Availability Zone Access**
+
+EBS volumes are bound to a single Availability Zone. If a pod needs to migrate to a node in a different AZ (for example, during a node failure or cluster rebalancing), the EBS volume cannot follow it. This limitation requires complex strategies like volume snapshots, restoration, or restricting pod scheduling to specific AZs.
+
+Longhorn volumes, being distributed across nodes, can be accessed from any node in the cluster regardless of its Availability Zone. This provides true pod mobility and simplifies cluster operations.
+
+**Distributed Storage Architecture**
+
+EBS provides single-instance block storage—each volume exists as a single entity in AWS infrastructure. While EBS itself is highly durable within an AZ, the attachment point is a single instance, creating a potential bottleneck.
+
+Longhorn implements distributed storage with configurable replication. Data is replicated across multiple nodes (typically 3 replicas), providing redundancy at the application level and enabling continued operation even when individual nodes fail.
+
+**Access Mode Flexibility**
+
+EBS CSI Driver supports only Read-Write-Once (RWO) access mode, meaning a volume can be mounted by only one pod at a time. This limitation restricts certain application architectures that require shared storage.
+
+Longhorn supports both RWO and Read-Write-Many (RWX) access modes. The RWX capability enables multiple pods to simultaneously access the same volume, which is essential for certain stateful applications like shared file storage, collaborative systems, or applications requiring shared configuration.
+
+=== Production Deployment Considerations
+
+For production workloads, particularly those involving databases and stateful services, the distributed nature of Longhorn provides several critical advantages:
+
+**High Availability**: If a database pod restarts and is rescheduled to a different node (perhaps in another AZ), Longhorn automatically makes the volume available on the new node without manual intervention. The same scenario with EBS would require either volume snapshots and restoration or pod scheduling constraints that limit cluster flexibility.
+
+**Data Resilience**: With multi-replica architecture, Longhorn protects against node-level failures. If a node hosting a replica fails, the remaining replicas continue to serve requests, and Longhorn automatically creates a new replica on a healthy node to maintain the desired replica count.
+
+**Operational Flexibility**: Distributed storage eliminates the need to manage pod topology constraints or implement complex automation to handle cross-AZ volume migrations, simplifying cluster operations and improving application resilience.
+
+== Considerations for EKS Cluster Configuration
+
+Deploying Longhorn successfully requires careful EKS cluster configuration. The following sections outline critical considerations to ensure optimal performance and reliability.
+
+=== Instance Types with NVMe SSD Storage
+
+Longhorn's performance is directly tied to the underlying storage performance of your Kubernetes nodes. For production deployments, it's essential to choose EC2 instance types that include NVMe SSD instance store volumes, which provide high IOPS and low latency.
+
+**Recommended Instance Families:**
+
+The following EC2 instance families include NVMe SSD instance store volumes and are well-suited for Longhorn deployments:
+
+- **Compute Optimized**: `c5d`, `c5ad`, `c6g`, `c6gd` series—ideal for compute-intensive workloads requiring fast local storage
+- **Memory Optimized**: `r5d`, `r5ad`, `r6g`, `r6gd` series—suitable for memory-intensive applications with high storage throughput requirements
+- **General Purpose**: `m5d`, `m5ad`, `m6g`, `m6gd` series—balanced compute, memory, and storage for diverse workloads
+- **Storage Optimized**: `t3d`, `t3ad` (if available in your region), `z1d` series—optimized for storage-heavy applications
+
+The "d" suffix in instance type names indicates that the instance includes NVMe SSD instance store volumes, which Longhorn can utilize for high-performance storage.
+
+=== Minimum Node Count for High Availability
+
+Longhorn uses a replica-based architecture to ensure data durability and availability. The default configuration creates three replicas for each volume, distributing them across different nodes.
+
+**Critical Requirement**: Deploy at least **3 worker nodes** in your EKS cluster.
+
+With fewer than three nodes, Longhorn cannot maintain its default three-replica configuration, which compromises data redundancy. A three-node minimum ensures that:
+
+- Each volume has replicas on three separate nodes, protecting against single-node failures
+- The cluster can tolerate one node failure while maintaining data availability
+- Scheduled maintenance can be performed on individual nodes without data unavailability
+
+For production environments with mission-critical data, consider deploying additional nodes (e.g., 4-6 nodes) to provide extra capacity for replica placement and workload distribution.
+
+=== SSH Access Configuration
+
+Installing Longhorn requires installing system-level dependencies (specifically, open-iscsi) on each worker node. SSH access to nodes enables you to perform these installation steps.
+
+When creating your EKS cluster with `eksctl`, include the SSH access configuration:
+
+.Enable SSH access during cluster creation
+[source,shell]
+----
+eksctl create cluster \
+  --name <cluster-name> \
+  --region <region> \
+  --ssh-access \
+  --ssh-public-key <public-key-name>
+----
+
+**Parameters explained:**
+
+- `--ssh-access`: Enables SSH access to worker nodes by configuring security groups and instance settings
+- `--ssh-public-key <public-key-name>`: Specifies the name of an EC2 key pair (which must already exist in your AWS account) to use for SSH authentication
+
+This configuration modifies the node security groups to allow inbound SSH traffic and associates the specified SSH key pair with the EC2 instances, enabling you to connect via `ssh ec2-user@<node-ip>`.
+
+=== AWS EBS CSI Driver
+
+**Important**: Do not install the AWS EBS CSI Driver add-on when using Longhorn as your storage solution.
+
+Longhorn provides its own Container Storage Interface (CSI) driver that manages volume provisioning, attachment, and lifecycle. Installing the EBS CSI Driver alongside Longhorn can create conflicts in storage class management and default provisioner behavior.
+
+If you previously installed the EBS CSI Driver, you should either remove it or ensure it's not set as the default storage class, to avoid confusion in volume provisioning.
+
+=== Longhorn as Default Storage Class
+
+After installation, configure Longhorn as the default StorageClass in your cluster. This ensures that PersistentVolumeClaims (PVCs) that don't explicitly specify a storage class automatically use Longhorn.
+
+The Longhorn Helm chart automatically creates a StorageClass named `longhorn` and marks it as the default. Any applications deployed via Helm charts or Kubernetes manifests that require persistent storage will automatically provision Longhorn volumes.
+
+== Connecting to Kubernetes Nodes
+
+Before installing Longhorn, you must prepare each worker node by installing the open-iscsi package. This section guides you through establishing SSH connections to your EKS nodes.
+
+=== Identifying Node IP Addresses
+
+First, retrieve the list of nodes in your cluster along with their public IP addresses:
+
+[source,shell]
+----
+$ kubectl get nodes -o wide
+
+# Example output
+NAME                                              STATUS   ROLES    AGE     VERSION               INTERNAL-IP      EXTERNAL-IP    OS-IMAGE                        KERNEL-VERSION                   CONTAINER-RUNTIME
+ip-192-168-21-231.ca-central-1.compute.internal   Ready    <none>   2m46s   v1.34.2-eks-ecaa3a6   192.168.21.231   15.223.3.109   Amazon Linux 2023.10.20260105   6.12.63-84.121.amzn2023.x86_64   containerd://2.1.5
+ip-192-168-27-255.ca-central-1.compute.internal   Ready    <none>   2m46s   v1.34.2-eks-ecaa3a6   192.168.27.255   3.96.149.66    Amazon Linux 2023.10.20260105   6.12.63-84.121.amzn2023.x86_64   containerd://2.1.5
+ip-192-168-38-165.ca-central-1.compute.internal   Ready    <none>   2m47s   v1.34.2-eks-ecaa3a6   192.168.38.165   3.98.131.80    Amazon Linux 2023.10.20260105   6.12.63-84.121.amzn2023.x86_64   containerd://2.1.5
+
+----
+
+**Command explanation:**
+
+- `kubectl get nodes`: Lists all nodes in the cluster
+- `-o wide`: Provides additional details including IP addresses, OS image, kernel version, and container runtime
+
+The output shows the internal (private) and external (public) IP addresses for each node. You'll use the external IP to establish SSH connections.
+
+=== Retrieving Instance Details via AWS CLI
+
+If you need to correlate node names with AWS EC2 instance IDs or retrieve additional instance metadata, use the AWS CLI:
+
+[source,shell]
+----
+# Set the node name from kubectl output
+$ NODE_NAME="ip-192-168-21-231.ca-central-1.compute.internal"
+
+# Query EC2 for instance details using the private DNS name
+$ aws ec2 describe-instances \
+  --filters "Name=private-dns-name,Values=${NODE_NAME}" \
+  --query 'Reservations[].Instances[].[InstanceId,PublicIpAddress,PrivateIpAddress]' \
+  --output table
+
+# Example output
+| InstanceId          | PublicIpAddress | PrivateIpAddress |
+|---------------------|-----------------|------------------|
+| i-0123456789abcdef0 | 15.223.3.109    | 192.168.21.231   |
+
+----  
+
+**Command explanation:**
+
+- `aws ec2 describe-instances`: Queries the EC2 API for instance information
+- `--filters "Name=private-dns-name,Values=${NODE_NAME}"`: Filters results to the specific node by its private DNS name
+- `--query 'Reservations[].Instances[].[InstanceId,PublicIpAddress,PrivateIpAddress]'`: Extracts only the instance ID and IP addresses from the response
+- `--output table`: Formats the output as a readable table
+
+This is useful for troubleshooting, auditing, or when you need to perform actions on the underlying EC2 instances.
+
+=== Establishing SSH Connection
+
+Once you have the public IP address, establish an SSH connection using the key pair specified during cluster creation:
+
+[source,shell]
+----
+ssh -i ~/.ssh/id_rsa ec2-user@15.223.3.109
+----
+
+**Parameters explained:**
+
+- `-i ~/.ssh/id_rsa`: Specifies the path to your private SSH key (replace with your actual key path)
+- `ec2-user`: The default username for Amazon Linux instances
+- `15.223.3.109`: The public IP address of the node (replace with your node's actual IP)
+
+You'll need to repeat this process and the subsequent installation steps for each worker node in your cluster.
+
+== Installation Requirements
+
+Longhorn has specific system-level dependencies that must be installed on each Kubernetes worker node. This section details these requirements and explains their importance.
+
+=== System Prerequisites
+
+According to the official Longhorn documentation, each node in your Kubernetes cluster must satisfy the following requirements:
+
+**Container Runtime**
+
+A Kubernetes-compatible container runtime must be installed:
+- Docker v1.13 or later
+- containerd v1.3.7 or later
+- CRI-O or other Kubernetes CRI-compatible runtimes
+
+EKS nodes use containerd by default, which satisfies this requirement.
+
+**Kubernetes Version**
+
+Longhorn requires Kubernetes v1.25 or later. EKS clusters running recent Kubernetes versions (1.25+) meet this requirement.
+
+**iSCSI Support**
+
+`open-iscsi` must be installed, and the `iscsid` daemon must be running on all nodes. This is the **most critical requirement** and often the one that requires manual intervention.
+
+Longhorn uses the Internet Small Computer Systems Interface (iSCSI) protocol to attach block storage volumes to pods. The `iscsiadm` command-line tool (part of open-iscsi) enables the kubelet to attach and detach Longhorn volumes to containers.
+
+**NFSv4 Client (for RWX volumes)**
+
+If you plan to use Read-Write-Many (RWX) volumes, each node must have an NFSv4 client installed. Longhorn uses NFS to enable multiple pods to mount the same volume simultaneously.
+
+**Filesystem Support**
+
+The host filesystem must support file extents for efficient storage. Longhorn currently supports:
+- **ext4**: The default filesystem for most Linux distributions
+- **XFS**: A high-performance journaling filesystem
+
+Both filesystems support file extents, which allow Longhorn to efficiently allocate and manage storage space.
+
+**Standard Linux Utilities**
+
+The following standard utilities must be available on each node:
+`bash`, `curl`, `findmnt`, `grep`, `awk`, `blkid`, `lsblk`
+
+These tools are used by Longhorn for system discovery, volume management, and health checks.
+
+[NOTE]
+====
+**Amazon Linux 2023 Compatibility**: Amazon Linux 2023, the default operating system for EKS nodes, satisfies all Longhorn requirements **except for open-iscsi**. The `iscsi-initiator-utils` package must be manually installed on each node.
+====
+
+=== Quick Installation: Open-iSCSI Setup
+
+For users who prefer a streamlined approach, here are the essential commands to install and configure open-iscsi on your Amazon Linux 2023 nodes:
+
+[source,shell]
+----
+# Install the iSCSI initiator package
+$ sudo dnf install -y iscsi-initiator-utils
+
+# Enable the iscsid service to start on boot
+$ sudo systemctl enable iscsid
+
+# Start the iscsid service immediately
+$ sudo systemctl start iscsid
+----
+
+**Repeat these commands on every worker node in your cluster.**
+
+=== Detailed Open-iSCSI Installation and Verification
+
+This section provides a detailed walkthrough of the open-iscsi installation process with verification steps.
+
+==== Step 1: Install iSCSI Initiator Package
+
+Connect to a node via SSH and install the package:
+
+[source,shell]
+----
+$ sudo dnf install -y iscsi-initiator-utils
+----
+
+**What this does:**
+
+- Uses `dnf` (the package manager for Amazon Linux 2023) to install the `iscsi-initiator-utils` package
+- The `-y` flag automatically confirms the installation without prompting
+
+This package includes the `iscsiadm` command-line tool and the `iscsid` daemon, which Longhorn requires to manage iSCSI sessions.
+
+==== Step 2: Verify Installation
+
+Check that the `iscsiadm` tool is installed and operational:
+
+[source,shell]
+----
+$ iscsiadm --version
+
+# Example output
+iscsiadm version 6.2.1.4
+----
+
+**What this tells you:**
+
+This confirms that the iSCSI initiator tools are correctly installed. The version number may vary depending on the package repository version.
+
+==== Step 3: Enable Automatic Service Startup
+
+Configure the `iscsid` service to start automatically when the node boots:
+
+[source,shell]
+----
+$ sudo systemctl enable iscsid
+----
+
+**What this does:**
+
+- Creates a systemd service link that ensures `iscsid` starts during the boot process
+- This is critical because Longhorn needs the iSCSI daemon running to manage volumes; if the service isn't enabled, volumes will fail to attach after node reboots
+
+==== Step 4: Start the Service Immediately
+
+Start the `iscsid` service without waiting for a reboot:
+
+[source,shell]
+----
+$ sudo systemctl start iscsid
+----
+
+**What this does:**
+
+- Immediately starts the `iscsid` daemon, making the node ready for Longhorn volume attachments
+
+==== Step 5: Verify Service Status
+
+Confirm that the service is running correctly:
+
+[source,shell]
+----
+$ sudo systemctl status iscsid
+
+# Example output
+● iscsid.service - Open-iSCSI
+     Loaded: loaded (/usr/lib/systemd/system/iscsid.service; enabled; preset: disabled)
+     Active: active (running) since Sun 2026-01-25 02:13:24 UTC; 7s ago
+----
+
+**What to look for:**
+
+- `Loaded: loaded ... enabled`: Confirms the service is loaded and enabled for automatic startup
+- `Active: active (running)`: Confirms the service is currently running
+
+If you see any errors, troubleshoot before proceeding with Longhorn installation.
+
+== Installing Longhorn using Helm
+
+With all nodes prepared, you can now install Longhorn using the Helm package manager. This section walks through the installation process and explains important configuration options.
+
+=== Understanding Helm Configuration
+
+Helm uses a `values.yaml` file to configure chart deployments. The Longhorn chart includes comprehensive default settings, but certain options may need customization for your environment.
+
+For this deployment, we create a `custom-values.yaml` file with minimal overrides:
+
+.custom-values.yaml
+[source,yaml]
+----
+preUpgradeChecker:
+  jobEnabled: false
+----
+
+**Configuration explanation:**
+
+- `preUpgradeChecker.jobEnabled: false`: Disables the pre-upgrade checker job during initial installation. This job typically runs before upgrades to validate cluster readiness. Disabling it during first-time installation avoids unnecessary job creation. For future upgrades, you may want to enable this check.
+
+=== Executing the Helm Installation
+
+Run the following Helm command to install Longhorn:
+
+[source,shell]
+----
+$ helm install longhorn \
+    --repo https://charts.longhorn.io \
+    longhorn \
+    --namespace longhorn-system \
+    --create-namespace \
+    -f custom-values.yaml
+----
+
+**Command breakdown:**
+
+- `helm install longhorn`: Initiates installation of a Helm release named `longhorn`
+- `--repo https://charts.longhorn.io`: Specifies the Longhorn Helm chart repository URL (this fetches the chart directly without adding the repo to your Helm configuration)
+- `longhorn`: The name of the chart within the repository
+- `--namespace longhorn-system`: Deploys all Longhorn components into the `longhorn-system` namespace
+- `--create-namespace`: Automatically creates the `longhorn-system` namespace if it doesn't exist
+- `-f custom-values.yaml`: Applies configuration overrides from your custom values file
+
+The installation process deploys several Kubernetes resources including DaemonSets (for node agents), Deployments (for the Longhorn manager and UI), Services, and CustomResourceDefinitions (CRDs) that define Longhorn-specific resources.
+
+=== Verifying Storage Class Creation
+
+After installation completes, verify that Longhorn has created and configured StorageClasses:
+
+.List all StorageClasses in the cluster
+[source,shell]
+----
+$ kubectl get storageclasses
+
+# Example output
+NAME                 PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+gp2                  kubernetes.io/aws-ebs   Delete          WaitForFirstConsumer   false                  4h2m
+longhorn (default)   driver.longhorn.io      Delete          Immediate              true                   138m
+longhorn-static      driver.longhorn.io      Delete          Immediate              true                   138m
+----
+
+**Output explanation:**
+
+- `longhorn (default)`: The primary Longhorn StorageClass, marked as the default. Any PVC without an explicit `storageClassName` will use this class.
+- **PROVISIONER** `driver.longhorn.io`: The Longhorn CSI driver identifier
+- **RECLAIMPOLICY** `Delete`: When a PVC is deleted, the underlying volume is also automatically deleted
+- **VOLUMEBINDINGMODE** `Immediate`: Volumes are provisioned immediately when a PVC is created, rather than waiting for a pod to request binding
+- **ALLOWVOLUMEEXPANSION** `true`: Enables online volume expansion—you can increase PVC size without deleting and recreating volumes
+- `longhorn-static`: An alternative StorageClass for use cases requiring specific configuration (consult Longhorn documentation for details)
+
+The `gp2` StorageClass (if present) is a remnant from EKS default configuration and uses the EBS provisioner. It is no longer the default and can generally be ignored or deleted if you're exclusively using Longhorn.
+
+=== Storage Class in Action
+
+With Longhorn configured as the default StorageClass, any application that requests persistent storage will automatically receive Longhorn volumes.
+
+For example, PostgreSQL and Redis deployments in the Service Foundry namespace automatically use Longhorn for their data persistence:
+
+.View PersistentVolumes in the cluster
+[source,shell]
+----
+$ kubectl get pv
+
+# Example output
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                                       STORAGECLASS   VOLUMEATTRIBUTESCLASS   REASON   AGE
+pvc-4f9baf6b-dd14-4e8c-87db-bcbc712fbb56   8Gi        RWO            Delete           Bound    keycloak/data-keycloak-postgresql-0         longhorn       <unset>                          95m
+pvc-648a4534-2363-4530-bbef-5284e2e81457   8Gi        RWO            Delete           Bound    service-foundry/redis-data-redis-master-0   longhorn       <unset>                          92m
+pvc-988abaf1-5aa1-4f20-b973-c9ea4856a05d   8Gi        RWO            Delete           Bound    service-foundry/data-postgresql-0           longhorn       <unset>                          95m
+----
+
+**Output explanation:**
+
+- **NAME**: The unique PersistentVolume identifier (auto-generated by Kubernetes)
+- **CAPACITY**: The size of the volume (8Gi in these examples)
+- **ACCESS MODES** `RWO`: Read-Write-Once—the volume can be mounted by a single pod
+- **STATUS** `Bound`: The volume is successfully bound to a PersistentVolumeClaim
+- **CLAIM**: The namespace and name of the PVC using this volume (e.g., `keycloak/data-keycloak-postgresql-0`)
+- **STORAGECLASS** `longhorn`: Confirms these volumes were provisioned by the Longhorn driver
+
+.View PersistentVolumeClaims across all namespaces
+[source,shell]
+----
+$ kubectl get pvc -A
+
+# Example output
+NAMESPACE         NAME                         STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+keycloak          data-keycloak-postgresql-0   Bound    pvc-4f9baf6b-dd14-4e8c-87db-bcbc712fbb56   8Gi        RWO            longhorn       <unset>                 96m
+service-foundry   data-postgresql-0            Bound    pvc-988abaf1-5aa1-4f20-b973-c9ea4856a05d   8Gi        RWO            longhorn       <unset>                 96m
+service-foundry   redis-data-redis-master-0    Bound    pvc-648a4534-2363-4530-bbef-5284e2e81457   8Gi        RWO            longhorn       <unset>                 93m
+
+----
+
+**Output explanation:**
+
+- **NAMESPACE**: The Kubernetes namespace containing the PVC
+- **NAME**: The name of the PersistentVolumeClaim (typically defined in the application's Helm chart or manifest)
+- **STATUS** `Bound`: The PVC has been successfully matched with a PersistentVolume
+- **VOLUME**: The name of the PV satisfying this claim
+
+This output demonstrates that applications deployed after Longhorn installation automatically receive Longhorn-backed storage without requiring explicit configuration in their Helm charts or manifests.
+
+== Accessing the Longhorn UI with HTTPRoute and Single Sign-On
+
+Longhorn includes a web-based management UI that provides visibility into volume health, node status, backups, and system configuration. This section demonstrates how to expose the Longhorn UI securely using Kubernetes Gateway API HTTPRoute with single sign-on authentication.
+
+=== Prerequisites
+
+This configuration assumes you have already deployed:
+
+- **Traefik Gateway**: A Kubernetes Gateway implementation using Traefik as the ingress controller
+- **Keycloak**: An identity and access management solution for authentication
+- **OAuth2 Proxy**: A reverse proxy that integrates with Keycloak to provide OAuth2/OIDC authentication for HTTP services
+
+This architecture enables centralized authentication: users authenticate once with Keycloak, and OAuth2 Proxy validates their session for subsequent requests to protected services like Longhorn UI.
+
+=== Architecture Overview
+
+The authentication flow works as follows:
+
+1. A user navigates to `https://longhorn.servicefoundry.org/`
+2. The Traefik Gateway receives the request and routes it to the Longhorn HTTPRoute
+3. The HTTPRoute applies the `forward-auth-delegate` middleware, which forwards authentication to OAuth2 Proxy
+4. OAuth2 Proxy checks if the user has a valid session; if not, it redirects to Keycloak for login
+5. After successful authentication, OAuth2 Proxy forwards the request to the Longhorn frontend service
+6. The Longhorn UI is rendered for the authenticated user
+
+This approach provides enterprise-grade security without requiring Longhorn-specific user management.
+
+=== Traefik Middleware Configuration
+
+To enable the `longhorn-system` namespace to use the authentication middleware from the `service-foundry` namespace, we create a delegating middleware:
+
+.traefik-middlewares.yaml
+[source,yaml]
+----
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: forward-auth-delegate
+  namespace: longhorn-system
+spec:
+  chain:
+    middlewares:
+      - name: forward-auth 
+        namespace: service-foundry
+----
+
+**Configuration explanation:**
+
+- **apiVersion** `traefik.io/v1alpha1`: Uses the Traefik CRD API version for defining middleware
+- **kind** `Middleware`: Defines this resource as a Traefik middleware
+- **metadata.name** `forward-auth-delegate`: The name of this middleware, which will be referenced in the HTTPRoute
+- **metadata.namespace** `longhorn-system`: Places this middleware in the same namespace as the Longhorn deployment
+- **spec.chain.middlewares**: Chains together one or more middlewares to be applied in sequence
+  - **name** `forward-auth`: References the existing authentication middleware
+  - **namespace** `service-foundry`: Specifies that the referenced middleware exists in the `service-foundry` namespace
+
+This delegation pattern allows you to centralize authentication logic in the `service-foundry` namespace while enabling other namespaces to reference it. This avoids duplicating middleware configuration across multiple namespaces.
+
+=== HTTPRoute Configuration
+
+The HTTPRoute resource defines how traffic to the Longhorn domain is routed and authenticated:
+
+.httproutes.yaml
+[source,yaml]
+----
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: longhorn-httproute
+  namespace: longhorn-system
+spec:
+  parentRefs:
+    - name: traefik-gateway
+      namespace: traefik
+  hostnames:
+    - longhorn.servicefoundry.org
+
+  rules: 
+    - matches:
+      - path: 
+          type: PathPrefix
+          value: /
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: forward-auth-delegate
+      backendRefs:
+      - name: longhorn-frontend
+        port: 80  
+    
+----
+
+**Configuration explanation:**
+
+- **apiVersion** `gateway.networking.k8s.io/v1`: Uses the Kubernetes Gateway API (the successor to Ingress)
+- **kind** `HTTPRoute`: Defines routing rules for HTTP traffic
+- **metadata.name** `longhorn-httproute`: The name of this routing rule
+- **metadata.namespace** `longhorn-system`: Deploys this route in the same namespace as Longhorn
+
+**spec.parentRefs:**
+- Specifies which Gateway this route attaches to
+- **name** `traefik-gateway`: References the Traefik Gateway resource
+- **namespace** `traefik`: The namespace containing the Gateway
+
+**spec.hostnames:**
+- Lists the domain names this route handles
+- `longhorn.servicefoundry.org`: Requests with this hostname will be routed according to these rules
+
+**spec.rules:**
+- Defines matching conditions and routing behavior
+
+**matches:**
+- **path.type** `PathPrefix`: Matches requests where the path starts with the specified value
+- **path.value** `/`: Matches all paths (since every path starts with `/`)
+
+**filters:**
+- Applies processing to requests before forwarding to the backend
+- **type** `ExtensionRef`: Uses a custom extension (in this case, a Traefik Middleware)
+- **extensionRef.group** `traefik.io`: Specifies the API group for Traefik CRDs
+- **extensionRef.kind** `Middleware`: References a Traefik Middleware resource
+- **extensionRef.name** `forward-auth-delegate`: The name of the middleware to apply (the one we created earlier)
+
+**backendRefs:**
+- Specifies where traffic should be forwarded after filtering
+- **name** `longhorn-frontend`: The Kubernetes Service name for the Longhorn UI
+- **port** `80`: The service port to forward traffic to
+
+=== Accessing the Longhorn UI
+
+After applying the above configurations, navigate to `https://longhorn.servicefoundry.org/` in your browser.
+
+If you're not already authenticated, you'll be redirected to the Keycloak login page:
+
+.Longhorn Single Sign-On Login
+[.img-wide]
+image::longhorn-login.png[Longhorn Single Sign-On Login]
+
+After successful authentication, you'll be directed to the Longhorn dashboard, which provides an overview of your storage system:
+
+.Longhorn Dashboard
+[.img-wide]
+image::longhorn-dashboard.png[Longhorn Dashboard]
+
+**Dashboard metrics include:**
+
+- **Volume gauge**: Total number of Longhorn volumes in the cluster
+- **Schedulable storage**: Amount of storage available for new volume provisioning
+- **Node count**: Number of nodes participating in the Longhorn storage pool
+
+=== Exploring the Nodes Tab
+
+The Nodes tab provides detailed information about each node in the Longhorn storage pool:
+
+.Longhorn Nodes
+[.img-wide]
+image::longhorn-nodes.png[Longhorn Nodes]
+
+**Column descriptions:**
+
+- **Status**: Node scheduling status—`Schedulable` means the node can host new volume replicas
+- **Readiness**: Node health status—`Ready` indicates the node is healthy and operational
+- **Name**: The Kubernetes node name
+- **Replicas**: Number of volume replicas currently hosted on this node
+- **Allocated**: Total storage allocated for replicas on this node
+- **Used**: Actual storage consumed by replicas (may be less than allocated due to thin provisioning)
+- **Size**: Total storage available on the node for Longhorn use
+- **Tags**: Custom labels that can be used for replica placement policies
+
+Monitoring this view helps you understand storage distribution, identify capacity constraints, and plan for scaling.
+
+=== Exploring the Volumes Tab
+
+The Volumes tab lists all Longhorn volumes and their current state:
+
+.Longhorn Volumes
+[.img-wide]
+image::longhorn-volumes.png[Longhorn Volumes]
+
+**Column descriptions:**
+
+- **Status**: Volume health state—`Healthy` indicates all replicas are synchronized and operational
+- **Name**: The PersistentVolume name (auto-generated by Kubernetes)
+- **Size**: The provisioned capacity of the volume
+- **Actual Size**: The actual disk space consumed (can be smaller due to thin provisioning and compression)
+- **Created**: Timestamp when the volume was created
+- **Data Engine**: The storage engine implementation (`v1` or `v2` in newer versions)
+- **PV/PVC**: Indicates whether the volume is bound to a PVC
+- **Namespace**: The namespace containing the PVC
+- **Attached To**: The node where the volume is currently attached (if in use by a pod)
+
+This view is invaluable for troubleshooting storage issues, monitoring volume health, and planning backup strategies.
+
+== Conclusion
+
+Throughout this guide, you've learned how to deploy and configure a production-ready distributed storage solution for Amazon EKS using Longhorn. The key accomplishments include:
+
+**Understanding Longhorn**: You now understand Longhorn's architecture, its advantages over EBS CSI Driver, and the specific benefits it provides for stateful Kubernetes workloads—particularly in terms of cross-AZ accessibility, distributed storage, and flexible access modes.
+
+**Cluster Preparation**: You've configured your EKS cluster with appropriate instance types, minimum node count for high availability, SSH access for node management, and an understanding of why certain design decisions (like avoiding EBS CSI Driver) matter.
+
+**Node Configuration**: You've installed and verified open-iscsi on all worker nodes, ensuring they meet Longhorn's system requirements for iSCSI-based volume attachment.
+
+**Longhorn Deployment**: You've used Helm to deploy Longhorn with appropriate custom configuration, verified StorageClass creation, and confirmed that applications automatically use Longhorn for persistent storage.
+
+**Secure UI Access**: You've configured HTTPRoute with Traefik middleware to expose the Longhorn UI with single sign-on authentication, providing secure, centralized access management.
+
+=== Next Steps
+
+With Longhorn operational, consider these additional tasks to maximize its value:
+
+- **Configure Backup Targets**: Set up S3 or NFS backup targets to enable automated snapshot backups and disaster recovery
+- **Implement Snapshot Policies**: Create recurring snapshot schedules for critical volumes
+- **Tune Replica Count**: Adjust replica count based on your availability requirements and storage capacity
+- **Monitor Performance**: Integrate Longhorn metrics with Prometheus and Grafana for operational visibility
+- **Test Disaster Recovery**: Validate your backup and restore procedures in a non-production environment
+
+== References
+
+- https://longhorn.io/docs/1.10.1/deploy/install/#installation-requirements[Longhorn Installation Requirements]
+- https://longhorn.io/docs/[Official Longhorn Documentation]
