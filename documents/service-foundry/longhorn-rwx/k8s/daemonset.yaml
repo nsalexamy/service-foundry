@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: custom-node-exporter
+  namespace: service-foundry
+  labels:
+    app: custom-node-exporter
+spec:
+  selector:
+    matchLabels:
+      app: custom-node-exporter
+  template:
+    metadata:
+      labels:
+        app: custom-node-exporter
+    spec:
+      hostNetwork: true
+      hostPID: true
+      containers:
+      - name: node-exporter
+        image: credemol/custom-node-exporter:0.5.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 9100
+          hostPort: 9100
+          name: metrics
+        env:
+        - name: HOST_PROC
+          value: /host/proc
+        - name: HOST_SYS
+          value: /host/sys
+        - name: HOST_ETC
+          value: /host/etc
+        - name: LOG_DIR
+          value: /var/log/custom-node-exporter
+        - name: LOG_INTERVAL
+          value: "1m"
+        volumeMounts:
+        - name: proc
+          mountPath: /host/proc
+          readOnly: true
+        - name: sys
+          mountPath: /host/sys
+          readOnly: true
+        - name: os-release
+          mountPath: /host/etc/os-release
+          readOnly: true
+        - name: logs
+          mountPath: /var/log/custom-node-exporter
+        resources:
+          limits:
+            cpu: 100m
+            memory: 100Mi
+          requests:
+            cpu: 50m
+            memory: 50Mi
+      volumes:
+      - name: proc
+        hostPath:
+          path: /proc
+      - name: sys
+        hostPath:
+          path: /sys
+      - name: os-release
+        hostPath:
+          path: /etc/os-release
+          type: File
+      - name: logs
+        persistentVolumeClaim:
+          claimName: custom-node-exporter-logs-pvc
+
