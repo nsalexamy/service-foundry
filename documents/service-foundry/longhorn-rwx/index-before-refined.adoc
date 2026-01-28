@@ -1,0 +1,304 @@
+= Longhorn: How to use Shared ReadWriteMany Volume for Stateful applications
+
+:imagesdir: images
+
+[.img-wide]
+image::stateful-app-with-rwx-volume.png[]
+
+== Introduction
+
+Longhorn is a distributed block storage system for Kubernetes. It is a simple, open source, and production-ready storage solution for Kubernetes.
+
+In the previous article, we have installed Longhorn on AWS EKS and it created a StorageClass named `longhorn` and marked as the default StorageClass which is ReadWriteOnce access mode. We were able to see PostgreSQL and Redis are deployed successfully using Longhorn StorageClass.
+
+In this article, we will show how to use Shared ReadWriteMany Volume for Stateful applications. This approach is useful when installing Helm charts that use ReadWriteMany storage for a Stateful application. For example, Apache Airflow Helm chart needs ReadWriteMany storage for its logs and metadata because multiple pods need to write logs to the same storage.
+
+We will create a Go application that will write logs to a file in a directory mounted to a ReadWriteMany storage. The application will be deployed as a DaemonSet to ensure that it runs on all nodes to see the log files are replicated across all nodes. And we can also check the PVC with ReadWriteMany storage class is used by multiple pods.
+
+Keep in mind that the example application is just for demo purpose. Its log handler is not the best practice. It is just for demo purpose to see how ReadWriteMany storage works.
+
+
+== Prerequisites
+
+* Longhorn installed
+* kubectl
+* k8s cluster
+* Helm
+
+Refer to the link below on how to install Longhorn on AWS EKS:
+
+- link:https://medium.com/@nsalexamy/longhorn-highly-available-distributed-block-storage-on-aws-eks-68aebce503ba[Longhorn: Highly Available, Distributed Block Storage on AWS EKS]
+
+== Sample Application
+
+The application used in this article is a Go application that write system metrics of a host node every minute to a file in a directory mounted to a ReadWriteMany storage. The application will be deployed as a DaemonSet to ensure that it runs on all nodes to see the log files are replicated across all nodes. And we can also check the PVC with ReadWriteMany storage class is used by multiple pods.
+
+At the end of this article, we will see all log files created by multiple pods in the same directory.
+
+Here is the sample log record:
+
+.Sample log record
+[.img-wide]
+image::sample-log-record.png[]
+
+== Steps
+
+=== Create Longhorn StorageClass
+
+Create a Longhorn StorageClass with ReadWriteMany access mode.
+
+[source, yaml]
+----
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-rwx
+# <1>  
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+# <2>
+parameters:
+  numberOfReplicas: "3"
+  staleReplicaTimeout: "30"
+  fromBackup: ""
+  migratable: "false"  
+----
+
+<1> The provisioner is driver.longhorn.io.
+<2> The migratable flag must be disabled for RWX volumes.
+
+
+According to the official documentation, migratable flag must be disabled for RWX volumes.
+
+[quote, https://longhorn.io/docs/1.10.1/nodes-and-volumes/volumes/rwx-volumes/, ReadWriteMany]
+____
+An RWX volume must have the access mode set to ReadWriteMany and the “migratable” flag disabled (parameters.migratable: false).
+____
+
+Create Storage Class for Longhorn RWX volumes 
+
+.create storage class
+[source,shell]
+----
+$ kubectl apply -f longhorn-rwx-sc.yaml
+----
+
+Verify Storage Class
+
+[source,shell]
+----
+$ kubectl get storageclasses
+NAME                 PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+gp2                  kubernetes.io/aws-ebs   Delete          WaitForFirstConsumer   false                  2d3h
+longhorn (default)   driver.longhorn.io      Delete          Immediate              true                   2d1h
+longhorn-rwx         driver.longhorn.io      Delete          Immediate              true                   62m
+longhorn-static      driver.longhorn.io      Delete          Immediate              true                   2d1h
+----
+
+Make sure the longhorn-rwx storage class is created.
+
+
+=== Create PVC
+
+This is a PVC with ReadWriteMany access mode. We will use this PVC to store the logs of the custom-node-exporter application.
+
+[source, yaml]
+----
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: custom-node-exporter-logs-pvc
+  namespace: service-foundry
+spec:
+  accessModes:
+    # <1>
+    - ReadWriteMany
+  storageClassName: longhorn-rwx
+  resources:
+    requests:
+      storage: 1Gi
+----
+
+<1> The access mode is ReadWriteMany.
+
+Create the PVC
+
+[source,shell]
+----
+$ kubectl apply -f pvc.yaml
+----
+
+Verify the PVC
+
+[source,shell]
+----
+$ kubectl get pvc -n service-foundry
+
+NAME                            STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+custom-node-exporter-logs-pvc   Bound    pvc-d5537143-35b9-4669-bb95-50fa8b7a6f19   1Gi        RWX            longhorn-rwx   <unset>                 52m
+----
+
+=== Create DaemonSet
+
+This is a DaemonSet that will deploy the custom-node-exporter application to all nodes in the cluster. The application will write logs to a file in a directory mounted to the PVC with ReadWriteMany access mode.
+
+[source, yaml]
+----
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: custom-node-exporter
+  namespace: service-foundry
+  labels:
+    app: custom-node-exporter
+spec:
+  selector:
+    matchLabels:
+      app: custom-node-exporter
+  template:
+    metadata:
+      labels:
+        app: custom-node-exporter
+    spec:
+      hostNetwork: true
+      hostPID: true
+      containers:
+      - name: node-exporter
+        image: credemol/custom-node-exporter:0.5.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 9100
+          hostPort: 9100
+          name: metrics
+        env:
+        # Other environment variables
+        # <1>
+        - name: LOG_DIR
+          value: /var/log/custom-node-exporter
+
+        volumeMounts:
+        # Other volume mounts
+        # <2>
+        - name: logs
+          mountPath: /var/log/custom-node-exporter
+
+      volumes:
+      # Other volumes
+      # <3>
+      - name: logs
+        persistentVolumeClaim:
+          claimName: custom-node-exporter-logs-pvc
+----
+
+<1> The LOG_DIR environment variable is set to /var/log/custom-node-exporter.
+<2> The logs volume is mounted to /var/log/custom-node-exporter.
+<3> The logs volume is a PVC with ReadWriteMany access mode.
+
+== Verify the PVC is used by multiple pods
+
+
+=== Using a Debug Pod
+
+
+Create a debug pod to verify the PVC is used by multiple pods.
+
+Here is the debug pod yaml file:
+
+.longhorn-rwx-debug-pod.yaml
+[source, yaml]
+----
+apiVersion: v1
+kind: Pod
+metadata:
+  name: longhorn-rwx-debug
+  namespace: service-foundry
+spec:
+  containers:
+  - name: longhorn-rwx-debug
+    # <1>
+    image: busybox
+    command: ["sh", "-c", "sleep 36000"]
+    restartPolicy: Never
+    # <2>
+    volumeMounts:
+    - mountPath: /data
+      name: vol
+  volumes:
+  # <3>
+  - name: vol
+    persistentVolumeClaim:
+      claimName: custom-node-exporter-logs-pvc
+----
+<1> The image is busybox.
+<2> The volume is mounted to /data.
+<3> The volume is a PVC with ReadWriteMany access mode.
+
+
+[source,shell]
+----
+$ POD_NAME=longhorn-rwx-debug
+
+$ kubectl exec -it -n service-foundry $POD_NAME -- /bin/sh
+
+# In the debug pod
+
+$ ls -l /data
+
+ip-192-168-25-18.ca-central-1.compute.internal-log-scheduler-2026-01-27.log
+ip-192-168-25-18.ca-central-1.compute.internal-log-scheduler-2026-01-28.log
+ip-192-168-50-87.ca-central-1.compute.internal-log-scheduler-2026-01-27.log
+ip-192-168-50-87.ca-central-1.compute.internal-log-scheduler-2026-01-28.log
+ip-192-168-58-1.ca-central-1.compute.internal-log-scheduler-2026-01-27.log
+ip-192-168-58-1.ca-central-1.compute.internal-log-scheduler-2026-01-28.log
+lost+found
+----
+
+Log file name format: <node-name>-log-scheduler-<date>.log
+
+This files are created by pods of the custom-node-exporter application running on different nodes.
+
+
+=== Using Share-Manager-Pod
+
+==== What is Share-Manager-Pod?
+
+Share-Manager-Pod is a pod that runs in the longhorn-system namespace. It is used to manage the share of the Longhorn volumes. This pod is automatically created only when the first RWX volume (PVC/PV) is created and needs to be mounted.
+
+==== How to use Share-Manager-Pod?
+
+[source,shell]
+----
+$ POD_NAME=$(kubectl get pod -l longhorn.io/component=share-manager -n longhorn-system -o jsonpath='{.items[0].metadata.name}')
+
+$ kubectl exec -it -n longhorn-system $POD_NAME -- /bin/sh
+
+# In the share-manager pod
+
+$ ls /export
+
+pvc-d5537143-35b9-4669-bb95-50fa8b7a6f19
+
+$ ls /export/pvc-d5537143-35b9-4669-bb95-50fa8b7a6f19
+
+
+ip-192-168-25-18.ca-central-1.compute.internal-log-scheduler-2026-01-27.log
+ip-192-168-25-18.ca-central-1.compute.internal-log-scheduler-2026-01-28.log
+ip-192-168-50-87.ca-central-1.compute.internal-log-scheduler-2026-01-27.log
+ip-192-168-50-87.ca-central-1.compute.internal-log-scheduler-2026-01-28.log
+ip-192-168-58-1.ca-central-1.compute.internal-log-scheduler-2026-01-27.log
+ip-192-168-58-1.ca-central-1.compute.internal-log-scheduler-2026-01-28.log
+lost+found
+----
+
+We can see that the log files are replicated across all nodes.
+
+
+== Conclusion
+
+In this article, we have shown how to use ReadWriteMany storage for a Stateful application. We have created a Longhorn StorageClass with ReadWriteMany access mode and used it to create a PVC. We have also deployed a custom-node-exporter application that uses the PVC to store its logs. We have also shown how to use Share-Manager-Pod to manage the share of the Longhorn volumes.
+
+
+
+
