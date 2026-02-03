@@ -1,0 +1,1483 @@
+= Using Longhorn - Snapshots, S3 Backups, and Restore Operations
+
+:imagesdir: images
+
+[.img-wide]
+image::longhorn-snapshots-and-backups.png[]
+
+YouTube: https://youtu.be/yiAmRG74oto
+
+== Introduction
+
+Longhorn is a distributed block storage system for Kubernetes that provides high availability and disaster recovery for persistent volumes. This guide explains how to configure AWS S3 as a backup target for Longhorn volumes, implement backup and restore procedures, and understand the distinctions between HA, snapshots, and backups.
+
+== Prerequisites
+
+*   **Longhorn Installed**: Kubernetes cluster with Longhorn v1.11.0 or later.
+*   **AWS Account**: Access to create S3 buckets and IAM resources.
+*   **AWS CLI** (Optional): Useful for verifying bucket creation and permissions.
+*   **kubectl**: Configured with access to create secrets in the `longhorn-system` namespace.
+
+== Longhorn Snapshot and Backup
+
+_"If Longhorn already keeps my volumes HA across 3 nodes / AZs, why do I need snapshots and backups at all?"_
+
+**The key is this:**
+
+*   **HA protects you from infrastructure failure.**
+*   **Snapshots and backups protect you from everything else.**
+
+They solve different classes of problems.
+
+=== What Longhorn HA Actually Protects You From
+
+Longhorn's High Availability ensures your data remains available despite **infrastructure-level failures**:
+
+*   **Node failures**: If a Kubernetes node crashes, dies, or becomes unreachable.
+*   **Disk failures**: When a physical disk fails on a node.
+*   **Availability Zone outages**: If an entire AZ goes down (when replicas are spread across AZs).
+*   **Pod evictions**: Normal cluster operations like node draining or autoscaling.
+
+**How it works**: Longhorn creates multiple replicas (typically 3) of your volume data, each stored on a different node. If one replica becomes unavailable, the volume continues operating seamlessly using healthy replicas.
+
+=== What HA Does Not Protect You From (Critical)
+
+HA replication propagates **all changes** to all replicas—including destructive ones:
+
+*   **Accidental deletion**: Delete a file or database record? **All replicas reflect the deletion immediately.**
+*   **Data corruption**: Application bug corrupts data? **All replicas get the corrupted data.**
+*   **Ransomware/malware**: Malicious encryption or data modification? **Replicated to all copies.**
+*   **Bad migrations**: Database schema migration fails halfway? **HA can't roll it back.**
+*   **Human error**: Wrong `kubectl delete`, misconfigured app, accidental overwrite? **Replicated everywhere.**
+*   **Cluster-wide disasters**: Control plane failure, cluster misconfiguration, namespace deletion.
+
+**Critical insight**: HA keeps your data available _as-is_. It doesn't protect you from _what_ the data becomes.
+
+=== Where Snapshots Fit (Local, Fast, Operational)
+
+Longhorn snapshots are **point-in-time copies stored locally within the cluster**.
+
+**Use cases**:
+
+*   **Pre-upgrade safety**: Take a snapshot before upgrading an application or database schema.
+*   **Fast rollback**: Restore to a known-good state in seconds/minutes.
+*   **Operational testing**: Clone volumes for testing without affecting production.
+*   **Hourly/daily operational checkpoints**: Frequent snapshots with short retention.
+
+**Characteristics**:
+
+*   **Fast**: Snapshot creation and restoration happen in seconds.
+*   **Local**: Stored within the Longhorn cluster (same infrastructure).
+*   **Space-efficient**: Use delta/incremental storage.
+*   **Limited lifespan**: Typically kept for hours to days.
+
+**Limitation**: Snapshots are stored _in the same cluster_. If the cluster is lost or the Longhorn system itself is compromised, snapshots are lost too.
+
+=== Where Backups Fit (Off-Cluster, Long-Term, DR)
+
+Longhorn backups are **snapshots uploaded to external storage** (S3, NFS, etc.).
+
+**Use cases**:
+
+*   **Disaster recovery (DR)**: Recover from complete cluster failure.
+*   **Cross-cluster migration**: Restore volumes in a different cluster.
+*   **Compliance and retention**: Long-term data retention policies (weeks, months, years).
+*   **Protection against cluster-level catastrophes**: Namespace deletion, control plane failure, complete infrastructure loss.
+
+**Characteristics**:
+
+*   **Off-cluster**: Stored outside the Kubernetes cluster (different infrastructure).
+*   **Durable**: Survives cluster deletion, Longhorn uninstallation, or regional outages.
+*   **Slower**: Restore operations may take minutes to hours depending on data size.
+*   **Long retention**: Kept for weeks, months, or indefinitely.
+
+**Critical**: Backups are your **last line of defense**. They're the only mechanism that survives a complete cluster failure.
+
+=== How HA, Snapshots, and Backups Complement Each Other
+
+Each layer addresses different failure domains:
+
+[options="header"]
+|===
+|Mechanism |Protects Against |Recovery Time |Retention |Scope
+
+|**HA Replicas**
+|Node/disk/AZ failure
+|Instant (automatic)
+|Always active
+|Infrastructure only
+
+|**Snapshots**
+|Accidental changes, bad deployments
+|Seconds to minutes
+|Hours to days
+|In-cluster
+
+|**Backups**
+|Cluster failure, disasters, compliance
+|Minutes to hours
+|Weeks to years
+|Off-cluster
+
+|===
+
+**Together**: HA keeps your service running, snapshots give you operational safety, and backups provide true disaster recovery.
+
+=== Concrete Examples
+
+==== Example 1: Airflow Logs
+
+*   **HA**: Logs stay available if a node dies.
+*   **Snapshot**: Rarely useful (logs are append-only).
+*   **Backup**: Mostly unnecessary (logs are ephemeral and can be regenerated).
+
+**Conclusion**: HA is sufficient; snapshots and backups are optional.
+
+==== Example 2: Airflow Metadata Database
+
+*   **HA**: Keeps the database running during node failures.
+*   **Snapshot**: Taken before schema migrations or major configuration changes.
+*   **Backup**: Recover from a failed migration, accidental data deletion, or cluster disaster.
+
+**Conclusion**: All three mechanisms are needed. This is mission-critical stateful data.
+
+==== Example 3: CI/CD Artifacts
+
+*   **HA**: Ensures builds don't fail due to node loss.
+*   **Snapshot**: Quick rollback after a bad pipeline deployment.
+*   **Backup**: Optional, with short retention (artifacts can often be regenerated).
+
+**Conclusion**: HA + snapshots for operational stability; backups optional depending on regeneration cost.
+
+==== Example 4: Platform Configuration Data
+
+_(Keycloak database, Argo CD state, internal tools)_
+
+*   **HA**: Maintains uptime during infrastructure failures.
+*   **Snapshot**: Enables safe upgrades and testing.
+*   **Backup**: Required for disaster recovery and compliance (audit trails, user data).
+
+**Conclusion**: All three are essential for production platforms.
+
+=== Why "HA Only" Is Dangerous
+
+Relying solely on HA replication exposes you to:
+
+WARNING: **Unrecoverable data loss** from application bugs, human error, or malicious activity. Once data is corrupted or deleted, all replicas reflect that state immediately. Without snapshots or backups, there is no recovery path.
+
+Real-world failure scenarios that HA cannot protect against:
+
+*   A developer runs `kubectl delete pvc` on the wrong namespace.
+*   A database migration script has a bug and corrupts critical tables.
+*   Ransomware encrypts application data.
+*   A misconfigured application truncates a production database table.
+
+**All of these scenarios propagate instantly to all HA replicas.** Without snapshots or backups, your data is gone.
+
+=== Practical Recommendations
+
+A reasonable production approach:
+
+[options="header"]
+|===
+|Data Type |HA |Snapshots |Backups
+
+|Logs
+|✅ Required
+|❌ Not needed
+|❌ Not needed
+
+|Metadata Database
+|✅ Required
+|✅ Before migrations
+|✅ Daily or more
+
+|User/Application Data
+|✅ Required
+|⚠️ Recommended
+|✅ Daily or more
+
+|CI/CD Cache
+|✅ Required
+|❌ Not needed
+|❌ Not needed
+
+|Platform State
+|✅ Required
+|✅ Before upgrades
+|✅ Daily or more
+
+|===
+
+NOTE: The exact snapshot and backup frequency depends on your RPO (Recovery Point Objective) and how much data loss is acceptable.
+
+=== Summary
+
+[quote]
+____
+Even with fully HA replicas across multiple availability zones, snapshots and backups remain essential. HA protects availability during infrastructure failures, snapshots enable safe operations and fast rollback, and backups provide true disaster recovery. These mechanisms solve different problems and must be used together for production environments.
+____
+
+
+== Step 1: Create an AWS S3 Bucket
+
+Create a dedicated S3 bucket for Longhorn backups:
+
+1.  Log in to the **AWS Management Console** and navigate to **S3**.
+2.  Click **Create bucket**.
+3.  Enter a unique **Bucket name** (e.g., `my-longhorn-backups-us-east-1`).
+    *  Use lowercase letters, numbers, and hyphens only.
+4.  Select an **AWS Region** close to your cluster (e.g., `us-east-1`).
+    *  For disaster recovery, consider a region different from your cluster location.
+5.  Leave **Block all public access** enabled.
+6.  Click **Create bucket**.
+
+TIP: Note the **Bucket Name** and **Region** for later configuration.
+
+== Step 2: Create an AWS IAM User and Policy
+
+Longhorn needs permission to access the S3 bucket. It is best practice to create a dedicated IAM user with restricted permissions.
+
+=== 2.1 Create an IAM Policy
+
+1.  Navigate to **IAM** in the AWS Console.
+2.  Click **Policies** -> **Create policy**.
+3.  Select the **JSON** tab and paste the following policy (replace `<your-bucket-name>`):
+
+.LonghornS3BackupPolicy.json
+[source,json]
+----
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "LonghornBackupAccess",
+            "Effect": "Allow",
+            "Action": [
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:ListBucket",
+                "s3:DeleteObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::<your-bucket-name>",
+                "arn:aws:s3:::<your-bucket-name>/*"
+            ]
+        }
+    ]
+}
+----
+
+4.  Click **Next**, name the policy `LonghornS3BackupPolicy`, and click **Create policy**.
+
+=== 2.2 Create an IAM User
+
+With the policy created, the next step is to create a dedicated IAM user that will use this policy. This user represents the "identity" that Longhorn will assume when interacting with S3.
+
+WARNING: In production environments, consider using **IAM Roles for Service Accounts (IRSA)** instead of IAM users with static credentials. IRSA provides temporary, automatically rotated credentials and is more secure than long-lived access keys. However, for simplicity and compatibility with all Kubernetes distributions, this guide uses IAM users. See the IRSA implementation guide for production-grade authentication.
+
+**Detailed Steps:**
+
+1.  **Access IAM Users**:
+    *  Navigate to **Users** in the IAM console.
+    *  Click **Create user**.
+
+2.  **Configure User Identity**:
+    *  Enter a descriptive **User name**: `longhorn-backup-user`
+    *  This name is purely for identification—it doesn't need to match anything in Kubernetes.
+    *  Do **not** enable "Provide user access to the AWS Management Console"—this is a programmatic-only user with no login capabilities.
+
+3.  **Click Next** to proceed to permissions.
+
+4.  **Attach the Policy**:
+    *  Select **Attach policies directly**.
+    *  In the search box, type `LonghornS3BackupPolicy` (the policy you created earlier).
+    *  Check the box next to your policy to select it.
+    *  Verify that only this one policy is selected.
+
+5.  **Review and Create**:
+    *  Click **Next** to review.
+    *  Verify the policy attachment is correct.
+    *  Click **Create user** to finalize.
+
+=== 2.3 Create Access Keys
+
+1.  Click on the newly created user to open user details.
+2.  Go to the **Security credentials** tab.
+3.  Under **Access keys**, click **Create access key**.
+4.  Select **Third-party service** -> **Next** -> **Create access key**.
+5.  **Save the Access key ID and Secret access key** (you cannot retrieve the secret later).
+
+WARNING: Never commit these credentials to Git. For production, consider IAM Roles for Service Accounts (IRSA) or rotate keys every 90 days.
+
+== Step 3: Create a Kubernetes Secret
+
+Store AWS credentials in a Kubernetes secret so Longhorn can access S3.
+
+=== Method 1: Create Secret Using kubectl
+
+[source,bash]
+----
+# Set environment variables with your AWS credentials
+export S3_BACKUP_AWS_ACCESS_KEY_ID="your-access-key-id"
+export S3_BACKUP_AWS_SECRET_ACCESS_KEY="your-secret-access-key"
+
+# Create the secret in longhorn-system namespace
+kubectl create secret generic aws-s3-credentials \
+  -n longhorn-system \
+  --from-literal=AWS_ACCESS_KEY_ID=${S3_BACKUP_AWS_ACCESS_KEY_ID} \
+  --from-literal=AWS_SECRET_ACCESS_KEY=${S3_BACKUP_AWS_SECRET_ACCESS_KEY}
+
+# Verify the secret was created
+kubectl get secret aws-s3-credentials -n longhorn-system
+
+# Clean up environment variables
+unset S3_BACKUP_AWS_ACCESS_KEY_ID
+unset S3_BACKUP_AWS_SECRET_ACCESS_KEY
+----
+
+=== Method 2: Create Secret Using YAML (Recommended for GitOps)
+
+For infrastructure-as-code workflows or when managing secrets declaratively, you can create a YAML manifest. **However, never commit credentials directly to Git.**
+
+WARNING: The example below contains plaintext credentials using `stringData`. In production GitOps workflows, use sealed secrets, external-secrets operator, or a similar tool to encrypt credentials before committing to Git.
+
+1. **Create a YAML file** named `aws-creds.yaml`:
++
+[source,yaml]
+----
+apiVersion: v1
+kind: Secret
+metadata:
+  # The secret name - must match what you configure in Longhorn backup target
+  name: aws-s3-backup-credentials
+  # Must be in the longhorn-system namespace
+  namespace: longhorn-system
+# Generic secrets use 'Opaque' type
+type: Opaque
+# Use 'stringData' for human-readable values (Kubernetes auto-converts to base64)
+stringData:
+  # AWS Access Key ID - identifies the IAM user
+  AWS_ACCESS_KEY_ID: <YOUR_ACCESS_KEY_ID>
+  # AWS Secret Access Key - authenticates the IAM user
+  AWS_SECRET_ACCESS_KEY: <YOUR_SECRET_ACCESS_KEY>
+----
++
+NOTE: The keys `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` must be named exactly as shown. Longhorn expects these specific key names when reading S3 credentials.
+
+2. **Apply the Secret to Your Cluster**:
++
+[source,bash]
+----
+# Create the secret from the YAML file
+kubectl apply -f aws-creds.yaml
+
+# Verify creation
+kubectl get secret aws-s3-backup-credentials -n longhorn-system
+----
+
+3. **Secure or Delete the YAML File**:
++
+[source,bash]
+----
+# Option 1: Delete the file immediately after creation
+rm aws-creds.yaml
+
+# Option 2: If keeping for documentation, remove credential values
+# and add to .gitignore to prevent accidental commits
+echo "aws-creds.yaml" >> .gitignore
+----
+
+TIP: For production environments, consider using Kubernetes external-secrets operator, sealed-secrets, or AWS Secrets Manager integration to avoid storing plaintext credentials in YAML files.
+
+== Step 4: Configure Backup Target in Longhorn
+
+1.  Forward the Longhorn UI:
++
+[source,bash]
+----
+kubectl port-forward -n longhorn-system svc/longhorn-frontend 8080:80
+----
+
+2.  Navigate to **Backup and Restore** -> **Backup Targets**.
+3.  Click **Edit** on the default backup target.
+4.  Configure:
+    *  **Backup Target**: `s3://<bucket-name>@<region>/` (e.g., `s3://my-backup@us-east-1/`)
+    *  **Credential Secret**: `aws-s3-credentials`
+    *  **Poll Interval**: `300` (5 minutes)
+5.  Click **OK** and verify the state shows "Ready".
+
+
+
+== Step 5: Verify Configuration
+
+1.  In Longhorn UI, go to **Volume** and select a test volume.
+2.  Click **Snapshots and Backups** tab.
+3.  Click **Take Snapshot** to create a test snapshot.
+4.  Once the snapshot appears, click **Backup** on that snapshot.
+5.  Monitor the backup progress - it should upload to S3.
+6.  Verify the backup appears in the **Backup** section.
+7.  (Optional) Check S3 directly:
++
+[source,bash]
+----
+aws s3 ls s3://your-bucket-name/backups/ --recursive
+----
+
+8.  **Verify Backup in S3 Console** (Optional but Recommended):
+    *  Log into the AWS S3 Console.
+    *  Navigate to your backup bucket (e.g., `my-longhorn-backups`).
+    *  You should see a directory structure created by Longhorn:
++
+----
+my-longhorn-backups/
+├── backups/
+│   └── <volume-name>/
+│       ├── backup-<timestamp>.cfg  # Backup metadata
+│       └── blocks/                 # Actual data blocks
+----
++
+    *  The presence of these files confirms that Longhorn successfully uploaded data to S3.
+
+TIP: If the backup completes successfully in the Longhorn UI and you can see files in S3, your backup configuration is working correctly. This verification should be performed after initial setup and periodically thereafter.
+
+== Troubleshooting
+
+Backup configuration failures usually fall into one of three categories: permissions issues, network connectivity problems, or configuration errors. Here's how to diagnose and fix the most common issues:
+
+=== Error: "Access Denied" or "AWS Error: Access Denied"
+
+**Symptom**: Longhorn cannot connect to S3, or backup creation fails with an access denied error.
+
+**Root Causes:**
+
+1. **Incorrect IAM Policy**: The policy doesn't grant all required permissions.
+2. **Wrong Bucket ARN**: The policy references a different bucket than configured.
+3. **Invalid Credentials**: The access key or secret key is incorrect or has been rotated.
+
+**Resolution Steps:**
+
+1.  **Verify IAM Policy Permissions**:
++
+[source,bash]
+----
+# Use AWS CLI to check the user's attached policies
+aws iam list-attached-user-policies --user-name longhorn-backup-user
+
+# Verify the policy has all four required permissions:
+# s3:PutObject, s3:GetObject, s3:ListBucket, s3:DeleteObject
+aws iam get-policy-version \
+  --policy-arn <policy-arn-from-previous-command> \
+  --version-id v1
+----
+
+2.  **Verify Bucket Name in Policy**:
+    *  Ensure the bucket name in the IAM policy **exactly matches** the actual S3 bucket name.
+    *  Check for typos, extra spaces, or case sensitivity issues (bucket names are case-sensitive).
+
+3.  **Test Credentials Manually**:
++
+[source,bash]
+----
+# Extract credentials from the Kubernetes secret
+AWS_ACCESS_KEY_ID=$(kubectl get secret aws-s3-backup-credentials -n longhorn-system -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d)
+AWS_SECRET_ACCESS_KEY=$(kubectl get secret aws-s3-backup-credentials -n longhorn-system -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 -d)
+
+# Test listing the bucket using the credentials
+AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
+aws s3 ls s3://<your-bucket-name>/
+
+# If this fails, the credentials or permissions are incorrect
+----
+
+4.  **Recreate Secret with Correct Credentials**:
+    *  If credentials were rotated or incorrect, delete and recreate the secret:
++
+[source,bash]
+----
+kubectl delete secret aws-s3-backup-credentials -n longhorn-system
+# Then recreate following Step 3 instructions
+----
+
+=== Error: "Unable to List S3 Bucket" or "Invalid Endpoint"
+
+**Symptom**: Longhorn reports that it cannot list or access the S3 bucket.
+
+**Root Causes:**
+
+1. **Region Mismatch**: The region in the backup target URL doesn't match the bucket's actual region.
+2. **Incorrect URL Format**: The S3 URL is malformed.
+3. **Bucket Doesn't Exist**: The bucket name is incorrect or the bucket was deleted.
+
+**Resolution Steps:**
+
+1.  **Verify Bucket Region**:
++
+[source,bash]
+----
+# Check the bucket's actual region
+aws s3api get-bucket-location --bucket <your-bucket-name>
+
+# Output will be: {"LocationConstraint": "us-east-1"}
+# (Note: us-east-1 buckets may return null, which is correct)
+----
+
+2.  **Verify Backup Target URL Format**:
+    *  Correct format: `s3://<bucket-name>@<region>/`
+    *  Common mistakes:
+      **  Missing `@` symbol: `s3://<bucket-name>/<region>/` ❌
+      **  Missing trailing `/`: `s3://<bucket-name>@<region>` ❌
+      **  Using ARN: `s3://arn:aws:s3:::<bucket-name>@<region>/` ❌
+      **  Wrong region: `s3://my-bucket@us-west-2/` when bucket is in `us-east-1` ❌
+
+3.  **Update Backup Target with Correct Region**:
+    *  Edit the backup target in Longhorn UI with the correct region from step 1.
+
+=== Error: "Backup Target Not Ready" or "Secret Not Found"
+
+**Symptom**: The backup target shows as unavailable or Longhorn can't find the credential secret.
+
+**Root Causes:**
+
+1. **Secret Doesn't Exist**: The secret wasn't created or was created in the wrong namespace.
+2. **Secret Name Mismatch**: The secret name in Longhorn config doesn't match the actual secret name.
+3. **Wrong Namespace**: The secret exists but not in `longhorn-system` namespace.
+
+**Resolution Steps:**
+
+1.  **Verify Secret Exists**:
++
+[source,bash]
+----
+# Check if secret exists in longhorn-system namespace
+kubectl get secret aws-s3-backup-credentials -n longhorn-system
+
+# If not found, verify it wasn't created in a different namespace
+kubectl get secrets --all-namespaces | grep aws-s3-backup-credentials
+----
+
+2.  **Verify Secret Has Correct Keys**:
++
+[source,bash]
+----
+# The secret must contain exactly these two keys:
+# - AWS_ACCESS_KEY_ID
+# - AWS_SECRET_ACCESS_KEY
+kubectl describe secret aws-s3-backup-credentials -n longhorn-system
+----
+
+3.  **Recreate Secret in Correct Namespace**:
+    *  If the secret is in the wrong namespace or missing keys, delete and recreate it following Step 3.
+
+=== Additional Troubleshooting Commands
+
+[source,bash]
+----
+# View Longhorn manager logs for detailed error messages
+kubectl logs -n longhorn-system -l app=longhorn-manager --tail=100
+
+# Check backup controller logs specifically
+kubectl logs -n longhorn-system deploy/longhorn-manager -c longhorn-manager | grep -i backup
+
+# Verify network connectivity from a pod to S3
+kubectl run -it --rm debug --image=amazon/aws-cli --restart=Never -- \
+  s3 ls s3://<your-bucket-name>/ --region <your-region>
+----
+
+NOTE: Most backup configuration issues can be resolved by carefully verifying: (1) IAM permissions, (2) bucket region, (3) secret existence and correctness, and (4) backup target URL format.
+
+
+== How to Create a Backup
+
+Understanding Longhorn's backup architecture is key to effective data protection. Longhorn follows a snapshot-first approach: **backups are always created from snapshots, not directly from live volumes**. This design ensures data consistency by capturing a stable, point-in-time state before uploading to external storage.
+
+**Why Snapshot-Based Backups?**
+
+* **Consistency**: Snapshots freeze the volume state at a specific moment, preventing data corruption from ongoing writes.
+* **Efficiency**: Longhorn uses incremental snapshots, so only changed data blocks are stored.
+* **Flexibility**: You can create multiple snapshots locally (fast) and selectively choose which ones to backup externally (slower but durable).
+
+**Backup Creation Workflow:**
+
+1. **Snapshot Creation**: Capture the current volume state as a local snapshot.
+2. **Backup Upload**: Upload the snapshot data to the configured backup target (S3, NFS, etc.).
+3. **Metadata Storage**: Store backup metadata in S3 for discovery and restoration.
+
+There are two approaches to creating backups: manual (on-demand) and automated (scheduled).
+
+=== Manual Backup Creation
+
+Manual backups are ideal for one-time backup needs, such as before major application upgrades, database migrations, or when testing new configurations. This gives you complete control over when backups are created.
+
+**Detailed Workflow:**
+
+1.  **Navigate to Volume Management**:
+    *  Open the Longhorn UI.
+    *  Click **Volume** in the top navigation menu.
+    *  You'll see a list of all persistent volumes in your cluster.
+
+2.  **Select Target Volume**:
+    *  Click on the name of the volume you want to back up (e.g., `pvc-abc123` or `postgres-data`).
+    *  This opens the volume detail page showing metadata, health status, and replicas.
+
+3.  **Access Snapshot Management**:
+    *  Click on the **Snapshots and Backups** tab.
+    *  This shows all existing snapshots for this volume.
+
+4.  **Create a Snapshot** (if you need a new one):
+    *  Click the **Take Snapshot** button.
+    *  **Optional**: Provide labels for easier identification:
+      **  `name`: Descriptive name like `pre-migration-v2.0`
+      **  `purpose`: Context like `before-schema-change`
+      **  `created-by`: Your name or automation source
+    *  Click **OK**.
+    *  **What happens**: Longhorn creates a read-only, space-efficient copy of the volume's current state. This happens in seconds and doesn't interrupt the running application.
+    *  The snapshot appears in the snapshot list immediately.
+
+5.  **Create a Backup from the Snapshot**:
+    *  In the snapshot list, locate the snapshot you want to back up.
+    *  Click the **Create Backup** button for that snapshot (may have a cloud/upload icon or appear in a dropdown menu).
+    *  **Optional**: Add backup-specific labels for retention policies or compliance tracking:
+      **  `retention`: `7-days`, `30-days`, `permanent`
+      **  `environment`: `production`, `staging`
+      **  `compliance`: `gdpr`, `hipaa`
+    *  Click **OK** to start the backup.
+    *  **What happens**: Longhorn uploads the snapshot data to S3. Progress is shown in the UI. Depending on the volume size and network bandwidth, this can take from seconds to hours.
+
+6.  **Monitor Backup Progress**:
+    *  The backup will show a progress indicator (percentage or status message).
+    *  You can navigate away—the backup continues in the background.
+    *  Once complete, the backup status changes to "Completed" with a timestamp.
+
+7.  **Verify Backup Success**:
+    *  Click **Backup and Restore** in the top menu.
+    *  Select the **Backups** tab.
+    *  Under the **Volume** tab, find your volume.
+    *  Your backup should be listed with the correct timestamp, size, and labels.
+
+TIP: Manual backups are perfect for critical moments like before database schema changes, application upgrades, or configuration modifications. Always verify the backup completed successfully before proceeding with risky operations.
+
+=== Automated Backup (Recurring Job)
+
+1.  In Longhorn UI, go to **Volume** and select the volume(s) to backup.
+2.  Click **Create Recurring Job**.
+3.  Configure:
+    *  **Task**: `Backup`
+    *  **Schedule**: Cron expression (e.g., `0 2 * * *` for daily at 2 AM UTC)
+    *  **Retain**: Number of backups to keep (e.g., `7` for 7 days)
+    *  **Concurrency**: `1`
+    *  **Labels** (Optional): `environment=production`, `scheduled=true`
+4.  Click **Save**.
+
+**Common Cron Schedules:**
+
+[source,text]
+----
+0 2 * * *      # Daily at 2:00 AM UTC
+0 */6 * * *    # Every 6 hours
+0 0 * * 0      # Weekly (Sunday at midnight)
+0 3 * * 1-5    # Weekdays only at 3:00 AM
+0 1 1 * *      # Monthly (1st day at 1:00 AM)
+----
+
+== Making Changes After Backup (Example: PostgreSQL Table Creation)
+
+After creating a backup or snapshot, you may want to make changes to your application data to simulate real-world scenarios or test restore procedures. This example demonstrates creating a test table in PostgreSQL that you can use to verify restore operations later.
+
+**Why This is Useful:**
+
+* **Restore Verification**: After restoring from a backup, you can check whether this table exists or not to confirm you're using the correct restore point.
+* **Point-in-Time Testing**: By creating distinct data before and after snapshots/backups, you can validate that restores return to the expected state.
+* **Compliance Testing**: Demonstrate that backup and restore procedures work correctly for audit purposes.
+
+**Connecting to PostgreSQL:**
+
+First, connect to your PostgreSQL pod:
+
+[source,bash]
+----
+# Connect to the PostgreSQL pod (adjust pod name and namespace as needed)
+kubectl exec -it postgresql-0 -n service-foundry -- psql -U postgres
+
+# Or specify a specific database
+kubectl exec -it postgresql-0 -n service-foundry -- psql -U postgres -d mydatabase
+----
+
+**SQL Commands to Create Test Data:**
+
+Run the following SQL commands within the PostgreSQL session to create a table and insert test data:
+
+[source,sql]
+----
+-- Create a test table for backup/restore verification
+-- IF NOT EXISTS prevents errors if the table already exists from a previous test
+CREATE TABLE IF NOT EXISTS public.users_for_backup_testing
+(
+    -- User's full name (variable-length string up to 120 characters)
+    name character varying(120) COLLATE pg_catalog."default",
+    
+    -- User's email address (variable-length string up to 120 characters)
+    email character varying(120) COLLATE pg_catalog."default"
+);
+
+-- Insert sample data for verification
+-- After restore, you can query this table to see if you're at the correct point in time
+INSERT INTO users_for_backup_testing 
+VALUES 
+    -- Sample user 1
+    ('kim', 'kim@company.com'), 
+    
+    -- Sample user 2
+    ('lee', 'lee@company.com');
+
+-- Verify the data was inserted correctly
+SELECT * FROM users_for_backup_testing;
+----
+
+**Expected Output:**
+
+[source,text]
+----
+ name |       email        
+------+--------------------
+ kim  | kim@company.com
+ lee  | lee@company.com
+(2 rows)
+----
+
+**Using This for Restore Testing:**
+
+1. **Before backup**: Run these SQL commands to create the table with 2 rows.
+2. **Create backup**: Create a snapshot and backup using Longhorn.
+3. **After backup**: Add more data or modify the table:
++
+[source,sql]
+----
+-- Add data AFTER the backup
+INSERT INTO users_for_backup_testing VALUES ('park', 'park@company.com');
+
+-- Now the table has 3 rows
+SELECT count(*) FROM users_for_backup_testing;  -- Should return 3
+---- 
++
+4. **Restore from backup**: Follow the restore procedures in the next section.
+5. **Verify restore**: After restoration, query the table:
++
+[source,sql]
+----
+-- If restore was successful, you should see only the original 2 rows
+SELECT count(*) FROM users_for_backup_testing;  -- Should return 2
+SELECT * FROM users_for_backup_testing;  -- Should NOT include 'park'
+----
+
+TIP: Use different table names or column values for different test scenarios. For example, add a `created_at` timestamp column to precisely identify when data was inserted relative to snapshots and backups.
+
+== Restore from Snapshot
+
+Longhorn snapshots provide the fastest path to recovery from operational mistakes, bad deployments, or data corruption. Because snapshots are stored **locally within the cluster**, restoration happens in seconds to minutes rather than hours. This makes snapshots ideal for quick rollback scenarios.
+
+**When to Use Snapshot Restore:**
+
+* Immediately after a bad application deployment
+* Following accidental data deletion or corruption
+* After a failed database migration
+* When testing changes before committing to production
+
+**Important Limitations:**
+
+* Snapshots only exist within your cluster—if the cluster is lost, snapshots are lost too
+* Snapshots cannot be used for cross-cluster migrations
+* They don't protect against cluster-wide failures
+
+There are two methods for restoring from snapshots, each suited to different scenarios.
+
+=== Method 1: Revert to Snapshot (In-Place Restore)
+
+This method **overwrites** the existing volume with data from a previous snapshot. It's the fastest restoration method but is destructive—any changes made after the snapshot was taken are permanently lost.
+
+WARNING: This operation is **irreversible**. All data written to the volume after the snapshot was taken will be **permanently deleted**. Always verify you're reverting to the correct snapshot before proceeding.
+
+**When to Use In-Place Revert:**
+
+* You're certain the current data is corrupted or unwanted
+* Fast recovery is critical (seconds vs. minutes)
+* You don't need to inspect the restored data before committing
+* The application can tolerate brief downtime
+
+**Detailed Workflow:**
+
+**Step 1: Prepare Environment Variables**
+
+Set up variables for easier command execution and to avoid typos:
+
+[source,bash]
+----
+# Application configuration
+APP_NAME=postgresql-app           # ArgoCD application name
+NAMESPACE=service-foundry         # Kubernetes namespace where app is deployed
+
+# Workload details
+STATEFULSET_NAME=postgresql       # StatefulSet managing the pod
+POD_NAME=postgresql-0             # Pod name (StatefulSet pods are predictable)
+
+# Storage details
+PVC_NAME=data-postgresql-0        # PVC name (matches StatefulSet volume claim template)
+----
+
+**Step 2: Disable ArgoCD Auto-Sync (If Using ArgoCD)**
+
+If your application is managed by ArgoCD, you must disable auto-sync to prevent ArgoCD from recreating resources you're intentionally scaling down:
+
+[source,bash]
+----
+# Remove sync policy (disables automated sync and self-healing)
+# This prevents ArgoCD from interfering with manual operations
+kubectl patch application ${APP_NAME} -n argocd \
+  --type merge \
+  -p '{"spec":{"syncPolicy":null}}'
+
+# Verify sync policy was removed
+kubectl get application ${APP_NAME} -n argocd -o jsonpath='{.spec.syncPolicy}'
+# Should output empty or null
+----
+
+**Step 3: Stop the Application**
+
+The volume must be detached before reverting. Scale down the application to zero replicas:
+
+[source,bash]
+----
+# Scale down StatefulSet to 0 replicas
+# This gracefully shuts down pods and detaches the PVC
+kubectl scale statefulset ${STATEFULSET_NAME} --replicas=0 -n ${NAMESPACE}
+
+# Wait for pod termination (timeout after 60 seconds)
+kubectl wait --for=delete pod/${POD_NAME} -n ${NAMESPACE} --timeout=60s
+
+# Verify no pods are running
+kubectl get pods -n ${NAMESPACE} -l app=${STATEFULSET_NAME}
+# Should show no pods or "No resources found"
+----
+
+**Step 4: Revert to Snapshot in Longhorn UI**
+
+1.  **Navigate to Volume Management**:
+    *  Open the Longhorn UI.
+    *  Click **Volume** in the top navigation.
+
+2.  **Select the Target Volume**:
+    *  Find the volume corresponding to your PVC (usually named `pvc-<uid>`).
+    *  If unsure which volume corresponds to which PVC, run:
++
+[source,bash]
+----
+# Find the Longhorn volume name for your PVC
+kubectl get pvc ${PVC_NAME} -n ${NAMESPACE} -o jsonpath='{.spec.volumeName}'
+----
+
+3.  **Verify Volume State**:
+    *  Click on the volume name to open details.
+    *  Check that the **State** is **Detached**.
+    *  If still "Attached", wait a few more seconds or verify pods are fully terminated.
+
+4.  **Enable Maintenance Mode**:
+    *  Click the **Attach** button (or **Attach Volume** in the dropdown).
+    *  **Enable "Maintenance Mode"** checkbox.
+    *  Maintenance mode attaches the volume in read-write mode without mounting it to a node, allowing safe revert operations.
+    *  Click **OK** to attach in maintenance mode.
+
+5.  **Access Snapshot Management**:
+    *  Click the **Snapshots and Backups** tab.
+    *  You'll see a list of all snapshots for this volume.
+
+6.  **Select and Revert Snapshot**:
+    *  Locate the snapshot you want to revert to (check timestamp and labels carefully).
+    *  Click the **Revert** button or icon for that snapshot.
+    *  **Read the confirmation dialog carefully**—this operation cannot be undone.
+    *  Confirm the revert operation.
+    *  **What happens**: Longhorn overwrites the current volume data with the snapshot data. This typically completes in seconds to minutes depending on volume size.
+
+7.  **Detach the Volume**:
+    *  Once revert completes, the volume is still attached in maintenance mode.
+    *  Click **Detach** to release the volume.
+    *  Wait for the state to change back to **Detached**.
+
+**Step 5: Restart the Application**
+
+With the volume now containing the restored snapshot data, restart the application:
+
+[source,bash]
+----
+# Scale StatefulSet back to 1 replica
+# The pod will mount the PVC, which now contains the reverted data
+kubectl scale statefulset ${STATEFULSET_NAME} --replicas=1 -n ${NAMESPACE}
+
+# Wait for pod to be ready (timeout after 300 seconds)
+kubectl wait --for=condition=ready pod/${POD_NAME} -n ${NAMESPACE} --timeout=300s
+
+# Verify pod is running
+kubectl get pod ${POD_NAME} -n ${NAMESPACE}
+----
+
+**Step 6: Re-enable ArgoCD Auto-Sync (If Applicable)**
+
+Restore ArgoCD automated sync and self-healing:
+
+[source,bash]
+----
+# Re-enable automated sync with prune and self-heal
+kubectl patch application ${APP_NAME} -n argocd \
+  --type merge \
+  -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
+
+# Verify sync policy was restored
+kubectl get application ${APP_NAME} -n argocd -o jsonpath='{.spec.syncPolicy}'
+----
+
+**Step 7: Verify Data Restoration**
+
+Confirm the data matches the expected snapshot state:
+
+[source,bash]
+----
+# For PostgreSQL example:
+kubectl exec -it ${POD_NAME} -n ${NAMESPACE} -- psql -U postgres -c "
+  SELECT count(*) FROM users_for_backup_testing;
+"
+# Should show 2 if you're testing with the earlier example data
+----
+
+**Use Cases:**
+
+*   **Quick rollback** after a bad deployment or configuration change
+*   **Undo accidental data changes** (e.g., wrong DELETE query executed)
+*   **Restore to pre-upgrade state** after a failed application or database upgrade
+
+=== Method 2: Create Volume from Snapshot (Clone and Test)
+
+Clone a snapshot to create a new volume without affecting the original:
+
+1.  In Longhorn UI, go to **Volume** and select the source volume.
+2.  Click **Snapshots and Backups** tab.
+3.  Click on a snapshot -> **Clone Volume**.
+4.  Enter a name for the new volume (e.g., `postgres-data-restored`).
+5.  Click **OK**.
+6.  Select the new volume -> **Create PV/PVC**.
+7.  Configure PVC name and namespace -> **OK**.
+8.  Verify:
++
+[source,bash]
+----
+kubectl get pvc data-postgresql-restored -n service-foundry
+----
+
+9.  (Optional) Test the cloned data before replacing production PVC.
+
+NOTE: Replacing PVCs in StatefulSets requires deleting and recreating the StatefulSet or manually swapping PVCs. For complex scenarios, consult Longhorn volume migration documentation.
+
+**Use Cases:**
+
+*   **Testing restored data** before committing to production use
+*   **Creating development/staging environments** from production snapshots
+*   **Keeping the original data** as a safety net during risky operations
+*   **Comparing current vs. previous data** for debugging or auditing
+
+=== Snapshot vs Backup: When to Use Each
+
+Understanding when to use snapshots versus backups is crucial:
+
+[options="header"]
+|===
+|Aspect |Snapshot Restore |Backup Restore
+
+|**Speed**
+|Very fast (seconds)
+|Slower (minutes to hours)
+
+|**Location**
+|In-cluster only
+|External storage (S3, NFS)
+
+|**Storage**
+|Local Longhorn storage
+|Off-cluster backup target
+
+|**Survives cluster deletion**
+|❌ No
+|✅ Yes
+
+|**Cross-cluster restore**
+|❌ No
+|✅ Yes
+
+|**Use Case**
+|Operational rollbacks, testing
+|Disaster recovery, long-term retention
+
+|**When to Use**
+|Before upgrades, quick undo
+|DR, compliance, cluster migration
+
+|===
+
+=== Best Practices
+
+1.  **Use snapshots** for:
+    *   Pre-upgrade safety nets
+    *   Quick operational rollbacks
+    *   Testing changes before committing
+    *   Frequent checkpoints (hourly/daily)
+
+2.  **Use backups** for:
+    *   Disaster recovery
+    *   Long-term retention (weeks/months)
+    *   Cross-cluster migrations
+    *   Compliance requirements
+
+3.  **Combined approach**:
+    *   Take a snapshot before risky operations
+    *   Schedule regular backups to external storage
+    *   Test restore procedures regularly
+
+TIP: Snapshots are your first line of defense for operational mistakes. Backups are your last line of defense for catastrophic failures.
+
+== Restoring from Backup
+
+Backup restoration is fundamentally different from snapshot restoration. While snapshots provide quick, in-cluster recovery, backups enable **cross-cluster restoration** and **disaster recovery** from complete cluster failures. When you restore a backup, Longhorn downloads data from your S3 bucket (or other backup target) and creates a new volume in your cluster.
+
+**When to Use Backup Restore:**
+
+* **Disaster recovery**: Your cluster has been completely lost or corrupted
+* **Cross-cluster migration**: Moving data to a different Kubernetes cluster
+* **Long-term recovery**: Restoring data from weeks or months ago (beyond snapshot retention)
+* **Cluster rebuild**: Recreating volumes after infrastructure replacement
+* **Compliance**: Recovering data for audit or regulatory requirements
+
+**Key Differences from Snapshot Restore:**
+
+* **Source**: Data comes from external storage (S3), not local cluster storage
+* **Speed**: Slower due to network transfer from S3 (minutes to hours)
+* **Availability**: Works even if the original cluster no longer exists
+* **New Volume**: Always creates a new volume—cannot revert an existing volume in-place
+
+
+=== Restoring PostgreSQL with ArgoCD Management
+
+When your application is managed by ArgoCD (or any GitOps tool), you must carefully coordinate the restore process to prevent ArgoCD from interfering with manual operations. ArgoCD's automated sync and self-healing features will attempt to recreate resources you're deliberately modifying, so they must be temporarily disabled.
+
+**Why This is Necessary:**
+
+* ArgoCD monitors Git as the source of truth
+* When it detects drift (e.g., scaled-down pods, deleted PVCs), it auto-heals by recreating resources
+* During restore, you need manual control over resource lifecycles
+* After restore completes, you re-enable ArgoCD to resume normal operations
+
+==== Step-by-Step Restore Procedure
+
+This procedure demonstrates replacing an existing PostgreSQL PVC with restored backup data:
+
+**Step 1: Prepare Environment Variables**
+
+[source,bash]
+----
+# Define application and infrastructure details
+# Adjust these values to match your environment
+
+APP_NAME=postgresql-app           # ArgoCD application name
+NAMESPACE=service-foundry         # Kubernetes namespace  
+STATEFULSET_NAME=postgresql       # StatefulSet name
+POD_NAME=postgresql-0             # Primary pod name
+PVC_NAME=data-postgresql-0        # PersistentVolumeClaim name
+----
+
+**Step 2: Disable ArgoCD Auto-Sync**
+
+Temporarily suspend ArgoCD's automated operations:
+
+[source,bash]
+----
+# Option A: Using ArgoCD CLI (if installed)
+# This sets sync policy to 'none', disabling automated sync
+argocd app set ${APP_NAME} --sync-policy none
+
+# Option B: Using kubectl (works without ArgoCD CLI)
+# Removes the entire syncPolicy section from the Application spec
+kubectl patch application ${APP_NAME} -n argocd \
+  --type merge \
+  -p '{"spec":{"syncPolicy":null}}'
+
+# Verify sync policy was removed
+kubectl get application ${APP_NAME} -n argocd -o jsonpath='{.spec.syncPolicy}'
+# Should output: (empty) or null
+----
+
+**Step 3: Stop the Application**
+
+Gracefully shut down PostgreSQL to ensure no data is being written:
+
+[source,bash]
+----
+# Scale StatefulSet to zero replicas
+# This terminates pods and releases the PVC
+kubectl scale statefulset ${STATEFULSET_NAME} --replicas=0 -n ${NAMESPACE}
+
+# Wait for pod deletion with timeout
+# This ensures the PVC is fully detached before proceeding
+kubectl wait --for=delete pod/${POD_NAME} -n ${NAMESPACE} --timeout=60s
+
+# Confirm no pods are running
+kubectl get pods -n ${NAMESPACE} -l app.kubernetes.io/name=postgresql
+# Expected: No resources found (or empty list)
+----
+
+**Step 4: Remove Existing PVC and PV**
+
+Delete the current PVC to make room for the restored one:
+
+[source,bash]
+----
+# Get the PV name before deleting PVC (you'll need to delete it too)
+PV_NAME=$(kubectl get pvc ${PVC_NAME} -n ${NAMESPACE} -o jsonpath='{.spec.volumeName}')
+
+echo "PVC: ${PVC_NAME}"
+echo "PV:  ${PV_NAME}"
+
+# Delete the PVC
+# Warning: This removes the PVC but the underlying Longhorn volume may still exist
+kubectl delete pvc ${PVC_NAME} -n ${NAMESPACE}
+
+# Wait for PVC deletion to complete
+kubectl wait --for=delete pvc/${PVC_NAME} -n ${NAMESPACE} --timeout=60s
+
+# Delete the associated PV
+# This is necessary because PVs may have retain policy and won't auto-delete
+kubectl delete pv ${PV_NAME}
+
+# Verify deletion
+kubectl get pvc,pv -n ${NAMESPACE} | grep ${PVC_NAME}
+# Should return no results
+----
+
+**Step 5: Restore Backup in Longhorn UI**
+
+Perform the restore operation through the Longhorn UI:
+
+1. Navigate to **Volumes** and Delete old volume that are now detached
+2. Navigate to **Backup and Restore** → **Backups**
+3. Under the **Volume** tab, find your PostgreSQL volume backups
+4. Select the backup you want to restore (verify timestamp and labels)
+5. Click **Restore**
+6. In the restore dialog:
+   * **Use Previous Name**: Check this box
+
+7. Click **OK** to initiate the restore
+8. Go back to **Volume** and select the target volume, and then, run 'Create PV/PVC' menu.
+9. **Monitor progress**: The restore shows up in the volume list with a progress indicator
+10. **Wait for completion**: Status changes to "Healthy" or "Bound" when done
+
+**Step 6: Verify Restored PVC**
+
+Confirm the PVC was created successfully:
+
+[source,bash]
+----
+# Check PVC status
+kubectl get pvc ${PVC_NAME} -n ${NAMESPACE}
+
+# Expected output:
+# NAME                  STATUS   VOLUME           CAPACITY   ACCESS MODES   STORAGECLASS
+# data-postgresql-0     Bound    pvc-xyz...       10Gi       RWO            longhorn
+
+# Verify the PVC is bound to a Longhorn volume
+kubectl describe pvc ${PVC_NAME} -n ${NAMESPACE}
+----
+
+**Step 7: Restart the Application**
+
+Bring PostgreSQL back online with the restored data:
+
+[source,bash]
+----
+# Scale StatefulSet back to 1 replica
+# The pod mounts the restored PVC automatically
+kubectl scale statefulset ${STATEFULSET_NAME} --replicas=1 -n ${NAMESPACE}
+
+# Wait for pod to become ready
+kubectl wait --for=condition=ready pod/${POD_NAME} -n ${NAMESPACE} --timeout=300s
+
+# Check pod status
+kubectl get pod ${POD_NAME} -n ${NAMESPACE}
+# Expected: STATUS = Running, READY = 1/1
+----
+
+**Step 8: Re-enable ArgoCD Auto-Sync**
+
+Restore automated GitOps management:
+
+[source,bash]
+----
+# Option A: Using ArgoCD CLI
+argocd app set ${APP_NAME} --sync-policy automated
+
+# Option B: Using kubectl with full configuration
+# Re-enables automated sync with prune (delete orphaned resources) 
+# and selfHeal (auto-correct drift)
+kubectl patch application ${APP_NAME} -n argocd \
+  --type merge \
+  -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'
+
+# Verify sync policy was restored
+kubectl get application ${APP_NAME} -n argocd -o jsonpath='{.spec.syncPolicy}'
+# Should output: {"automated":{"prune":true,"selfHeal":true}}
+----
+
+
+==== Data Verification After Restore
+
+After successfully restoring and restarting your application, thorough verification is critical to ensure data integrity and completeness.
+
+**Comprehensive Verification Checklist:**
+
+**1. Verify Infrastructure Components:**
+
+[source,bash]
+----
+# Check PVC is bound to a volume
+kubectl get pvc ${PVC_NAME} -n ${NAMESPACE}
+# STATUS should be "Bound"
+
+# Verify PV exists and matches the PVC
+kubectl get pv $(kubectl get pvc ${PVC_NAME} -n ${NAMESPACE} -o jsonpath='{.spec.volumeName}')
+
+# Check PostgreSQL pod is running and ready
+kubectl get pod ${POD_NAME} -n ${NAMESPACE}
+# STATUS = Running, READY = 1/1
+
+# View recent pod logs to check for startup errors
+kubectl logs ${POD_NAME} -n ${NAMESPACE} --tail=50
+# Look for successful startup messages, no errors
+----
+
+**2. Verify PostgreSQL Connectivity:**
+
+[source,bash]
+----
+# Test database connection
+kubectl exec -it ${POD_NAME} -n ${NAMESPACE} -- psql -U postgres -c "SELECT version();"
+
+# Should return PostgreSQL version information without errors
+----
+
+**3. Verify Data Integrity:**
+
+Connect to PostgreSQL and perform data validation:
+
+[source,bash]
+----
+# Open interactive PostgreSQL session
+kubectl exec -it ${POD_NAME} -n ${NAMESPACE} -- psql -U postgres
+----
+
+Inside the PostgreSQL prompt, run verification queries:
+
+[source,sql]
+----
+-- List all databases (verify expected databases exist)
+\l
+
+-- Connect to your application database
+\c <your-database-name>
+
+-- List all tables (verify schema is intact)
+\dt
+
+-- Verify row counts for critical tables
+SELECT count(*) FROM users_for_backup_testing;
+-- Compare against expected counts from before the incident
+
+-- Check for recent data (if applicable)
+SELECT * FROM users_for_backup_testing ORDER BY id DESC LIMIT 10;
+
+-- Verify specific records that should exist in the backup
+SELECT * FROM users_for_backup_testing WHERE name IN ('kim', 'lee');
+-- Should return the expected test data
+
+-- Exit PostgreSQL
+\q
+----
+
+**4. Verify Application Functionality:**
+
+[source,bash]
+----
+# If your application has a health check endpoint
+kubectl exec ${POD_NAME} -n ${NAMESPACE} -- curl http://localhost:5432
+
+# Or test application-level queries
+# (connect through your application and verify it can read/write data)
+----
+
+**5. Check Longhorn Volume Metadata:**
+
+Verify the volume was properly restored from backup:
+
+1. Open Longhorn UI
+2. Navigate to **Volume** page
+3. Find the restored volume (named `pvc-<uid>`)
+4. Click to open details
+5. Go to **Snapshots and Backups** tab
+6. Check the **Restored From** timestamp or metadata
+7. Verify it matches the backup you intended to restore
+
+TIP: **Best Practice**: Always test restores in a non-production environment first. Consider keeping the old PVC for a few days as insurance before permanently deleting it. Create a test namespace, restore there, verify fully, then restore to production.
+
+== Deleting Snapshots and Backups
+
+Regular cleanup of old snapshots and backups is essential for managing storage costs and maintaining system performance. However, deletion must be done carefully to avoid accidentally removing data you might need for recovery.
+
+=== Deleting Snapshots
+
+Snapshots consume space within your Longhorn cluster. Old or unnecessary snapshots should be removed to free up storage, but be cautious—once deleted, they cannot be recovered.
+
+**When to Delete Snapshots:**
+
+* After creating a successful backup (the backup preserves the snapshot data externally)
+* When snapshots exceed your retention policy (e.g., keeping only the last 7 days)
+* After confirming a risky operation succeeded and rollback is no longer needed
+* When cluster storage is running low and snapshots are consuming significant space
+
+WARNING: **Do not delete snapshots that haven't been backed up** if you need long-term retention. Snapshots are your only local recovery point—once deleted, you can only restore from external backups.
+
+**Deletion Procedure:**
+
+1.  **Navigate to Volume Page**:
+    *  Open the Longhorn UI.
+    *  Click **Volume** in the top navigation.
+
+2.  **Select Source Volume**:
+    *  Find and click the volume containing the snapshot you want to delete.
+
+3.  **Access Snapshot List**:
+    *  Scroll down to the **Snapshots and Backups** section.
+    *  Review the list of snapshots with timestamps, sizes, and labels.
+
+4.  **Delete Snapshot**:
+    *  Click on the snapshot name to open the action menu.
+    *  Select **Delete** from the dropdown.
+    *  **Confirm the deletion** in the dialog (read the warning carefully).
+    *  The snapshot is immediately deleted and storage is reclaimed.
+
+5.  **Verify Deletion**:
+    *  The snapshot should disappear from the list.
+    *  Check the volume's **Actual Size** to see if storage was freed (may take a moment to update).
+
+**Automated Cleanup:**
+
+Longhorn supports automatic snapshot cleanup through recurring job retention policies. When you configure a recurring backup job with a retention count (e.g., retain 7 backups), Longhorn automatically deletes older snapshots and backups when new ones are created.
+
+TIP: Before deleting a snapshot, verify that a corresponding backup exists in S3 (if you need long-term retention). Check the **Backup** tab to confirm.
+
+=== Deleting Backups
+
+Backups stored in S3 (or other external targets) consume cloud storage and incur costs. Removing old backups reduces these costs but should align with your retention policy and compliance requirements.
+
+**When to Delete Backups:**
+
+* Backups older than your retention policy (e.g., keeping only 30 days)
+* Test backups created during development or validation
+* Backups from decommissioned volumes or applications
+* When migrating to a new backup strategy or storage location
+
+**Important Considerations:**
+
+* Backups may be required for compliance (GDPR, HIPAA, SOX, etc.)
+* Coordinate with legal/compliance teams before deleting long-term backups
+* Backups are your disaster recovery insurance—excessive deletion increases risk
+
+**Deletion Procedure:**
+
+1.  **Navigate to Backup List**:
+    *  Open the Longhorn UI.
+    *  Click **Backup and Restore** → **Backups**.
+
+2.  **Find Target Backup**:
+    *  Click the **Volume** tab to see backups grouped by volume.
+    *  Select the volume containing the backup you want to delete.
+    *  Click on the volume to see its backup history.
+
+3.  **Select Backup to Delete**:
+    *  Review the backup list (check timestamps, size, labels).
+    *  Select the specific backup you want to delete.
+
+4.  **Initiate Deletion**:
+    *  Click the **Delete** button.
+    *  A confirmation dialog appears with two options:
++
+[options="header"]
+|===
+|Option |Description |Impact
+
+|**Delete the backup only**
+|Removes only this specific backup from S3, leaving the Longhorn volume intact.
+|Recommended for most cases (frees S3 storage, keeps active volumes)
+
+|**Delete the backup and the volume**
+|Removes the backup from S3 **AND** deletes the Longhorn volume in the cluster.
+|**DANGEROUS**: Only use when decommissioning entire volumes
+
+|===
++
+    *  **Choose carefully**: Most users want "Delete the backup only."
+    *  Click **OK** to confirm.
+
+5.  **Verify Deletion**:
+    *  The backup should disappear from the backup list.
+    *  Optionally, check your S3 bucket to confirm the backup files were removed (may take a few minutes).
+
+**Bulk Deletion (Advanced):**
+
+For deleting many old backups, consider using AWS CLI:
+
+[source,bash]
+----
+# List backups older than 30 days in your S3 bucket
+aws s3 ls s3://your-longhorn-backups/backups/ --recursive \
+  | awk '{if ($1 < "2024-01-01") print $4}'
+
+# Carefully review the list, then delete (use with caution!)
+# This is advanced usage - test in non-production first
+----
+
+WARNING: **Backups are immutable once created**. There is no "undo" for backup deletion. Always verify you're deleting the correct backup and that you have other recovery options if needed.
+
+TIP: Implement a backup lifecycle policy: Short retention for frequent backups (e.g., 7 days daily), longer retention for weekly (30 days), and potentially permanent retention for monthly compliance backups.
+
+
+
+
+== Conclusion
+
+This guide covered implementing a complete backup strategy for Longhorn using AWS S3:
+
+*   Understanding HA, snapshots, and backups as complementary data protection layers
+*   Configuring S3 buckets and IAM policies for secure off-cluster backup storage
+*   Creating manual and automated backups with retention policies
+*   Restoring from snapshots (fast, in-cluster) and backups (disaster recovery)
+*   Managing backup lifecycle and deletion
+
+**Key Takeaway**: Production environments need all three layers—HA prevents downtime, snapshots enable quick recovery, and backups protect against catastrophic failures.
+
+**Next Steps**:
+
+1.  Test restore procedures regularly in non-production environments
+2.  Set up automated backup schedules with appropriate retention
+3.  Configure monitoring and alerting for backup failures
+4.  Consider IRSA for production instead of static access keys
+
+== References
+
+*   https://longhorn.io/docs/latest/snapshots-and-backups/[Longhorn Snapshots and Backups]
+*   https://longhorn.io/docs/latest/backup-and-restore/[Backup and Restore]
+*   https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-best-practices.html[S3 Security Best Practices]
+*   https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html[EKS IRSA Documentation]

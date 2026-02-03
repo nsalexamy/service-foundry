@@ -1,0 +1,214 @@
+= How to create Longhorn Backup using AWS S3 with IRSA
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectlinks:
+:icons: font
+:imagesdir: images
+
+== Introduction
+
+This guide explains how to configure an AWS S3 bucket as a backup target for your Longhorn volumes using **IAM Roles for Service Accounts (IRSA)**. IRSA is the recommended method for authentication on EKS as it avoids storing long-lived AWS credentials (access keys) in Kubernetes Secrets.
+
+== Prerequisites
+
+Before you begin, ensure you have the following:
+
+*   **EKS Cluster**: A running EKS cluster with an IAM OIDC provider associated with it.
+*   **Longhorn Installed**: Longhorn v1.11.0 or later running on the cluster.
+*   **AWS CLI & kubectl**: Configured access to AWS and your cluster.
+*   **AWS S3 Bucket**: An existing S3 bucket for backups.
+
+== Step 1: Create an AWS IAM Policy
+
+Create an IAM policy that allows the necessary permissions for the S3 bucket.
+
+1.  Create a file named `longhorn-s3-policy.json` with the following content (replace `<your-bucket-name>`):
+
+[source,json]
+----
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "LonghornBackupAccess",
+            "Effect": "Allow",
+            "Action": [
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:ListBucket",
+                "s3:DeleteObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::<your-bucket-name>",
+                "arn:aws:s3:::<your-bucket-name>/*"
+            ]
+        }
+    ]
+}
+----
+
+2.  Create the policy using AWS CLI:
++
+[source,bash]
+----
+aws iam create-policy \
+    --policy-name LonghornS3BackupPolicy \
+    --policy-document file://longhorn-s3-policy.json
+----
+
+== Step 2: Create an IAM Role and Associate with Service Account
+
+You need to create an IAM role that trusts the Kubernetes Service Account used by Longhorn.
+
+1.  **Set Environment Variables**:
++
+[source,bash]
+----
+CLUSTER_NAME=my-cluster
+REGION=us-east-1
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+POLICY_ARN=arn:aws:iam::${ACCOUNT_ID}:policy/LonghornS3BackupPolicy
+----
+
+2.  **Create the IAM Role using `eksctl`** (Easiest Method):
++
+If you have `eksctl` installed, you can create the role and annotate the service account in one step.
++
+[source,bash]
+----
+eksctl create iamserviceaccount \
+    --name longhorn-service-account \
+    --namespace longhorn-system \
+    --cluster ${CLUSTER_NAME} \
+    --attach-policy-arn ${POLICY_ARN} \
+    --approve \
+    --override-existing-serviceaccounts
+----
++
+NOTE: This command annotates the existing `longhorn-service-account` in the `longhorn-system` namespace.
+
+**Alternative: Manual Creation**
+
+If you cannot use `eksctl`, follow these steps:
+
+1.  **Get the OIDC Provider URL**:
++
+[source,bash]
+----
+aws eks describe-cluster --name ${CLUSTER_NAME} --query "cluster.identity.oidc.issuer" --output text
+----
+
+2.  **Create Trust Policy**:
+    Create `trust-policy.json`. Replace `<OIDC_PROVIDER>` (without `https://`) and `<ACCOUNT_ID>`.
++
+[source,json]
+----
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/<OIDC_PROVIDER>"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "<OIDC_PROVIDER>:sub": "system:serviceaccount:longhorn-system:longhorn-service-account"
+        }
+      }
+    }
+  ]
+}
+----
+
+3.  **Create Role and Attach Policy**:
++
+[source,bash]
+----
+aws iam create-role --role-name LonghornBackupRole --assume-role-policy-document file://trust-policy.json
+aws iam attach-role-policy --role-name LonghornBackupRole --policy-arn ${POLICY_ARN}
+----
+
+4.  **Annotate the Service Account**:
++
+[source,bash]
+----
+kubectl annotate serviceaccount -n longhorn-system longhorn-service-account \
+    eks.amazonaws.com/role-arn=arn:aws:iam::${ACCOUNT_ID}:role/LonghornBackupRole
+----
+
+== Step 3: Restart Longhorn Components
+
+For the pods to pick up the new IAM role (injected via environment variables and volume mounts by the EKS pod identity webhook), you need to restart the Longhorn pods.
+
+[source,bash]
+----
+kubectl rollout restart daemonset longhorn-manager -n longhorn-system
+----
+
+Wait for the pods to become ready again.
+
+== Step 4: Configure Backup Target in Longhorn
+
+1.  Open the **Longhorn UI**.
+2.  Navigate to **Settings** -> **General**.
+3.  Scroll down to the **Backup** section.
+4.  **Backup Target**: Enter the S3 URL:
+    `s3://<bucket-name>@<region>/`
+5.  **Backup Target Credential Secret**: **Leave this field blank**.
+    Because we are using IRSA, Longhorn will automatically use the credentials provided by the IAM role attached to the Service Account.
+6.  Click **Save**.
+
+If the configuration is correct, you should see a green checkmark indicating successful connection to S3.
+
+== Verification
+
+1.  Go to **Volume** page.
+2.  Select a volume and create a **Backup**.
+3.  Navigate to the **Backup** tab to confirm the backup exists in S3.
+
+== Troubleshooting
+
+*   **Access Denied**:
+    *   Verify the Trust Policy correctly points to `system:serviceaccount:longhorn-system:longhorn-service-account`.
+    *   Verify the IAM Policy has correct S3 permissions.
+*   **Credentials not found**:
+    *   Ensure you restarted `longhorn-manager` pods after annotating the Service Account.
+    *   Check if `AWS_ROLE_ARN` and `AWS_WEB_IDENTITY_TOKEN_FILE` environment variables exist in the `longhorn-manager` pods:
+        `kubectl exec -it -n longhorn-system <longhorn-manager-pod> -- env | grep AWS`
+
+== How to create a backup
+
+In Longhorn, backups are always created from snapshots. You cannot create a backup of the live volume directly without an associated snapshot. This ensures data consistency.
+
+There are two ways to create backups: manually or automatically.
+
+=== Manual Backup
+
+1.  Navigate to the **Volume** page in the Longhorn UI.
+2.  Click the name of the volume you want to back up.
+3.  Go to the **Snapshots and Backups** tab.
+4.  **Create a Snapshot** (if you don't have one you want to use):
+    *   Click **Take Snapshot**.
+    *   This captures the current state of the volume.
+5.  **Create a Backup**:
+    *   Locate the snapshot you want to back up in the list.
+    *   Click the **Create Backup** button (often represented by a cloud icon or in the drop-down menu for that snapshot).
+    *   You can optionally add labels to the backup for easier management.
+    *   Click **OK**.
+6.  Monitor the progress in the **Backup** tab of the Longhorn UI.
+
+=== Automated Backup (Recurring Job)
+
+You can schedule recurring backups, which automatically handle snapshot creation for you.
+
+1.  Navigate to the **Volume** page.
+2.  Select the volume(s) you want to schedule backups for.
+3.  Click **Create Recurring Job**.
+4.  **Task**: Select **Backup**.
+    *   NOTE: When the `Backup` task runs, Longhorn **automatically creates a new snapshot** before uploading it to the backup target. You do not need to create a separate snapshot job.
+5.  **Schedule**: Define the Cron expression (e.g., `0 2 * * *` for daily at 2 AM).
+6.  **Retain**: Set the number of backups to keep.
+7.  Click **Save**.
