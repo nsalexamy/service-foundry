@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Longhorn: How to use Shared ReadWriteMany Volume for Stateful applications</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#sample-application">Sample Application</a></li>
+<li><a href="#steps">Steps</a>
+<ul class="sectlevel2">
+<li><a href="#create-longhorn-storageclass">Create Longhorn StorageClass</a></li>
+<li><a href="#create-pvc">Create PVC</a></li>
+<li><a href="#create-daemonset">Create DaemonSet</a></li>
+</ul>
+</li>
+<li><a href="#verify-the-pvc-is-used-by-multiple-pods">Verify the PVC is used by multiple pods</a>
+<ul class="sectlevel2">
+<li><a href="#using-a-debug-pod">Using a Debug Pod</a></li>
+<li><a href="#using-share-manager-pod">Using Share-Manager-Pod</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/stateful-app-with-rwx-volume.png" alt="stateful app with rwx volume">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Longhorn is a distributed block storage system for Kubernetes. It is a simple, open source, and production-ready storage solution for Kubernetes.</p>
+</div>
+<div class="paragraph">
+<p>In the previous article, we have installed Longhorn on AWS EKS and it created a StorageClass named <code>longhorn</code> and marked as the default StorageClass which is ReadWriteOnce access mode. We were able to see PostgreSQL and Redis are deployed successfully using Longhorn StorageClass.</p>
+</div>
+<div class="paragraph">
+<p>In this article, we will show how to use Shared ReadWriteMany Volume for Stateful applications. This approach is useful when installing Helm charts that use ReadWriteMany storage for a Stateful application. For example, Apache Airflow Helm chart needs ReadWriteMany storage for its logs and metadata because multiple pods need to write logs to the same storage.</p>
+</div>
+<div class="paragraph">
+<p>We will create a Go application that will write logs to a file in a directory mounted to a ReadWriteMany storage. The application will be deployed as a DaemonSet to ensure that it runs on all nodes to see the log files are replicated across all nodes. And we can also check the PVC with ReadWriteMany storage class is used by multiple pods.</p>
+</div>
+<div class="paragraph">
+<p>Keep in mind that the example application is just for demo purpose. Its log handler is not the best practice. It is just for demo purpose to see how ReadWriteMany storage works.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="prerequisites">Prerequisites</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p>Longhorn installed</p>
+</li>
+<li>
+<p>kubectl</p>
+</li>
+<li>
+<p>k8s cluster</p>
+</li>
+<li>
+<p>Helm</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Refer to the link below on how to install Longhorn on AWS EKS:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://medium.com/@nsalexamy/longhorn-highly-available-distributed-block-storage-on-aws-eks-68aebce503ba">Longhorn: Highly Available, Distributed Block Storage on AWS EKS</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="sample-application">Sample Application</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The application used in this article is a Go application that write system metrics of a host node every minute to a file in a directory mounted to a ReadWriteMany storage. The application will be deployed as a DaemonSet to ensure that it runs on all nodes to see the log files are replicated across all nodes. And we can also check the PVC with ReadWriteMany storage class is used by multiple pods.</p>
+</div>
+<div class="paragraph">
+<p>At the end of this article, we will see all log files created by multiple pods in the same directory.</p>
+</div>
+<div class="paragraph">
+<p>Here is the sample log record:</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/sample-log-record.png" alt="sample log record">
+</div>
+<div class="title">Figure 1. Sample log record</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="steps">Steps</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="create-longhorn-storageclass">Create Longhorn StorageClass</h3>
+<div class="paragraph">
+<p>Create a Longhorn StorageClass with ReadWriteMany access mode.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">storage.k8s.io/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">StorageClass</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">longhorn-rwx</span>
+<i class="conum" data-value="1"></i><b>(1)</b>
+<span class="na">provisioner</span><span class="pi">:</span> <span class="s">driver.longhorn.io</span>
+<span class="na">allowVolumeExpansion</span><span class="pi">:</span> <span class="kc">true</span>
+<span class="na">reclaimPolicy</span><span class="pi">:</span> <span class="s">Delete</span>
+<span class="na">volumeBindingMode</span><span class="pi">:</span> <span class="s">Immediate</span>
+<i class="conum" data-value="2"></i><b>(2)</b>
+<span class="na">parameters</span><span class="pi">:</span>
+  <span class="na">numberOfReplicas</span><span class="pi">:</span> <span class="s2">"</span><span class="s">3"</span>
+  <span class="na">staleReplicaTimeout</span><span class="pi">:</span> <span class="s2">"</span><span class="s">30"</span>
+  <span class="na">fromBackup</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span>
+  <span class="na">migratable</span><span class="pi">:</span> <span class="s2">"</span><span class="s">false"</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The provisioner is driver.longhorn.io.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The migratable flag must be disabled for RWX volumes.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>According to the official documentation, migratable flag must be disabled for RWX volumes.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>An RWX volume must have the access mode set to ReadWriteMany and the “migratable” flag disabled (parameters.migratable: false).</p>
+</div>
+</blockquote>
+<div class="attribution">
+&#8212; https://longhorn.io/docs/1.10.1/nodes-and-volumes/volumes/rwx-volumes/<br>
+<cite>ReadWriteMany</cite>
+</div>
+</div>
+<div class="paragraph">
+<p>Create Storage Class for Longhorn RWX volumes</p>
+</div>
+<div class="listingblock">
+<div class="title">create storage class</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> longhorn-rwx-sc.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Verify Storage Class</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl get storageclasses
+NAME                 PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+gp2                  kubernetes.io/aws-ebs   Delete          WaitForFirstConsumer   <span class="nb">false                  </span>2d3h
+longhorn <span class="o">(</span>default<span class="o">)</span>   driver.longhorn.io      Delete          Immediate              <span class="nb">true                   </span>2d1h
+longhorn-rwx         driver.longhorn.io      Delete          Immediate              <span class="nb">true                   </span>62m
+longhorn-static      driver.longhorn.io      Delete          Immediate              <span class="nb">true                   </span>2d1h</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Make sure the longhorn-rwx storage class is created.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-pvc">Create PVC</h3>
+<div class="paragraph">
+<p>This is a PVC with ReadWriteMany access mode. We will use this PVC to store the logs of the custom-node-exporter application.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">PersistentVolumeClaim</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">custom-node-exporter-logs-pvc</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">service-foundry</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">accessModes</span><span class="pi">:</span>
+    <i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="pi">-</span> <span class="s">ReadWriteMany</span>
+  <span class="na">storageClassName</span><span class="pi">:</span> <span class="s">longhorn-rwx</span>
+  <span class="na">resources</span><span class="pi">:</span>
+    <span class="na">requests</span><span class="pi">:</span>
+      <span class="na">storage</span><span class="pi">:</span> <span class="s">1Gi</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The access mode is ReadWriteMany.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Create the PVC</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> pvc.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Verify the PVC</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl get pvc <span class="nt">-n</span> service-foundry
+
+NAME                            STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+custom-node-exporter-logs-pvc   Bound    pvc-d5537143-35b9-4669-bb95-50fa8b7a6f19   1Gi        RWX            longhorn-rwx   &lt;<span class="nb">unset</span><span class="o">&gt;</span>                 52m</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="create-daemonset">Create DaemonSet</h3>
+<div class="paragraph">
+<p>This is a DaemonSet that will deploy the custom-node-exporter application to all nodes in the cluster. The application will write logs to a file in a directory mounted to the PVC with ReadWriteMany access mode.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">apps/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">DaemonSet</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">custom-node-exporter</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">service-foundry</span>
+  <span class="na">labels</span><span class="pi">:</span>
+    <span class="na">app</span><span class="pi">:</span> <span class="s">custom-node-exporter</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">selector</span><span class="pi">:</span>
+    <span class="na">matchLabels</span><span class="pi">:</span>
+      <span class="na">app</span><span class="pi">:</span> <span class="s">custom-node-exporter</span>
+  <span class="na">template</span><span class="pi">:</span>
+    <span class="na">metadata</span><span class="pi">:</span>
+      <span class="na">labels</span><span class="pi">:</span>
+        <span class="na">app</span><span class="pi">:</span> <span class="s">custom-node-exporter</span>
+    <span class="na">spec</span><span class="pi">:</span>
+      <span class="na">hostNetwork</span><span class="pi">:</span> <span class="kc">true</span>
+      <span class="na">hostPID</span><span class="pi">:</span> <span class="kc">true</span>
+      <span class="na">containers</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">node-exporter</span>
+        <span class="na">image</span><span class="pi">:</span> <span class="s">credemol/custom-node-exporter:0.5.0</span>
+        <span class="na">imagePullPolicy</span><span class="pi">:</span> <span class="s">Always</span>
+        <span class="na">ports</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">containerPort</span><span class="pi">:</span> <span class="m">9100</span>
+          <span class="na">hostPort</span><span class="pi">:</span> <span class="m">9100</span>
+          <span class="na">name</span><span class="pi">:</span> <span class="s">metrics</span>
+        <span class="na">env</span><span class="pi">:</span>
+        <span class="c1"># Other environment variables</span>
+        <i class="conum" data-value="1"></i><b>(1)</b>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">LOG_DIR</span>
+          <span class="na">value</span><span class="pi">:</span> <span class="s">/var/log/custom-node-exporter</span>
+
+        <span class="na">volumeMounts</span><span class="pi">:</span>
+        <span class="c1"># Other volume mounts</span>
+        <i class="conum" data-value="2"></i><b>(2)</b>
+        <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">logs</span>
+          <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/var/log/custom-node-exporter</span>
+
+      <span class="na">volumes</span><span class="pi">:</span>
+      <span class="c1"># Other volumes</span>
+      <i class="conum" data-value="3"></i><b>(3)</b>
+      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">logs</span>
+        <span class="na">persistentVolumeClaim</span><span class="pi">:</span>
+          <span class="na">claimName</span><span class="pi">:</span> <span class="s">custom-node-exporter-logs-pvc</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The LOG_DIR environment variable is set to /var/log/custom-node-exporter.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The logs volume is mounted to /var/log/custom-node-exporter.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>The logs volume is a PVC with ReadWriteMany access mode.</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="verify-the-pvc-is-used-by-multiple-pods">Verify the PVC is used by multiple pods</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="using-a-debug-pod">Using a Debug Pod</h3>
+<div class="paragraph">
+<p>Create a debug pod to verify the PVC is used by multiple pods.</p>
+</div>
+<div class="paragraph">
+<p>Here is the debug pod yaml file:</p>
+</div>
+<div class="listingblock">
+<div class="title">longhorn-rwx-debug-pod.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Pod</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">longhorn-rwx-debug</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">service-foundry</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">containers</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">longhorn-rwx-debug</span>
+    <i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="na">image</span><span class="pi">:</span> <span class="s">busybox</span>
+    <span class="na">command</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">sh"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">-c"</span><span class="pi">,</span> <span class="s2">"</span><span class="s">sleep</span><span class="nv"> </span><span class="s">36000"</span><span class="pi">]</span>
+    <span class="na">restartPolicy</span><span class="pi">:</span> <span class="s">Never</span>
+    <i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="na">volumeMounts</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">mountPath</span><span class="pi">:</span> <span class="s">/data</span>
+      <span class="na">name</span><span class="pi">:</span> <span class="s">vol</span>
+  <span class="na">volumes</span><span class="pi">:</span>
+  <i class="conum" data-value="3"></i><b>(3)</b>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">vol</span>
+    <span class="na">persistentVolumeClaim</span><span class="pi">:</span>
+      <span class="na">claimName</span><span class="pi">:</span> <span class="s">custom-node-exporter-logs-pvc</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The image is busybox.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The volume is mounted to /data.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>The volume is a PVC with ReadWriteMany access mode.</td>
+</tr>
+</table>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ POD_NAME</span><span class="o">=</span>longhorn-rwx-debug
+
+<span class="nv">$ </span>kubectl <span class="nb">exec</span> <span class="nt">-it</span> <span class="nt">-n</span> service-foundry <span class="nv">$POD_NAME</span> <span class="nt">--</span> /bin/sh
+
+<span class="c"># In the debug pod</span>
+
+<span class="nv">$ </span><span class="nb">ls</span> <span class="nt">-l</span> /data
+
+ip-192-168-25-18.ca-central-1.compute.internal-log-scheduler-2026-01-27.log
+ip-192-168-25-18.ca-central-1.compute.internal-log-scheduler-2026-01-28.log
+ip-192-168-50-87.ca-central-1.compute.internal-log-scheduler-2026-01-27.log
+ip-192-168-50-87.ca-central-1.compute.internal-log-scheduler-2026-01-28.log
+ip-192-168-58-1.ca-central-1.compute.internal-log-scheduler-2026-01-27.log
+ip-192-168-58-1.ca-central-1.compute.internal-log-scheduler-2026-01-28.log
+lost+found</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Log file name format: &lt;node-name&gt;-log-scheduler-&lt;date&gt;.log</p>
+</div>
+<div class="paragraph">
+<p>This files are created by pods of the custom-node-exporter application running on different nodes.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="using-share-manager-pod">Using Share-Manager-Pod</h3>
+<div class="sect3">
+<h4 id="what-is-share-manager-pod">What is Share-Manager-Pod?</h4>
+<div class="paragraph">
+<p>Share-Manager-Pod is a pod that runs in the longhorn-system namespace. It is used to manage the share of the Longhorn volumes. This pod is automatically created only when the first RWX volume (PVC/PV) is created and needs to be mounted.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="how-to-use-share-manager-pod">How to use Share-Manager-Pod?</h4>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ POD_NAME</span><span class="o">=</span><span class="si">$(</span>kubectl get pod <span class="nt">-l</span> longhorn.io/component<span class="o">=</span>share-manager <span class="nt">-n</span> longhorn-system <span class="nt">-o</span> <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.items[0].metadata.name}'</span><span class="si">)</span>
+
+<span class="nv">$ </span>kubectl <span class="nb">exec</span> <span class="nt">-it</span> <span class="nt">-n</span> longhorn-system <span class="nv">$POD_NAME</span> <span class="nt">--</span> /bin/sh
+
+<span class="c"># In the share-manager pod</span>
+
+<span class="nv">$ </span><span class="nb">ls</span> /export
+
+pvc-d5537143-35b9-4669-bb95-50fa8b7a6f19
+
+<span class="nv">$ </span><span class="nb">ls</span> /export/pvc-d5537143-35b9-4669-bb95-50fa8b7a6f19
+
+
+ip-192-168-25-18.ca-central-1.compute.internal-log-scheduler-2026-01-27.log
+ip-192-168-25-18.ca-central-1.compute.internal-log-scheduler-2026-01-28.log
+ip-192-168-50-87.ca-central-1.compute.internal-log-scheduler-2026-01-27.log
+ip-192-168-50-87.ca-central-1.compute.internal-log-scheduler-2026-01-28.log
+ip-192-168-58-1.ca-central-1.compute.internal-log-scheduler-2026-01-27.log
+ip-192-168-58-1.ca-central-1.compute.internal-log-scheduler-2026-01-28.log
+lost+found</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We can see that the log files are replicated across all nodes.</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In this article, we have shown how to use ReadWriteMany storage for a Stateful application. We have created a Longhorn StorageClass with ReadWriteMany access mode and used it to create a PVC. We have also deployed a custom-node-exporter application that uses the PVC to store its logs. We have also shown how to use Share-Manager-Pod to manage the share of the Longhorn volumes.</p>
+</div>
+</div>
+</div>
+</body>
+</html>

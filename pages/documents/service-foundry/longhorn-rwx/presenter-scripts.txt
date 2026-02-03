@@ -1,0 +1,630 @@
+### Section: Title and Introduction
+
+Welcome to this tutorial on using Longhorn's ReadWriteMany volumes for stateful applications in Kubernetes. In this video, we'll explore how to configure shared storage that can be accessed by multiple pods simultaneously across different nodes.
+
+Longhorn is a cloud-native, distributed block storage system designed specifically for Kubernetes. As an open-source CNCF project, Longhorn provides enterprise-grade persistent storage capabilities with high availability, disaster recovery, and volume management features that integrate seamlessly with Kubernetes infrastructure.
+
+
+### Section: Understanding ReadWriteMany Access Mode
+
+Before we dive into the implementation, let's understand what ReadWriteMany, or R W X, actually means.
+
+In Kubernetes, persistent volumes support three different access modes that define how they can be mounted and accessed.
+
+First, ReadWriteOnce, or R W O, allows a volume to be mounted as read-write by a single node. This is the most common access mode and works great for stateful applications like databases.
+
+Second, ReadOnlyMany, or R O X, allows a volume to be mounted as read-only by multiple nodes simultaneously.
+
+And third, ReadWriteMany, or R W X, which is what we're focusing on today. This mode allows a volume to be mounted as read-write by multiple nodes simultaneously. This is essential for workloads that require shared storage across multiple pods.
+
+
+### Section: Why RWX Volumes Matter
+
+In our previous article, we installed Longhorn on AWS EKS, which created a default StorageClass with ReadWriteOnce access mode. This configuration worked perfectly for stateful applications like PostgreSQL and Redis, where a single pod manages the database instance and requires exclusive write access to the storage.
+
+However, many modern distributed applications and data processing frameworks require shared storage that can be accessed concurrently by multiple pods.
+
+Common use cases include Apache Airflow, where multiple scheduler and worker pods need to write logs and share metadata in a common directory. Machine learning platforms, where training jobs running across multiple nodes need to access shared datasets and write checkpoints. Content management systems, where multiple application servers need to access and modify shared media files. And shared logging infrastructure, where applications across different pods write to centralized log directories.
+
+This tutorial demonstrates how to configure and use Longhorn's ReadWriteMany volumes for stateful applications that require shared, concurrent write access to persistent storage.
+
+
+### Section: What We'll Build
+
+We'll create a practical demonstration using a custom Go application that collects system metrics from host nodes and writes them to log files. The application will be deployed as a DaemonSet, ensuring it runs on every node in the cluster.
+
+By mounting a shared R W X volume, we'll demonstrate three key capabilities:
+
+First, multiple pods across different nodes can write to the same persistent volume simultaneously.
+
+Second, data written by any pod is immediately visible to all other pods sharing the volume.
+
+And third, the shared storage remains consistent and accessible even as pods scale up or down.
+
+Now, it's important to note that this example application is designed for demonstration purposes to illustrate R W X volume behavior. In production environments, you would typically use more sophisticated logging solutions like the ELK stack, Loki, or other centralized logging platforms.
+
+
+### Section: Prerequisites
+
+Before proceeding with this tutorial, ensure you have the following components installed and configured:
+
+You'll need a fully operational Longhorn installation on your Kubernetes cluster with the default StorageClass configured.
+
+You'll need kube control, the Kubernetes command-line tool. We recommend version one point twenty or later, configured to communicate with your cluster.
+
+You'll need a running Kubernetes cluster, version one point twenty or later, with at least three worker nodes for demonstrating distributed storage capabilities.
+
+And finally, you'll need Helm, the package manager for Kubernetes, version three point x or later, for installing Helm charts that require R W X storage.
+
+If you haven't installed Longhorn yet, please refer to our comprehensive guide on Medium, titled "Longhorn: Highly Available, Distributed Block Storage on AWS EKS." This guide covers the complete Longhorn installation process, including infrastructure setup on AWS EKS, Longhorn system components deployment, storage class configuration, volume provisioning and management, and basic troubleshooting procedures.
+
+
+### Section: Sample Application Overview
+
+For this demonstration, we've developed a custom Go application called "custom node exporter" that serves as a practical example of using R W X volumes.
+
+This application performs four key operations:
+
+First, it collects metrics. The application gathers system-level metrics from the host node, including CPU usage, memory consumption, disk I O statistics, and network traffic.
+
+Second, it logs data. It writes these metrics as structured JSON records to log files stored on the shared R W X volume.
+
+Third, it executes on a schedule. The application collects and writes metrics every minute, creating a continuous stream of operational data.
+
+And fourth, it identifies nodes. Each log record includes the hostname, allowing us to track which node generated each entry.
+
+
+### Section: Deployment Strategy - DaemonSet
+
+The application is deployed as a Kubernetes DaemonSet, which ensures that exactly one pod runs on each node in the cluster. This deployment pattern is ideal for our demonstration for several reasons:
+
+It provides complete node coverage. As nodes are added to or removed from the cluster, the DaemonSet automatically manages pod distribution.
+
+It enables host access. Each pod can collect authentic system metrics from its respective host node.
+
+It creates concurrent writers. Multiple pods simultaneously write to the shared volume, demonstrating true R W X behavior.
+
+And it simplifies data verification. We can easily verify that logs from all nodes appear in the shared directory.
+
+By the end of this tutorial, you'll observe log files from all cluster nodes coexisting in the same shared directory. Each log file will contain timestamped system metrics in JSON format, demonstrating successful concurrent write operations across multiple nodes.
+
+
+### Section: Implementation Steps Overview
+
+Now let's move into the implementation phase. To implement shared ReadWriteMany storage with Longhorn, we'll follow a systematic four-step approach.
+
+First, we'll configure the StorageClass. We'll create a dedicated Longhorn StorageClass with R W X-specific parameters, including the critical "migratable equals false" setting that's required for shared volume support.
+
+Second, we'll provision the persistent volume. We'll create a PersistentVolumeClaim that requests ReadWriteMany access mode, which triggers Longhorn to automatically deploy the NFS-based share-manager infrastructure.
+
+Third, we'll deploy the application. We'll deploy our custom node exporter application as a DaemonSet to ensure it runs on every cluster node, with each pod mounting the shared R W X volume.
+
+And fourth, we'll verify shared access. We'll confirm that multiple pods can simultaneously write to the shared volume and that data is accessible across all nodes using both debug pods and direct share-manager inspection.
+
+Let's begin with step one.
+
+
+### Section: Step 1 - Creating the Longhorn StorageClass
+
+The first step is to create a dedicated StorageClass configured specifically for ReadWriteMany access. While Longhorn's default StorageClass handles R W O volumes, R W X volumes require special configuration due to their different architectural requirements.
+
+Let me walk you through the key components of the StorageClass yah mul manifest:
+
+The metadata section defines the name as "longhorn dash R W X", which clearly identifies this class as supporting ReadWriteMany access mode, distinguishing it from the default R W O class.
+
+The provisioner field is set to "driver dot longhorn dot io", which is the CSI, or Container Storage Interface, driver that Longhorn uses to dynamically provision volumes.
+
+We enable volume expansion by setting "allowVolumeExpansion" to true. This allows volumes to be expanded after creation without downtime, which is useful for growing log directories or shared data stores.
+
+The reclaim policy is set to "Delete", which ensures that when a PVC is deleted, the underlying PV and its data are also removed, preventing orphaned storage resources.
+
+The volume binding mode is set to "Immediate", which means the volume is provisioned as soon as the PVC is created, rather than waiting for a pod to use it.
+
+In the parameters section, we configure several important settings:
+
+We set the number of replicas to three, which maintains three copies of the data across different nodes for high availability and fault tolerance.
+
+The stale replica timeout is set to thirty minutes, which defines how long Longhorn waits before considering a replica stale and rebuilding it on another node.
+
+The from backup parameter is left empty for new volumes. This parameter is used when creating volumes from existing Longhorn backups.
+
+And most critically, the migratable flag is set to false. This is absolutely essential for R W X volumes.
+
+
+### Section: Understanding the Migratable Constraint
+
+Let me explain why the migratable flag must be false for R W X volumes.
+
+R W X volumes in Longhorn work by creating a share-manager pod that exports the volume via NFS, or Network File System. This architecture requires the volume to remain attached to a specific node where the share-manager runs, making migration incompatible with the R W X implementation.
+
+According to the official Longhorn documentation, "An R W X volume must have the access mode set to ReadWriteMany and the migratable flag disabled. This is because R W X volumes are implemented using a share-manager pod that exports the volume via NFS, and this pod must remain on a specific node."
+
+Now, to create the StorageClass in your cluster, you would run "kube control apply dash f longhorn dash R W X dash S C dot yah mul". You should see output confirming that the storage class was created.
+
+To verify the StorageClass creation, run "kube control get storageclasses". You should see the "longhorn dash R W X" StorageClass in the list with the Longhorn provisioner.
+
+
+### Section: Step 2 - Creating the PersistentVolumeClaim
+
+Now we'll create a PersistentVolumeClaim that requests storage with ReadWriteMany access mode. This PVC will be used by our custom node exporter application to store logs that need to be accessible from all nodes.
+
+Let me explain the key components of the PVC yah mul manifest:
+
+In the metadata section, the PVC name is "custom dash node dash exporter dash logs dash PVC", which is a descriptive name indicating this volume stores logs for the custom node exporter application. The namespace is set to "service dash foundry", which is where our DaemonSet will run.
+
+In the spec section, the access modes list contains "ReadWriteMany", which allows the volume to be mounted with read-write permissions by pods on multiple nodes simultaneously.
+
+The storage class name references "longhorn dash R W X", the StorageClass we created in the previous step.
+
+And in the resources section, we request one gigabyte of storage capacity. This can be adjusted based on your expected log volume.
+
+
+### Section: Understanding RWX Access Mode in Practice
+
+When you specify ReadWriteMany, Kubernetes instructs Longhorn to perform several operations:
+
+First, it creates a backing Longhorn volume with the requested capacity.
+
+Second, it deploys a share-manager pod that mounts the Longhorn volume.
+
+Third, it configures the share-manager to export the volume via NFS.
+
+And finally, it allows multiple pods across different nodes to mount this NFS export simultaneously.
+
+This differs significantly from ReadWriteOnce volumes, where the volume is directly attached to a single node via the iSCSI protocol.
+
+To create the PersistentVolumeClaim, you would run "kube control apply dash f PVC dot yah mul". You should see confirmation that the persistent volume claim was created.
+
+To verify the PVC status, run "kube control get PVC dash n service dash foundry". You should see several key observations in the output:
+
+The STATUS should be "Bound", indicating Longhorn successfully provisioned the volume.
+
+The ACCESS MODES should display "R W X", confirming ReadWriteMany access.
+
+The STORAGECLASS should show "longhorn dash R W X", our custom StorageClass.
+
+And the VOLUME column shows the dynamically provisioned PersistentVolume name, which is auto-generated by Longhorn.
+
+If the PVC remains in "Pending" status, check the Longhorn UI or logs for provisioning errors.
+
+
+### Section: Step 3 - Deploying the Application as a DaemonSet
+
+Now we'll deploy the custom node exporter application as a DaemonSet, which will run a pod on every node in the cluster. Each pod will mount the shared R W X volume and write logs to it, demonstrating concurrent write access.
+
+Let me walk through the important components of the DaemonSet yah mul manifest:
+
+In the metadata section, we name the DaemonSet "custom dash node dash exporter" and deploy it to the "service dash foundry" namespace with appropriate labels.
+
+The selector section uses label matching to ensure the DaemonSet manages pods with matching labels. This is required for DaemonSet pod management.
+
+In the pod template spec, we configure several important settings:
+
+Host network is set to true, which uses the host's network namespace. This allows the application to see the actual node's network interfaces and collect authentic network metrics.
+
+Host PID is set to true, which accesses the host's process namespace. This enables the application to monitor all processes running on the node, not just container processes.
+
+For the container configuration, we use the image "credemol slash custom dash node dash exporter version zero point five point zero". This is our custom Go application packaged as a Docker image, and version zero point five point zero includes the metrics collection and logging functionality.
+
+The image pull policy is set to "Always", which ensures the latest image is pulled on each pod creation. This is useful during development and testing.
+
+We expose port ninety-one hundred on both the container and host, following the Prometheus node exporter convention for metrics endpoints, though this is supplementary to our log-based demonstration.
+
+In the environment variables section, we set LOG underscore DIR to "slash var slash log slash custom dash node dash exporter". This configures the application to write logs to this directory, which maps to our R W X volume mount.
+
+For volume mounts, we mount the "logs" volume at "slash var slash log slash custom dash node dash exporter" inside the container, making the shared storage accessible to the application.
+
+And in the volumes section, we reference the PVC we created earlier, "custom dash node dash exporter dash logs dash PVC", which provides the shared R W X storage.
+
+
+### Section: How DaemonSets Work
+
+The DaemonSet controller automatically performs several operations:
+
+It creates one pod on each node when the DaemonSet is deployed.
+
+It creates a new pod when a node is added to the cluster.
+
+It removes pods when nodes are removed from the cluster.
+
+And it recreates pods if they fail or are deleted.
+
+This makes DaemonSets ideal for node-level services like log collectors, monitoring agents, and storage daemons.
+
+To deploy the application, you would run "kube control apply dash f daemonset dot yah mul". You should see confirmation that the daemonset was created.
+
+To verify the DaemonSet deployment, run "kube control get pods dash n service dash foundry dash l app equals custom dash node dash exporter dash o wide".
+
+You should see one pod per node in your cluster, all in the "Running" state. The NODE column shows the distribution across different nodes.
+
+
+### Section: Verification Method 1 - Using a Debug Pod
+
+Now that our application is running and writing logs to the shared R W X volume, we need to verify that the volume is indeed accessible from multiple pods simultaneously and that data written by different pods coexists in the same storage.
+
+We'll use two different approaches to verify this behavior. First, we'll create a debug pod, and second, we'll access the share-manager pod directly.
+
+Creating a dedicated debug pod provides a clean, isolated environment for inspecting the shared volume without interfering with the running application.
+
+The debug pod yah mul manifest is very simple. It creates a pod named "longhorn dash R W X dash debug" in the service foundry namespace.
+
+We use the busybox image, which is a lightweight Linux container with essential shell utilities, perfect for debugging without unnecessary overhead.
+
+The command runs a sleep for thirty-six thousand seconds, which is ten hours. This keeps the container running, giving you ample time to exec into it and explore the volume.
+
+The restart policy is set to "Never", which prevents automatic restart if the container exits. This is appropriate for debugging sessions.
+
+The volume is mounted at "slash data" inside the container for easy access.
+
+And critically, we use the same PVC that the DaemonSet pods are using, "custom dash node dash exporter dash logs dash PVC". This demonstrates that multiple pods can mount the same R W X volume.
+
+To create the pod and access it, you would first run "kube control apply dash f longhorn dash R W X dash debug dash pod dot yah mul".
+
+Then, you'd exec into it by running "kube control exec dash i t dash n service dash foundry longhorn dash R W X dash debug dash dash slash bin slash sh".
+
+Once inside the debug pod, you can list the contents of the mounted volume by running "l s dash l slash data".
+
+
+### Section: Understanding the Debug Pod Results
+
+When you list the directory contents, you'll see something very interesting. You'll see log files with names like "I P dash one ninety-two dash one sixty-eight dash twenty-five dash eighteen dot C A dash central dash one dot compute dot internal dash log dash scheduler dash twenty twenty-six dash zero one dash twenty-seven dot log", and similar files from other nodes.
+
+The log file naming convention follows this pattern: node hostname, followed by "log dash scheduler", followed by the date, and then dot log.
+
+Each filename includes the node hostname, which identifies which node's pod created the file, and the date, as logs are rotated daily, creating new files each day.
+
+There are several key observations to make here:
+
+First, you see multiple writers. You can see log files from multiple different nodes, identified by different IP addresses in the hostnames. This proves that different pods on different nodes are all writing to the same shared storage.
+
+Second, you observe data persistence. Files created by the DaemonSet pods are visible from a completely different pod, our debug pod.
+
+And third, you confirm concurrent access. All pods are simultaneously writing to their respective log files without conflicts.
+
+You might also notice a "lost plus found" directory. This is an ext4 filesystem artifact that appears in the root of the mounted volume and can be safely ignored.
+
+You can also examine the actual log data by running a command like "cat slash data slash" followed by one of the log filenames and piping it to "head dash five". This will show you the JSON-formatted system metrics that the application is collecting.
+
+
+### Section: Verification Method 2 - Using the Share-Manager Pod
+
+For a deeper understanding of how Longhorn implements R W X volumes, we can access the share-manager pod directly. This method reveals the underlying NFS architecture.
+
+The share-manager pod is a critical component of Longhorn's R W X implementation. Let me explain what it does:
+
+Longhorn automatically creates this pod when your first R W X PVC is provisioned.
+
+The pod runs an NFS, or Network File System, server that exports the Longhorn volume.
+
+It runs in the "longhorn dash system" namespace.
+
+One share-manager pod can handle multiple R W X volumes.
+
+The pod mounts the actual Longhorn block storage volume and shares it via NFS to all pods that need R W X access.
+
+This architecture allows multiple pods on different nodes to mount the same volume concurrently, as NFS is specifically designed for shared, network-based file access.
+
+To access the share-manager pod, you would first automatically get the pod name using a label selector by running "kube control get pod dash l longhorn dot io slash component equals share dash manager dash n longhorn dash system dash o jsonpath equals curly brace dot items bracket zero bracket dot metadata dot name curly brace".
+
+Then you'd exec into the pod by running "kube control exec dash i t dash n longhorn dash system" followed by the pod name and "dash dash slash bin slash sh".
+
+Inside the share-manager pod, volumes are exported from the "slash export" directory.
+
+You can list exported volumes by running "l s slash export". You'll see a directory named something like "P V C dash D five five three seven one four three dash three five B nine dash four six six nine dash B B nine five dash five zero F A eight B seven A six F one nine", which corresponds to our PVC.
+
+Then you can list the contents of that specific volume by running "l s slash export slash" followed by the PVC directory name.
+
+
+### Section: Understanding the Share-Manager Architecture
+
+When you list the contents, you'll see the exact same log files we saw in the debug pod. This reveals the complete architecture.
+
+The directory structure works like this:
+
+"Slash export" is the root directory for NFS exports.
+
+"P V C dash" followed by a UUID is the subdirectory for each R W X PVC, matching the PV name.
+
+And then you see the log files, which is the actual application data.
+
+The data flow works as follows:
+
+First, application pods write to "slash var slash log slash custom dash node dash exporter", which is their mount path.
+
+Second, this maps to an NFS mount provided by the share-manager pod.
+
+Third, the share-manager pod stores the actual data on the Longhorn volume.
+
+And fourth, Longhorn replicates this data across multiple nodes for fault tolerance.
+
+This proves several important points:
+
+All data written by the DaemonSet pods is visible in the share-manager's export directory.
+
+The same files are accessible whether you view them from the debug pod, the application pods, or the share-manager pod.
+
+And this confirms that Longhorn is correctly implementing shared storage via NFS.
+
+
+### Section: Conclusion - What We Accomplished
+
+In this comprehensive guide, we successfully demonstrated how to configure and use Longhorn's ReadWriteMany volumes for stateful applications that require concurrent write access from multiple pods across different nodes.
+
+Here's what we accomplished:
+
+First, StorageClass configuration. We created a dedicated "longhorn dash R W X" StorageClass with the required parameters for R W X access, including the critical "migratable equals false" setting.
+
+Second, PVC provisioning. We provisioned a PersistentVolumeClaim with ReadWriteMany access mode, which Longhorn fulfilled by automatically deploying NFS-based shared storage.
+
+Third, application deployment. We deployed a custom node exporter application as a DaemonSet, ensuring pods on every node could write to the shared volume simultaneously.
+
+And fourth, verification. We confirmed shared access using both a debug pod and direct inspection of the share-manager pod, proving that data from all nodes coexists in the same storage.
+
+
+### Section: Key Takeaways - Architectural Understanding
+
+Let me highlight some key takeaways from this tutorial.
+
+From an architectural perspective, you should understand that Longhorn implements R W X volumes by creating a share-manager pod that exports the Longhorn volume via NFS.
+
+This architecture differs from R W O volumes, which use direct iSCSI attachment.
+
+The NFS layer enables multiple pods on different nodes to mount the same volume concurrently with read-write access.
+
+
+### Section: Key Takeaways - Configuration Essentials
+
+For configuration, remember these essentials:
+
+Always set "migratable equals false" for R W X StorageClasses. This is not optional.
+
+Use descriptive naming conventions for StorageClasses and PVCs to distinguish R W X from R W O resources.
+
+And consider replica counts based on your high-availability requirements.
+
+
+### Section: Key Takeaways - Use Case Applicability
+
+Regarding use case applicability, R W X volumes are ideal for applications requiring shared logs, shared configuration files, or collaborative workspaces.
+
+Common scenarios include Apache Airflow, Jupyter notebooks, CI CD systems, and content management platforms.
+
+However, they're not suitable for databases or applications requiring exclusive write access. For those use cases, stick with R W O volumes.
+
+
+### Section: Production Considerations
+
+While this demonstration used a simple logging application, real-world production deployments should consider several important factors:
+
+First, performance. NFS adds network overhead compared to direct block storage, so make sure to benchmark your workloads.
+
+Second, monitoring. Track NFS performance metrics and share-manager pod health.
+
+Third, capacity planning. Monitor volume usage and configure alerts for capacity thresholds.
+
+Fourth, backup strategy. Implement Longhorn snapshots and backups for R W X volumes.
+
+And fifth, access control. Use Network Policies and R back to control which workloads can access shared volumes.
+
+
+### Section: Next Steps
+
+To further explore Longhorn's capabilities, I recommend these next steps:
+
+Experiment with volume snapshots and backups for disaster recovery.
+
+Configure recurring backup jobs for critical shared data.
+
+Explore Longhorn's disaster recovery features for cross-cluster replication.
+
+Implement monitoring and alerting for storage health and capacity.
+
+And test volume expansion to handle growing data requirements.
+
+By mastering R W X volumes, you unlock the ability to deploy a wider range of cloud-native applications on Kubernetes with Longhorn, making your infrastructure more versatile and capable of supporting modern distributed workloads.
+
+Thank you for watching this tutorial on Longhorn ReadWriteMany volumes. If you found this helpful, please like and subscribe for more Kubernetes storage tutorials. See you in the next video!
+
+
+================================================================================
+YOUTUBE VIDEO METADATA
+================================================================================
+
+TITLE:
+Longhorn ReadWriteMany (RWX) Volumes: Shared Storage for Kubernetes | Complete Tutorial
+
+DESCRIPTION:
+Learn how to configure and use Longhorn's ReadWriteMany (RWX) volumes for Kubernetes applications that require shared storage across multiple pods. This comprehensive tutorial covers everything from StorageClass configuration to practical verification methods.
+
+🎯 What You'll Learn:
+• Understanding Kubernetes access modes (RWO, ROX, RWX)
+• When to use ReadWriteMany volumes vs ReadWriteOnce
+• Configuring Longhorn StorageClass for RWX support
+• The critical "migratable: false" setting explained
+• How Longhorn implements RWX via NFS share-manager
+• Deploying DaemonSets with shared persistent storage
+• Verifying concurrent writes from multiple nodes
+• Production considerations and best practices
+
+⚙️ Prerequisites:
+• Longhorn installed on Kubernetes cluster
+• kubectl configured
+• At least 3 worker nodes (recommended)
+• Basic Kubernetes knowledge
+
+📚 Implementation Steps:
+1. Create RWX-enabled StorageClass (00:00)
+2. Provision PersistentVolumeClaim with ReadWriteMany (00:00)
+3. Deploy custom node-exporter as DaemonSet (00:00)
+4. Verify shared access using debug pods (00:00)
+5. Inspect share-manager pod architecture (00:00)
+
+🔧 Use Cases Covered:
+• Apache Airflow shared logs
+• Machine learning shared datasets
+• Content management systems
+• CI/CD shared workspaces
+• Centralized logging infrastructure
+
+💡 Key Concepts:
+• NFS-based shared storage architecture
+• Share-manager pod role and lifecycle
+• Concurrent write access patterns
+• Storage replication and high availability
+• Volume expansion capabilities
+
+🔗 Resources:
+• Longhorn Documentation: https://longhorn.io/docs/
+• Sample Code: [Your GitHub Repository]
+• Previous Tutorial: Longhorn Installation on AWS EKS
+
+�� Chapters:
+0:00 Introduction
+0:00 Understanding ReadWriteMany Access Mode
+0:00 Why RWX Volumes Matter
+0:00 Prerequisites and Setup
+0:00 Sample Application Overview
+0:00 Step 1: Creating RWX StorageClass
+0:00 Step 2: Creating PersistentVolumeClaim
+0:00 Step 3: Deploying the DaemonSet
+0:00 Verification Method 1: Debug Pod
+0:00 Verification Method 2: Share-Manager Pod
+0:00 Architecture Deep Dive
+0:00 Production Considerations
+0:00 Conclusion and Next Steps
+
+#Kubernetes #Longhorn #Storage #PersistentVolume #RWX #ReadWriteMany #CloudNative #DevOps #CNCF #ContainerStorage #K8s #Tutorial
+
+👍 If you found this tutorial helpful, please like and subscribe for more Kubernetes and cloud-native content!
+
+💬 Questions? Drop them in the comments below!
+
+🔔 Subscribe for weekly Kubernetes tutorials: [Your Channel URL]
+
+
+TAGS:
+kubernetes
+longhorn
+persistent storage
+readwritemany
+rwx volumes
+kubernetes storage
+cloud native
+cncf
+persistent volume claim
+pvc
+storage class
+daemonset
+nfs
+shared storage
+kubernetes tutorial
+devops
+aws eks
+container storage
+distributed storage
+stateful applications
+kubernetes volumes
+longhorn tutorial
+k8s storage
+kubernetes training
+cloud storage
+microservices
+docker
+containers
+
+
+================================================================================
+LINKEDIN ARTICLE METADATA
+================================================================================
+
+TITLE:
+How to Use Longhorn ReadWriteMany Volumes for Shared Storage in Kubernetes
+
+SUMMARY:
+Kubernetes persistent volumes typically use ReadWriteOnce (RWO) access mode, where a volume can only be mounted by a single node. But what happens when you need multiple pods across different nodes to write to the same storage simultaneously?
+
+In this comprehensive guide, I walk through implementing Longhorn's ReadWriteMany (RWX) volumes for stateful applications that require shared, concurrent write access. This is essential for modern distributed applications like Apache Airflow, machine learning platforms, and content management systems.
+
+🎯 Key Highlights:
+
+✅ Understanding Kubernetes Access Modes
+I explain the three access modes (RWO, ROX, RWX) and when each should be used, with real-world examples of applications that benefit from shared storage.
+
+✅ Longhorn's NFS-Based Architecture  
+Learn how Longhorn implements RWX volumes using a share-manager pod that exports volumes via NFS, and why the "migratable: false" setting is critical for this architecture.
+
+✅ Hands-On Implementation
+Step-by-step tutorial covering:
+• Creating an RWX-enabled StorageClass with proper parameters
+• Provisioning PersistentVolumeClaims with ReadWriteMany access
+• Deploying applications as DaemonSets with shared storage
+• Verifying concurrent write access from multiple nodes
+
+✅ Practical Demonstration
+I built a custom Go application that collects system metrics from every node and writes to a shared volume, demonstrating that:
+• Multiple pods can write to the same volume simultaneously
+• Data written by any pod is immediately visible to all others
+• Storage remains consistent across the cluster
+
+✅ Production Best Practices
+Production considerations including performance implications, monitoring strategies, capacity planning, backup approaches, and access control using NetworkPolicies and RBAC.
+
+💡 When to Use RWX Volumes:
+• Shared logging infrastructure for distributed applications
+• Apache Airflow logs and metadata across schedulers and workers
+• Machine learning training jobs accessing shared datasets
+• Content management systems with multiple application servers
+• CI/CD pipelines requiring shared workspace storage
+
+⚠️ When NOT to Use RWX:
+• Databases requiring exclusive write access (use RWO instead)
+• Applications sensitive to NFS network latency
+• Single-pod stateful applications
+
+🔧 Technical Deep Dive:
+The article includes detailed explanations of:
+• StorageClass parameter configurations
+• NFS share-manager pod lifecycle
+• DaemonSet deployment patterns
+• Volume mount propagation
+• Concurrent access verification methods
+
+Whether you're deploying Apache Airflow, building a machine learning platform, or designing shared storage infrastructure, this guide provides the foundation you need to implement robust ReadWriteMany storage with Longhorn.
+
+Read the full article to learn how to unlock advanced storage capabilities in your Kubernetes clusters!
+
+#Kubernetes #Longhorn #CloudNative #DevOps #Storage #PersistentStorage #CNCF #Containers #Infrastructure #SRE #PlatformEngineering
+
+
+TAGS:
+Kubernetes
+Longhorn
+Cloud Native
+DevOps
+Persistent Storage
+ReadWriteMany
+RWX Volumes
+Container Storage
+Distributed Systems
+Infrastructure
+Storage Management
+CNCF
+Microservices
+Platform Engineering
+Site Reliability Engineering
+AWS EKS
+Stateful Applications
+DaemonSet
+PersistentVolumeClaim
+StorageClass
+NFS
+Shared Storage
+High Availability
+Disaster Recovery
+Cloud Infrastructure
+Kubernetes Tutorial
+Open Source
+Container Orchestration
+GitOps
+Infrastructure as Code
+
