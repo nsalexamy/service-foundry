@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>How to create Longhorn Backup using AWS S3 with IRSA</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">1. Introduction</a></li>
+<li><a href="#prerequisites">2. Prerequisites</a></li>
+<li><a href="#step-1-create-an-aws-iam-policy">3. Step 1: Create an AWS IAM Policy</a></li>
+<li><a href="#step-2-create-an-iam-role-and-associate-with-service-account">4. Step 2: Create an IAM Role and Associate with Service Account</a></li>
+<li><a href="#step-3-restart-longhorn-components">5. Step 3: Restart Longhorn Components</a></li>
+<li><a href="#step-4-configure-backup-target-in-longhorn">6. Step 4: Configure Backup Target in Longhorn</a></li>
+<li><a href="#verification">7. Verification</a></li>
+<li><a href="#troubleshooting">8. Troubleshooting</a></li>
+<li><a href="#how-to-create-a-backup">9. How to create a backup</a>
+<ul class="sectlevel2">
+<li><a href="#manual-backup">9.1. Manual Backup</a></li>
+<li><a href="#automated-backup-recurring-job">9.2. Automated Backup (Recurring Job)</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="sect1">
+<h2 id="introduction"><a class="link" href="#introduction">1. Introduction</a></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>This guide explains how to configure an AWS S3 bucket as a backup target for your Longhorn volumes using <strong>IAM Roles for Service Accounts (IRSA)</strong>. IRSA is the recommended method for authentication on EKS as it avoids storing long-lived AWS credentials (access keys) in Kubernetes Secrets.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="prerequisites"><a class="link" href="#prerequisites">2. Prerequisites</a></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Before you begin, ensure you have the following:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>EKS Cluster</strong>: A running EKS cluster with an IAM OIDC provider associated with it.</p>
+</li>
+<li>
+<p><strong>Longhorn Installed</strong>: Longhorn v1.11.0 or later running on the cluster.</p>
+</li>
+<li>
+<p><strong>AWS CLI &amp; kubectl</strong>: Configured access to AWS and your cluster.</p>
+</li>
+<li>
+<p><strong>AWS S3 Bucket</strong>: An existing S3 bucket for backups.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-1-create-an-aws-iam-policy"><a class="link" href="#step-1-create-an-aws-iam-policy">3. Step 1: Create an AWS IAM Policy</a></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Create an IAM policy that allows the necessary permissions for the S3 bucket.</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Create a file named <code>longhorn-s3-policy.json</code> with the following content (replace <code>&lt;your-bucket-name&gt;</code>):</p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+    </span><span class="nl">"Version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2012-10-17"</span><span class="p">,</span><span class="w">
+    </span><span class="nl">"Statement"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+        </span><span class="p">{</span><span class="w">
+            </span><span class="nl">"Sid"</span><span class="p">:</span><span class="w"> </span><span class="s2">"LonghornBackupAccess"</span><span class="p">,</span><span class="w">
+            </span><span class="nl">"Effect"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Allow"</span><span class="p">,</span><span class="w">
+            </span><span class="nl">"Action"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+                </span><span class="s2">"s3:PutObject"</span><span class="p">,</span><span class="w">
+                </span><span class="s2">"s3:GetObject"</span><span class="p">,</span><span class="w">
+                </span><span class="s2">"s3:ListBucket"</span><span class="p">,</span><span class="w">
+                </span><span class="s2">"s3:DeleteObject"</span><span class="w">
+            </span><span class="p">],</span><span class="w">
+            </span><span class="nl">"Resource"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+                </span><span class="s2">"arn:aws:s3:::&lt;your-bucket-name&gt;"</span><span class="p">,</span><span class="w">
+                </span><span class="s2">"arn:aws:s3:::&lt;your-bucket-name&gt;/*"</span><span class="w">
+            </span><span class="p">]</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">]</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Create the policy using AWS CLI:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash">aws iam create-policy <span class="se">\</span>
+    <span class="nt">--policy-name</span> LonghornS3BackupPolicy <span class="se">\</span>
+    <span class="nt">--policy-document</span> file://longhorn-s3-policy.json</code></pre>
+</div>
+</div>
+</li>
+</ol>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-2-create-an-iam-role-and-associate-with-service-account"><a class="link" href="#step-2-create-an-iam-role-and-associate-with-service-account">4. Step 2: Create an IAM Role and Associate with Service Account</a></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>You need to create an IAM role that trusts the Kubernetes Service Account used by Longhorn.</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Set Environment Variables</strong>:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="nv">CLUSTER_NAME</span><span class="o">=</span>my-cluster
+<span class="nv">REGION</span><span class="o">=</span>us-east-1
+<span class="nv">ACCOUNT_ID</span><span class="o">=</span><span class="si">$(</span>aws sts get-caller-identity <span class="nt">--query</span> Account <span class="nt">--output</span> text<span class="si">)</span>
+<span class="nv">POLICY_ARN</span><span class="o">=</span>arn:aws:iam::<span class="k">${</span><span class="nv">ACCOUNT_ID</span><span class="k">}</span>:policy/LonghornS3BackupPolicy</code></pre>
+</div>
+</div>
+</li>
+<li>
+<p><strong>Create the IAM Role using <code>eksctl</code></strong> (Easiest Method):</p>
+<div class="paragraph">
+<p>If you have <code>eksctl</code> installed, you can create the role and annotate the service account in one step.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash">eksctl create iamserviceaccount <span class="se">\</span>
+    <span class="nt">--name</span> longhorn-service-account <span class="se">\</span>
+    <span class="nt">--namespace</span> longhorn-system <span class="se">\</span>
+    <span class="nt">--cluster</span> <span class="k">${</span><span class="nv">CLUSTER_NAME</span><span class="k">}</span> <span class="se">\</span>
+    <span class="nt">--attach-policy-arn</span> <span class="k">${</span><span class="nv">POLICY_ARN</span><span class="k">}</span> <span class="se">\</span>
+    <span class="nt">--approve</span> <span class="se">\</span>
+    <span class="nt">--override-existing-serviceaccounts</span></code></pre>
+</div>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+This command annotates the existing <code>longhorn-service-account</code> in the <code>longhorn-system</code> namespace.
+</td>
+</tr>
+</table>
+</div>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p><strong>Alternative: Manual Creation</strong></p>
+</div>
+<div class="paragraph">
+<p>If you cannot use <code>eksctl</code>, follow these steps:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Get the OIDC Provider URL</strong>:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash">aws eks describe-cluster <span class="nt">--name</span> <span class="k">${</span><span class="nv">CLUSTER_NAME</span><span class="k">}</span> <span class="nt">--query</span> <span class="s2">"cluster.identity.oidc.issuer"</span> <span class="nt">--output</span> text</code></pre>
+</div>
+</div>
+</li>
+<li>
+<p><strong>Create Trust Policy</strong>:
+Create <code>trust-policy.json</code>. Replace <code>&lt;OIDC_PROVIDER&gt;</code> (without <code>https://</code>) and <code>&lt;ACCOUNT_ID&gt;</code>.</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"Version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2012-10-17"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"Statement"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="nl">"Effect"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Allow"</span><span class="p">,</span><span class="w">
+      </span><span class="nl">"Principal"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nl">"Federated"</span><span class="p">:</span><span class="w"> </span><span class="s2">"arn:aws:iam::&lt;ACCOUNT_ID&gt;:oidc-provider/&lt;OIDC_PROVIDER&gt;"</span><span class="w">
+      </span><span class="p">},</span><span class="w">
+      </span><span class="nl">"Action"</span><span class="p">:</span><span class="w"> </span><span class="s2">"sts:AssumeRoleWithWebIdentity"</span><span class="p">,</span><span class="w">
+      </span><span class="nl">"Condition"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nl">"StringEquals"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+          </span><span class="nl">"&lt;OIDC_PROVIDER&gt;:sub"</span><span class="p">:</span><span class="w"> </span><span class="s2">"system:serviceaccount:longhorn-system:longhorn-service-account"</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+      </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="p">]</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+</li>
+<li>
+<p><strong>Create Role and Attach Policy</strong>:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash">aws iam create-role <span class="nt">--role-name</span> LonghornBackupRole <span class="nt">--assume-role-policy-document</span> file://trust-policy.json
+aws iam attach-role-policy <span class="nt">--role-name</span> LonghornBackupRole <span class="nt">--policy-arn</span> <span class="k">${</span><span class="nv">POLICY_ARN</span><span class="k">}</span></code></pre>
+</div>
+</div>
+</li>
+<li>
+<p><strong>Annotate the Service Account</strong>:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash">kubectl annotate serviceaccount <span class="nt">-n</span> longhorn-system longhorn-service-account <span class="se">\</span>
+    eks.amazonaws.com/role-arn<span class="o">=</span>arn:aws:iam::<span class="k">${</span><span class="nv">ACCOUNT_ID</span><span class="k">}</span>:role/LonghornBackupRole</code></pre>
+</div>
+</div>
+</li>
+</ol>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-3-restart-longhorn-components"><a class="link" href="#step-3-restart-longhorn-components">5. Step 3: Restart Longhorn Components</a></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>For the pods to pick up the new IAM role (injected via environment variables and volume mounts by the EKS pod identity webhook), you need to restart the Longhorn pods.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash">kubectl rollout restart daemonset longhorn-manager <span class="nt">-n</span> longhorn-system</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Wait for the pods to become ready again.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-4-configure-backup-target-in-longhorn"><a class="link" href="#step-4-configure-backup-target-in-longhorn">6. Step 4: Configure Backup Target in Longhorn</a></h2>
+<div class="sectionbody">
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Open the <strong>Longhorn UI</strong>.</p>
+</li>
+<li>
+<p>Navigate to <strong>Settings</strong> &#8594; <strong>General</strong>.</p>
+</li>
+<li>
+<p>Scroll down to the <strong>Backup</strong> section.</p>
+</li>
+<li>
+<p><strong>Backup Target</strong>: Enter the S3 URL:
+<code>s3://&lt;bucket-name&gt;@&lt;region&gt;/</code></p>
+</li>
+<li>
+<p><strong>Backup Target Credential Secret</strong>: <strong>Leave this field blank</strong>.
+Because we are using IRSA, Longhorn will automatically use the credentials provided by the IAM role attached to the Service Account.</p>
+</li>
+<li>
+<p>Click <strong>Save</strong>.</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>If the configuration is correct, you should see a green checkmark indicating successful connection to S3.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="verification"><a class="link" href="#verification">7. Verification</a></h2>
+<div class="sectionbody">
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Go to <strong>Volume</strong> page.</p>
+</li>
+<li>
+<p>Select a volume and create a <strong>Backup</strong>.</p>
+</li>
+<li>
+<p>Navigate to the <strong>Backup</strong> tab to confirm the backup exists in S3.</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="troubleshooting"><a class="link" href="#troubleshooting">8. Troubleshooting</a></h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Access Denied</strong>:</p>
+</li>
+<li>
+<p>Verify the Trust Policy correctly points to <code>system:serviceaccount:longhorn-system:longhorn-service-account</code>.</p>
+</li>
+<li>
+<p>Verify the IAM Policy has correct S3 permissions.</p>
+</li>
+<li>
+<p><strong>Credentials not found</strong>:</p>
+</li>
+<li>
+<p>Ensure you restarted <code>longhorn-manager</code> pods after annotating the Service Account.</p>
+</li>
+<li>
+<p>Check if <code>AWS_ROLE_ARN</code> and <code>AWS_WEB_IDENTITY_TOKEN_FILE</code> environment variables exist in the <code>longhorn-manager</code> pods:
+<code>kubectl exec -it -n longhorn-system &lt;longhorn-manager-pod&gt;&#8201;&#8212;&#8201;env | grep AWS</code></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="how-to-create-a-backup"><a class="link" href="#how-to-create-a-backup">9. How to create a backup</a></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In Longhorn, backups are always created from snapshots. You cannot create a backup of the live volume directly without an associated snapshot. This ensures data consistency.</p>
+</div>
+<div class="paragraph">
+<p>There are two ways to create backups: manually or automatically.</p>
+</div>
+<div class="sect2">
+<h3 id="manual-backup"><a class="link" href="#manual-backup">9.1. Manual Backup</a></h3>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Navigate to the <strong>Volume</strong> page in the Longhorn UI.</p>
+</li>
+<li>
+<p>Click the name of the volume you want to back up.</p>
+</li>
+<li>
+<p>Go to the <strong>Snapshots and Backups</strong> tab.</p>
+</li>
+<li>
+<p><strong>Create a Snapshot</strong> (if you don&#8217;t have one you want to use):</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click <strong>Take Snapshot</strong>.</p>
+</li>
+<li>
+<p>This captures the current state of the volume.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Create a Backup</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Locate the snapshot you want to back up in the list.</p>
+</li>
+<li>
+<p>Click the <strong>Create Backup</strong> button (often represented by a cloud icon or in the drop-down menu for that snapshot).</p>
+</li>
+<li>
+<p>You can optionally add labels to the backup for easier management.</p>
+</li>
+<li>
+<p>Click <strong>OK</strong>.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p>Monitor the progress in the <strong>Backup</strong> tab of the Longhorn UI.</p>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect2">
+<h3 id="automated-backup-recurring-job"><a class="link" href="#automated-backup-recurring-job">9.2. Automated Backup (Recurring Job)</a></h3>
+<div class="paragraph">
+<p>You can schedule recurring backups, which automatically handle snapshot creation for you.</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Navigate to the <strong>Volume</strong> page.</p>
+</li>
+<li>
+<p>Select the volume(s) you want to schedule backups for.</p>
+</li>
+<li>
+<p>Click <strong>Create Recurring Job</strong>.</p>
+</li>
+<li>
+<p><strong>Task</strong>: Select <strong>Backup</strong>.</p>
+<div class="ulist">
+<ul>
+<li>
+<p>NOTE: When the <code>Backup</code> task runs, Longhorn <strong>automatically creates a new snapshot</strong> before uploading it to the backup target. You do not need to create a separate snapshot job.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Schedule</strong>: Define the Cron expression (e.g., <code>0 2 * * *</code> for daily at 2 AM).</p>
+</li>
+<li>
+<p><strong>Retain</strong>: Set the number of backups to keep.</p>
+</li>
+<li>
+<p>Click <strong>Save</strong>.</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+</div>
+</body>
+</html>

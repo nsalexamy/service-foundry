@@ -1,0 +1,4276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Using Longhorn - Snapshots, S3 Backups, and Restore Operations</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#longhorn-snapshot-and-backup">Longhorn Snapshot and Backup</a>
+<ul class="sectlevel2">
+<li><a href="#what-longhorn-ha-actually-protects-you-from">What Longhorn HA Actually Protects You From</a></li>
+<li><a href="#what-ha-does-not-protect-you-from-critical">What HA Does Not Protect You From (Critical)</a></li>
+<li><a href="#where-snapshots-fit-local-fast-operational">Where Snapshots Fit (Local, Fast, Operational)</a></li>
+<li><a href="#where-backups-fit-off-cluster-long-term-dr">Where Backups Fit (Off-Cluster, Long-Term, DR)</a></li>
+<li><a href="#how-ha-snapshots-and-backups-complement-each-other">How HA, Snapshots, and Backups Complement Each Other</a></li>
+<li><a href="#concrete-examples">Concrete Examples</a></li>
+<li><a href="#why-ha-only-is-dangerous">Why "HA Only" Is Dangerous</a></li>
+<li><a href="#practical-recommendations">Practical Recommendations</a></li>
+<li><a href="#summary">Summary</a></li>
+</ul>
+</li>
+<li><a href="#step-1-create-an-aws-s3-bucket">Step 1: Create an AWS S3 Bucket</a></li>
+<li><a href="#step-2-create-an-aws-iam-user-and-policy">Step 2: Create an AWS IAM User and Policy</a>
+<ul class="sectlevel2">
+<li><a href="#2-1-create-an-iam-policy">2.1 Create an IAM Policy</a></li>
+<li><a href="#2-2-create-an-iam-user">2.2 Create an IAM User</a></li>
+<li><a href="#2-3-create-access-keys">2.3 Create Access Keys</a></li>
+</ul>
+</li>
+<li><a href="#step-3-create-a-kubernetes-secret">Step 3: Create a Kubernetes Secret</a>
+<ul class="sectlevel2">
+<li><a href="#method-1-create-secret-using-kubectl-recommended-for-quick-setup">Method 1: Create Secret Using kubectl (Recommended for Quick Setup)</a></li>
+<li><a href="#method-2-create-secret-using-yaml-recommended-for-gitops">Method 2: Create Secret Using YAML (Recommended for GitOps)</a></li>
+</ul>
+</li>
+<li><a href="#step-4-configure-backup-target-in-longhorn">Step 4: Configure Backup Target in Longhorn</a></li>
+<li><a href="#step-5-verify-configuration">Step 5: Verify Configuration</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a>
+<ul class="sectlevel2">
+<li><a href="#error-access-denied-or-aws-error-access-denied">Error: "Access Denied" or "AWS Error: Access Denied"</a></li>
+<li><a href="#error-unable-to-list-s3-bucket-or-invalid-endpoint">Error: "Unable to List S3 Bucket" or "Invalid Endpoint"</a></li>
+<li><a href="#error-backup-target-not-ready-or-secret-not-found">Error: "Backup Target Not Ready" or "Secret Not Found"</a></li>
+<li><a href="#additional-troubleshooting-commands">Additional Troubleshooting Commands</a></li>
+</ul>
+</li>
+<li><a href="#how-to-create-a-backup">How to Create a Backup</a>
+<ul class="sectlevel2">
+<li><a href="#manual-backup-creation">Manual Backup Creation</a></li>
+<li><a href="#automated-backup-recurring-job">Automated Backup (Recurring Job)</a></li>
+</ul>
+</li>
+<li><a href="#making-changes-after-backup-example-postgresql-table-creation">Making Changes After Backup (Example: PostgreSQL Table Creation)</a></li>
+<li><a href="#restore-from-snapshot">Restore from Snapshot</a>
+<ul class="sectlevel2">
+<li><a href="#method-1-revert-to-snapshot-in-place-restore">Method 1: Revert to Snapshot (In-Place Restore)</a></li>
+<li><a href="#method-2-create-volume-from-snapshot-clone-and-test">Method 2: Create Volume from Snapshot (Clone and Test)</a></li>
+<li><a href="#snapshot-vs-backup-when-to-use-each">Snapshot vs Backup: When to Use Each</a></li>
+<li><a href="#best-practices">Best Practices</a></li>
+</ul>
+</li>
+<li><a href="#restoring-from-backup">Restoring from Backup</a>
+<ul class="sectlevel2">
+<li><a href="#basic-backup-restore-workflow">Basic Backup Restore Workflow</a></li>
+<li><a href="#restoring-postgresql-with-argocd-management">Restoring PostgreSQL with ArgoCD Management</a></li>
+</ul>
+</li>
+<li><a href="#deleting-snapshots-and-backups">Deleting Snapshots and Backups</a>
+<ul class="sectlevel2">
+<li><a href="#deleting-snapshots">Deleting Snapshots</a></li>
+<li><a href="#deleting-backups">Deleting Backups</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#references-and-further-reading">References and Further Reading</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="images/longhorn-snapshots-and-backups.png" alt="longhorn snapshots and backups">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Longhorn is a cloud-native, distributed block storage system designed specifically for Kubernetes environments. As a CNCF (Cloud Native Computing Foundation) project, it provides enterprise-grade persistent storage capabilities with built-in high availability and comprehensive disaster recovery features. Unlike traditional storage solutions, Longhorn is designed from the ground up to work seamlessly within containerized environments, providing reliable block storage that can be dynamically attached to Kubernetes pods.</p>
+</div>
+<div class="paragraph">
+<p>At its core, Longhorn transforms the local storage available on your Kubernetes nodes into a distributed storage system. It creates multiple replicas of each volume across different nodes, ensuring your data remains available even when individual nodes or disks fail. However, high availability alone is not sufficient for production environments—you also need protection against data corruption, accidental deletion, and cluster-wide failures.</p>
+</div>
+<div class="paragraph">
+<p>This comprehensive guide walks you through the process of implementing a complete backup and restore strategy for Longhorn volumes using AWS S3 as the backup target. You&#8217;ll learn not only how to configure S3-based backups, but also understand the critical distinctions between high availability, snapshots, and backups—and why all three are essential for production workloads. By the end of this guide, you&#8217;ll have a robust data protection strategy that safeguards against infrastructure failures, operational mistakes, and catastrophic disasters.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="prerequisites">Prerequisites</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Before implementing S3-based backups for your Longhorn volumes, ensure you have the following components and access levels in place:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Longhorn Installed</strong>: A fully operational Kubernetes cluster with Longhorn storage system deployed and running. This guide targets Longhorn v1.11.0 or later, which includes enhanced backup features, improved S3 integration, and critical bug fixes related to snapshot consistency. Earlier versions may work but could lack important functionality or contain known issues. You can verify your Longhorn version by running <code>kubectl get deploy -n longhorn-system longhorn-manager -o jsonpath='{.spec.template.spec.containers[0].image}'</code>.</p>
+</li>
+<li>
+<p><strong>AWS Account</strong>: Active access to an AWS account with sufficient permissions to create and manage S3 buckets and IAM resources. You&#8217;ll need either root account access or an IAM user with administrative permissions for S3 and IAM services. If working in an enterprise environment, coordinate with your cloud platform team to obtain the necessary access or have them create resources on your behalf.</p>
+</li>
+<li>
+<p><strong>AWS CLI</strong> (Optional but Recommended): The AWS Command Line Interface provides a convenient way to verify S3 bucket creation, test permissions, and troubleshoot connectivity issues. While all configuration can be done through the AWS Console, the CLI is invaluable for debugging. Install version 2.x for the latest features: <code>aws --version</code> should show version 2.0.0 or higher.</p>
+</li>
+<li>
+<p><strong>kubectl</strong>: The Kubernetes command-line tool must be installed and configured with administrative access to your target cluster. You&#8217;ll need permissions to create secrets in the <code>longhorn-system</code> namespace and manage Longhorn custom resources. Verify your access with <code>kubectl auth can-i create secrets -n longhorn-system</code>—it should return "yes".</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="longhorn-snapshot-and-backup">Longhorn Snapshot and Backup</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p><em>"If Longhorn already keeps my volumes HA across 3 nodes / AZs, why do I need snapshots and backups at all?"</em></p>
+</div>
+<div class="paragraph">
+<p><strong>The key is this:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>HA protects you from infrastructure failure.</strong></p>
+</li>
+<li>
+<p><strong>Snapshots and backups protect you from everything else.</strong></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>They solve different classes of problems.</p>
+</div>
+<div class="sect2">
+<h3 id="what-longhorn-ha-actually-protects-you-from">What Longhorn HA Actually Protects You From</h3>
+<div class="paragraph">
+<p>Longhorn&#8217;s High Availability ensures your data remains available despite <strong>infrastructure-level failures</strong>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Node failures</strong>: If a Kubernetes node crashes, dies, or becomes unreachable.</p>
+</li>
+<li>
+<p><strong>Disk failures</strong>: When a physical disk fails on a node.</p>
+</li>
+<li>
+<p><strong>Availability Zone outages</strong>: If an entire AZ goes down (when replicas are spread across AZs).</p>
+</li>
+<li>
+<p><strong>Pod evictions</strong>: Normal cluster operations like node draining or autoscaling.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>How it works</strong>: Longhorn creates multiple replicas (typically 3) of your volume data, each stored on a different node. If one replica becomes unavailable, the volume continues operating seamlessly using healthy replicas.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="what-ha-does-not-protect-you-from-critical">What HA Does Not Protect You From (Critical)</h3>
+<div class="paragraph">
+<p>HA replication propagates <strong>all changes</strong> to all replicas—including destructive ones:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Accidental deletion</strong>: Delete a file or database record? <strong>All replicas reflect the deletion immediately.</strong></p>
+</li>
+<li>
+<p><strong>Data corruption</strong>: Application bug corrupts data? <strong>All replicas get the corrupted data.</strong></p>
+</li>
+<li>
+<p><strong>Ransomware/malware</strong>: Malicious encryption or data modification? <strong>Replicated to all copies.</strong></p>
+</li>
+<li>
+<p><strong>Bad migrations</strong>: Database schema migration fails halfway? <strong>HA can&#8217;t roll it back.</strong></p>
+</li>
+<li>
+<p><strong>Human error</strong>: Wrong <code>kubectl delete</code>, misconfigured app, accidental overwrite? <strong>Replicated everywhere.</strong></p>
+</li>
+<li>
+<p><strong>Cluster-wide disasters</strong>: Control plane failure, cluster misconfiguration, namespace deletion.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Critical insight</strong>: HA keeps your data available <em>as-is</em>. It doesn&#8217;t protect you from <em>what</em> the data becomes.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="where-snapshots-fit-local-fast-operational">Where Snapshots Fit (Local, Fast, Operational)</h3>
+<div class="paragraph">
+<p>Longhorn snapshots are <strong>point-in-time copies stored locally within the cluster</strong>.</p>
+</div>
+<div class="paragraph">
+<p><strong>Use cases</strong>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Pre-upgrade safety</strong>: Take a snapshot before upgrading an application or database schema.</p>
+</li>
+<li>
+<p><strong>Fast rollback</strong>: Restore to a known-good state in seconds/minutes.</p>
+</li>
+<li>
+<p><strong>Operational testing</strong>: Clone volumes for testing without affecting production.</p>
+</li>
+<li>
+<p><strong>Hourly/daily operational checkpoints</strong>: Frequent snapshots with short retention.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Characteristics</strong>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Fast</strong>: Snapshot creation and restoration happen in seconds.</p>
+</li>
+<li>
+<p><strong>Local</strong>: Stored within the Longhorn cluster (same infrastructure).</p>
+</li>
+<li>
+<p><strong>Space-efficient</strong>: Use delta/incremental storage.</p>
+</li>
+<li>
+<p><strong>Limited lifespan</strong>: Typically kept for hours to days.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Limitation</strong>: Snapshots are stored <em>in the same cluster</em>. If the cluster is lost or the Longhorn system itself is compromised, snapshots are lost too.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="where-backups-fit-off-cluster-long-term-dr">Where Backups Fit (Off-Cluster, Long-Term, DR)</h3>
+<div class="paragraph">
+<p>Longhorn backups are <strong>snapshots uploaded to external storage</strong> (S3, NFS, etc.).</p>
+</div>
+<div class="paragraph">
+<p><strong>Use cases</strong>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Disaster recovery (DR)</strong>: Recover from complete cluster failure.</p>
+</li>
+<li>
+<p><strong>Cross-cluster migration</strong>: Restore volumes in a different cluster.</p>
+</li>
+<li>
+<p><strong>Compliance and retention</strong>: Long-term data retention policies (weeks, months, years).</p>
+</li>
+<li>
+<p><strong>Protection against cluster-level catastrophes</strong>: Namespace deletion, control plane failure, complete infrastructure loss.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Characteristics</strong>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Off-cluster</strong>: Stored outside the Kubernetes cluster (different infrastructure).</p>
+</li>
+<li>
+<p><strong>Durable</strong>: Survives cluster deletion, Longhorn uninstallation, or regional outages.</p>
+</li>
+<li>
+<p><strong>Slower</strong>: Restore operations may take minutes to hours depending on data size.</p>
+</li>
+<li>
+<p><strong>Long retention</strong>: Kept for weeks, months, or indefinitely.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Critical</strong>: Backups are your <strong>last line of defense</strong>. They&#8217;re the only mechanism that survives a complete cluster failure.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="how-ha-snapshots-and-backups-complement-each-other">How HA, Snapshots, and Backups Complement Each Other</h3>
+<div class="paragraph">
+<p>Each layer addresses different failure domains:</p>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 20%;">
+<col style="width: 20%;">
+<col style="width: 20%;">
+<col style="width: 20%;">
+<col style="width: 20%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Mechanism</th>
+<th class="tableblock halign-left valign-top">Protects Against</th>
+<th class="tableblock halign-left valign-top">Recovery Time</th>
+<th class="tableblock halign-left valign-top">Retention</th>
+<th class="tableblock halign-left valign-top">Scope</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>HA Replicas</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Node/disk/AZ failure</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Instant (automatic)</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Always active</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Infrastructure only</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Snapshots</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Accidental changes, bad deployments</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Seconds to minutes</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Hours to days</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">In-cluster</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Backups</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Cluster failure, disasters, compliance</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Minutes to hours</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Weeks to years</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Off-cluster</p></td>
+</tr>
+</tbody>
+</table>
+<div class="paragraph">
+<p><strong>Together</strong>: HA keeps your service running, snapshots give you operational safety, and backups provide true disaster recovery.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="concrete-examples">Concrete Examples</h3>
+<div class="sect3">
+<h4 id="example-1-airflow-logs">Example 1: Airflow Logs</h4>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>HA</strong>: Logs stay available if a node dies.</p>
+</li>
+<li>
+<p><strong>Snapshot</strong>: Rarely useful (logs are append-only).</p>
+</li>
+<li>
+<p><strong>Backup</strong>: Mostly unnecessary (logs are ephemeral and can be regenerated).</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Conclusion</strong>: HA is sufficient; snapshots and backups are optional.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="example-2-airflow-metadata-database">Example 2: Airflow Metadata Database</h4>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>HA</strong>: Keeps the database running during node failures.</p>
+</li>
+<li>
+<p><strong>Snapshot</strong>: Taken before schema migrations or major configuration changes.</p>
+</li>
+<li>
+<p><strong>Backup</strong>: Recover from a failed migration, accidental data deletion, or cluster disaster.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Conclusion</strong>: All three mechanisms are needed. This is mission-critical stateful data.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="example-3-cicd-artifacts">Example 3: CI/CD Artifacts</h4>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>HA</strong>: Ensures builds don&#8217;t fail due to node loss.</p>
+</li>
+<li>
+<p><strong>Snapshot</strong>: Quick rollback after a bad pipeline deployment.</p>
+</li>
+<li>
+<p><strong>Backup</strong>: Optional, with short retention (artifacts can often be regenerated).</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Conclusion</strong>: HA + snapshots for operational stability; backups optional depending on regeneration cost.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="example-4-platform-configuration-data">Example 4: Platform Configuration Data</h4>
+<div class="paragraph">
+<p><em>(Keycloak database, Argo CD state, internal tools)</em></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>HA</strong>: Maintains uptime during infrastructure failures.</p>
+</li>
+<li>
+<p><strong>Snapshot</strong>: Enables safe upgrades and testing.</p>
+</li>
+<li>
+<p><strong>Backup</strong>: Required for disaster recovery and compliance (audit trails, user data).</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Conclusion</strong>: All three are essential for production platforms.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="why-ha-only-is-dangerous">Why "HA Only" Is Dangerous</h3>
+<div class="paragraph">
+<p>Relying solely on HA replication exposes you to:</p>
+</div>
+<div class="admonitionblock warning">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-warning" title="Warning"></i>
+</td>
+<td class="content">
+<strong>Unrecoverable data loss</strong> from application bugs, human error, or malicious activity. Once data is corrupted or deleted, all replicas reflect that state immediately. Without snapshots or backups, there is no recovery path.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Real-world failure scenarios that HA cannot protect against:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>A developer runs <code>kubectl delete pvc</code> on the wrong namespace.</p>
+</li>
+<li>
+<p>A database migration script has a bug and corrupts critical tables.</p>
+</li>
+<li>
+<p>Ransomware encrypts application data.</p>
+</li>
+<li>
+<p>A misconfigured application truncates a production database table.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>All of these scenarios propagate instantly to all HA replicas.</strong> Without snapshots or backups, your data is gone.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="practical-recommendations">Practical Recommendations</h3>
+<div class="paragraph">
+<p>A reasonable production approach:</p>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 25%;">
+<col style="width: 25%;">
+<col style="width: 25%;">
+<col style="width: 25%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Data Type</th>
+<th class="tableblock halign-left valign-top">HA</th>
+<th class="tableblock halign-left valign-top">Snapshots</th>
+<th class="tableblock halign-left valign-top">Backups</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Logs</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">✅ Required</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">❌ Not needed</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">❌ Not needed</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Metadata Database</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">✅ Required</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">✅ Before migrations</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">✅ Daily or more</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">User/Application Data</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">✅ Required</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">⚠️ Recommended</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">✅ Daily or more</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">CI/CD Cache</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">✅ Required</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">❌ Not needed</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">❌ Not needed</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Platform State</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">✅ Required</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">✅ Before upgrades</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">✅ Daily or more</p></td>
+</tr>
+</tbody>
+</table>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+The exact snapshot and backup frequency depends on your RPO (Recovery Point Objective) and how much data loss is acceptable.
+</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="summary">Summary</h3>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Even with fully HA replicas across multiple availability zones, snapshots and backups remain essential. HA protects availability during infrastructure failures, snapshots enable safe operations and fast rollback, and backups provide true disaster recovery. These mechanisms solve different problems and must be used together for production environments.</p>
+</div>
+</blockquote>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-1-create-an-aws-s3-bucket">Step 1: Create an AWS S3 Bucket</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The first step in establishing an off-cluster backup solution is creating a dedicated S3 bucket to serve as your backup target. This bucket will store all Longhorn volume backups, providing durable, geographically distributed storage that survives cluster failures, infrastructure outages, and regional disasters.</p>
+</div>
+<div class="paragraph">
+<p><strong>Detailed Steps:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Access the AWS S3 Console</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Log in to the <strong>AWS Management Console</strong> using your credentials.</p>
+</li>
+<li>
+<p>Navigate to the <strong>S3</strong> service (you can use the search bar at the top or find it under "Storage" in the services menu).</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Initiate Bucket Creation</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click the <strong>Create bucket</strong> button.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Configure Bucket Name</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Enter a globally unique <strong>Bucket name</strong>. S3 bucket names must be unique across all AWS accounts worldwide, so choose a descriptive name that includes your organization, environment, and purpose.</p>
+</li>
+<li>
+<p>Example: <code>acmecorp-prod-longhorn-backups</code> or <code>my-k8s-longhorn-backups-us-east-1</code></p>
+</li>
+<li>
+<p><strong>Naming Best Practices</strong>: Use lowercase letters, numbers, and hyphens only. Avoid using periods (which can cause SSL certificate issues) and keep names under 63 characters.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Select AWS Region</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Choose an <strong>AWS Region</strong> strategically. For optimal performance and reduced data transfer costs, select a region geographically close to your Kubernetes cluster.</p>
+</li>
+<li>
+<p><strong>Important</strong>: For true disaster recovery, consider choosing a region <strong>different</strong> from where your cluster runs. This protects against regional outages.</p>
+</li>
+<li>
+<p>Example: If your cluster is in <code>us-east-1</code>, you might choose <code>us-east-1</code> for performance or <code>us-west-2</code> for geographic redundancy.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Configure Security Settings</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Critical</strong>: Leave <strong>Block all public access</strong> enabled (this should be the default). Your backup data should never be publicly accessible.</p>
+</li>
+<li>
+<p>S3 bucket-level encryption is optional but recommended. You can enable default encryption using AES-256 (SSE-S3) or AWS KMS for additional security.</p>
+</li>
+<li>
+<p>Versioning is optional for backup buckets—Longhorn manages its own versioning internally through backup metadata.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Review and Create</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Leave other advanced settings as default unless you have specific compliance or lifecycle management requirements.</p>
+</li>
+<li>
+<p>Click <strong>Create bucket</strong> to finalize.</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+<strong>Document the following information</strong> for later use: (1) <strong>Bucket Name</strong> (exact spelling), (2) <strong>AWS Region</strong> (e.g., <code>us-east-1</code>, not "US East"). You&#8217;ll need these when configuring Longhorn&#8217;s backup target.
+</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-2-create-an-aws-iam-user-and-policy">Step 2: Create an AWS IAM User and Policy</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Longhorn needs permission to access the S3 bucket. It is best practice to create a dedicated IAM user with restricted permissions.</p>
+</div>
+<div class="sect2">
+<h3 id="2-1-create-an-iam-policy">2.1 Create an IAM Policy</h3>
+<div class="paragraph">
+<p>An IAM policy defines the exact permissions that Longhorn will have when accessing your S3 bucket. Following the principle of least privilege, this policy grants only the minimum permissions necessary for backup and restore operations—nothing more.</p>
+</div>
+<div class="paragraph">
+<p><strong>Detailed Steps:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Access IAM Policies</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Navigate to <strong>IAM</strong> (Identity and Access Management) in the AWS Console.</p>
+</li>
+<li>
+<p>In the left sidebar, click <strong>Policies</strong>.</p>
+</li>
+<li>
+<p>Click the <strong>Create policy</strong> button.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Define Policy Using JSON</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Select the <strong>JSON</strong> tab (it provides more precision than the visual editor).</p>
+</li>
+<li>
+<p>Paste the following policy document, replacing <code>&lt;your-bucket-name&gt;</code> with your actual S3 bucket name.</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="title">LonghornS3BackupPolicy.json</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+    </span><span class="nl">"Version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2012-10-17"</span><span class="p">,</span><span class="w">  </span><span class="err">//</span><span class="w"> </span><span class="err">IAM</span><span class="w"> </span><span class="err">policy</span><span class="w"> </span><span class="err">language</span><span class="w"> </span><span class="err">version</span><span class="w"> </span><span class="err">(always</span><span class="w"> </span><span class="err">use</span><span class="w"> </span><span class="err">this)</span><span class="w">
+    </span><span class="nl">"Statement"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+        </span><span class="p">{</span><span class="w">
+            </span><span class="nl">"Sid"</span><span class="p">:</span><span class="w"> </span><span class="s2">"LonghornBackupAccess"</span><span class="p">,</span><span class="w">  </span><span class="err">//</span><span class="w"> </span><span class="err">Statement</span><span class="w"> </span><span class="err">ID</span><span class="w"> </span><span class="err">for</span><span class="w"> </span><span class="err">documentation</span><span class="w">
+            </span><span class="nl">"Effect"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Allow"</span><span class="p">,</span><span class="w">  </span><span class="err">//</span><span class="w"> </span><span class="err">Grant</span><span class="w"> </span><span class="err">permissions</span><span class="w"> </span><span class="err">(as</span><span class="w"> </span><span class="err">opposed</span><span class="w"> </span><span class="err">to</span><span class="w"> </span><span class="s2">"Deny"</span><span class="err">)</span><span class="w">
+            </span><span class="nl">"Action"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+                </span><span class="err">//</span><span class="w"> </span><span class="err">Upload</span><span class="w"> </span><span class="err">backup</span><span class="w"> </span><span class="err">data</span><span class="w"> </span><span class="err">to</span><span class="w"> </span><span class="err">S</span><span class="mi">3</span><span class="w"> </span><span class="err">(create/overwrite</span><span class="w"> </span><span class="err">objects)</span><span class="w">
+                </span><span class="s2">"s3:PutObject"</span><span class="p">,</span><span class="w">
+
+                </span><span class="err">//</span><span class="w"> </span><span class="err">Download</span><span class="w"> </span><span class="err">backup</span><span class="w"> </span><span class="err">data</span><span class="w"> </span><span class="err">during</span><span class="w"> </span><span class="err">restore</span><span class="w"> </span><span class="err">operations</span><span class="w">
+                </span><span class="s2">"s3:GetObject"</span><span class="p">,</span><span class="w">
+
+                </span><span class="err">//</span><span class="w"> </span><span class="err">List</span><span class="w"> </span><span class="err">existing</span><span class="w"> </span><span class="err">backups</span><span class="w"> </span><span class="err">in</span><span class="w"> </span><span class="err">the</span><span class="w"> </span><span class="err">bucket</span><span class="w"> </span><span class="err">(required</span><span class="w"> </span><span class="err">for</span><span class="w"> </span><span class="err">backup</span><span class="w"> </span><span class="err">discovery)</span><span class="w">
+                </span><span class="s2">"s3:ListBucket"</span><span class="p">,</span><span class="w">
+
+                </span><span class="err">//</span><span class="w"> </span><span class="err">Remove</span><span class="w"> </span><span class="err">old</span><span class="w"> </span><span class="err">backups</span><span class="w"> </span><span class="err">based</span><span class="w"> </span><span class="err">on</span><span class="w"> </span><span class="err">retention</span><span class="w"> </span><span class="err">policies</span><span class="w">
+                </span><span class="s2">"s3:DeleteObject"</span><span class="w">
+            </span><span class="p">],</span><span class="w">
+            </span><span class="nl">"Resource"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+                </span><span class="err">//</span><span class="w"> </span><span class="err">Bucket-level</span><span class="w"> </span><span class="err">operations</span><span class="w"> </span><span class="err">(ListBucket</span><span class="w"> </span><span class="err">requires</span><span class="w"> </span><span class="err">this)</span><span class="w">
+                </span><span class="s2">"arn:aws:s3:::&lt;your-bucket-name&gt;"</span><span class="p">,</span><span class="w">
+
+                </span><span class="err">//</span><span class="w"> </span><span class="err">Object-level</span><span class="w"> </span><span class="err">operations</span><span class="w"> </span><span class="err">(PutObject</span><span class="p">,</span><span class="w"> </span><span class="err">GetObject</span><span class="p">,</span><span class="w"> </span><span class="err">DeleteObject)</span><span class="w">
+                </span><span class="err">//</span><span class="w"> </span><span class="err">The</span><span class="w"> </span><span class="err">/*</span><span class="w"> </span><span class="err">wildcard</span><span class="w"> </span><span class="err">allows</span><span class="w"> </span><span class="err">access</span><span class="w"> </span><span class="err">to</span><span class="w"> </span><span class="err">all</span><span class="w"> </span><span class="err">objects</span><span class="w"> </span><span class="err">within</span><span class="w"> </span><span class="err">the</span><span class="w"> </span><span class="err">bucket</span><span class="w">
+                </span><span class="s2">"arn:aws:s3:::&lt;your-bucket-name&gt;/*"</span><span class="w">
+            </span><span class="p">]</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">]</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Understanding the Permissions:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong><code>s3:PutObject</code></strong>: Allows Longhorn to upload snapshot data to S3. This is the core backup operation.</p>
+</li>
+<li>
+<p><strong><code>s3:GetObject</code></strong>: Enables restoration by downloading backup data back to the cluster.</p>
+</li>
+<li>
+<p><strong><code>s3:ListBucket</code></strong>: Required for Longhorn to enumerate existing backups and display them in the UI.</p>
+</li>
+<li>
+<p><strong><code>s3:DeleteObject</code></strong>: Allows cleanup of old backups according to retention policies, preventing unlimited storage growth.</p>
+</li>
+</ul>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+This policy is intentionally restrictive. It grants no permissions to create buckets, modify bucket configurations, or access other buckets. If an attacker were to compromise these credentials, they could only affect this single bucket.
+</td>
+</tr>
+</table>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Name and Create the Policy</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click <strong>Next</strong> (or <strong>Next: Tags</strong> if you want to add organizational tags).</p>
+</li>
+<li>
+<p>Enter a descriptive <strong>Name</strong>: <code>LonghornS3BackupPolicy</code></p>
+</li>
+<li>
+<p>Optionally add a <strong>Description</strong>: "Grants Longhorn the minimum required permissions to backup and restore volumes to S3"</p>
+</li>
+<li>
+<p>Click <strong>Create policy</strong>.</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect2">
+<h3 id="2-2-create-an-iam-user">2.2 Create an IAM User</h3>
+<div class="paragraph">
+<p>With the policy created, the next step is to create a dedicated IAM user that will use this policy. This user represents the "identity" that Longhorn will assume when interacting with S3.</p>
+</div>
+<div class="admonitionblock warning">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-warning" title="Warning"></i>
+</td>
+<td class="content">
+In production environments, consider using <strong>IAM Roles for Service Accounts (IRSA)</strong> instead of IAM users with static credentials. IRSA provides temporary, automatically rotated credentials and is more secure than long-lived access keys. However, for simplicity and compatibility with all Kubernetes distributions, this guide uses IAM users. See the IRSA implementation guide for production-grade authentication.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p><strong>Detailed Steps:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Access IAM Users</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Navigate to <strong>Users</strong> in the IAM console.</p>
+</li>
+<li>
+<p>Click <strong>Create user</strong>.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Configure User Identity</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Enter a descriptive <strong>User name</strong>: <code>longhorn-backup-user</code></p>
+</li>
+<li>
+<p>This name is purely for identification—it doesn&#8217;t need to match anything in Kubernetes.</p>
+</li>
+<li>
+<p>Do <strong>not</strong> enable "Provide user access to the AWS Management Console"—this is a programmatic-only user with no login capabilities.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Click Next</strong> to proceed to permissions.</p>
+</li>
+<li>
+<p><strong>Attach the Policy</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Select <strong>Attach policies directly</strong>.</p>
+</li>
+<li>
+<p>In the search box, type <code>LonghornS3BackupPolicy</code> (the policy you created earlier).</p>
+</li>
+<li>
+<p>Check the box next to your policy to select it.</p>
+</li>
+<li>
+<p>Verify that only this one policy is selected.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Review and Create</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click <strong>Next</strong> to review.</p>
+</li>
+<li>
+<p>Verify the policy attachment is correct.</p>
+</li>
+<li>
+<p>Click <strong>Create user</strong> to finalize.</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect2">
+<h3 id="2-3-create-access-keys">2.3 Create Access Keys</h3>
+<div class="paragraph">
+<p>Access keys consist of an Access Key ID and a Secret Access Key—think of them as a username and password for programmatic access to AWS. Longhorn will use these credentials to authenticate with S3.</p>
+</div>
+<div class="paragraph">
+<p><strong>Security Considerations:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Access keys are long-lived credentials that don&#8217;t expire automatically.</p>
+</li>
+<li>
+<p>The secret access key is shown only once during creation. If lost, you must delete and recreate the key.</p>
+</li>
+<li>
+<p>Keep these credentials secure—they grant full access to your backup bucket.</p>
+</li>
+<li>
+<p>For production environments, implement key rotation policies (e.g., rotate every 90 days).</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Detailed Steps:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Access User Security Credentials</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click on the newly created user name (<code>longhorn-backup-user</code>) to open the user details.</p>
+</li>
+<li>
+<p>Navigate to the <strong>Security credentials</strong> tab.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Initiate Key Creation</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Scroll down to the <strong>Access keys</strong> section.</p>
+</li>
+<li>
+<p>Click <strong>Create access key</strong>.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Select Use Case</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>AWS will prompt you to select a use case. Choose <strong>Application running outside AWS</strong> or <strong>Third-party service</strong>.</p>
+</li>
+<li>
+<p>This selection helps AWS understand your intent but doesn&#8217;t affect functionality.</p>
+</li>
+<li>
+<p>Check the acknowledgment box confirming you understand the security implications.</p>
+</li>
+<li>
+<p>Click <strong>Next</strong>.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Optional Description</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Add a description tag like "Longhorn S3 backup credentials for prod cluster" to help identify this key later.</p>
+</li>
+<li>
+<p>Click <strong>Create access key</strong>.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Retrieve and Secure Credentials</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>CRITICAL</strong>: You are now viewing the credentials. This is your <strong>only opportunity</strong> to see the <strong>Secret access key</strong>.</p>
+</li>
+<li>
+<p>Copy both the <strong>Access key</strong> and <strong>Secret access key</strong> to a secure location (password manager, encrypted file, etc.).</p>
+</li>
+<li>
+<p>Optionally, click <strong>Download .csv file</strong> for a backup copy.</p>
+</li>
+<li>
+<p><strong>Never commit these credentials to Git</strong> or store them in plain text in your infrastructure-as-code repositories.</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+Consider using a <code>.env</code> file (excluded from Git via <code>.gitignore</code>) or a secure secrets management system like AWS Secrets Manager, HashiCorp Vault, or Kubernetes external-secrets operator for credential storage in automated workflows.
+</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-3-create-a-kubernetes-secret">Step 3: Create a Kubernetes Secret</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Now that you have AWS credentials, you need to make them available to Longhorn within your Kubernetes cluster. Kubernetes Secrets provide a secure way to store sensitive information like API keys, passwords, and credentials. Longhorn will read this secret to authenticate with S3 during backup and restore operations.</p>
+</div>
+<div class="paragraph">
+<p><strong>Why use Secrets?</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Separates sensitive data from application configuration</p>
+</li>
+<li>
+<p>Secrets are stored encrypted at rest in etcd (if cluster encryption is enabled)</p>
+</li>
+<li>
+<p>Secrets can be restricted using Kubernetes RBAC policies</p>
+</li>
+<li>
+<p>Secrets are never logged or exposed in pod specifications</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="method-1-create-secret-using-kubectl-recommended-for-quick-setup">Method 1: Create Secret Using kubectl (Recommended for Quick Setup)</h3>
+<div class="paragraph">
+<p>This method creates the secret directly from the command line without creating intermediate files that might accidentally be committed to version control.</p>
+</div>
+<div class="paragraph">
+<p><strong>Detailed Steps:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Set Environment Variables</strong> (for convenience and to avoid exposing credentials in shell history):</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Store your AWS credentials in environment variables</span>
+<span class="c"># These variables are temporary and only exist in your current shell session</span>
+<span class="nb">export </span><span class="nv">S3_BACKUP_AWS_ACCESS_KEY_ID</span><span class="o">=</span>&lt;YOUR_ACCESS_KEY_ID&gt;
+<span class="nb">export </span><span class="nv">S3_BACKUP_AWS_SECRET_ACCESS_KEY</span><span class="o">=</span>&lt;YOUR_SECRET_ACCESS_KEY&gt;
+
+<span class="c"># Verify they're set (this will display the values - be careful not to share your screen)</span>
+<span class="nb">echo</span> <span class="nv">$S3_BACKUP_AWS_ACCESS_KEY_ID</span></code></pre>
+</div>
+</div>
+</li>
+<li>
+<p><strong>Create the Secret</strong>:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Create a secret named 'aws-s3-backup-credentials' in the 'longhorn-system' namespace</span>
+<span class="c"># The secret contains two key-value pairs that Longhorn expects:</span>
+<span class="c">#   - AWS_ACCESS_KEY_ID: The access key for authentication</span>
+<span class="c">#   - AWS_SECRET_ACCESS_KEY: The secret key for authentication</span>
+kubectl create secret generic aws-s3-backup-credentials <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span><span class="nv">AWS_ACCESS_KEY_ID</span><span class="o">=</span><span class="nv">$S3_BACKUP_AWS_ACCESS_KEY_ID</span> <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span><span class="nv">AWS_SECRET_ACCESS_KEY</span><span class="o">=</span><span class="nv">$S3_BACKUP_AWS_SECRET_ACCESS_KEY</span> <span class="se">\</span>
+  <span class="nt">-n</span> longhorn-system</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Understanding the Command:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>kubectl create secret generic</code>: Creates a generic (opaque) secret</p>
+</li>
+<li>
+<p><code>aws-s3-backup-credentials</code>: The name of the secret (you&#8217;ll reference this in Longhorn configuration)</p>
+</li>
+<li>
+<p><code>--from-literal=KEY=VALUE</code>: Creates secret data from literal values</p>
+</li>
+<li>
+<p><code>-n longhorn-system</code>: Creates the secret in the Longhorn namespace where it&#8217;s needed</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Verify Secret Creation</strong>:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Check that the secret was created successfully</span>
+kubectl get secret aws-s3-backup-credentials <span class="nt">-n</span> longhorn-system
+
+<span class="c"># View secret structure (values are base64-encoded, not plaintext)</span>
+kubectl describe secret aws-s3-backup-credentials <span class="nt">-n</span> longhorn-system</code></pre>
+</div>
+</div>
+</li>
+<li>
+<p><strong>Clear Environment Variables</strong> (security hygiene):</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Remove credentials from your shell environment</span>
+<span class="nb">unset </span>S3_BACKUP_AWS_ACCESS_KEY_ID
+<span class="nb">unset </span>S3_BACKUP_AWS_SECRET_ACCESS_KEY</code></pre>
+</div>
+</div>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect2">
+<h3 id="method-2-create-secret-using-yaml-recommended-for-gitops">Method 2: Create Secret Using YAML (Recommended for GitOps)</h3>
+<div class="paragraph">
+<p>For infrastructure-as-code workflows or when managing secrets declaratively, you can create a YAML manifest. <strong>However, never commit credentials directly to Git.</strong></p>
+</div>
+<div class="admonitionblock warning">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-warning" title="Warning"></i>
+</td>
+<td class="content">
+The example below contains plaintext credentials using <code>stringData</code>. In production GitOps workflows, use sealed secrets, external-secrets operator, or a similar tool to encrypt credentials before committing to Git.
+</td>
+</tr>
+</table>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Create a YAML file</strong> named <code>aws-creds.yaml</code>:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Secret</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="c1"># The secret name - must match what you configure in Longhorn backup target</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">aws-s3-backup-credentials</span>
+  <span class="c1"># Must be in the longhorn-system namespace</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">longhorn-system</span>
+<span class="c1"># Generic secrets use 'Opaque' type</span>
+<span class="na">type</span><span class="pi">:</span> <span class="s">Opaque</span>
+<span class="c1"># Use 'stringData' for human-readable values (Kubernetes auto-converts to base64)</span>
+<span class="na">stringData</span><span class="pi">:</span>
+  <span class="c1"># AWS Access Key ID - identifies the IAM user</span>
+  <span class="na">AWS_ACCESS_KEY_ID</span><span class="pi">:</span> <span class="s">&lt;YOUR_ACCESS_KEY_ID&gt;</span>
+  <span class="c1"># AWS Secret Access Key - authenticates the IAM user</span>
+  <span class="na">AWS_SECRET_ACCESS_KEY</span><span class="pi">:</span> <span class="s">&lt;YOUR_SECRET_ACCESS_KEY&gt;</span></code></pre>
+</div>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+The keys <code>AWS_ACCESS_KEY_ID</code> and <code>AWS_SECRET_ACCESS_KEY</code> must be named exactly as shown. Longhorn expects these specific key names when reading S3 credentials.
+</td>
+</tr>
+</table>
+</div>
+</li>
+<li>
+<p><strong>Apply the Secret to Your Cluster</strong>:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Create the secret from the YAML file</span>
+kubectl apply <span class="nt">-f</span> aws-creds.yaml
+
+<span class="c"># Verify creation</span>
+kubectl get secret aws-s3-backup-credentials <span class="nt">-n</span> longhorn-system</code></pre>
+</div>
+</div>
+</li>
+<li>
+<p><strong>Secure or Delete the YAML File</strong>:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Option 1: Delete the file immediately after creation</span>
+<span class="nb">rm </span>aws-creds.yaml
+
+<span class="c"># Option 2: If keeping for documentation, remove credential values</span>
+<span class="c"># and add to .gitignore to prevent accidental commits</span>
+<span class="nb">echo</span> <span class="s2">"aws-creds.yaml"</span> <span class="o">&gt;&gt;</span> .gitignore</code></pre>
+</div>
+</div>
+</li>
+</ol>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+For production environments, consider using Kubernetes external-secrets operator, sealed-secrets, or AWS Secrets Manager integration to avoid storing plaintext credentials in YAML files.
+</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-4-configure-backup-target-in-longhorn">Step 4: Configure Backup Target in Longhorn</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>With the S3 bucket created and credentials stored in Kubernetes, the final configuration step is to tell Longhorn where to store backups and how to authenticate. This is done through the Longhorn UI by configuring the backup target.</p>
+</div>
+<div class="paragraph">
+<p><strong>Understanding Backup Targets:</strong></p>
+</div>
+<div class="paragraph">
+<p>A backup target is an external storage system (S3, NFS, etc.) where Longhorn uploads volume snapshots. Once configured, all backups from all volumes in the cluster can use this target. Longhorn supports multiple backup targets, but most deployments use a single "default" target.</p>
+</div>
+<div class="paragraph">
+<p><strong>Detailed Configuration Steps:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Access the Longhorn UI</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>If you haven&#8217;t already, forward the Longhorn frontend service to your local machine:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Forward Longhorn UI to http://localhost:8080</span>
+kubectl port-forward <span class="nt">-n</span> longhorn-system svc/longhorn-frontend 8080:80</code></pre>
+</div>
+</div>
+</li>
+<li>
+<p>Open your browser and navigate to <code><a href="http://localhost:8080" class="bare">http://localhost:8080</a></code></p>
+</li>
+<li>
+<p>Alternatively, if Longhorn is exposed via Ingress, use the configured domain name.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Navigate to Backup Target Configuration</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>In the Longhorn UI, click <strong>Backup and Restore</strong> in the top navigation menu.</p>
+</li>
+<li>
+<p>Select the <strong>Backup Targets</strong> tab.</p>
+</li>
+<li>
+<p>You should see a backup target named <strong>default</strong>.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Edit the Default Backup Target</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click on the <strong>default</strong> backup target row.</p>
+</li>
+<li>
+<p>Click the <strong>Edit</strong> button (usually a pencil icon or "Edit" text).</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Configure S3 Connection Details</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>In the <strong>Edit Backup Target default</strong> dialog, fill in the following fields:</p>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 33.3333%;">
+<col style="width: 33.3333%;">
+<col style="width: 33.3334%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Field</th>
+<th class="tableblock halign-left valign-top">Value</th>
+<th class="tableblock halign-left valign-top">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Backup Target</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>s3://&lt;bucket-name&gt;@&lt;region&gt;/</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">S3 URL format. Replace <code>&lt;bucket-name&gt;</code> with your bucket name (e.g., <code>my-longhorn-backups</code>) and <code>&lt;region&gt;</code> with the AWS region (e.g., <code>us-east-1</code>). The trailing <code>/</code> is important.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Credential Secret</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>aws-s3-backup-credentials</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Select the Kubernetes secret name you created in Step 3. This dropdown should auto-populate with secrets in the <code>longhorn-system</code> namespace.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Poll Interval</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>300</code> (default)</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">How often (in seconds) Longhorn checks for new or updated backups in S3. 300 seconds (5 minutes) is typically sufficient.</p></td>
+</tr>
+</tbody>
+</table>
+<div class="paragraph">
+<p><strong>Example S3 Backup Target URL:</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>s3://acmecorp-prod-longhorn-backups@us-east-1/
+s3://my-k8s-backups@eu-west-1/
+s3://longhorn-backup-bucket@ap-southeast-1/</pre>
+</div>
+</div>
+<div class="admonitionblock important">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-important" title="Important"></i>
+</td>
+<td class="content">
+The URL format is strict. Common mistakes include: forgetting the <code>@</code> symbol, omitting the region, forgetting the trailing <code>/</code>, or using the bucket ARN instead of the bucket name.
+</td>
+</tr>
+</table>
+</div>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Save and Test the Configuration</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click <strong>OK</strong> to save the changes.</p>
+</li>
+<li>
+<p>Longhorn will immediately attempt to connect to S3 using the provided credentials.</p>
+</li>
+<li>
+<p><strong>Success indicators</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>A green checkmark appears next to the backup target</p>
+</li>
+<li>
+<p>No error messages are displayed</p>
+</li>
+<li>
+<p>The "State" shows as "Ready" or "Available"</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Failure indicators</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Red error icon or error message</p>
+</li>
+<li>
+<p>The "State" shows as "Error" or "Unavailable"</p>
+</li>
+<li>
+<p>Check the troubleshooting section below for common issues.</p>
+</li>
+</ul>
+</div>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Verify Connectivity</strong> (Optional but Recommended):</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Check Longhorn manager logs for connection details</span>
+kubectl logs <span class="nt">-n</span> longhorn-system <span class="nt">-l</span> <span class="nv">app</span><span class="o">=</span>longhorn-manager <span class="nt">--tail</span><span class="o">=</span>50 | <span class="nb">grep</span> <span class="nt">-i</span> backup
+
+<span class="c"># Look for successful S3 connection messages or error details</span></code></pre>
+</div>
+</div>
+</li>
+</ol>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-5-verify-configuration">Step 5: Verify Configuration</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Before relying on backups for production data, it&#8217;s critical to verify that the entire backup pipeline works correctly. This verification process ensures that snapshots can be created, uploaded to S3, and retrieved successfully.</p>
+</div>
+<div class="paragraph">
+<p><strong>Comprehensive Verification Steps:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Navigate to the Volume Page</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>In the Longhorn UI, click <strong>Volume</strong> in the top navigation menu.</p>
+</li>
+<li>
+<p>You should see a list of all persistent volumes managed by Longhorn.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Select a Test Volume</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Choose a volume for testing. For initial verification, use a non-critical volume if possible.</p>
+</li>
+<li>
+<p>Click on the volume name to open its detail page.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Access Snapshot Management</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>In the volume detail view, click on the <strong>Snapshots and Backups</strong> tab.</p>
+</li>
+<li>
+<p>This tab shows all local snapshots and allows you to create new ones.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Create a Test Snapshot</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>If no snapshots exist, click <strong>Take Snapshot</strong>.</p>
+</li>
+<li>
+<p>Optionally provide a name or label (e.g., <code>test-backup-verification</code>).</p>
+</li>
+<li>
+<p>The snapshot should appear in the list within a few seconds.</p>
+</li>
+<li>
+<p><strong>What&#8217;s happening</strong>: Longhorn is creating a point-in-time copy of the volume data and storing it locally within the cluster.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Create a Backup from the Snapshot</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Locate the snapshot you just created in the snapshot list.</p>
+</li>
+<li>
+<p>Click the <strong>Create Backup</strong> button for that snapshot (may be labeled "Backup" or have a cloud/upload icon).</p>
+</li>
+<li>
+<p>Optionally add labels to the backup for easier identification (e.g., <code>environment=test</code>, <code>purpose=verification</code>).</p>
+</li>
+<li>
+<p>Click <strong>OK</strong> to initiate the backup.</p>
+</li>
+<li>
+<p><strong>What&#8217;s happening</strong>: Longhorn is uploading the snapshot data to your S3 bucket. Depending on volume size and network speed, this may take anywhere from a few seconds to several minutes.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Monitor Backup Progress</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>The backup will show a progress indicator while uploading.</p>
+</li>
+<li>
+<p>Once complete, the status will change to "Completed" or show a checkmark.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Verify Backup in Longhorn UI</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click <strong>Backup and Restore</strong> in the top menu.</p>
+</li>
+<li>
+<p>Select the <strong>Backups</strong> tab.</p>
+</li>
+<li>
+<p>You should see your volume listed under the <strong>Volume</strong> tab.</p>
+</li>
+<li>
+<p>Click on the volume name to see all backups for that volume.</p>
+</li>
+<li>
+<p>Verify that your test backup appears with the correct timestamp and labels.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Verify Backup in S3 Console</strong> (Optional but Recommended):</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Log into the AWS S3 Console.</p>
+</li>
+<li>
+<p>Navigate to your backup bucket (e.g., <code>my-longhorn-backups</code>).</p>
+</li>
+<li>
+<p>You should see a directory structure created by Longhorn:</p>
+<div class="listingblock">
+<div class="content">
+<pre>my-longhorn-backups/
+├── backups/
+│   └── &lt;volume-name&gt;/
+│       ├── backup-&lt;timestamp&gt;.cfg  # Backup metadata
+│       └── blocks/                 # Actual data blocks</pre>
+</div>
+</div>
+</li>
+<li>
+<p>The presence of these files confirms that Longhorn successfully uploaded data to S3.</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+If the backup completes successfully in the Longhorn UI and you can see files in S3, your backup configuration is working correctly. This verification should be performed after initial setup and periodically thereafter.
+</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="troubleshooting">Troubleshooting</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Backup configuration failures usually fall into one of three categories: permissions issues, network connectivity problems, or configuration errors. Here&#8217;s how to diagnose and fix the most common issues:</p>
+</div>
+<div class="sect2">
+<h3 id="error-access-denied-or-aws-error-access-denied">Error: "Access Denied" or "AWS Error: Access Denied"</h3>
+<div class="paragraph">
+<p><strong>Symptom</strong>: Longhorn cannot connect to S3, or backup creation fails with an access denied error.</p>
+</div>
+<div class="paragraph">
+<p><strong>Root Causes:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Incorrect IAM Policy</strong>: The policy doesn&#8217;t grant all required permissions.</p>
+</li>
+<li>
+<p><strong>Wrong Bucket ARN</strong>: The policy references a different bucket than configured.</p>
+</li>
+<li>
+<p><strong>Invalid Credentials</strong>: The access key or secret key is incorrect or has been rotated.</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p><strong>Resolution Steps:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Verify IAM Policy Permissions</strong>:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Use AWS CLI to check the user's attached policies</span>
+aws iam list-attached-user-policies <span class="nt">--user-name</span> longhorn-backup-user
+
+<span class="c"># Verify the policy has all four required permissions:</span>
+<span class="c"># s3:PutObject, s3:GetObject, s3:ListBucket, s3:DeleteObject</span>
+aws iam get-policy-version <span class="se">\</span>
+  <span class="nt">--policy-arn</span> &lt;policy-arn-from-previous-command&gt; <span class="se">\</span>
+  <span class="nt">--version-id</span> v1</code></pre>
+</div>
+</div>
+</li>
+<li>
+<p><strong>Verify Bucket Name in Policy</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Ensure the bucket name in the IAM policy <strong>exactly matches</strong> the actual S3 bucket name.</p>
+</li>
+<li>
+<p>Check for typos, extra spaces, or case sensitivity issues (bucket names are case-sensitive).</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Test Credentials Manually</strong>:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Extract credentials from the Kubernetes secret</span>
+<span class="nv">AWS_ACCESS_KEY_ID</span><span class="o">=</span><span class="si">$(</span>kubectl get secret aws-s3-backup-credentials <span class="nt">-n</span> longhorn-system <span class="nt">-o</span> <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.data.AWS_ACCESS_KEY_ID}'</span> | <span class="nb">base64</span> <span class="nt">-d</span><span class="si">)</span>
+<span class="nv">AWS_SECRET_ACCESS_KEY</span><span class="o">=</span><span class="si">$(</span>kubectl get secret aws-s3-backup-credentials <span class="nt">-n</span> longhorn-system <span class="nt">-o</span> <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.data.AWS_SECRET_ACCESS_KEY}'</span> | <span class="nb">base64</span> <span class="nt">-d</span><span class="si">)</span>
+
+<span class="c"># Test listing the bucket using the credentials</span>
+<span class="nv">AWS_ACCESS_KEY_ID</span><span class="o">=</span><span class="nv">$AWS_ACCESS_KEY_ID</span> <span class="se">\</span>
+<span class="nv">AWS_SECRET_ACCESS_KEY</span><span class="o">=</span><span class="nv">$AWS_SECRET_ACCESS_KEY</span> <span class="se">\</span>
+aws s3 <span class="nb">ls </span>s3://&lt;your-bucket-name&gt;/
+
+<span class="c"># If this fails, the credentials or permissions are incorrect</span></code></pre>
+</div>
+</div>
+</li>
+<li>
+<p><strong>Recreate Secret with Correct Credentials</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>If credentials were rotated or incorrect, delete and recreate the secret:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash">kubectl delete secret aws-s3-backup-credentials <span class="nt">-n</span> longhorn-system
+<span class="c"># Then recreate following Step 3 instructions</span></code></pre>
+</div>
+</div>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect2">
+<h3 id="error-unable-to-list-s3-bucket-or-invalid-endpoint">Error: "Unable to List S3 Bucket" or "Invalid Endpoint"</h3>
+<div class="paragraph">
+<p><strong>Symptom</strong>: Longhorn reports that it cannot list or access the S3 bucket.</p>
+</div>
+<div class="paragraph">
+<p><strong>Root Causes:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Region Mismatch</strong>: The region in the backup target URL doesn&#8217;t match the bucket&#8217;s actual region.</p>
+</li>
+<li>
+<p><strong>Incorrect URL Format</strong>: The S3 URL is malformed.</p>
+</li>
+<li>
+<p><strong>Bucket Doesn&#8217;t Exist</strong>: The bucket name is incorrect or the bucket was deleted.</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p><strong>Resolution Steps:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Verify Bucket Region</strong>:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Check the bucket's actual region</span>
+aws s3api get-bucket-location <span class="nt">--bucket</span> &lt;your-bucket-name&gt;
+
+<span class="c"># Output will be: {"LocationConstraint": "us-east-1"}</span>
+<span class="c"># (Note: us-east-1 buckets may return null, which is correct)</span></code></pre>
+</div>
+</div>
+</li>
+<li>
+<p><strong>Verify Backup Target URL Format</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Correct format: <code>s3://&lt;bucket-name&gt;@&lt;region&gt;/</code></p>
+</li>
+<li>
+<p>Common mistakes:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Missing <code>@</code> symbol: <code>s3://&lt;bucket-name&gt;/&lt;region&gt;/</code> ❌</p>
+</li>
+<li>
+<p>Missing trailing <code>/</code>: <code>s3://&lt;bucket-name&gt;@&lt;region&gt;</code> ❌</p>
+</li>
+<li>
+<p>Using ARN: <code>s3://arn:aws:s3:::&lt;bucket-name&gt;@&lt;region&gt;/</code> ❌</p>
+</li>
+<li>
+<p>Wrong region: <code>s3://my-bucket@us-west-2/</code> when bucket is in <code>us-east-1</code> ❌</p>
+</li>
+</ul>
+</div>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Update Backup Target with Correct Region</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Edit the backup target in Longhorn UI with the correct region from step 1.</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect2">
+<h3 id="error-backup-target-not-ready-or-secret-not-found">Error: "Backup Target Not Ready" or "Secret Not Found"</h3>
+<div class="paragraph">
+<p><strong>Symptom</strong>: The backup target shows as unavailable or Longhorn can&#8217;t find the credential secret.</p>
+</div>
+<div class="paragraph">
+<p><strong>Root Causes:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Secret Doesn&#8217;t Exist</strong>: The secret wasn&#8217;t created or was created in the wrong namespace.</p>
+</li>
+<li>
+<p><strong>Secret Name Mismatch</strong>: The secret name in Longhorn config doesn&#8217;t match the actual secret name.</p>
+</li>
+<li>
+<p><strong>Wrong Namespace</strong>: The secret exists but not in <code>longhorn-system</code> namespace.</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p><strong>Resolution Steps:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Verify Secret Exists</strong>:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Check if secret exists in longhorn-system namespace</span>
+kubectl get secret aws-s3-backup-credentials <span class="nt">-n</span> longhorn-system
+
+<span class="c"># If not found, verify it wasn't created in a different namespace</span>
+kubectl get secrets <span class="nt">--all-namespaces</span> | <span class="nb">grep </span>aws-s3-backup-credentials</code></pre>
+</div>
+</div>
+</li>
+<li>
+<p><strong>Verify Secret Has Correct Keys</strong>:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># The secret must contain exactly these two keys:</span>
+<span class="c"># - AWS_ACCESS_KEY_ID</span>
+<span class="c"># - AWS_SECRET_ACCESS_KEY</span>
+kubectl describe secret aws-s3-backup-credentials <span class="nt">-n</span> longhorn-system</code></pre>
+</div>
+</div>
+</li>
+<li>
+<p><strong>Recreate Secret in Correct Namespace</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>If the secret is in the wrong namespace or missing keys, delete and recreate it following Step 3.</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect2">
+<h3 id="additional-troubleshooting-commands">Additional Troubleshooting Commands</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># View Longhorn manager logs for detailed error messages</span>
+kubectl logs <span class="nt">-n</span> longhorn-system <span class="nt">-l</span> <span class="nv">app</span><span class="o">=</span>longhorn-manager <span class="nt">--tail</span><span class="o">=</span>100
+
+<span class="c"># Check backup controller logs specifically</span>
+kubectl logs <span class="nt">-n</span> longhorn-system deploy/longhorn-manager <span class="nt">-c</span> longhorn-manager | <span class="nb">grep</span> <span class="nt">-i</span> backup
+
+<span class="c"># Verify network connectivity from a pod to S3</span>
+kubectl run <span class="nt">-it</span> <span class="nt">--rm</span> debug <span class="nt">--image</span><span class="o">=</span>amazon/aws-cli <span class="nt">--restart</span><span class="o">=</span>Never <span class="nt">--</span> <span class="se">\</span>
+  s3 <span class="nb">ls </span>s3://&lt;your-bucket-name&gt;/ <span class="nt">--region</span> &lt;your-region&gt;</code></pre>
+</div>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+Most backup configuration issues can be resolved by carefully verifying: (1) IAM permissions, (2) bucket region, (3) secret existence and correctness, and (4) backup target URL format.
+</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="how-to-create-a-backup">How to Create a Backup</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Understanding Longhorn&#8217;s backup architecture is key to effective data protection. Longhorn follows a snapshot-first approach: <strong>backups are always created from snapshots, not directly from live volumes</strong>. This design ensures data consistency by capturing a stable, point-in-time state before uploading to external storage.</p>
+</div>
+<div class="paragraph">
+<p><strong>Why Snapshot-Based Backups?</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Consistency</strong>: Snapshots freeze the volume state at a specific moment, preventing data corruption from ongoing writes.</p>
+</li>
+<li>
+<p><strong>Efficiency</strong>: Longhorn uses incremental snapshots, so only changed data blocks are stored.</p>
+</li>
+<li>
+<p><strong>Flexibility</strong>: You can create multiple snapshots locally (fast) and selectively choose which ones to backup externally (slower but durable).</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Backup Creation Workflow:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Snapshot Creation</strong>: Capture the current volume state as a local snapshot.</p>
+</li>
+<li>
+<p><strong>Backup Upload</strong>: Upload the snapshot data to the configured backup target (S3, NFS, etc.).</p>
+</li>
+<li>
+<p><strong>Metadata Storage</strong>: Store backup metadata in S3 for discovery and restoration.</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>There are two approaches to creating backups: manual (on-demand) and automated (scheduled).</p>
+</div>
+<div class="sect2">
+<h3 id="manual-backup-creation">Manual Backup Creation</h3>
+<div class="paragraph">
+<p>Manual backups are ideal for one-time backup needs, such as before major application upgrades, database migrations, or when testing new configurations. This gives you complete control over when backups are created.</p>
+</div>
+<div class="paragraph">
+<p><strong>Detailed Workflow:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Navigate to Volume Management</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Open the Longhorn UI.</p>
+</li>
+<li>
+<p>Click <strong>Volume</strong> in the top navigation menu.</p>
+</li>
+<li>
+<p>You&#8217;ll see a list of all persistent volumes in your cluster.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Select Target Volume</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click on the name of the volume you want to back up (e.g., <code>pvc-abc123</code> or <code>postgres-data</code>).</p>
+</li>
+<li>
+<p>This opens the volume detail page showing metadata, health status, and replicas.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Access Snapshot Management</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click on the <strong>Snapshots and Backups</strong> tab.</p>
+</li>
+<li>
+<p>This shows all existing snapshots for this volume.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Create a Snapshot</strong> (if you need a new one):</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click the <strong>Take Snapshot</strong> button.</p>
+</li>
+<li>
+<p><strong>Optional</strong>: Provide labels for easier identification:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><code>name</code>: Descriptive name like <code>pre-migration-v2.0</code></p>
+</li>
+<li>
+<p><code>purpose</code>: Context like <code>before-schema-change</code></p>
+</li>
+<li>
+<p><code>created-by</code>: Your name or automation source</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p>Click <strong>OK</strong>.</p>
+</li>
+<li>
+<p><strong>What happens</strong>: Longhorn creates a read-only, space-efficient copy of the volume&#8217;s current state. This happens in seconds and doesn&#8217;t interrupt the running application.</p>
+</li>
+<li>
+<p>The snapshot appears in the snapshot list immediately.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Create a Backup from the Snapshot</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>In the snapshot list, locate the snapshot you want to back up.</p>
+</li>
+<li>
+<p>Click the <strong>Create Backup</strong> button for that snapshot (may have a cloud/upload icon or appear in a dropdown menu).</p>
+</li>
+<li>
+<p><strong>Optional</strong>: Add backup-specific labels for retention policies or compliance tracking:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><code>retention</code>: <code>7-days</code>, <code>30-days</code>, <code>permanent</code></p>
+</li>
+<li>
+<p><code>environment</code>: <code>production</code>, <code>staging</code></p>
+</li>
+<li>
+<p><code>compliance</code>: <code>gdpr</code>, <code>hipaa</code></p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p>Click <strong>OK</strong> to start the backup.</p>
+</li>
+<li>
+<p><strong>What happens</strong>: Longhorn uploads the snapshot data to S3. Progress is shown in the UI. Depending on the volume size and network bandwidth, this can take from seconds to hours.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Monitor Backup Progress</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>The backup will show a progress indicator (percentage or status message).</p>
+</li>
+<li>
+<p>You can navigate away—the backup continues in the background.</p>
+</li>
+<li>
+<p>Once complete, the backup status changes to "Completed" with a timestamp.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Verify Backup Success</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click <strong>Backup and Restore</strong> in the top menu.</p>
+</li>
+<li>
+<p>Select the <strong>Backups</strong> tab.</p>
+</li>
+<li>
+<p>Under the <strong>Volume</strong> tab, find your volume.</p>
+</li>
+<li>
+<p>Your backup should be listed with the correct timestamp, size, and labels.</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+Manual backups are perfect for critical moments like before database schema changes, application upgrades, or configuration modifications. Always verify the backup completed successfully before proceeding with risky operations.
+</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="automated-backup-recurring-job">Automated Backup (Recurring Job)</h3>
+<div class="paragraph">
+<p>For production environments, manual backups are insufficient—you need automated, scheduled backups that run without human intervention. Longhorn&#8217;s recurring job feature provides cron-based scheduling for automatic backup creation.</p>
+</div>
+<div class="paragraph">
+<p><strong>Key Advantage</strong>: Recurring backup jobs automatically create a snapshot before uploading to S3, so you don&#8217;t need separate snapshot and backup jobs.</p>
+</div>
+<div class="paragraph">
+<p><strong>Detailed Configuration Steps:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Navigate to Volume Management</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Open the Longhorn UI.</p>
+</li>
+<li>
+<p>Click <strong>Volume</strong> in the top navigation menu.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Select Volumes for Automation</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Option A</strong>: Select a single volume by clicking on its name.</p>
+</li>
+<li>
+<p><strong>Option B</strong>: Select multiple volumes using checkboxes to apply the same backup schedule to all.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Create Recurring Job</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click <strong>Create Recurring Job</strong> (or <strong>Operations</strong> → <strong>Create Recurring Job</strong>).</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Configure Job Settings</strong>:</p>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 33.3333%;">
+<col style="width: 33.3333%;">
+<col style="width: 33.3334%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Field</th>
+<th class="tableblock halign-left valign-top">Description</th>
+<th class="tableblock halign-left valign-top">Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Task</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Select <strong>Backup</strong> (not "Snapshot"). This automatically creates a snapshot and uploads it to S3.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>Backup</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Schedule (Cron Expression)</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Cron format: <code>minute hour day month weekday</code>. Use cron generator tools if needed.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>0 2 * * *</code> (daily at 2:00 AM UTC)<br>
+<code>0 */6 * * *</code> (every 6 hours)<br>
+<code>0 0 * * 0</code> (weekly on Sunday at midnight)</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Retain</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Number of backups to keep. Older backups are automatically deleted when this limit is exceeded.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>7</code> (keep last 7 backups)<br>
+<code>30</code> (keep 30 backups for ~monthly retention if running daily)</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Concurrency</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">How many backups can run simultaneously. Leave as 1 for most cases to avoid resource contention.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>1</code></p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Labels</strong> (Optional)</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Key-value pairs for organizing backups (e.g., filtering, retention policies).</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>environment=production</code><br>
+<code>scheduled=true</code></p></td>
+</tr>
+</tbody>
+</table>
+</li>
+<li>
+<p><strong>Save the Recurring Job</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click <strong>Save</strong> or <strong>OK</strong>.</p>
+</li>
+<li>
+<p>The job is now active and will run according to the cron schedule.</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+<div class="admonitionblock important">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-important" title="Important"></i>
+</td>
+<td class="content">
+When the <code>Backup</code> task runs, Longhorn <strong>automatically creates a new snapshot first</strong>, then uploads it to S3. You do not need to create separate recurring jobs for snapshots—the backup job handles everything.
+</td>
+</tr>
+</table>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Verify Recurring Job</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>In the volume detail page, scroll to the <strong>Recurring Jobs</strong> section.</p>
+</li>
+<li>
+<p>Your job should be listed with status "Enabled" or "Active".</p>
+</li>
+<li>
+<p>The "Next Run" timestamp shows when the next backup will occur.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Monitor Automated Backups</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>As scheduled backups complete, they appear in <strong>Backup and Restore</strong> → <strong>Backups</strong>.</p>
+</li>
+<li>
+<p>Check periodically to ensure backups are completing successfully.</p>
+</li>
+<li>
+<p>Set up alerting (e.g., Prometheus + Alertmanager) to notify you if backups fail.</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p><strong>Cron Schedule Examples:</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="text"># Every day at 2:00 AM UTC
+0 2 * * *
+
+# Every 6 hours
+0 */6 * * *
+
+# Every Sunday at midnight (weekly backups)
+0 0 * * 0
+
+# Every day at 3:00 AM on weekdays only (Mon-Fri)
+0 3 * * 1-5
+
+# First day of every month at 1:00 AM
+0 1 1 * *</code></pre>
+</div>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+Choose retention counts based on your Recovery Point Objective (RPO). For example, if running daily backups with retention of 30, you can restore to any point in the last 30 days. Balance retention needs against storage costs.
+</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="making-changes-after-backup-example-postgresql-table-creation">Making Changes After Backup (Example: PostgreSQL Table Creation)</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>After creating a backup or snapshot, you may want to make changes to your application data to simulate real-world scenarios or test restore procedures. This example demonstrates creating a test table in PostgreSQL that you can use to verify restore operations later.</p>
+</div>
+<div class="paragraph">
+<p><strong>Why This is Useful:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Restore Verification</strong>: After restoring from a backup, you can check whether this table exists or not to confirm you&#8217;re using the correct restore point.</p>
+</li>
+<li>
+<p><strong>Point-in-Time Testing</strong>: By creating distinct data before and after snapshots/backups, you can validate that restores return to the expected state.</p>
+</li>
+<li>
+<p><strong>Compliance Testing</strong>: Demonstrate that backup and restore procedures work correctly for audit purposes.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Connecting to PostgreSQL:</strong></p>
+</div>
+<div class="paragraph">
+<p>First, connect to your PostgreSQL pod:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Connect to the PostgreSQL pod (adjust pod name and namespace as needed)</span>
+kubectl <span class="nb">exec</span> <span class="nt">-it</span> postgresql-0 <span class="nt">-n</span> service-foundry <span class="nt">--</span> psql <span class="nt">-U</span> postgres
+
+<span class="c"># Or specify a specific database</span>
+kubectl <span class="nb">exec</span> <span class="nt">-it</span> postgresql-0 <span class="nt">-n</span> service-foundry <span class="nt">--</span> psql <span class="nt">-U</span> postgres <span class="nt">-d</span> mydatabase</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>SQL Commands to Create Test Data:</strong></p>
+</div>
+<div class="paragraph">
+<p>Run the following SQL commands within the PostgreSQL session to create a table and insert test data:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sql"><span class="c1">-- Create a test table for backup/restore verification</span>
+<span class="c1">-- IF NOT EXISTS prevents errors if the table already exists from a previous test</span>
+<span class="k">CREATE</span> <span class="k">TABLE</span> <span class="n">IF</span> <span class="k">NOT</span> <span class="k">EXISTS</span> <span class="k">public</span><span class="p">.</span><span class="n">users_for_backup_testing</span>
+<span class="p">(</span>
+    <span class="c1">-- User's full name (variable-length string up to 120 characters)</span>
+    <span class="n">name</span> <span class="nb">character</span> <span class="nb">varying</span><span class="p">(</span><span class="mi">120</span><span class="p">)</span> <span class="k">COLLATE</span> <span class="n">pg_catalog</span><span class="p">.</span><span class="nv">"default"</span><span class="p">,</span>
+
+    <span class="c1">-- User's email address (variable-length string up to 120 characters)</span>
+    <span class="n">email</span> <span class="nb">character</span> <span class="nb">varying</span><span class="p">(</span><span class="mi">120</span><span class="p">)</span> <span class="k">COLLATE</span> <span class="n">pg_catalog</span><span class="p">.</span><span class="nv">"default"</span>
+<span class="p">);</span>
+
+<span class="c1">-- Insert sample data for verification</span>
+<span class="c1">-- After restore, you can query this table to see if you're at the correct point in time</span>
+<span class="k">INSERT</span> <span class="k">INTO</span> <span class="n">users_for_backup_testing</span>
+<span class="k">VALUES</span>
+    <span class="c1">-- Sample user 1</span>
+    <span class="p">(</span><span class="s1">'kim'</span><span class="p">,</span> <span class="s1">'kim@company.com'</span><span class="p">),</span>
+
+    <span class="c1">-- Sample user 2</span>
+    <span class="p">(</span><span class="s1">'lee'</span><span class="p">,</span> <span class="s1">'lee@company.com'</span><span class="p">);</span>
+
+<span class="c1">-- Verify the data was inserted correctly</span>
+<span class="k">SELECT</span> <span class="o">*</span> <span class="k">FROM</span> <span class="n">users_for_backup_testing</span><span class="p">;</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Expected Output:</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="text"> name |       email
+------+--------------------
+ kim  | kim@company.com
+ lee  | lee@company.com
+(2 rows)</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Using This for Restore Testing:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Before backup</strong>: Run these SQL commands to create the table with 2 rows.</p>
+</li>
+<li>
+<p><strong>Create backup</strong>: Create a snapshot and backup using Longhorn.</p>
+</li>
+<li>
+<p><strong>After backup</strong>: Add more data or modify the table:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sql"><span class="c1">-- Add data AFTER the backup</span>
+<span class="k">INSERT</span> <span class="k">INTO</span> <span class="n">users_for_backup_testing</span> <span class="k">VALUES</span> <span class="p">(</span><span class="s1">'park'</span><span class="p">,</span> <span class="s1">'park@company.com'</span><span class="p">);</span>
+
+<span class="c1">-- Now the table has 3 rows</span>
+<span class="k">SELECT</span> <span class="k">count</span><span class="p">(</span><span class="o">*</span><span class="p">)</span> <span class="k">FROM</span> <span class="n">users_for_backup_testing</span><span class="p">;</span>  <span class="c1">-- Should return 3</span></code></pre>
+</div>
+</div>
+</li>
+<li>
+<p><strong>Restore from backup</strong>: Follow the restore procedures in the next section.</p>
+</li>
+<li>
+<p><strong>Verify restore</strong>: After restoration, query the table:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sql"><span class="c1">-- If restore was successful, you should see only the original 2 rows</span>
+<span class="k">SELECT</span> <span class="k">count</span><span class="p">(</span><span class="o">*</span><span class="p">)</span> <span class="k">FROM</span> <span class="n">users_for_backup_testing</span><span class="p">;</span>  <span class="c1">-- Should return 2</span>
+<span class="k">SELECT</span> <span class="o">*</span> <span class="k">FROM</span> <span class="n">users_for_backup_testing</span><span class="p">;</span>  <span class="c1">-- Should NOT include 'park'</span></code></pre>
+</div>
+</div>
+</li>
+</ol>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+Use different table names or column values for different test scenarios. For example, add a <code>created_at</code> timestamp column to precisely identify when data was inserted relative to snapshots and backups.
+</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="restore-from-snapshot">Restore from Snapshot</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Longhorn snapshots provide the fastest path to recovery from operational mistakes, bad deployments, or data corruption. Because snapshots are stored <strong>locally within the cluster</strong>, restoration happens in seconds to minutes rather than hours. This makes snapshots ideal for quick rollback scenarios.</p>
+</div>
+<div class="paragraph">
+<p><strong>When to Use Snapshot Restore:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Immediately after a bad application deployment</p>
+</li>
+<li>
+<p>Following accidental data deletion or corruption</p>
+</li>
+<li>
+<p>After a failed database migration</p>
+</li>
+<li>
+<p>When testing changes before committing to production</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Important Limitations:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Snapshots only exist within your cluster—if the cluster is lost, snapshots are lost too</p>
+</li>
+<li>
+<p>Snapshots cannot be used for cross-cluster migrations</p>
+</li>
+<li>
+<p>They don&#8217;t protect against cluster-wide failures</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>There are two methods for restoring from snapshots, each suited to different scenarios.</p>
+</div>
+<div class="sect2">
+<h3 id="method-1-revert-to-snapshot-in-place-restore">Method 1: Revert to Snapshot (In-Place Restore)</h3>
+<div class="paragraph">
+<p>This method <strong>overwrites</strong> the existing volume with data from a previous snapshot. It&#8217;s the fastest restoration method but is destructive—any changes made after the snapshot was taken are permanently lost.</p>
+</div>
+<div class="admonitionblock warning">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-warning" title="Warning"></i>
+</td>
+<td class="content">
+This operation is <strong>irreversible</strong>. All data written to the volume after the snapshot was taken will be <strong>permanently deleted</strong>. Always verify you&#8217;re reverting to the correct snapshot before proceeding.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p><strong>When to Use In-Place Revert:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>You&#8217;re certain the current data is corrupted or unwanted</p>
+</li>
+<li>
+<p>Fast recovery is critical (seconds vs. minutes)</p>
+</li>
+<li>
+<p>You don&#8217;t need to inspect the restored data before committing</p>
+</li>
+<li>
+<p>The application can tolerate brief downtime</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Detailed Workflow:</strong></p>
+</div>
+<div class="paragraph">
+<p><strong>Step 1: Prepare Environment Variables</strong></p>
+</div>
+<div class="paragraph">
+<p>Set up variables for easier command execution and to avoid typos:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Application configuration</span>
+<span class="nv">APP_NAME</span><span class="o">=</span>postgresql-app           <span class="c"># ArgoCD application name</span>
+<span class="nv">NAMESPACE</span><span class="o">=</span>service-foundry         <span class="c"># Kubernetes namespace where app is deployed</span>
+
+<span class="c"># Workload details</span>
+<span class="nv">STATEFULSET_NAME</span><span class="o">=</span>postgresql       <span class="c"># StatefulSet managing the pod</span>
+<span class="nv">POD_NAME</span><span class="o">=</span>postgresql-0             <span class="c"># Pod name (StatefulSet pods are predictable)</span>
+
+<span class="c"># Storage details</span>
+<span class="nv">PVC_NAME</span><span class="o">=</span>data-postgresql-0        <span class="c"># PVC name (matches StatefulSet volume claim template)</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Step 2: Disable ArgoCD Auto-Sync (If Using ArgoCD)</strong></p>
+</div>
+<div class="paragraph">
+<p>If your application is managed by ArgoCD, you must disable auto-sync to prevent ArgoCD from recreating resources you&#8217;re intentionally scaling down:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Remove sync policy (disables automated sync and self-healing)</span>
+<span class="c"># This prevents ArgoCD from interfering with manual operations</span>
+kubectl patch application <span class="k">${</span><span class="nv">APP_NAME</span><span class="k">}</span> <span class="nt">-n</span> argocd <span class="se">\</span>
+  <span class="nt">--type</span> merge <span class="se">\</span>
+  <span class="nt">-p</span> <span class="s1">'{"spec":{"syncPolicy":null}}'</span>
+
+<span class="c"># Verify sync policy was removed</span>
+kubectl get application <span class="k">${</span><span class="nv">APP_NAME</span><span class="k">}</span> <span class="nt">-n</span> argocd <span class="nt">-o</span> <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.spec.syncPolicy}'</span>
+<span class="c"># Should output empty or null</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Step 3: Stop the Application</strong></p>
+</div>
+<div class="paragraph">
+<p>The volume must be detached before reverting. Scale down the application to zero replicas:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Scale down StatefulSet to 0 replicas</span>
+<span class="c"># This gracefully shuts down pods and detaches the PVC</span>
+kubectl scale statefulset <span class="k">${</span><span class="nv">STATEFULSET_NAME</span><span class="k">}</span> <span class="nt">--replicas</span><span class="o">=</span>0 <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span>
+
+<span class="c"># Wait for pod termination (timeout after 60 seconds)</span>
+kubectl <span class="nb">wait</span> <span class="nt">--for</span><span class="o">=</span>delete pod/<span class="k">${</span><span class="nv">POD_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span> <span class="nt">--timeout</span><span class="o">=</span>60s
+
+<span class="c"># Verify no pods are running</span>
+kubectl get pods <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span> <span class="nt">-l</span> <span class="nv">app</span><span class="o">=</span><span class="k">${</span><span class="nv">STATEFULSET_NAME</span><span class="k">}</span>
+<span class="c"># Should show no pods or "No resources found"</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Step 4: Revert to Snapshot in Longhorn UI</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Navigate to Volume Management</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Open the Longhorn UI.</p>
+</li>
+<li>
+<p>Click <strong>Volume</strong> in the top navigation.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Select the Target Volume</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Find the volume corresponding to your PVC (usually named <code>pvc-&lt;uid&gt;</code>).</p>
+</li>
+<li>
+<p>If unsure which volume corresponds to which PVC, run:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Find the Longhorn volume name for your PVC</span>
+kubectl get pvc <span class="k">${</span><span class="nv">PVC_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span> <span class="nt">-o</span> <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.spec.volumeName}'</span></code></pre>
+</div>
+</div>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Verify Volume State</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click on the volume name to open details.</p>
+</li>
+<li>
+<p>Check that the <strong>State</strong> is <strong>Detached</strong>.</p>
+</li>
+<li>
+<p>If still "Attached", wait a few more seconds or verify pods are fully terminated.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Enable Maintenance Mode</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click the <strong>Attach</strong> button (or <strong>Attach Volume</strong> in the dropdown).</p>
+</li>
+<li>
+<p><strong>Enable "Maintenance Mode"</strong> checkbox.</p>
+</li>
+<li>
+<p>Maintenance mode attaches the volume in read-write mode without mounting it to a node, allowing safe revert operations.</p>
+</li>
+<li>
+<p>Click <strong>OK</strong> to attach in maintenance mode.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Access Snapshot Management</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click the <strong>Snapshots and Backups</strong> tab.</p>
+</li>
+<li>
+<p>You&#8217;ll see a list of all snapshots for this volume.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Select and Revert Snapshot</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Locate the snapshot you want to revert to (check timestamp and labels carefully).</p>
+</li>
+<li>
+<p>Click the <strong>Revert</strong> button or icon for that snapshot.</p>
+</li>
+<li>
+<p><strong>Read the confirmation dialog carefully</strong>—this operation cannot be undone.</p>
+</li>
+<li>
+<p>Confirm the revert operation.</p>
+</li>
+<li>
+<p><strong>What happens</strong>: Longhorn overwrites the current volume data with the snapshot data. This typically completes in seconds to minutes depending on volume size.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Detach the Volume</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Once revert completes, the volume is still attached in maintenance mode.</p>
+</li>
+<li>
+<p>Click <strong>Detach</strong> to release the volume.</p>
+</li>
+<li>
+<p>Wait for the state to change back to <strong>Detached</strong>.</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p><strong>Step 5: Restart the Application</strong></p>
+</div>
+<div class="paragraph">
+<p>With the volume now containing the restored snapshot data, restart the application:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Scale StatefulSet back to 1 replica</span>
+<span class="c"># The pod will mount the PVC, which now contains the reverted data</span>
+kubectl scale statefulset <span class="k">${</span><span class="nv">STATEFULSET_NAME</span><span class="k">}</span> <span class="nt">--replicas</span><span class="o">=</span>1 <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span>
+
+<span class="c"># Wait for pod to be ready (timeout after 300 seconds)</span>
+kubectl <span class="nb">wait</span> <span class="nt">--for</span><span class="o">=</span><span class="nv">condition</span><span class="o">=</span>ready pod/<span class="k">${</span><span class="nv">POD_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span> <span class="nt">--timeout</span><span class="o">=</span>300s
+
+<span class="c"># Verify pod is running</span>
+kubectl get pod <span class="k">${</span><span class="nv">POD_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Step 6: Re-enable ArgoCD Auto-Sync (If Applicable)</strong></p>
+</div>
+<div class="paragraph">
+<p>Restore ArgoCD automated sync and self-healing:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Re-enable automated sync with prune and self-heal</span>
+kubectl patch application <span class="k">${</span><span class="nv">APP_NAME</span><span class="k">}</span> <span class="nt">-n</span> argocd <span class="se">\</span>
+  <span class="nt">--type</span> merge <span class="se">\</span>
+  <span class="nt">-p</span> <span class="s1">'{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'</span>
+
+<span class="c"># Verify sync policy was restored</span>
+kubectl get application <span class="k">${</span><span class="nv">APP_NAME</span><span class="k">}</span> <span class="nt">-n</span> argocd <span class="nt">-o</span> <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.spec.syncPolicy}'</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Step 7: Verify Data Restoration</strong></p>
+</div>
+<div class="paragraph">
+<p>Confirm the data matches the expected snapshot state:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># For PostgreSQL example:</span>
+kubectl <span class="nb">exec</span> <span class="nt">-it</span> <span class="k">${</span><span class="nv">POD_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span> <span class="nt">--</span> psql <span class="nt">-U</span> postgres <span class="nt">-c</span> <span class="s2">"
+  SELECT count(*) FROM users_for_backup_testing;
+"</span>
+<span class="c"># Should show 2 if you're testing with the earlier example data</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Use Cases:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Quick rollback</strong> after a bad deployment or configuration change</p>
+</li>
+<li>
+<p><strong>Undo accidental data changes</strong> (e.g., wrong DELETE query executed)</p>
+</li>
+<li>
+<p><strong>Restore to pre-upgrade state</strong> after a failed application or database upgrade</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="method-2-create-volume-from-snapshot-clone-and-test">Method 2: Create Volume from Snapshot (Clone and Test)</h3>
+<div class="paragraph">
+<p>This method creates a <strong>new, independent volume</strong> from a snapshot while leaving the original volume completely untouched. This non-destructive approach allows you to inspect and validate the restored data before committing to use it in production.</p>
+</div>
+<div class="paragraph">
+<p><strong>When to Use Volume Cloning:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>You want to test the restored data before replacing the production volume</p>
+</li>
+<li>
+<p>You need to keep the current data as a safety net</p>
+</li>
+<li>
+<p>You&#8217;re creating a development/testing environment from production data</p>
+</li>
+<li>
+<p>You want to compare current data with a previous state</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Detailed Workflow:</strong></p>
+</div>
+<div class="paragraph">
+<p><strong>Step 1: Clone Volume from Snapshot</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Navigate to Volume Management</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Open the Longhorn UI.</p>
+</li>
+<li>
+<p>Click <strong>Volume</strong> in the top navigation.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Select Source Volume</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Find and click the volume containing the snapshot you want to clone from.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Access Snapshot List</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click the <strong>Snapshots and Backups</strong> tab.</p>
+</li>
+<li>
+<p>Review the list of available snapshots.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Initiate Clone Operation</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click on the snapshot you want to clone to open the action menu.</p>
+</li>
+<li>
+<p>Select <strong>Clone Volume</strong> from the dropdown.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Configure New Volume</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Enter a descriptive name for the new volume (e.g., <code>postgres-data-restored-2024-02-02</code>).</p>
+</li>
+<li>
+<p><strong>Naming tip</strong>: Include date or purpose in the name for easier identification.</p>
+</li>
+<li>
+<p>Click <strong>OK</strong> to create the clone.</p>
+</li>
+<li>
+<p><strong>What happens</strong>: Longhorn creates a new, independent volume initialized with the snapshot data. This typically completes in minutes.</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p><strong>Step 2: Create PVC for the Cloned Volume</strong></p>
+</div>
+<div class="paragraph">
+<p>The cloned volume exists in Longhorn but isn&#8217;t yet accessible to Kubernetes. You must create a PersistentVolume (PV) and PersistentVolumeClaim (PVC) to expose it:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Return to Volume List</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click <strong>Volume</strong> in the top navigation.</p>
+</li>
+<li>
+<p>Find the newly created volume (it will have the name you specified).</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Create PV/PVC</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click on the new volume to open its details.</p>
+</li>
+<li>
+<p>Click <strong>Create PV/PVC</strong> (usually in the top action bar).</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Configure PVC</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>PVC Name</strong>: Enter a name (e.g., <code>data-postgresql-restored</code>).</p>
+</li>
+<li>
+<p><strong>Namespace</strong>: Select the namespace where your application runs (e.g., <code>service-foundry</code>).</p>
+</li>
+<li>
+<p><strong>Storage Class</strong>: Should pre-populate with <code>longhorn</code> (usually correct).</p>
+</li>
+<li>
+<p>Click <strong>OK</strong> to create the PV and PVC.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Verify PVC Creation</strong>:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Verify the new PVC was created and is bound</span>
+kubectl get pvc data-postgresql-restored <span class="nt">-n</span> service-foundry
+
+<span class="c"># Output should show STATUS: Bound</span>
+<span class="c"># NAME                        STATUS   VOLUME           CAPACITY   ACCESS MODES   STORAGECLASS</span>
+<span class="c"># data-postgresql-restored    Bound    postgres-data... 10Gi       RWO            longhorn</span></code></pre>
+</div>
+</div>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p><strong>Step 3: Test with the Cloned PVC (Optional)</strong></p>
+</div>
+<div class="paragraph">
+<p>Before replacing your production PVC, test the cloned data:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Create a temporary pod to inspect the cloned data</span>
+kubectl run test-restore-pod <span class="se">\</span>
+  <span class="nt">--image</span><span class="o">=</span>postgres:14 <span class="se">\</span>
+  <span class="nt">--restart</span><span class="o">=</span>Never <span class="se">\</span>
+  <span class="nt">-n</span> service-foundry <span class="se">\</span>
+  <span class="nt">--overrides</span><span class="o">=</span><span class="s1">'
+{
+  "spec": {
+    "containers": [{
+      "name": "postgres",
+      "image": "postgres:14",
+      "command": ["sleep", "3600"],
+      "volumeMounts": [{
+        "name": "data",
+        "mountPath": "/var/lib/postgresql/data"
+      }]
+    }],
+    "volumes": [{
+      "name": "data",
+      "persistentVolumeClaim": {
+        "claimName": "data-postgresql-restored"
+      }
+    }]
+  }
+}'</span>
+
+<span class="c"># Wait for pod to be ready</span>
+kubectl <span class="nb">wait</span> <span class="nt">--for</span><span class="o">=</span><span class="nv">condition</span><span class="o">=</span>ready pod/test-restore-pod <span class="nt">-n</span> service-foundry <span class="nt">--timeout</span><span class="o">=</span>60s
+
+<span class="c"># Inspect the data</span>
+kubectl <span class="nb">exec</span> <span class="nt">-it</span> test-restore-pod <span class="nt">-n</span> service-foundry <span class="nt">--</span> <span class="se">\</span>
+  psql <span class="nt">-U</span> postgres <span class="nt">-c</span> <span class="s2">"SELECT count(*) FROM users_for_backup_testing;"</span>
+
+<span class="c"># Clean up test pod when done</span>
+kubectl delete pod test-restore-pod <span class="nt">-n</span> service-foundry</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Step 4: Update Application to Use Cloned PVC (If Satisfied)</strong></p>
+</div>
+<div class="paragraph">
+<p>Once you&#8217;ve verified the cloned data is correct, update your application to use it:</p>
+</div>
+<div class="paragraph">
+<p><strong>Option A: Edit StatefulSet (Requires Recreation)</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># StatefulSets have immutable volume claim templates, so you must:</span>
+<span class="c"># 1. Scale down to 0</span>
+<span class="c"># 2. Delete the StatefulSet (not cascade delete - keeps pods)</span>
+<span class="c"># 3. Update the volumeClaimTemplate</span>
+<span class="c"># 4. Recreate the StatefulSet</span>
+
+<span class="c"># This is complex - see Option B for a simpler approach</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Option B: Update PVC Manually (Safer)</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Stop the application</p>
+</li>
+<li>
+<p>Delete the old PVC (or rename it for safety)</p>
+</li>
+<li>
+<p>Rename the cloned PVC to match the original name</p>
+</li>
+<li>
+<p>Restart the application</p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Scale down application</span>
+kubectl scale statefulset postgresql <span class="nt">--replicas</span><span class="o">=</span>0 <span class="nt">-n</span> service-foundry
+kubectl <span class="nb">wait</span> <span class="nt">--for</span><span class="o">=</span>delete pod/postgresql-0 <span class="nt">-n</span> service-foundry <span class="nt">--timeout</span><span class="o">=</span>60s
+
+<span class="c"># Rename old PVC for safety (optional)</span>
+kubectl patch pvc data-postgresql-0 <span class="nt">-n</span> service-foundry <span class="se">\</span>
+  <span class="nt">-p</span> <span class="s1">'{"metadata":{"name":"data-postgresql-0-backup"}}'</span>
+
+<span class="c"># Rename cloned PVC to match StatefulSet expectation</span>
+<span class="c"># Note: PVCs can't be renamed directly - you'd need to recreate</span>
+<span class="c"># See Longhorn documentation for PVC replacement procedures</span></code></pre>
+</div>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+Replacing PVCs in StatefulSets is complex. For production use, consider creating a parallel StatefulSet with the new PVC, testing it, then switching traffic, or consult Longhorn&#8217;s volume migration documentation.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p><strong>Use Cases:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Testing restored data</strong> before committing to production use</p>
+</li>
+<li>
+<p><strong>Creating development/staging environments</strong> from production snapshots</p>
+</li>
+<li>
+<p><strong>Keeping the original data</strong> as a safety net during risky operations</p>
+</li>
+<li>
+<p><strong>Comparing current vs. previous data</strong> for debugging or auditing</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="snapshot-vs-backup-when-to-use-each">Snapshot vs Backup: When to Use Each</h3>
+<div class="paragraph">
+<p>Understanding when to use snapshots versus backups is crucial:</p>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 33.3333%;">
+<col style="width: 33.3333%;">
+<col style="width: 33.3334%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Aspect</th>
+<th class="tableblock halign-left valign-top">Snapshot Restore</th>
+<th class="tableblock halign-left valign-top">Backup Restore</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Speed</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Very fast (seconds)</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Slower (minutes to hours)</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Location</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">In-cluster only</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">External storage (S3, NFS)</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Storage</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Local Longhorn storage</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Off-cluster backup target</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Survives cluster deletion</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">❌ No</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">✅ Yes</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Cross-cluster restore</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">❌ No</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">✅ Yes</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Use Case</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Operational rollbacks, testing</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Disaster recovery, long-term retention</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>When to Use</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Before upgrades, quick undo</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">DR, compliance, cluster migration</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="sect2">
+<h3 id="best-practices">Best Practices</h3>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Use snapshots</strong> for:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Pre-upgrade safety nets</p>
+</li>
+<li>
+<p>Quick operational rollbacks</p>
+</li>
+<li>
+<p>Testing changes before committing</p>
+</li>
+<li>
+<p>Frequent checkpoints (hourly/daily)</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Use backups</strong> for:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Disaster recovery</p>
+</li>
+<li>
+<p>Long-term retention (weeks/months)</p>
+</li>
+<li>
+<p>Cross-cluster migrations</p>
+</li>
+<li>
+<p>Compliance requirements</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Combined approach</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Take a snapshot before risky operations</p>
+</li>
+<li>
+<p>Schedule regular backups to external storage</p>
+</li>
+<li>
+<p>Test restore procedures regularly</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+Snapshots are your first line of defense for operational mistakes. Backups are your last line of defense for catastrophic failures.
+</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="restoring-from-backup">Restoring from Backup</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Backup restoration is fundamentally different from snapshot restoration. While snapshots provide quick, in-cluster recovery, backups enable <strong>cross-cluster restoration</strong> and <strong>disaster recovery</strong> from complete cluster failures. When you restore a backup, Longhorn downloads data from your S3 bucket (or other backup target) and creates a new volume in your cluster.</p>
+</div>
+<div class="paragraph">
+<p><strong>When to Use Backup Restore:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Disaster recovery</strong>: Your cluster has been completely lost or corrupted</p>
+</li>
+<li>
+<p><strong>Cross-cluster migration</strong>: Moving data to a different Kubernetes cluster</p>
+</li>
+<li>
+<p><strong>Long-term recovery</strong>: Restoring data from weeks or months ago (beyond snapshot retention)</p>
+</li>
+<li>
+<p><strong>Cluster rebuild</strong>: Recreating volumes after infrastructure replacement</p>
+</li>
+<li>
+<p><strong>Compliance</strong>: Recovering data for audit or regulatory requirements</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Key Differences from Snapshot Restore:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Source</strong>: Data comes from external storage (S3), not local cluster storage</p>
+</li>
+<li>
+<p><strong>Speed</strong>: Slower due to network transfer from S3 (minutes to hours)</p>
+</li>
+<li>
+<p><strong>Availability</strong>: Works even if the original cluster no longer exists</p>
+</li>
+<li>
+<p><strong>New Volume</strong>: Always creates a new volume—cannot revert an existing volume in-place</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="basic-backup-restore-workflow">Basic Backup Restore Workflow</h3>
+<div class="paragraph">
+<p>Restoring a backup is a multi-step process that involves downloading data from S3 and integrating it into your cluster.</p>
+</div>
+<div class="paragraph">
+<p><strong>Step-by-Step Process:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Access Backup Listing</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Open the Longhorn UI.</p>
+</li>
+<li>
+<p>Click <strong>Backup and Restore</strong> in the top navigation.</p>
+</li>
+<li>
+<p>Select the <strong>Backups</strong> tab.</p>
+</li>
+<li>
+<p>You&#8217;ll see all available backups grouped by volume.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Select Backup to Restore</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click the <strong>Volume</strong> tab to see volumes with available backups.</p>
+</li>
+<li>
+<p>Find the volume you want to restore from.</p>
+</li>
+<li>
+<p>Click on the volume name to see its backup history.</p>
+</li>
+<li>
+<p>Locate the specific backup you want to restore (check timestamp, labels, size).</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Initiate Restore Operation</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Select the backup you want to restore.</p>
+</li>
+<li>
+<p>Click the <strong>Restore</strong> button.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Configure Restore Options</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Longhorn presents two restoration strategies:</p>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 33.3333%;">
+<col style="width: 33.3333%;">
+<col style="width: 33.3334%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Option</th>
+<th class="tableblock halign-left valign-top">Description</th>
+<th class="tableblock halign-left valign-top">Use Case</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Create a new PVC</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Creates a new PVC with a different name (e.g., <code>postgres-data-restored</code>).</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Safe approach for testing restored data before replacing production volume</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Replace an existing PVC</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Deletes an existing PVC and creates a new one with the same name, containing restored data.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Direct replacement (requires stopping the application first)</p></td>
+</tr>
+</tbody>
+</table>
+</li>
+<li>
+<p><strong>Recommendation</strong>: Use "Create a new PVC" to test first, then swap PVCs if satisfied.</p>
+</li>
+<li>
+<p>Enter the PVC name and select the target namespace.</p>
+</li>
+<li>
+<p>Click <strong>OK</strong> to start the restore.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Monitor Restore Progress</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>The restore operation appears in the volume list with status indicators.</p>
+</li>
+<li>
+<p><strong>What&#8217;s happening</strong>: Longhorn downloads backup data from S3, reconstructs the volume, and makes it available as a PV/PVC.</p>
+</li>
+<li>
+<p>Depending on volume size and network speed, this can take from minutes to hours.</p>
+</li>
+<li>
+<p>Progress is shown in the UI—you can navigate away and check back later.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Verify Restore Completion</strong>:</p>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Check that the new PVC was created and is bound</span>
+kubectl get pvc &lt;restored-pvc-name&gt; <span class="nt">-n</span> &lt;namespace&gt;
+
+<span class="c"># Output should show STATUS: Bound</span></code></pre>
+</div>
+</div>
+</li>
+</ol>
+</div>
+<div class="admonitionblock important">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-important" title="Important"></i>
+</td>
+<td class="content">
+<strong>Always stop applications</strong> using the original PVC before performing a replace-in-place restore. Restoring while the application is running can cause data corruption or restore failures.
+</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="restoring-postgresql-with-argocd-management">Restoring PostgreSQL with ArgoCD Management</h3>
+<div class="paragraph">
+<p>When your application is managed by ArgoCD (or any GitOps tool), you must carefully coordinate the restore process to prevent ArgoCD from interfering with manual operations. ArgoCD&#8217;s automated sync and self-healing features will attempt to recreate resources you&#8217;re deliberately modifying, so they must be temporarily disabled.</p>
+</div>
+<div class="paragraph">
+<p><strong>Why This is Necessary:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>ArgoCD monitors Git as the source of truth</p>
+</li>
+<li>
+<p>When it detects drift (e.g., scaled-down pods, deleted PVCs), it auto-heals by recreating resources</p>
+</li>
+<li>
+<p>During restore, you need manual control over resource lifecycles</p>
+</li>
+<li>
+<p>After restore completes, you re-enable ArgoCD to resume normal operations</p>
+</li>
+</ul>
+</div>
+<div class="sect3">
+<h4 id="step-by-step-restore-procedure">Step-by-Step Restore Procedure</h4>
+<div class="paragraph">
+<p>This procedure demonstrates replacing an existing PostgreSQL PVC with restored backup data:</p>
+</div>
+<div class="paragraph">
+<p><strong>Step 1: Prepare Environment Variables</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Define application and infrastructure details</span>
+<span class="c"># Adjust these values to match your environment</span>
+
+<span class="nv">APP_NAME</span><span class="o">=</span>postgresql-app           <span class="c"># ArgoCD application name</span>
+<span class="nv">NAMESPACE</span><span class="o">=</span>service-foundry         <span class="c"># Kubernetes namespace</span>
+<span class="nv">STATEFULSET_NAME</span><span class="o">=</span>postgresql       <span class="c"># StatefulSet name</span>
+<span class="nv">POD_NAME</span><span class="o">=</span>postgresql-0             <span class="c"># Primary pod name</span>
+<span class="nv">PVC_NAME</span><span class="o">=</span>data-postgresql-0        <span class="c"># PersistentVolumeClaim name</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Step 2: Disable ArgoCD Auto-Sync</strong></p>
+</div>
+<div class="paragraph">
+<p>Temporarily suspend ArgoCD&#8217;s automated operations:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Option A: Using ArgoCD CLI (if installed)</span>
+<span class="c"># This sets sync policy to 'none', disabling automated sync</span>
+argocd app <span class="nb">set</span> <span class="k">${</span><span class="nv">APP_NAME</span><span class="k">}</span> <span class="nt">--sync-policy</span> none
+
+<span class="c"># Option B: Using kubectl (works without ArgoCD CLI)</span>
+<span class="c"># Removes the entire syncPolicy section from the Application spec</span>
+kubectl patch application <span class="k">${</span><span class="nv">APP_NAME</span><span class="k">}</span> <span class="nt">-n</span> argocd <span class="se">\</span>
+  <span class="nt">--type</span> merge <span class="se">\</span>
+  <span class="nt">-p</span> <span class="s1">'{"spec":{"syncPolicy":null}}'</span>
+
+<span class="c"># Verify sync policy was removed</span>
+kubectl get application <span class="k">${</span><span class="nv">APP_NAME</span><span class="k">}</span> <span class="nt">-n</span> argocd <span class="nt">-o</span> <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.spec.syncPolicy}'</span>
+<span class="c"># Should output: (empty) or null</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Step 3: Stop the Application</strong></p>
+</div>
+<div class="paragraph">
+<p>Gracefully shut down PostgreSQL to ensure no data is being written:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Scale StatefulSet to zero replicas</span>
+<span class="c"># This terminates pods and releases the PVC</span>
+kubectl scale statefulset <span class="k">${</span><span class="nv">STATEFULSET_NAME</span><span class="k">}</span> <span class="nt">--replicas</span><span class="o">=</span>0 <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span>
+
+<span class="c"># Wait for pod deletion with timeout</span>
+<span class="c"># This ensures the PVC is fully detached before proceeding</span>
+kubectl <span class="nb">wait</span> <span class="nt">--for</span><span class="o">=</span>delete pod/<span class="k">${</span><span class="nv">POD_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span> <span class="nt">--timeout</span><span class="o">=</span>60s
+
+<span class="c"># Confirm no pods are running</span>
+kubectl get pods <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span> <span class="nt">-l</span> app.kubernetes.io/name<span class="o">=</span>postgresql
+<span class="c"># Expected: No resources found (or empty list)</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Step 4: Remove Existing PVC and PV</strong></p>
+</div>
+<div class="paragraph">
+<p>Delete the current PVC to make room for the restored one:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Get the PV name before deleting PVC (you'll need to delete it too)</span>
+<span class="nv">PV_NAME</span><span class="o">=</span><span class="si">$(</span>kubectl get pvc <span class="k">${</span><span class="nv">PVC_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span> <span class="nt">-o</span> <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.spec.volumeName}'</span><span class="si">)</span>
+
+<span class="nb">echo</span> <span class="s2">"PVC: </span><span class="k">${</span><span class="nv">PVC_NAME</span><span class="k">}</span><span class="s2">"</span>
+<span class="nb">echo</span> <span class="s2">"PV:  </span><span class="k">${</span><span class="nv">PV_NAME</span><span class="k">}</span><span class="s2">"</span>
+
+<span class="c"># Delete the PVC</span>
+<span class="c"># Warning: This removes the PVC but the underlying Longhorn volume may still exist</span>
+kubectl delete pvc <span class="k">${</span><span class="nv">PVC_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span>
+
+<span class="c"># Wait for PVC deletion to complete</span>
+kubectl <span class="nb">wait</span> <span class="nt">--for</span><span class="o">=</span>delete pvc/<span class="k">${</span><span class="nv">PVC_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span> <span class="nt">--timeout</span><span class="o">=</span>60s
+
+<span class="c"># Delete the associated PV</span>
+<span class="c"># This is necessary because PVs may have retain policy and won't auto-delete</span>
+kubectl delete pv <span class="k">${</span><span class="nv">PV_NAME</span><span class="k">}</span>
+
+<span class="c"># Verify deletion</span>
+kubectl get pvc,pv <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span> | <span class="nb">grep</span> <span class="k">${</span><span class="nv">PVC_NAME</span><span class="k">}</span>
+<span class="c"># Should return no results</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Step 5: Restore Backup in Longhorn UI</strong></p>
+</div>
+<div class="paragraph">
+<p>Perform the restore operation through the Longhorn UI:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Navigate to <strong>Backup and Restore</strong> → <strong>Backups</strong></p>
+</li>
+<li>
+<p>Under the <strong>Volume</strong> tab, find your PostgreSQL volume backups</p>
+</li>
+<li>
+<p>Select the backup you want to restore (verify timestamp and labels)</p>
+</li>
+<li>
+<p>Click <strong>Restore</strong></p>
+</li>
+<li>
+<p>In the restore dialog:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>PVC Name</strong>: Enter <code>data-postgresql-0</code> (the EXACT SAME name as the deleted PVC)</p>
+</li>
+<li>
+<p><strong>Namespace</strong>: Select <code>service-foundry</code> (or your namespace)</p>
+</li>
+<li>
+<p><strong>Storage Class</strong>: Leave as <code>longhorn</code> (default)</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p>Click <strong>OK</strong> to initiate the restore</p>
+</li>
+<li>
+<p><strong>Monitor progress</strong>: The restore shows up in the volume list with a progress indicator</p>
+</li>
+<li>
+<p><strong>Wait for completion</strong>: Status changes to "Healthy" or "Bound" when done</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p><strong>Step 6: Verify Restored PVC</strong></p>
+</div>
+<div class="paragraph">
+<p>Confirm the PVC was created successfully:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Check PVC status</span>
+kubectl get pvc <span class="k">${</span><span class="nv">PVC_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span>
+
+<span class="c"># Expected output:</span>
+<span class="c"># NAME                  STATUS   VOLUME           CAPACITY   ACCESS MODES   STORAGECLASS</span>
+<span class="c"># data-postgresql-0     Bound    pvc-xyz...       10Gi       RWO            longhorn</span>
+
+<span class="c"># Verify the PVC is bound to a Longhorn volume</span>
+kubectl describe pvc <span class="k">${</span><span class="nv">PVC_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Step 7: Restart the Application</strong></p>
+</div>
+<div class="paragraph">
+<p>Bring PostgreSQL back online with the restored data:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Scale StatefulSet back to 1 replica</span>
+<span class="c"># The pod mounts the restored PVC automatically</span>
+kubectl scale statefulset <span class="k">${</span><span class="nv">STATEFULSET_NAME</span><span class="k">}</span> <span class="nt">--replicas</span><span class="o">=</span>1 <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span>
+
+<span class="c"># Wait for pod to become ready</span>
+kubectl <span class="nb">wait</span> <span class="nt">--for</span><span class="o">=</span><span class="nv">condition</span><span class="o">=</span>ready pod/<span class="k">${</span><span class="nv">POD_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span> <span class="nt">--timeout</span><span class="o">=</span>300s
+
+<span class="c"># Check pod status</span>
+kubectl get pod <span class="k">${</span><span class="nv">POD_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span>
+<span class="c"># Expected: STATUS = Running, READY = 1/1</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>Step 8: Re-enable ArgoCD Auto-Sync</strong></p>
+</div>
+<div class="paragraph">
+<p>Restore automated GitOps management:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Option A: Using ArgoCD CLI</span>
+argocd app <span class="nb">set</span> <span class="k">${</span><span class="nv">APP_NAME</span><span class="k">}</span> <span class="nt">--sync-policy</span> automated
+
+<span class="c"># Option B: Using kubectl with full configuration</span>
+<span class="c"># Re-enables automated sync with prune (delete orphaned resources)</span>
+<span class="c"># and selfHeal (auto-correct drift)</span>
+kubectl patch application <span class="k">${</span><span class="nv">APP_NAME</span><span class="k">}</span> <span class="nt">-n</span> argocd <span class="se">\</span>
+  <span class="nt">--type</span> merge <span class="se">\</span>
+  <span class="nt">-p</span> <span class="s1">'{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}'</span>
+
+<span class="c"># Verify sync policy was restored</span>
+kubectl get application <span class="k">${</span><span class="nv">APP_NAME</span><span class="k">}</span> <span class="nt">-n</span> argocd <span class="nt">-o</span> <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.spec.syncPolicy}'</span>
+<span class="c"># Should output: {"automated":{"prune":true,"selfHeal":true}}</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="data-verification-after-restore">Data Verification After Restore</h4>
+<div class="paragraph">
+<p>After successfully restoring and restarting your application, thorough verification is critical to ensure data integrity and completeness.</p>
+</div>
+<div class="paragraph">
+<p><strong>Comprehensive Verification Checklist:</strong></p>
+</div>
+<div class="paragraph">
+<p><strong>1. Verify Infrastructure Components:</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Check PVC is bound to a volume</span>
+kubectl get pvc <span class="k">${</span><span class="nv">PVC_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span>
+<span class="c"># STATUS should be "Bound"</span>
+
+<span class="c"># Verify PV exists and matches the PVC</span>
+kubectl get pv <span class="si">$(</span>kubectl get pvc <span class="k">${</span><span class="nv">PVC_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span> <span class="nt">-o</span> <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.spec.volumeName}'</span><span class="si">)</span>
+
+<span class="c"># Check PostgreSQL pod is running and ready</span>
+kubectl get pod <span class="k">${</span><span class="nv">POD_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span>
+<span class="c"># STATUS = Running, READY = 1/1</span>
+
+<span class="c"># View recent pod logs to check for startup errors</span>
+kubectl logs <span class="k">${</span><span class="nv">POD_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span> <span class="nt">--tail</span><span class="o">=</span>50
+<span class="c"># Look for successful startup messages, no errors</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>2. Verify PostgreSQL Connectivity:</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Test database connection</span>
+kubectl <span class="nb">exec</span> <span class="nt">-it</span> <span class="k">${</span><span class="nv">POD_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span> <span class="nt">--</span> psql <span class="nt">-U</span> postgres <span class="nt">-c</span> <span class="s2">"SELECT version();"</span>
+
+<span class="c"># Should return PostgreSQL version information without errors</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>3. Verify Data Integrity:</strong></p>
+</div>
+<div class="paragraph">
+<p>Connect to PostgreSQL and perform data validation:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Open interactive PostgreSQL session</span>
+kubectl <span class="nb">exec</span> <span class="nt">-it</span> <span class="k">${</span><span class="nv">POD_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span> <span class="nt">--</span> psql <span class="nt">-U</span> postgres</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Inside the PostgreSQL prompt, run verification queries:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="sql"><span class="c1">-- List all databases (verify expected databases exist)</span>
+<span class="err">\</span><span class="n">l</span>
+
+<span class="c1">-- Connect to your application database</span>
+<span class="err">\</span><span class="k">c</span> <span class="o">&lt;</span><span class="n">your</span><span class="o">-</span><span class="k">database</span><span class="o">-</span><span class="n">name</span><span class="o">&gt;</span>
+
+<span class="c1">-- List all tables (verify schema is intact)</span>
+<span class="err">\</span><span class="n">dt</span>
+
+<span class="c1">-- Verify row counts for critical tables</span>
+<span class="k">SELECT</span> <span class="k">count</span><span class="p">(</span><span class="o">*</span><span class="p">)</span> <span class="k">FROM</span> <span class="n">users_for_backup_testing</span><span class="p">;</span>
+<span class="c1">-- Compare against expected counts from before the incident</span>
+
+<span class="c1">-- Check for recent data (if applicable)</span>
+<span class="k">SELECT</span> <span class="o">*</span> <span class="k">FROM</span> <span class="n">users_for_backup_testing</span> <span class="k">ORDER</span> <span class="k">BY</span> <span class="n">id</span> <span class="k">DESC</span> <span class="k">LIMIT</span> <span class="mi">10</span><span class="p">;</span>
+
+<span class="c1">-- Verify specific records that should exist in the backup</span>
+<span class="k">SELECT</span> <span class="o">*</span> <span class="k">FROM</span> <span class="n">users_for_backup_testing</span> <span class="k">WHERE</span> <span class="n">name</span> <span class="k">IN</span> <span class="p">(</span><span class="s1">'kim'</span><span class="p">,</span> <span class="s1">'lee'</span><span class="p">);</span>
+<span class="c1">-- Should return the expected test data</span>
+
+<span class="c1">-- Exit PostgreSQL</span>
+<span class="err">\</span><span class="n">q</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>4. Verify Application Functionality:</strong></p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># If your application has a health check endpoint</span>
+kubectl <span class="nb">exec</span> <span class="k">${</span><span class="nv">POD_NAME</span><span class="k">}</span> <span class="nt">-n</span> <span class="k">${</span><span class="nv">NAMESPACE</span><span class="k">}</span> <span class="nt">--</span> curl http://localhost:5432
+
+<span class="c"># Or test application-level queries</span>
+<span class="c"># (connect through your application and verify it can read/write data)</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><strong>5. Check Longhorn Volume Metadata:</strong></p>
+</div>
+<div class="paragraph">
+<p>Verify the volume was properly restored from backup:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Open Longhorn UI</p>
+</li>
+<li>
+<p>Navigate to <strong>Volume</strong> page</p>
+</li>
+<li>
+<p>Find the restored volume (named <code>pvc-&lt;uid&gt;</code>)</p>
+</li>
+<li>
+<p>Click to open details</p>
+</li>
+<li>
+<p>Go to <strong>Snapshots and Backups</strong> tab</p>
+</li>
+<li>
+<p>Check the <strong>Restored From</strong> timestamp or metadata</p>
+</li>
+<li>
+<p>Verify it matches the backup you intended to restore</p>
+</li>
+</ol>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+<strong>Best Practice</strong>: Always test restores in a non-production environment first. Consider keeping the old PVC for a few days as insurance before permanently deleting it. Create a test namespace, restore there, verify fully, then restore to production.
+</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deleting-snapshots-and-backups">Deleting Snapshots and Backups</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Regular cleanup of old snapshots and backups is essential for managing storage costs and maintaining system performance. However, deletion must be done carefully to avoid accidentally removing data you might need for recovery.</p>
+</div>
+<div class="sect2">
+<h3 id="deleting-snapshots">Deleting Snapshots</h3>
+<div class="paragraph">
+<p>Snapshots consume space within your Longhorn cluster. Old or unnecessary snapshots should be removed to free up storage, but be cautious—once deleted, they cannot be recovered.</p>
+</div>
+<div class="paragraph">
+<p><strong>When to Delete Snapshots:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>After creating a successful backup (the backup preserves the snapshot data externally)</p>
+</li>
+<li>
+<p>When snapshots exceed your retention policy (e.g., keeping only the last 7 days)</p>
+</li>
+<li>
+<p>After confirming a risky operation succeeded and rollback is no longer needed</p>
+</li>
+<li>
+<p>When cluster storage is running low and snapshots are consuming significant space</p>
+</li>
+</ul>
+</div>
+<div class="admonitionblock warning">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-warning" title="Warning"></i>
+</td>
+<td class="content">
+<strong>Do not delete snapshots that haven&#8217;t been backed up</strong> if you need long-term retention. Snapshots are your only local recovery point—once deleted, you can only restore from external backups.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p><strong>Deletion Procedure:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Navigate to Volume Page</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Open the Longhorn UI.</p>
+</li>
+<li>
+<p>Click <strong>Volume</strong> in the top navigation.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Select Source Volume</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Find and click the volume containing the snapshot you want to delete.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Access Snapshot List</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Scroll down to the <strong>Snapshots and Backups</strong> section.</p>
+</li>
+<li>
+<p>Review the list of snapshots with timestamps, sizes, and labels.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Delete Snapshot</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click on the snapshot name to open the action menu.</p>
+</li>
+<li>
+<p>Select <strong>Delete</strong> from the dropdown.</p>
+</li>
+<li>
+<p><strong>Confirm the deletion</strong> in the dialog (read the warning carefully).</p>
+</li>
+<li>
+<p>The snapshot is immediately deleted and storage is reclaimed.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Verify Deletion</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>The snapshot should disappear from the list.</p>
+</li>
+<li>
+<p>Check the volume&#8217;s <strong>Actual Size</strong> to see if storage was freed (may take a moment to update).</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p><strong>Automated Cleanup:</strong></p>
+</div>
+<div class="paragraph">
+<p>Longhorn supports automatic snapshot cleanup through recurring job retention policies. When you configure a recurring backup job with a retention count (e.g., retain 7 backups), Longhorn automatically deletes older snapshots and backups when new ones are created.</p>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+Before deleting a snapshot, verify that a corresponding backup exists in S3 (if you need long-term retention). Check the <strong>Backup</strong> tab to confirm.
+</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="deleting-backups">Deleting Backups</h3>
+<div class="paragraph">
+<p>Backups stored in S3 (or other external targets) consume cloud storage and incur costs. Removing old backups reduces these costs but should align with your retention policy and compliance requirements.</p>
+</div>
+<div class="paragraph">
+<p><strong>When to Delete Backups:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Backups older than your retention policy (e.g., keeping only 30 days)</p>
+</li>
+<li>
+<p>Test backups created during development or validation</p>
+</li>
+<li>
+<p>Backups from decommissioned volumes or applications</p>
+</li>
+<li>
+<p>When migrating to a new backup strategy or storage location</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Important Considerations:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Backups may be required for compliance (GDPR, HIPAA, SOX, etc.)</p>
+</li>
+<li>
+<p>Coordinate with legal/compliance teams before deleting long-term backups</p>
+</li>
+<li>
+<p>Backups are your disaster recovery insurance—excessive deletion increases risk</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><strong>Deletion Procedure:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Navigate to Backup List</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Open the Longhorn UI.</p>
+</li>
+<li>
+<p>Click <strong>Backup and Restore</strong> → <strong>Backups</strong>.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Find Target Backup</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click the <strong>Volume</strong> tab to see backups grouped by volume.</p>
+</li>
+<li>
+<p>Select the volume containing the backup you want to delete.</p>
+</li>
+<li>
+<p>Click on the volume to see its backup history.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Select Backup to Delete</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Review the backup list (check timestamps, size, labels).</p>
+</li>
+<li>
+<p>Select the specific backup you want to delete.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Initiate Deletion</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click the <strong>Delete</strong> button.</p>
+</li>
+<li>
+<p>A confirmation dialog appears with two options:</p>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 33.3333%;">
+<col style="width: 33.3333%;">
+<col style="width: 33.3334%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Option</th>
+<th class="tableblock halign-left valign-top">Description</th>
+<th class="tableblock halign-left valign-top">Impact</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Delete the backup only</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Removes only this specific backup from S3, leaving the Longhorn volume intact.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Recommended for most cases (frees S3 storage, keeps active volumes)</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Delete the backup and the volume</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Removes the backup from S3 <strong>AND</strong> deletes the Longhorn volume in the cluster.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>DANGEROUS</strong>: Only use when decommissioning entire volumes</p></td>
+</tr>
+</tbody>
+</table>
+</li>
+<li>
+<p><strong>Choose carefully</strong>: Most users want "Delete the backup only."</p>
+</li>
+<li>
+<p>Click <strong>OK</strong> to confirm.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Verify Deletion</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>The backup should disappear from the backup list.</p>
+</li>
+<li>
+<p>Optionally, check your S3 bucket to confirm the backup files were removed (may take a few minutes).</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p><strong>Bulk Deletion (Advanced):</strong></p>
+</div>
+<div class="paragraph">
+<p>For deleting many old backups, consider using AWS CLI:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># List backups older than 30 days in your S3 bucket</span>
+aws s3 <span class="nb">ls </span>s3://your-longhorn-backups/backups/ <span class="nt">--recursive</span> <span class="se">\</span>
+  | <span class="nb">awk</span> <span class="s1">'{if ($1 &lt; "2024-01-01") print $4}'</span>
+
+<span class="c"># Carefully review the list, then delete (use with caution!)</span>
+<span class="c"># This is advanced usage - test in non-production first</span></code></pre>
+</div>
+</div>
+<div class="admonitionblock warning">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-warning" title="Warning"></i>
+</td>
+<td class="content">
+<strong>Backups are immutable once created</strong>. There is no "undo" for backup deletion. Always verify you&#8217;re deleting the correct backup and that you have other recovery options if needed.
+</td>
+</tr>
+</table>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+Implement a backup lifecycle policy: Short retention for frequent backups (e.g., 7 days daily), longer retention for weekly (30 days), and potentially permanent retention for monthly compliance backups.
+</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Throughout this comprehensive guide, you&#8217;ve learned how to implement a complete data protection strategy for Longhorn persistent storage in Kubernetes. Let&#8217;s recap the key concepts and best practices:</p>
+</div>
+<div class="paragraph">
+<p><strong>What We&#8217;ve Covered:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Data Protection Layers</strong>: Understanding how HA, snapshots, and backups work together to provide defense-in-depth:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>High Availability protects against infrastructure failures</p>
+</li>
+<li>
+<p>Snapshots enable fast operational recovery</p>
+</li>
+<li>
+<p>Backups provide true disaster recovery and long-term retention</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>AWS S3 Integration</strong>: Configuring secure, off-cluster backup storage:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Creating S3 buckets with appropriate security settings</p>
+</li>
+<li>
+<p>Implementing least-privilege IAM policies</p>
+</li>
+<li>
+<p>Managing credentials securely using Kubernetes Secrets</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Operational Procedures</strong>: Practical workflows for backup and restore operations:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Manual and automated backup creation</p>
+</li>
+<li>
+<p>Snapshot-based quick recovery</p>
+</li>
+<li>
+<p>Off-cluster backup restoration for disaster recovery</p>
+</li>
+<li>
+<p>ArgoCD integration for GitOps-managed applications</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Maintenance Operations</strong>: Managing the lifecycle of backups and snapshots:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Implementing retention policies</p>
+</li>
+<li>
+<p>Safely deleting obsolete backups and snapshots</p>
+</li>
+<li>
+<p>Balancing storage costs against recovery needs</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p><strong>Key Takeaways:</strong></p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>A production-grade backup strategy requires <strong>multiple layers of protection</strong>. High availability keeps your services running, snapshots provide fast operational recovery, and off-cluster backups ensure you can survive catastrophic failures. All three are essential—not optional.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p><strong>Next Steps:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Test Your Restore Procedures</strong>: The best backup strategy is worthless if restoration doesn&#8217;t work. Perform regular restore drills in non-production environments.</p>
+</li>
+<li>
+<p><strong>Automate Backup Schedules</strong>: Configure recurring backup jobs for all critical volumes with appropriate retention policies.</p>
+</li>
+<li>
+<p><strong>Implement Monitoring</strong>: Set up alerts for backup failures using Prometheus and Alertmanager to ensure backups complete successfully.</p>
+</li>
+<li>
+<p><strong>Document Your RPO/RTO</strong>: Define Recovery Point Objectives (how much data loss is acceptable) and Recovery Time Objectives (how quickly you need to recover) for each application.</p>
+</li>
+<li>
+<p><strong>Consider IRSA for Production</strong>: For production AWS deployments, migrate from static IAM user credentials to IAM Roles for Service Accounts (IRSA) for improved security.</p>
+</li>
+<li>
+<p><strong>Review Compliance Requirements</strong>: Ensure your backup retention policies meet regulatory requirements (GDPR, HIPAA, SOX, etc.).</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p><strong>Remember:</strong></p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Backups are insurance—you hope never to need them, but when you do, they&#8217;re invaluable</p>
+</li>
+<li>
+<p>Regular testing is the only way to ensure backups actually work when needed</p>
+</li>
+<li>
+<p>Balance retention policies against storage costs and compliance requirements</p>
+</li>
+<li>
+<p>Document your procedures so anyone on your team can perform emergency restores</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>By implementing the practices outlined in this guide, you&#8217;ve established a robust foundation for data protection in your Kubernetes environment. Your persistent data is now protected against infrastructure failures, operational mistakes, and catastrophic disasters.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="references-and-further-reading">References and Further Reading</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Official Longhorn Documentation</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://longhorn.io/docs/latest/snapshots-and-backups/">Longhorn Snapshots and Backups</a></p>
+</li>
+<li>
+<p><a href="https://longhorn.io/docs/latest/backup-and-restore/">Backup and Restore</a></p>
+</li>
+<li>
+<p><a href="https://longhorn.io/docs/latest/best-practices/">Best Practices</a></p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>AWS S3 Security</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-best-practices.html">S3 Security Best Practices</a></p>
+</li>
+<li>
+<p><a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html">IAM Best Practices</a></p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Kubernetes Storage</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://kubernetes.io/docs/concepts/storage/persistent-volumes/">Persistent Volumes</a></p>
+</li>
+<li>
+<p><a href="https://kubernetes.io/docs/concepts/storage/storage-classes/">Storage Classes</a></p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>IRSA (IAM Roles for Service Accounts)</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html">EKS IRSA Documentation</a></p>
+</li>
+</ul>
+</div>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>For questions, issues, or contributions, visit the Longhorn community:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>GitHub: <a href="https://github.com/longhorn/longhorn" class="bare">https://github.com/longhorn/longhorn</a></p>
+</li>
+<li>
+<p>Slack: <a href="https://cloud-native.slack.com/" class="bare">https://cloud-native.slack.com/</a> (#longhorn channel)</p>
+</li>
+<li>
+<p>Forums: <a href="https://forums.rancher.com/c/longhorn" class="bare">https://forums.rancher.com/c/longhorn</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</body>
+</html>
