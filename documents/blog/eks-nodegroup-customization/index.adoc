@@ -1,0 +1,366 @@
+= Customizing EKS Node Groups using Custom Launch Templates
+
+== Introduction
+
+Like when installing Longhorn on EKS, we need to SSH into the EC2 instances to manually install additional software on the worker nodes. 
+
+In this blog post, we will walk through the process of creating a custom launch template to customize the EKS node group.
+
+Managed node groups run on an EC2 Auto Scaling Group, so anything in the launch template user data runs on every new node (initial create + any future scale-out). AWS also recommends using a custom launch template if you need to customize node behavior.
+
+== Amazon Linux 2023
+
+AL2023 uses `nodeadm`(YAML "NodeConfig") for bootstrapping instead of the old '/etc/eks/bootstrap.sh'. So your user data is typically multipart:
+
+. a NodeConfig part (so the node can join the cluster)
+. a shell script part (your dnf install iscsi-initiator-utils, enable/start iscsid, etc.)
+
+AWS has a guide specially on using custom user data with AL2023 in EKS:
+
+[quote]
+____
+Practical tip: install iSCSI before workloads start scheduling. Usually you install + systemctl enable --now iscsid in user data so it’s ready as soon as kubelet begins.
+____
+
+== What this approach achieves
+
+When you attach a Launch Template to a Managed Node Group, the Launch Template’s User Data runs on every EC2 instance that the node group creates:
+
+	•	initial node group creation ✅
+	•	any scale-out event (Cluster Autoscaler / Karpenter scaling that node group’s ASG) ✅
+	•	replacement nodes during upgrades / failures ✅
+
+So this is the standard way to ensure “every node always installs X”.
+
+== The important gotcha on AL2023
+On EKS nodes, user data isn't "just extra commands".
+
+	•	If you provide custom user data, you must still include the EKS bootstrap/join configuration.
+	•	On AL2, that was typically calling /etc/eks/bootstrap.sh ...
+	•	On AL2023, EKS uses nodeadm + NodeConfig YAML to join the cluster.
+
+So your user data needs two parts:
+
+	1.	NodeConfig (so the node joins the cluster)
+	2.	Your script (install iSCSI, enable services, etc.)
+
+This is normally done using multi-part MIME user data (cloud-init supports this)
+
+== Hight-level steps
+
+=== 1. Create a Launch Template
+
+In the Launch Template you usually set:
+
+	•	AMI (AL2023 EKS optimized, or your own)
+	•	instance type (optional if node group controls it)
+	•	security groups (optional)
+	•	User data ✅  ← this is the key
+
+
+=== 2. Create / update the Managed Node Group to use that Launch Template
+
+When you create the node group, specify:
+
+	•	Launch Template ID
+	•	Launch Template version (recommended to use a fixed version like 1, 2, etc.)
+
+=== 3. Ensure changes roll out
+
+If you later change user data, that's a new Launch Template version.
+Then you update the node group to point to that version, and EKS rolls nodes.
+
+== Example: Multi-part user data for AL2023 on EKS
+
+Below is a template showing the structure.
+You must fill the NodeConfig section correctly for your cluster (or generate it via your preferred tooling).
+
+[source,mime]
+----
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="==BOUNDARY=="
+
+--==BOUNDARY==
+Content-Type: application/node.eks.aws
+
+apiVersion: node.eks.aws/v1alpha1
+kind: NodeConfig
+spec:
+  cluster:
+    name: YOUR_CLUSTER_NAME
+    # Depending on your tooling, you may also need endpoint + CA data here.
+    # Keep this part exactly as required for AL2023 bootstrap in your environment.
+
+--==BOUNDARY==
+Content-Type: text/x-shellscript; charset="us-ascii"
+
+#!/bin/bash
+set -euxo pipefail
+
+dnf install -y iscsi-initiator-utils
+
+# Make sure the iSCSI daemon is enabled and running
+systemctl enable --now iscsid || true
+
+# (Optional) helpful debug info in logs
+iscsiadm --version || true
+systemctl status iscsid --no-pager || true
+
+--==BOUNDARY==--
+----
+
+Notes on the script part:
+
+	•	set -euxo pipefail makes failures visible (super useful for debugging).
+	•	systemctl enable --now iscsid is typically needed for iSCSI-backed storage.
+	•	Keep it idempotent (safe to run multiple times).
+
+
+== Create EKS Cluster without nodegroup
+
+.create-eks.sh - Before updating the node group
+[source,bash]
+----
+eksctl create cluster --name $EKS_CLUSTER_NAME \
+ --region $AWS_REGION \
+ --version $EKS_VERSION \
+ --nodegroup-name $EKS_NODE_GROUP_NAME \
+ --instance-types $EKS_INSTANCE_TYPES \
+ --nodes $EKS_NODE_DESIRED \
+ --nodes-min $EKS_NODE_MIN \
+ --nodes-max $EKS_NODE_MAX \
+ --node-volume-size $EKS_NODE_VOLUME_SIZE \
+ --node-ami-family $NODE_AMI_FAMILY \
+ --node-volume-type $NODE_VOLUME_TYPE \
+ --managed \
+ $EKS_SPOT_FLAG $EKS_WITH_OIDC_FLAG $SSH_FLAG
+----
+
+
+
+.create-eks.sh - After updating the node group
+[source,bash]
+----
+
+echo "Creating EKS cluster without nodegroup"
+eksctl create cluster --name "$EKS_CLUSTER_NAME" \
+  --region "$AWS_REGION" \
+  --version "$EKS_VERSION" \
+  $EKS_WITH_OIDC_FLAG \
+  --managed \
+  --without-nodegroup
+
+echo "EKS Cluster is created without nodegroup"
+
+echo "Creating Launch Template"
+
+LT_NAME="${EKS_CLUSTER_NAME}-${EKS_NODE_GROUP_NAME}-lt"
+USERDATA_FILE="$(mktemp)"
+
+cat > "${USERDATA_FILE}" <<'EOF'
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="==BOUNDARY=="
+
+--==BOUNDARY==
+Content-Type: text/x-shellscript; charset="us-ascii"
+
+#!/bin/bash
+set -euxo pipefail
+
+dnf install -y iscsi-initiator-utils
+systemctl enable --now iscsid || true
+
+--==BOUNDARY==--
+EOF
+
+
+
+# Do not work on macOS
+#USERDATA_B64="$(base64 -w0 "${USERDATA_FILE}")"
+USERDATA_B64="$(base64 -i "${USERDATA_FILE}" | tr -d '\n')"
+
+LT_ID="$(
+  aws ec2 create-launch-template \
+    --region "$AWS_REGION" \
+    --launch-template-name "$LT_NAME" \
+    --version-description "install-iscsi" \
+    --launch-template-data "{
+      \"UserData\": \"${USERDATA_B64}\",
+      \"MetadataOptions\": {\"HttpPutResponseHopLimit\": 2},
+      \"BlockDeviceMappings\": [{
+        \"DeviceName\": \"/dev/xvda\",
+        \"Ebs\": {
+          \"VolumeSize\": ${EKS_NODE_VOLUME_SIZE},
+          \"VolumeType\": \"${NODE_VOLUME_TYPE}\"
+        }
+      }]
+    }" \
+    --query 'LaunchTemplate.LaunchTemplateId' \
+    --output text
+)"
+
+LT_VERSION="1"
+echo "LaunchTemplate created: ${LT_ID} (v${LT_VERSION})"
+
+
+# aws ec2 describe-launch-templates
+# aws ec2 delete-launch-template-versions
+# aws ec2 delete-launch-template --launch-template-id lt-0a9310585233b9217
+
+
+echo "Creating nodegroup"
+
+SUBNET_IDS="$(
+  aws eks describe-cluster \
+    --region "$AWS_REGION" \
+    --name "$EKS_CLUSTER_NAME" \
+    --query 'cluster.resourcesVpcConfig.subnetIds' \
+    --output text
+)"
+
+# EksNodegroup-StandardWorkers-NodeRole is the default nodegroup role name
+NODE_ROLE_ARN="$(aws iam get-role \
+  --role-name EksNodegroup-StandardWorkers-NodeRole \
+  --query 'Role.Arn' --output text)"
+
+
+
+aws eks create-nodegroup \
+  --region "$AWS_REGION" \
+  --cluster-name "$EKS_CLUSTER_NAME" \
+  --nodegroup-name "$EKS_NODE_GROUP_NAME" \
+  --subnets $SUBNET_IDS \
+  --scaling-config "minSize=${EKS_NODE_MIN},maxSize=${EKS_NODE_MAX},desiredSize=${EKS_NODE_DESIRED}" \
+  --instance-types $(echo "$EKS_INSTANCE_TYPES" | tr ',' ' ') \
+  --ami-type "AL2023_x86_64_STANDARD" \
+  --capacity-type $([ "$EKS_USE_SPOT" = "true" ] && echo "SPOT" || echo "ON_DEMAND") \
+  --launch-template "id=${LT_ID},version=${LT_VERSION}" \
+  --node-role "$NODE_ROLE_ARN"
+
+echo "Nodegroup created"
+----
+
+== How to check if the user data is executed
+
+
+=== Option 1 (best quick check): kubectl debug node (no SSH, no permanent access)
+
+This uses Kubernetes’ built-in ephemeral debug container feature.
+
+[source,bash]
+----
+NODE_NAME="$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')"
+
+kubectl debug node/$NODE_NAME -it \
+  --image=amazonlinux:2023 \
+  -- chroot /host bash
+
+
+
+# Example Output  
+
+--profile=legacy is deprecated and will be removed in the future. It is recommended to explicitly specify a profile, for example "--profile=general".
+Creating debugging pod node-debugger-ip-192-168-124-132.ca-central-1.compute.internal-dbn7w with container debugger on node ip-192-168-124-132.ca-central-1.compute.internal.
+Warning: metadata.name: this is used in the Pod's hostname, which can result in surprising behavior; a DNS label is recommended: [must be no more than 63 characters must not contain dots]
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+----  
+
+
+Then inside the node namespace:
+
+[source,bash]
+----
+iscsiadm --version
+systemctl is-active iscsid
+rpm -q iscsi-initiator-utils
+----
+
+Type 'exit' to exit the node namespace.
+
+
+Why this is ideal
+
+	•	No SSH keys 🔐
+	•	No open ports 🚫
+	•	No node restart 🔄
+	•	Works on autoscaled nodes
+	•	Leaves no residue after exit
+
+This is the method SREs use in locked-down clusters.
+
+=== Option 2: Temporary privileged DaemonSet (cluster-wide visibility)
+
+If you want to verify all nodes at once, deploy a short-lived DaemonSet.
+
+.iscsi-check.yaml
+[source,yaml]
+----
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: iscsi-check
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: iscsi-check
+  template:
+    metadata:
+      labels:
+        app: iscsi-check
+    spec:
+      hostPID: true
+      containers:
+      - name: check
+        image: amazonlinux:2023
+        securityContext:
+          privileged: true
+        command:
+          - /bin/bash
+          - -c
+          - |
+            chroot /host bash -c '
+              rpm -q iscsi-initiator-utils &&
+              systemctl is-active iscsid &&
+              echo "iSCSI OK on $(hostname)"
+            '
+      restartPolicy: Always
+----
+
+
+Apply and read logs:
+
+[source,bash]
+----
+kubectl apply -f iscsi-check.yaml
+kubectl logs -n kube-system -l app=iscsi-check
+----
+
+Remove when done:
+
+[source,bash]
+----
+kubectl delete ds iscsi-check -n kube-system
+----
+
+=== Option 3: Use node readiness + storage driver logs (indirect but safe)
+
+If you’re installing iSCSI for a storage system (e.g., Longhorn, OpenEBS, iSCSI CSI):
+
+[source,bash]
+----
+kubectl -n longhorn-system logs -l app=longhorn-manager
+----
+
+
+If iSCSI is missing, you’ll usually see:
+
+[source,bash]
+----
+iscsiadm not found
+iscsid not running
+----
+
+
+

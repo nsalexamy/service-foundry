@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Customizing EKS Node Groups using Custom Launch Templates</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#amazon-linux-2023">Amazon Linux 2023</a></li>
+<li><a href="#what-this-approach-achieves">What this approach achieves</a></li>
+<li><a href="#the-important-gotcha-on-al2023">The important gotcha on AL2023</a></li>
+<li><a href="#hight-level-steps">Hight-level steps</a>
+<ul class="sectlevel2">
+<li><a href="#1-create-a-launch-template">1. Create a Launch Template</a></li>
+<li><a href="#2-create-update-the-managed-node-group-to-use-that-launch-template">2. Create / update the Managed Node Group to use that Launch Template</a></li>
+<li><a href="#3-ensure-changes-roll-out">3. Ensure changes roll out</a></li>
+</ul>
+</li>
+<li><a href="#example-multi-part-user-data-for-al2023-on-eks">Example: Multi-part user data for AL2023 on EKS</a></li>
+<li><a href="#create-eks-cluster-without-nodegroup">Create EKS Cluster without nodegroup</a></li>
+<li><a href="#how-to-check-if-the-user-data-is-executed">How to check if the user data is executed</a>
+<ul class="sectlevel2">
+<li><a href="#option-1-best-quick-check-kubectl-debug-node-no-ssh-no-permanent-access">Option 1 (best quick check): kubectl debug node (no SSH, no permanent access)</a></li>
+<li><a href="#option-2-temporary-privileged-daemonset-cluster-wide-visibility">Option 2: Temporary privileged DaemonSet (cluster-wide visibility)</a></li>
+<li><a href="#option-3-use-node-readiness-storage-driver-logs-indirect-but-safe">Option 3: Use node readiness + storage driver logs (indirect but safe)</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="sect1">
+<h2 id="introduction">Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Like when installing Longhorn on EKS, we need to SSH into the EC2 instances to manually install additional software on the worker nodes.</p>
+</div>
+<div class="paragraph">
+<p>In this blog post, we will walk through the process of creating a custom launch template to customize the EKS node group.</p>
+</div>
+<div class="paragraph">
+<p>Managed node groups run on an EC2 Auto Scaling Group, so anything in the launch template user data runs on every new node (initial create + any future scale-out). AWS also recommends using a custom launch template if you need to customize node behavior.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="amazon-linux-2023">Amazon Linux 2023</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>AL2023 uses <code>nodeadm</code>(YAML "NodeConfig") for bootstrapping instead of the old '/etc/eks/bootstrap.sh'. So your user data is typically multipart:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>a NodeConfig part (so the node can join the cluster)</p>
+</li>
+<li>
+<p>a shell script part (your dnf install iscsi-initiator-utils, enable/start iscsid, etc.)</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>AWS has a guide specially on using custom user data with AL2023 in EKS:</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Practical tip: install iSCSI before workloads start scheduling. Usually you install + systemctl enable --now iscsid in user data so it’s ready as soon as kubelet begins.</p>
+</div>
+</blockquote>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-this-approach-achieves">What this approach achieves</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>When you attach a Launch Template to a Managed Node Group, the Launch Template’s User Data runs on every EC2 instance that the node group creates:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>initial node group creation ✅</p>
+</li>
+<li>
+<p>any scale-out event (Cluster Autoscaler / Karpenter scaling that node group’s ASG) ✅</p>
+</li>
+<li>
+<p>replacement nodes during upgrades / failures ✅</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>So this is the standard way to ensure “every node always installs X”.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="the-important-gotcha-on-al2023">The important gotcha on AL2023</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>On EKS nodes, user data isn&#8217;t "just extra commands".</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>If you provide custom user data, you must still include the EKS bootstrap/join configuration.</p>
+</li>
+<li>
+<p>On AL2, that was typically calling /etc/eks/bootstrap.sh &#8230;&#8203;</p>
+</li>
+<li>
+<p>On AL2023, EKS uses nodeadm + NodeConfig YAML to join the cluster.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>So your user data needs two parts:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>NodeConfig (so the node joins the cluster)</p>
+</li>
+<li>
+<p>Your script (install iSCSI, enable services, etc.)</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>This is normally done using multi-part MIME user data (cloud-init supports this)</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="hight-level-steps">Hight-level steps</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="1-create-a-launch-template">1. Create a Launch Template</h3>
+<div class="paragraph">
+<p>In the Launch Template you usually set:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>AMI (AL2023 EKS optimized, or your own)</p>
+</li>
+<li>
+<p>instance type (optional if node group controls it)</p>
+</li>
+<li>
+<p>security groups (optional)</p>
+</li>
+<li>
+<p>User data ✅  ← this is the key</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="2-create-update-the-managed-node-group-to-use-that-launch-template">2. Create / update the Managed Node Group to use that Launch Template</h3>
+<div class="paragraph">
+<p>When you create the node group, specify:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Launch Template ID</p>
+</li>
+<li>
+<p>Launch Template version (recommended to use a fixed version like 1, 2, etc.)</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="3-ensure-changes-roll-out">3. Ensure changes roll out</h3>
+<div class="paragraph">
+<p>If you later change user data, that&#8217;s a new Launch Template version.
+Then you update the node group to point to that version, and EKS rolls nodes.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="example-multi-part-user-data-for-al2023-on-eks">Example: Multi-part user data for AL2023 on EKS</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Below is a template showing the structure.
+You must fill the NodeConfig section correctly for your cluster (or generate it via your preferred tooling).</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="mime">MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="==BOUNDARY=="
+
+--==BOUNDARY==
+Content-Type: application/node.eks.aws
+
+apiVersion: node.eks.aws/v1alpha1
+kind: NodeConfig
+spec:
+  cluster:
+    name: YOUR_CLUSTER_NAME
+    # Depending on your tooling, you may also need endpoint + CA data here.
+    # Keep this part exactly as required for AL2023 bootstrap in your environment.
+
+--==BOUNDARY==
+Content-Type: text/x-shellscript; charset="us-ascii"
+
+#!/bin/bash
+set -euxo pipefail
+
+dnf install -y iscsi-initiator-utils
+
+# Make sure the iSCSI daemon is enabled and running
+systemctl enable --now iscsid || true
+
+# (Optional) helpful debug info in logs
+iscsiadm --version || true
+systemctl status iscsid --no-pager || true
+
+--==BOUNDARY==--</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Notes on the script part:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>set -euxo pipefail makes failures visible (super useful for debugging).</p>
+</li>
+<li>
+<p>systemctl enable --now iscsid is typically needed for iSCSI-backed storage.</p>
+</li>
+<li>
+<p>Keep it idempotent (safe to run multiple times).</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="create-eks-cluster-without-nodegroup">Create EKS Cluster without nodegroup</h2>
+<div class="sectionbody">
+<div class="listingblock">
+<div class="title">create-eks.sh - Before updating the node group</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash">eksctl create cluster <span class="nt">--name</span> <span class="nv">$EKS_CLUSTER_NAME</span> <span class="se">\</span>
+ <span class="nt">--region</span> <span class="nv">$AWS_REGION</span> <span class="se">\</span>
+ <span class="nt">--version</span> <span class="nv">$EKS_VERSION</span> <span class="se">\</span>
+ <span class="nt">--nodegroup-name</span> <span class="nv">$EKS_NODE_GROUP_NAME</span> <span class="se">\</span>
+ <span class="nt">--instance-types</span> <span class="nv">$EKS_INSTANCE_TYPES</span> <span class="se">\</span>
+ <span class="nt">--nodes</span> <span class="nv">$EKS_NODE_DESIRED</span> <span class="se">\</span>
+ <span class="nt">--nodes-min</span> <span class="nv">$EKS_NODE_MIN</span> <span class="se">\</span>
+ <span class="nt">--nodes-max</span> <span class="nv">$EKS_NODE_MAX</span> <span class="se">\</span>
+ <span class="nt">--node-volume-size</span> <span class="nv">$EKS_NODE_VOLUME_SIZE</span> <span class="se">\</span>
+ <span class="nt">--node-ami-family</span> <span class="nv">$NODE_AMI_FAMILY</span> <span class="se">\</span>
+ <span class="nt">--node-volume-type</span> <span class="nv">$NODE_VOLUME_TYPE</span> <span class="se">\</span>
+ <span class="nt">--managed</span> <span class="se">\</span>
+ <span class="nv">$EKS_SPOT_FLAG</span> <span class="nv">$EKS_WITH_OIDC_FLAG</span> <span class="nv">$SSH_FLAG</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">create-eks.sh - After updating the node group</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="nb">echo</span> <span class="s2">"Creating EKS cluster without nodegroup"</span>
+eksctl create cluster <span class="nt">--name</span> <span class="s2">"</span><span class="nv">$EKS_CLUSTER_NAME</span><span class="s2">"</span> <span class="se">\</span>
+  <span class="nt">--region</span> <span class="s2">"</span><span class="nv">$AWS_REGION</span><span class="s2">"</span> <span class="se">\</span>
+  <span class="nt">--version</span> <span class="s2">"</span><span class="nv">$EKS_VERSION</span><span class="s2">"</span> <span class="se">\</span>
+  <span class="nv">$EKS_WITH_OIDC_FLAG</span> <span class="se">\</span>
+  <span class="nt">--managed</span> <span class="se">\</span>
+  <span class="nt">--without-nodegroup</span>
+
+<span class="nb">echo</span> <span class="s2">"EKS Cluster is created without nodegroup"</span>
+
+<span class="nb">echo</span> <span class="s2">"Creating Launch Template"</span>
+
+<span class="nv">LT_NAME</span><span class="o">=</span><span class="s2">"</span><span class="k">${</span><span class="nv">EKS_CLUSTER_NAME</span><span class="k">}</span><span class="s2">-</span><span class="k">${</span><span class="nv">EKS_NODE_GROUP_NAME</span><span class="k">}</span><span class="s2">-lt"</span>
+<span class="nv">USERDATA_FILE</span><span class="o">=</span><span class="s2">"</span><span class="si">$(</span><span class="nb">mktemp</span><span class="si">)</span><span class="s2">"</span>
+
+<span class="nb">cat</span> <span class="o">&gt;</span> <span class="s2">"</span><span class="k">${</span><span class="nv">USERDATA_FILE</span><span class="k">}</span><span class="s2">"</span> <span class="o">&lt;&lt;</span><span class="sh">'</span><span class="no">EOF</span><span class="sh">'
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="==BOUNDARY=="
+
+--==BOUNDARY==
+Content-Type: text/x-shellscript; charset="us-ascii"
+
+#!/bin/bash
+set -euxo pipefail
+
+dnf install -y iscsi-initiator-utils
+systemctl enable --now iscsid || true
+
+--==BOUNDARY==--
+</span><span class="no">EOF
+
+
+
+</span><span class="c"># Do not work on macOS</span>
+<span class="c">#USERDATA_B64="$(base64 -w0 "${USERDATA_FILE}")"</span>
+<span class="nv">USERDATA_B64</span><span class="o">=</span><span class="s2">"</span><span class="si">$(</span><span class="nb">base64</span> <span class="nt">-i</span> <span class="s2">"</span><span class="k">${</span><span class="nv">USERDATA_FILE</span><span class="k">}</span><span class="s2">"</span> | <span class="nb">tr</span> <span class="nt">-d</span> <span class="s1">'\n'</span><span class="si">)</span><span class="s2">"</span>
+
+<span class="nv">LT_ID</span><span class="o">=</span><span class="s2">"</span><span class="si">$(</span>
+  aws ec2 create-launch-template <span class="se">\</span>
+    <span class="nt">--region</span> <span class="s2">"</span><span class="nv">$AWS_REGION</span><span class="s2">"</span> <span class="se">\</span>
+    <span class="nt">--launch-template-name</span> <span class="s2">"</span><span class="nv">$LT_NAME</span><span class="s2">"</span> <span class="se">\</span>
+    <span class="nt">--version-description</span> <span class="s2">"install-iscsi"</span> <span class="se">\</span>
+    <span class="nt">--launch-template-data</span> <span class="s2">"{
+      </span><span class="se">\"</span><span class="s2">UserData</span><span class="se">\"</span><span class="s2">: </span><span class="se">\"</span><span class="k">${</span><span class="nv">USERDATA_B64</span><span class="k">}</span><span class="se">\"</span><span class="s2">,
+      </span><span class="se">\"</span><span class="s2">MetadataOptions</span><span class="se">\"</span><span class="s2">: {</span><span class="se">\"</span><span class="s2">HttpPutResponseHopLimit</span><span class="se">\"</span><span class="s2">: 2},
+      </span><span class="se">\"</span><span class="s2">BlockDeviceMappings</span><span class="se">\"</span><span class="s2">: [{
+        </span><span class="se">\"</span><span class="s2">DeviceName</span><span class="se">\"</span><span class="s2">: </span><span class="se">\"</span><span class="s2">/dev/xvda</span><span class="se">\"</span><span class="s2">,
+        </span><span class="se">\"</span><span class="s2">Ebs</span><span class="se">\"</span><span class="s2">: {
+          </span><span class="se">\"</span><span class="s2">VolumeSize</span><span class="se">\"</span><span class="s2">: </span><span class="k">${</span><span class="nv">EKS_NODE_VOLUME_SIZE</span><span class="k">}</span><span class="s2">,
+          </span><span class="se">\"</span><span class="s2">VolumeType</span><span class="se">\"</span><span class="s2">: </span><span class="se">\"</span><span class="k">${</span><span class="nv">NODE_VOLUME_TYPE</span><span class="k">}</span><span class="se">\"</span><span class="s2">
+        }
+      }]
+    }"</span> <span class="se">\</span>
+    <span class="nt">--query</span> <span class="s1">'LaunchTemplate.LaunchTemplateId'</span> <span class="se">\</span>
+    <span class="nt">--output</span> text
+<span class="si">)</span><span class="s2">"</span>
+
+<span class="nv">LT_VERSION</span><span class="o">=</span><span class="s2">"1"</span>
+<span class="nb">echo</span> <span class="s2">"LaunchTemplate created: </span><span class="k">${</span><span class="nv">LT_ID</span><span class="k">}</span><span class="s2"> (v</span><span class="k">${</span><span class="nv">LT_VERSION</span><span class="k">}</span><span class="s2">)"</span>
+
+
+<span class="c"># aws ec2 describe-launch-templates</span>
+<span class="c"># aws ec2 delete-launch-template-versions</span>
+<span class="c"># aws ec2 delete-launch-template --launch-template-id lt-0a9310585233b9217</span>
+
+
+<span class="nb">echo</span> <span class="s2">"Creating nodegroup"</span>
+
+<span class="nv">SUBNET_IDS</span><span class="o">=</span><span class="s2">"</span><span class="si">$(</span>
+  aws eks describe-cluster <span class="se">\</span>
+    <span class="nt">--region</span> <span class="s2">"</span><span class="nv">$AWS_REGION</span><span class="s2">"</span> <span class="se">\</span>
+    <span class="nt">--name</span> <span class="s2">"</span><span class="nv">$EKS_CLUSTER_NAME</span><span class="s2">"</span> <span class="se">\</span>
+    <span class="nt">--query</span> <span class="s1">'cluster.resourcesVpcConfig.subnetIds'</span> <span class="se">\</span>
+    <span class="nt">--output</span> text
+<span class="si">)</span><span class="s2">"</span>
+
+<span class="c"># EksNodegroup-StandardWorkers-NodeRole is the default nodegroup role name</span>
+<span class="nv">NODE_ROLE_ARN</span><span class="o">=</span><span class="s2">"</span><span class="si">$(</span>aws iam get-role <span class="se">\</span>
+  <span class="nt">--role-name</span> EksNodegroup-StandardWorkers-NodeRole <span class="se">\</span>
+  <span class="nt">--query</span> <span class="s1">'Role.Arn'</span> <span class="nt">--output</span> text<span class="si">)</span><span class="s2">"</span>
+
+
+
+aws eks create-nodegroup <span class="se">\</span>
+  <span class="nt">--region</span> <span class="s2">"</span><span class="nv">$AWS_REGION</span><span class="s2">"</span> <span class="se">\</span>
+  <span class="nt">--cluster-name</span> <span class="s2">"</span><span class="nv">$EKS_CLUSTER_NAME</span><span class="s2">"</span> <span class="se">\</span>
+  <span class="nt">--nodegroup-name</span> <span class="s2">"</span><span class="nv">$EKS_NODE_GROUP_NAME</span><span class="s2">"</span> <span class="se">\</span>
+  <span class="nt">--subnets</span> <span class="nv">$SUBNET_IDS</span> <span class="se">\</span>
+  <span class="nt">--scaling-config</span> <span class="s2">"minSize=</span><span class="k">${</span><span class="nv">EKS_NODE_MIN</span><span class="k">}</span><span class="s2">,maxSize=</span><span class="k">${</span><span class="nv">EKS_NODE_MAX</span><span class="k">}</span><span class="s2">,desiredSize=</span><span class="k">${</span><span class="nv">EKS_NODE_DESIRED</span><span class="k">}</span><span class="s2">"</span> <span class="se">\</span>
+  <span class="nt">--instance-types</span> <span class="si">$(</span><span class="nb">echo</span> <span class="s2">"</span><span class="nv">$EKS_INSTANCE_TYPES</span><span class="s2">"</span> | <span class="nb">tr</span> <span class="s1">','</span> <span class="s1">' '</span><span class="si">)</span> <span class="se">\</span>
+  <span class="nt">--ami-type</span> <span class="s2">"AL2023_x86_64_STANDARD"</span> <span class="se">\</span>
+  <span class="nt">--capacity-type</span> <span class="si">$(</span><span class="o">[</span> <span class="s2">"</span><span class="nv">$EKS_USE_SPOT</span><span class="s2">"</span> <span class="o">=</span> <span class="s2">"true"</span> <span class="o">]</span> <span class="o">&amp;&amp;</span> <span class="nb">echo</span> <span class="s2">"SPOT"</span> <span class="o">||</span> <span class="nb">echo</span> <span class="s2">"ON_DEMAND"</span><span class="si">)</span> <span class="se">\</span>
+  <span class="nt">--launch-template</span> <span class="s2">"id=</span><span class="k">${</span><span class="nv">LT_ID</span><span class="k">}</span><span class="s2">,version=</span><span class="k">${</span><span class="nv">LT_VERSION</span><span class="k">}</span><span class="s2">"</span> <span class="se">\</span>
+  <span class="nt">--node-role</span> <span class="s2">"</span><span class="nv">$NODE_ROLE_ARN</span><span class="s2">"</span>
+
+<span class="nb">echo</span> <span class="s2">"Nodegroup created"</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="how-to-check-if-the-user-data-is-executed">How to check if the user data is executed</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="option-1-best-quick-check-kubectl-debug-node-no-ssh-no-permanent-access">Option 1 (best quick check): kubectl debug node (no SSH, no permanent access)</h3>
+<div class="paragraph">
+<p>This uses Kubernetes’ built-in ephemeral debug container feature.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="nv">NODE_NAME</span><span class="o">=</span><span class="s2">"</span><span class="si">$(</span>kubectl get nodes <span class="nt">-o</span> <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.items[0].metadata.name}'</span><span class="si">)</span><span class="s2">"</span>
+
+kubectl debug node/<span class="nv">$NODE_NAME</span> <span class="nt">-it</span> <span class="se">\</span>
+  <span class="nt">--image</span><span class="o">=</span>amazonlinux:2023 <span class="se">\</span>
+  <span class="nt">--</span> <span class="nb">chroot</span> /host bash
+
+
+
+<span class="c"># Example Output</span>
+
+<span class="nt">--profile</span><span class="o">=</span>legacy is deprecated and will be removed <span class="k">in </span>the future. It is recommended to explicitly specify a profile, <span class="k">for </span>example <span class="s2">"--profile=general"</span><span class="nb">.</span>
+Creating debugging pod node-debugger-ip-192-168-124-132.ca-central-1.compute.internal-dbn7w with container debugger on node ip-192-168-124-132.ca-central-1.compute.internal.
+Warning: metadata.name: this is used <span class="k">in </span>the Pod<span class="s1">'s hostname, which can result in surprising behavior; a DNS label is recommended: [must be no more than 63 characters must not contain dots]
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don'</span>t see a <span class="nb">command </span>prompt, try pressing enter.</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Then inside the node namespace:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash">iscsiadm <span class="nt">--version</span>
+systemctl is-active iscsid
+rpm <span class="nt">-q</span> iscsi-initiator-utils</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Type 'exit' to exit the node namespace.</p>
+</div>
+<div class="paragraph">
+<p>Why this is ideal</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>No SSH keys 🔐</p>
+</li>
+<li>
+<p>No open ports 🚫</p>
+</li>
+<li>
+<p>No node restart 🔄</p>
+</li>
+<li>
+<p>Works on autoscaled nodes</p>
+</li>
+<li>
+<p>Leaves no residue after exit</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>This is the method SREs use in locked-down clusters.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="option-2-temporary-privileged-daemonset-cluster-wide-visibility">Option 2: Temporary privileged DaemonSet (cluster-wide visibility)</h3>
+<div class="paragraph">
+<p>If you want to verify all nodes at once, deploy a short-lived DaemonSet.</p>
+</div>
+<div class="listingblock">
+<div class="title">iscsi-check.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">apps/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">DaemonSet</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">iscsi-check</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">kube-system</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">selector</span><span class="pi">:</span>
+    <span class="na">matchLabels</span><span class="pi">:</span>
+      <span class="na">app</span><span class="pi">:</span> <span class="s">iscsi-check</span>
+  <span class="na">template</span><span class="pi">:</span>
+    <span class="na">metadata</span><span class="pi">:</span>
+      <span class="na">labels</span><span class="pi">:</span>
+        <span class="na">app</span><span class="pi">:</span> <span class="s">iscsi-check</span>
+    <span class="na">spec</span><span class="pi">:</span>
+      <span class="na">hostPID</span><span class="pi">:</span> <span class="kc">true</span>
+      <span class="na">containers</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">check</span>
+        <span class="na">image</span><span class="pi">:</span> <span class="s">amazonlinux:2023</span>
+        <span class="na">securityContext</span><span class="pi">:</span>
+          <span class="na">privileged</span><span class="pi">:</span> <span class="kc">true</span>
+        <span class="na">command</span><span class="pi">:</span>
+          <span class="pi">-</span> <span class="s">/bin/bash</span>
+          <span class="pi">-</span> <span class="s">-c</span>
+          <span class="pi">-</span> <span class="pi">|</span>
+            <span class="s">chroot /host bash -c '</span>
+              <span class="s">rpm -q iscsi-initiator-utils &amp;&amp;</span>
+              <span class="s">systemctl is-active iscsid &amp;&amp;</span>
+              <span class="s">echo "iSCSI OK on $(hostname)"</span>
+            <span class="s">'</span>
+      <span class="na">restartPolicy</span><span class="pi">:</span> <span class="s">Always</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Apply and read logs:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash">kubectl apply <span class="nt">-f</span> iscsi-check.yaml
+kubectl logs <span class="nt">-n</span> kube-system <span class="nt">-l</span> <span class="nv">app</span><span class="o">=</span>iscsi-check</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Remove when done:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash">kubectl delete ds iscsi-check <span class="nt">-n</span> kube-system</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="option-3-use-node-readiness-storage-driver-logs-indirect-but-safe">Option 3: Use node readiness + storage driver logs (indirect but safe)</h3>
+<div class="paragraph">
+<p>If you’re installing iSCSI for a storage system (e.g., Longhorn, OpenEBS, iSCSI CSI):</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash">kubectl <span class="nt">-n</span> longhorn-system logs <span class="nt">-l</span> <span class="nv">app</span><span class="o">=</span>longhorn-manager</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>If iSCSI is missing, you’ll usually see:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash">iscsiadm not found
+iscsid not running</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</body>
+</html>
