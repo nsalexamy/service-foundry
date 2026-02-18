@@ -1,0 +1,177 @@
+== S3 Configuration
+
+=== Step 1: Create an AWS S3 Bucket
+
+Configure the following variables:
+
+[source,bash]
+----
+BUCKET_NAME=nsa2-sf-ml-models
+POLICY_NAME=MlModelStoragePolicy
+SID=MlModelStorageAccess
+# Use whatever you want for the following variables
+IAM_USER_NAME=mlops
+K8S_SECRET_NAME=mlops-aws-credentials
+NAMESPACE=kserve
+----
+
+Create a dedicated S3 bucket for Longhorn backups:
+
+1.  Log in to the **AWS Management Console** and navigate to **S3**.
+2.  Click **Create bucket**.
+3.  Enter a unique **Bucket name** (e.g., `your-bucket-name`).
+    *  Use lowercase letters, numbers, and hyphens only.
+4.  Select an **AWS Region** close to your cluster (e.g., `us-east-1`).
+    *  For disaster recovery, consider a region different from your cluster location.
+5.  Leave **Block all public access** enabled.
+6.  Click **Create bucket**.
+
+TIP: Note the **Bucket Name** and **Region** for later configuration.
+
+=== Step 2: Create an AWS IAM User and Policy
+
+KServe needs permission to access the S3 bucket. It is best practice to create a dedicated IAM user with restricted permissions.
+
+[NOTE]
+====
+On Production, we should use IAM Roles for Service Accounts (IRSA) instead of IAM users with static credentials. IRSA provides temporary, automatically rotated credentials and is more secure than long-lived access keys.
+====
+
+==== 2.1 Create an IAM Policy
+
+1.  Navigate to **IAM** in the AWS Console.
+2.  Click **Policies** -> **Create policy**.
+3.  Select the **JSON** tab and paste the following policy (replace `<your-bucket-name>`):
+
+
+
+.Create MlModelStoragePolicy.json
+[source,bash]
+----
+
+cat <<EOF > ${POLICY_NAME}.json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "${SID}",
+            "Effect": "Allow",
+            "Action": [
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:ListBucket",
+                "s3:DeleteObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::${BUCKET_NAME}",
+                "arn:aws:s3:::${BUCKET_NAME}/*"
+            ]
+        }
+    ]
+}
+EOF
+----
+
+4.  Click **Next**, name the policy `MlModelStoragePolicy`, and click **Create policy**.
+
+==== 2.2 Create an IAM User
+
+With the policy created, the next step is to create a dedicated IAM user that will use this policy. This user represents the "identity" that Longhorn will assume when interacting with S3.
+
+WARNING: In production environments, consider using **IAM Roles for Service Accounts (IRSA)** instead of IAM users with static credentials. IRSA provides temporary, automatically rotated credentials and is more secure than long-lived access keys. However, for simplicity and compatibility with all Kubernetes distributions, this guide uses IAM users. See the IRSA implementation guide for production-grade authentication.
+
+**Detailed Steps:**
+
+1.  **Access IAM Users**:
+    *  Navigate to **Users** in the IAM console.
+    *  Click **Create user**.
+
+2.  **Configure User Identity**:
+    *  Enter a descriptive **User name**: `${IAM_USER_NAME}`
+    *  This name is purely for identification—it doesn't need to match anything in Kubernetes.
+    *  Do **not** enable "Provide user access to the AWS Management Console"—this is a programmatic-only user with no login capabilities.
+
+3.  **Click Next** to proceed to permissions.
+
+4.  **Attach the Policy**:
+    *  Select **Attach policies directly**.
+    *  In the search box, type `${POLICY_NAME}` (the policy you created earlier).
+    *  Check the box next to your policy to select it.
+    *  Verify that only this one policy is selected.
+
+5.  **Review and Create**:
+    *  Click **Next** to review.
+    *  Verify the policy attachment is correct.
+    *  Click **Create user** to finalize.
+
+==== 2.3 Create Access Keys
+
+1.  Click on the newly created user to open user details.
+2.  Go to the **Security credentials** tab.
+3.  Under **Access keys**, click **Create access key**.
+4.  Select **Third-party service** -> **Next** -> **Create access key**.
+5.  **Save the Access key ID and Secret access key** (you cannot retrieve the secret later).
+
+WARNING: Never commit these credentials to Git. For production, consider IAM Roles for Service Accounts (IRSA) or rotate keys every 90 days.
+
+== Step 3: Create a Kubernetes Secret
+
+Store AWS credentials in a Kubernetes secret so KServe can access S3.
+
+[source,bash]
+----
+# Set environment variables with your AWS credentials
+MLOPS_AWS_ACCESS_KEY_ID="your-access-key-id"
+MLOPS_AWS_SECRET_ACCESS_KEY="your-secret-access-key"
+
+# Create the secret in kserve namespace
+kubectl create secret generic $K8S_SECRET_NAME \
+  -n $NAMESPACE \
+  --from-literal=AWS_ACCESS_KEY_ID=${MLOPS_AWS_ACCESS_KEY_ID} \
+  --from-literal=AWS_SECRET_ACCESS_KEY=${MLOPS_AWS_SECRET_ACCESS_KEY} \
+  --dry-run=client -o yaml > $K8S_SECRET_NAME.yaml
+
+# Verify the secret was created
+kubectl get secret $K8S_SECRET_NAME -n $NAMESPACE
+
+# Clean up environment variables
+unset AWS_ACCESS_KEY_ID
+unset AWS_SECRET_ACCESS_KEY
+----
+
+Seal the secret
+
+[source,bash]
+----
+# This is a simple custom script to seal all secrets in a directory passed as an argument
+$ apply-sealed-secret ./
+----
+
+Now it is safe to commit to Git.
+
+.mlops-aws-credentials.yaml - sealed secret
+[source,yaml]
+----
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  creationTimestamp: null
+  name: mlops-aws-credentials
+  namespace: kserve
+spec:
+  encryptedData:
+    AWS_ACCESS_KEY_ID: AgCd8Cquw0n...MqnVEodw==
+    AWS_SECRET_ACCESS_KEY: AgAxcpMFlQES...VVAtJz
+  template:
+    metadata:
+      creationTimestamp: null
+      name: mlops-aws-credentials
+      namespace: kserve
+----      
+
+Apply the sealed secret
+
+[source,bash]
+----
+$ kubectl apply -f mlops-aws-credentials.yaml
+----

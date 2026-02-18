@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>KServe on Kubernetes</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#introduction">1. Introduction</a></li>
+<li><a href="#architecture">2. Architecture</a>
+<ul class="sectlevel2">
+<li><a href="#control-plane">2.1. Control Plane</a></li>
+<li><a href="#data-plane">2.2. Data Plane</a></li>
+<li><a href="#serverless-vs-raw-deployment">2.3. Serverless vs. Raw Deployment</a></li>
+</ul>
+</li>
+<li><a href="#serving-mlflow-models">3. Serving MLflow Models</a>
+<ul class="sectlevel2">
+<li><a href="#storage-uri">3.1. Storage URI</a></li>
+<li><a href="#protocol">3.2. Protocol</a></li>
+</ul>
+</li>
+<li><a href="#example-iris-classification-service">4. Example: Iris Classification Service</a>
+<ul class="sectlevel2">
+<li><a href="#explanation">4.1. Explanation</a></li>
+<li><a href="#accessing-the-service">4.2. Accessing the Service</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="sect1">
+<h2 id="introduction">1. Introduction</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>KServe is a standard Model Inference Platform on Kubernetes, built for highly scalable use cases. It provides a Kubernetes Custom Resource Definition (CRD) called <code>InferenceService</code> for serving machine learning models on arbitrary frameworks.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="architecture">2. Architecture</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>KServe encapsulates the complexity of autoscaling, networking, health checking, and server configuration to bring cutting edge serving features to your models.</p>
+</div>
+<div class="sect2">
+<h3 id="control-plane">2.1. Control Plane</h3>
+<div class="paragraph">
+<p>The Control Plane is responsible for reconciling the <code>InferenceService</code> custom resource. When you create an <code>InferenceService</code>, the controller creates the necessary Knative or standard Kubernetes Deployment resources to satisfy the request.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="data-plane">2.2. Data Plane</h3>
+<div class="paragraph">
+<p>The Data Plane handles the inference workload. It is responsible for pulling the model from storage, loading it into memory, and serving inference requests.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="serverless-vs-raw-deployment">2.3. Serverless vs. Raw Deployment</h3>
+<div class="paragraph">
+<p>KServe supports two modes of deployment:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Serverless (Default)</strong>: Uses Knative Serving to provide features like scale-to-zero, request-based autoscaling, and revision management. Ideal for infrequent traffic or when resource efficiency is critical.</p>
+</li>
+<li>
+<p><strong>Raw Deployment</strong>: Uses standard Kubernetes Deployment, Service, and Ingress resources. Useful if you cannot install Knative or prefer standard Kubernetes primitives.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="serving-mlflow-models">3. Serving MLflow Models</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>KServe has built-in support for serving MLflow models using the <code>mlflow</code> model format. Under the hood, it uses the <code>MLServer</code> runtime which implements the V2 Inference Protocol.</p>
+</div>
+<div class="sect2">
+<h3 id="storage-uri">3.1. Storage URI</h3>
+<div class="paragraph">
+<p>To serve a model, you need to provide the location of the model artifacts. This is specified in the <code>storageUri</code> field. Supported schemes include:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>s3://</code>: Amazon S3</p>
+</li>
+<li>
+<p><code>gs://</code>: Google Cloud Storage</p>
+</li>
+<li>
+<p><code>pvc://</code>: Kubernetes PersistentVolumeClaim</p>
+</li>
+<li>
+<p><code>http://</code> or <code>https://</code>: HTTP/HTTPS URL (often used with cluster-local gateways like MinIO)</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>The URI should point to the directory containing the <code>MLmodel</code> file.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="protocol">3.2. Protocol</h3>
+<div class="paragraph">
+<p>KServe uses the <strong>Open Inference Protocol</strong> (also known as V2 Inference Protocol). This standardized protocol allows you to easily switch between different model servers (Triton, MLServer, TorchServe) without changing your client code.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="example-iris-classification-service">4. Example: Iris Classification Service</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Here is an example <code>InferenceService</code> manifest for deploying an iris classification model stored in an S3-compatible object store (like MinIO).</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s2">"</span><span class="s">serving.kserve.io/v1beta1"</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s2">"</span><span class="s">InferenceService"</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">iris-classification-model"</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">predictor</span><span class="pi">:</span>
+    <span class="na">model</span><span class="pi">:</span>
+      <span class="na">modelFormat</span><span class="pi">:</span>
+        <span class="na">name</span><span class="pi">:</span> <span class="s">mlflow</span>
+      <span class="na">storageUri</span><span class="pi">:</span> <span class="s2">"</span><span class="s">s3://mlflow/1/83838383838383838383838383838383/artifacts/function"</span>
+      <span class="c1"># If using S3/MinIO, you might need a service account with access</span>
+      <span class="c1"># serviceAccountName: sa-s3-access</span></code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="explanation">4.1. Explanation</h3>
+<div class="ulist">
+<ul>
+<li>
+<p><code>apiVersion</code>: <code>serving.kserve.io/v1beta1</code> is the current stable API version.</p>
+</li>
+<li>
+<p><code>kind</code>: <code>InferenceService</code> defines the model deployment.</p>
+</li>
+<li>
+<p><code>metadata.name</code>: The name of the service (e.g., <code>iris-classification-model</code>). This will be part of the URL.</p>
+</li>
+<li>
+<p><code>spec.predictor</code>: Defines the predictor component.</p>
+</li>
+<li>
+<p><code>model.modelFormat</code>: Specifies that this is an <code>mlflow</code> model. KServe will automatically select the appropriate runtime (MLServer).</p>
+</li>
+<li>
+<p><code>model.storageUri</code>: The location of the model artifacts. This path corresponds to the artifact location in your MLflow tracking server.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="accessing-the-service">4.2. Accessing the Service</h3>
+<div class="paragraph">
+<p>Once deployed, you can access the model using the KServe ingress. The URL typically follows the format:</p>
+</div>
+<div class="paragraph">
+<p><code><a href="http://${INGRESS_HOST}:${INGRESS_PORT}/v2/models/${MODEL_NAME}/infer" class="bare">http://${INGRESS_HOST}:${INGRESS_PORT}/v2/models/${MODEL_NAME}/infer</a></code></p>
+</div>
+<div class="paragraph">
+<p>Example request payload for the Iris model:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"inputs"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="nl">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"input"</span><span class="p">,</span><span class="w">
+      </span><span class="nl">"shape"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">],</span><span class="w">
+      </span><span class="nl">"datatype"</span><span class="p">:</span><span class="w"> </span><span class="s2">"FP32"</span><span class="p">,</span><span class="w">
+      </span><span class="nl">"data"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mf">5.1</span><span class="p">,</span><span class="w"> </span><span class="mf">3.5</span><span class="p">,</span><span class="w"> </span><span class="mf">1.4</span><span class="p">,</span><span class="w"> </span><span class="mf">0.2</span><span class="p">]</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="p">]</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,1193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Installing KServe on Kubernetes</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a></li>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#what-is-kserve">What is KServe?</a>
+<ul class="sectlevel2">
+<li><a href="#key-benefits">Key Benefits</a></li>
+</ul>
+</li>
+<li><a href="#helm-chart-investigation">Helm Chart Investigation</a>
+<ul class="sectlevel2">
+<li><a href="#version-discovery">Version Discovery</a></li>
+<li><a href="#save-values-to-file">Save Values to File</a></li>
+<li><a href="#pull-kserve-chart">Pull KServe Chart</a></li>
+</ul>
+</li>
+<li><a href="#s3-configuration">S3 Configuration</a>
+<ul class="sectlevel2">
+<li><a href="#step-1-create-an-aws-s3-bucket">Step 1: Create an AWS S3 Bucket</a></li>
+<li><a href="#step-2-create-an-aws-iam-user-and-policy">Step 2: Create an AWS IAM User and Policy</a></li>
+</ul>
+</li>
+<li><a href="#step-3-create-a-kubernetes-secret">Step 3: Create a Kubernetes Secret</a></li>
+<li><a href="#mlflow-model-registry-using-s3">MLflow Model Registry using S3</a></li>
+<li><a href="#install-kserve-crds">Install KServe CRDS</a></li>
+<li><a href="#install-kserve">Install KServe</a></li>
+<li><a href="#deploy-inferenceservice-iris-classifier">Deploy InferenceService - Iris Classifier</a>
+<ul class="sectlevel2">
+<li><a href="#s3-access-from-inferenceservice">S3 Access from InferenceService</a></li>
+<li><a href="#install-inferenceservice">Install InferenceService</a></li>
+<li><a href="#test-inferenceservice">Test InferenceService</a></li>
+<li><a href="#iris-label-mapping">Iris Label Mapping</a></li>
+</ul>
+</li>
+<li><a href="#kserve-client-streamlit">KServe Client (Streamlit)</a>
+<ul class="sectlevel2">
+<li><a href="#kserve-client-directory-structure">KServe Client Directory Structure</a></li>
+<li><a href="#dockerfile">Dockerfile</a></li>
+<li><a href="#requirements-txt">requirements.txt</a></li>
+<li><a href="#entrypoint-sh">entrypoint.sh</a></li>
+<li><a href="#app-py">app.py</a></li>
+<li><a href="#deploy-kserve-client">Deploy KServe Client</a></li>
+<li><a href="#kserve-client-application-prediction">KServe Client Application - Prediction</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#references">References</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/kserve-overview.png" alt="kserve overview">
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Through this document, we will see how JupyterHub,MLflow and KServe work together to deploy and serve machine learning models.</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Data Scientist uses JupyterHub to train and evaluate models and save them to MLflow.</p>
+</li>
+<li>
+<p>MLflow is used to track experiments and manage model versions and save them to S3.</p>
+</li>
+<li>
+<p>MLOps Engineer creates KServe InferenceService to deploy and serve models.</p>
+</li>
+<li>
+<p>KServe InferenceService is used to serve models save in S3 and provide API endpoints for inference.</p>
+</li>
+<li>
+<p>Application Developers use the API endpoints to make predictions.</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>In my previous articles, we have seen how to install JupyterHub and MLflow on Kubernetes. This article will focus on how to install KServe on Kubernetes and use it to serve models.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="prerequisites">Prerequisites</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p>Kubernetes cluster</p>
+</li>
+<li>
+<p>Kubectl configured to point to the cluster</p>
+</li>
+<li>
+<p>Helm installed</p>
+</li>
+<li>
+<p>AWS account with S3 bucket</p>
+</li>
+<li>
+<p>Argo CD</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="what-is-kserve">What is KServe?</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>KServe is an open-source, production-ready, and extensible serverless inference platform for machine learning models. It is built on top of Kubernetes and provides a simple and consistent way to deploy and manage machine learning models.</p>
+</div>
+<div class="sect2">
+<h3 id="key-benefits">Key Benefits</h3>
+<div class="paragraph">
+<p>You can find the full list of benefits in the [KServe documentation](<a href="https://kserve.github.io/website/docs/intro#key-benefits" class="bare">https://kserve.github.io/website/docs/intro#key-benefits</a>).</p>
+</div>
+<div class="sect3">
+<h4 id="generative-inference-benefits">Generative Inference Benefits</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>✅ LLM Multi-framework Support - Deploy LLMs from Hugging Face, vLLM, and custom generative models</p>
+</li>
+<li>
+<p>✅ OpenAI-Compatible APIs - Chat completion, completion, streaming, and embedding endpoints</p>
+</li>
+<li>
+<p>✅ LocalModelCache for LLMs - Cache large models locally to reduce startup time from 15-20 minutes to ~1 minute</p>
+</li>
+<li>
+<p>✅ KV Cache Offloading - Optimized memory management for long conversations and large contexts</p>
+</li>
+<li>
+<p>✅ Multi-node Inference - Distributed LLM serving</p>
+</li>
+<li>
+<p>✅ Envoy AI Gateway Integration - Enterprise-grade API management and routing for AI workloads</p>
+</li>
+<li>
+<p>✅ Metric-based Autoscaling - Scale based on token throughput, queue depth, and GPU utilization</p>
+</li>
+<li>
+<p>✅ Advanced Generative Deployments - Canary rollouts and A/B testing for LLM experiments</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="predictive-inference-benefits">Predictive Inference Benefits</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>✅ Multi-framework Model Serving - Deploy models from TensorFlow, PyTorch, Scikit-Learn, XGBoost, and more</p>
+</li>
+<li>
+<p>✅ InferenceGraph for Model Ensembles - Chain and ensemble multiple models together for complex workflows</p>
+</li>
+<li>
+<p>✅ Batch Prediction Support - Efficient processing of large datasets with batch inference capabilities</p>
+</li>
+<li>
+<p>✅ Preprocessing &amp; Postprocessing - Built-in data transformation pipelines and feature engineering</p>
+</li>
+<li>
+<p>✅ Real-time Scoring - Low-latency prediction serving for real-time applications</p>
+</li>
+<li>
+<p>✅ Production ML Monitoring - Comprehensive observability, drift detection, and explainability</p>
+</li>
+<li>
+<p>✅ Standard Inference Protocols - Support for Open Inference Protocol (V1/V2) across frameworks</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect3">
+<h4 id="universal-benefits-both-inference-types">Universal Benefits (Both Inference Types)</h4>
+<div class="ulist">
+<ul>
+<li>
+<p>✅ Serverless Inference Workloads - Automatic scaling including scale-to-zero on both CPU and GPU</p>
+</li>
+<li>
+<p>✅ High Scalability &amp; Density - Intelligent routing and density packing using ModelMesh</p>
+</li>
+<li>
+<p>✅ Enterprise-Ready Operations - Production monitoring, logging, and observability out of the box</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="helm-chart-investigation">Helm Chart Investigation</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>When using OCI repository, helm version should be passed with <code>--version</code> flag.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ CHART_VERSION</span><span class="o">=</span>v0.16.0
+<span class="c">#$ HELM_REPO=oci://ghcr.io/kserve/charts/kserve</span>
+<span class="nv">$ HELM_REPO</span><span class="o">=</span>oci://ghcr.io/kserve/charts
+<span class="nv">$ CHART_NAME</span><span class="o">=</span>kserve</code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="version-discovery">Version Discovery</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c"># NOT WORKING</span>
+<span class="nv">$ </span>helm show chart <span class="nt">--repo</span> <span class="nv">$HELM_REPO</span> <span class="nt">--version</span> <span class="nv">$CHART_VERSION</span> <span class="nv">$CHART_NAME</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="save-values-to-file">Save Values to File</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm show values <span class="nv">$HELM_REPO</span>/<span class="nv">$CHART_NAME</span> <span class="nt">--version</span> <span class="nv">$CHART_VERSION</span> <span class="o">&gt;</span> values-<span class="nv">$CHART_VERSION</span>.yaml</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="pull-kserve-chart">Pull KServe Chart</h3>
+<div class="paragraph">
+<p>[   source,shell]</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>$ helm pull $HELM_REPO/$CHART_NAME --version $CHART_VERSION --untar --untardir ./kserve-chart</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="s3-configuration">S3 Configuration</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="step-1-create-an-aws-s3-bucket">Step 1: Create an AWS S3 Bucket</h3>
+<div class="paragraph">
+<p>Configure the following variables:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="nv">BUCKET_NAME</span><span class="o">=</span>nsa2-sf-ml-models
+<span class="nv">POLICY_NAME</span><span class="o">=</span>MlModelStoragePolicy
+<span class="nv">SID</span><span class="o">=</span>MlModelStorageAccess
+<span class="c"># Use whatever you want for the following variables</span>
+<span class="nv">IAM_USER_NAME</span><span class="o">=</span>mlops
+<span class="nv">K8S_SECRET_NAME</span><span class="o">=</span>mlops-aws-credentials
+<span class="nv">NAMESPACE</span><span class="o">=</span>kserve</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Create a dedicated S3 bucket for Longhorn backups:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Log in to the <strong>AWS Management Console</strong> and navigate to <strong>S3</strong>.</p>
+</li>
+<li>
+<p>Click <strong>Create bucket</strong>.</p>
+</li>
+<li>
+<p>Enter a unique <strong>Bucket name</strong> (e.g., <code>your-bucket-name</code>).</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Use lowercase letters, numbers, and hyphens only.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p>Select an <strong>AWS Region</strong> close to your cluster (e.g., <code>us-east-1</code>).</p>
+<div class="ulist">
+<ul>
+<li>
+<p>For disaster recovery, consider a region different from your cluster location.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p>Leave <strong>Block all public access</strong> enabled.</p>
+</li>
+<li>
+<p>Click <strong>Create bucket</strong>.</p>
+</li>
+</ol>
+</div>
+<div class="admonitionblock tip">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-tip" title="Tip"></i>
+</td>
+<td class="content">
+Note the <strong>Bucket Name</strong> and <strong>Region</strong> for later configuration.
+</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="step-2-create-an-aws-iam-user-and-policy">Step 2: Create an AWS IAM User and Policy</h3>
+<div class="paragraph">
+<p>KServe needs permission to access the S3 bucket. It is best practice to create a dedicated IAM user with restricted permissions.</p>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-note" title="Note"></i>
+</td>
+<td class="content">
+<div class="paragraph">
+<p>On Production, we should use IAM Roles for Service Accounts (IRSA) instead of IAM users with static credentials. IRSA provides temporary, automatically rotated credentials and is more secure than long-lived access keys.</p>
+</div>
+</td>
+</tr>
+</table>
+</div>
+<div class="sect3">
+<h4 id="2-1-create-an-iam-policy">2.1 Create an IAM Policy</h4>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Navigate to <strong>IAM</strong> in the AWS Console.</p>
+</li>
+<li>
+<p>Click <strong>Policies</strong> &#8594; <strong>Create policy</strong>.</p>
+</li>
+<li>
+<p>Select the <strong>JSON</strong> tab and paste the following policy (replace <code>&lt;your-bucket-name&gt;</code>):</p>
+</li>
+<li>
+<p>Click <strong>Next</strong>, name the policy <code>MlModelStoragePolicy</code>, and click <strong>Create policy</strong>.</p>
+</li>
+</ol>
+</div>
+<div class="listingblock">
+<div class="title">Create MlModelStoragePolicy.json</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="nb">cat</span> <span class="o">&lt;&lt;</span><span class="no">EOF</span><span class="sh"> &gt; </span><span class="k">${</span><span class="nv">POLICY_NAME</span><span class="k">}</span><span class="sh">.json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "</span><span class="k">${</span><span class="nv">SID</span><span class="k">}</span><span class="sh">",
+            "Effect": "Allow",
+            "Action": [
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:ListBucket",
+                "s3:DeleteObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::</span><span class="k">${</span><span class="nv">BUCKET_NAME</span><span class="k">}</span><span class="sh">",
+                "arn:aws:s3:::</span><span class="k">${</span><span class="nv">BUCKET_NAME</span><span class="k">}</span><span class="sh">/*"
+            ]
+        }
+    ]
+}
+EOF</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="2-2-create-an-iam-user">2.2 Create an IAM User</h4>
+<div class="paragraph">
+<p>With the policy created, the next step is to create a dedicated IAM user that will use this policy. This user represents the "identity" that Longhorn will assume when interacting with S3.</p>
+</div>
+<div class="admonitionblock warning">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-warning" title="Warning"></i>
+</td>
+<td class="content">
+In production environments, consider using <strong>IAM Roles for Service Accounts (IRSA)</strong> instead of IAM users with static credentials. IRSA provides temporary, automatically rotated credentials and is more secure than long-lived access keys. However, for simplicity and compatibility with all Kubernetes distributions, this guide uses IAM users. See the IRSA implementation guide for production-grade authentication.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p><strong>Detailed Steps:</strong></p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><strong>Access IAM Users</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Navigate to <strong>Users</strong> in the IAM console.</p>
+</li>
+<li>
+<p>Click <strong>Create user</strong>.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Configure User Identity</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Enter a descriptive <strong>User name</strong>: <code>${IAM_USER_NAME}</code></p>
+</li>
+<li>
+<p>This name is purely for identification—it doesn&#8217;t need to match anything in Kubernetes.</p>
+</li>
+<li>
+<p>Do <strong>not</strong> enable "Provide user access to the AWS Management Console"—this is a programmatic-only user with no login capabilities.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Click Next</strong> to proceed to permissions.</p>
+</li>
+<li>
+<p><strong>Attach the Policy</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Select <strong>Attach policies directly</strong>.</p>
+</li>
+<li>
+<p>In the search box, type <code>${POLICY_NAME}</code> (the policy you created earlier).</p>
+</li>
+<li>
+<p>Check the box next to your policy to select it.</p>
+</li>
+<li>
+<p>Verify that only this one policy is selected.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><strong>Review and Create</strong>:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Click <strong>Next</strong> to review.</p>
+</li>
+<li>
+<p>Verify the policy attachment is correct.</p>
+</li>
+<li>
+<p>Click <strong>Create user</strong> to finalize.</p>
+</li>
+</ul>
+</div>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect3">
+<h4 id="2-3-create-access-keys">2.3 Create Access Keys</h4>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Click on the newly created user to open user details.</p>
+</li>
+<li>
+<p>Go to the <strong>Security credentials</strong> tab.</p>
+</li>
+<li>
+<p>Under <strong>Access keys</strong>, click <strong>Create access key</strong>.</p>
+</li>
+<li>
+<p>Select <strong>Third-party service</strong> &#8594; <strong>Next</strong> &#8594; <strong>Create access key</strong>.</p>
+</li>
+<li>
+<p><strong>Save the Access key ID and Secret access key</strong> (you cannot retrieve the secret later).</p>
+</li>
+</ol>
+</div>
+<div class="admonitionblock warning">
+<table>
+<tr>
+<td class="icon">
+<i class="fa icon-warning" title="Warning"></i>
+</td>
+<td class="content">
+Never commit these credentials to Git. For production, consider IAM Roles for Service Accounts (IRSA) or rotate keys every 90 days.
+</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="step-3-create-a-kubernetes-secret">Step 3: Create a Kubernetes Secret</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Store AWS credentials in a Kubernetes secret so KServe can access S3.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Set environment variables with your AWS credentials</span>
+<span class="nv">MLOPS_AWS_ACCESS_KEY_ID</span><span class="o">=</span><span class="s2">"your-access-key-id"</span>
+<span class="nv">MLOPS_AWS_SECRET_ACCESS_KEY</span><span class="o">=</span><span class="s2">"your-secret-access-key"</span>
+
+<span class="c"># Create the secret in kserve namespace</span>
+kubectl create secret generic <span class="nv">$K8S_SECRET_NAME</span> <span class="se">\</span>
+  <span class="nt">-n</span> <span class="nv">$NAMESPACE</span> <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span><span class="nv">AWS_ACCESS_KEY_ID</span><span class="o">=</span><span class="k">${</span><span class="nv">MLOPS_AWS_ACCESS_KEY_ID</span><span class="k">}</span> <span class="se">\</span>
+  <span class="nt">--from-literal</span><span class="o">=</span><span class="nv">AWS_SECRET_ACCESS_KEY</span><span class="o">=</span><span class="k">${</span><span class="nv">MLOPS_AWS_SECRET_ACCESS_KEY</span><span class="k">}</span> <span class="se">\</span>
+  <span class="nt">--dry-run</span><span class="o">=</span>client <span class="nt">-o</span> yaml <span class="o">&gt;</span> <span class="nv">$K8S_SECRET_NAME</span>.yaml
+
+<span class="c"># Verify the secret was created</span>
+kubectl get secret <span class="nv">$K8S_SECRET_NAME</span> <span class="nt">-n</span> <span class="nv">$NAMESPACE</span>
+
+<span class="c"># Clean up environment variables</span>
+<span class="nb">unset </span>AWS_ACCESS_KEY_ID
+<span class="nb">unset </span>AWS_SECRET_ACCESS_KEY</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Seal the secret</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># This is a simple custom script to seal all secrets in a directory passed as an argument</span>
+<span class="nv">$ </span>apply-sealed-secret ./</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Now it is safe to commit to Git.</p>
+</div>
+<div class="listingblock">
+<div class="title">mlops-aws-credentials.yaml - sealed secret</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">bitnami.com/v1alpha1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">SealedSecret</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">creationTimestamp</span><span class="pi">:</span> <span class="kc">null</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">mlops-aws-credentials</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">kserve</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">encryptedData</span><span class="pi">:</span>
+    <span class="na">AWS_ACCESS_KEY_ID</span><span class="pi">:</span> <span class="s">AgCd8Cquw0n...MqnVEodw==</span>
+    <span class="na">AWS_SECRET_ACCESS_KEY</span><span class="pi">:</span> <span class="s">AgAxcpMFlQES...VVAtJz</span>
+  <span class="na">template</span><span class="pi">:</span>
+    <span class="na">metadata</span><span class="pi">:</span>
+      <span class="na">creationTimestamp</span><span class="pi">:</span> <span class="kc">null</span>
+      <span class="na">name</span><span class="pi">:</span> <span class="s">mlops-aws-credentials</span>
+      <span class="na">namespace</span><span class="pi">:</span> <span class="s">kserve</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Apply the sealed secret</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> mlops-aws-credentials.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="mlflow-model-registry-using-s3">MLflow Model Registry using S3</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Before diving into KServe, let&#8217;s first configure MLflow to use S3 for model storage.</p>
+</div>
+<div class="paragraph">
+<p>In the previous article, we have installed MLflow on Kubernetes with Shared RWX storage. Now we will configure MLflow to use S3 for model storage.</p>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="c1"># Other parts are the same as the previous article</span>
+<span class="c1"># Updated Part only</span>
+
+<i class="conum" data-value="1"></i><b>(1)</b>
+<span class="na">extraSecretNamesForEnvFrom</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">mlops-aws-credentials</span>
+
+<span class="na">extraEnvVars</span><span class="pi">:</span>
+  <i class="conum" data-value="2"></i><b>(2)</b>
+  <span class="na">AWS_DEFAULT_REGION</span><span class="pi">:</span> <span class="s2">"</span><span class="s">ca-central-1"</span>
+
+
+<span class="na">artifactRoot</span><span class="pi">:</span>
+  <span class="na">proxiedArtifactStorage</span><span class="pi">:</span> <span class="kc">true</span>
+
+  <i class="conum" data-value="3"></i><b>(3)</b>
+  <span class="na">s3</span><span class="pi">:</span>
+    <span class="na">enabled</span><span class="pi">:</span> <span class="kc">true</span>
+    <span class="na">bucket</span><span class="pi">:</span> <span class="s">nsa2-sf-ml-models</span>
+    <span class="na">path</span><span class="pi">:</span> <span class="s">mlflow</span>
+    <span class="na">existingSecret</span><span class="pi">:</span>
+      <span class="na">name</span><span class="pi">:</span> <span class="s">mlops-aws-credentials</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>This is also needed because boto3 library in MLflow will look for this environment variable to find the AWS credentials.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>This is the AWS region where the S3 bucket is located.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>This is the S3 bucket name and the path to the MLflow models.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>The S3 base URL for MLflow models is s3://your-s3-bucket/mlflow. The actual directory for each artifact would look like below</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>s3://{bucket_name}/mlflow/{experiment_id}/models/{model_id}/artifacts/</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="install-kserve-crds">Install KServe CRDS</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Before installing KServe, we need to install KServe CRDS. It is a good practice to install CRDS separately from the main chart to avoid potential issues during upgrades especially when using ArgoCD.</p>
+</div>
+<div class="paragraph">
+<p>Define environment variables for namespace and chart version.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ NAMESPACE</span><span class="o">=</span>kserve
+<span class="nv">$ CHART_VERSION</span><span class="o">=</span>v0.16.0
+<span class="nv">$ CHART_NAME</span><span class="o">=</span>kserve-crd
+<span class="nv">$ RELEASE_NAME</span><span class="o">=</span>kserve-crd
+<span class="nv">$ HELM_REPO</span><span class="o">=</span>oci://ghcr.io/kserve/charts</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Install KServe CRDS.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm <span class="nb">install</span> <span class="nv">$RELEASE_NAME</span> <span class="nv">$HELM_REPO</span>/<span class="nv">$CHART_NAME</span> <span class="se">\</span>
+    <span class="nt">--version</span> <span class="nv">$CHART_VERSION</span> <span class="nt">--namespace</span> <span class="nv">$NAMESPACE</span> <span class="nt">--create-namespace</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Verify the installation.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl get crd | <span class="nb">grep </span>kserve</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="install-kserve">Install KServe</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Define environment variables for namespace and chart version.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="c"># The first 3 are the same as for the CRDS</span>
+<span class="c">#$ NAMESPACE=kserve</span>
+<span class="c">#$ CHART_VERSION=v0.16.0</span>
+<span class="c">#$ HELM_REPO=oci://ghcr.io/kserve/charts</span>
+<span class="nv">$ CHART_NAME</span><span class="o">=</span>kserve
+<span class="nv">$ RELEASE_NAME</span><span class="o">=</span>kserve</code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="title">custom-values.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">kserve</span><span class="pi">:</span>
+  <span class="na">controller</span><span class="pi">:</span>
+    <span class="c1"># Standard or Knative</span>
+    <i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="na">deploymentMode</span><span class="pi">:</span> <span class="s">Standard</span>
+    <span class="na">gateway</span><span class="pi">:</span>
+      <i class="conum" data-value="2"></i><b>(2)</b>
+      <span class="na">domain</span><span class="pi">:</span> <span class="s">servicefoundry.org</span>
+      <i class="conum" data-value="3"></i><b>(3)</b>
+      <span class="na">urlScheme</span><span class="pi">:</span> <span class="s">https</span>
+      <span class="na">ingressGateway</span><span class="pi">:</span>
+        <i class="conum" data-value="4"></i><b>(4)</b>
+        <span class="na">enableGatewayApi</span><span class="pi">:</span> <span class="kc">true</span>
+        <span class="na">kserveGateway</span><span class="pi">:</span> <span class="s">traefik/traefik-gateway</span>
+        <span class="na">className</span><span class="pi">:</span> <span class="s">traefik</span>
+
+
+  <span class="na">storage</span><span class="pi">:</span>
+    <i class="conum" data-value="5"></i><b>(5)</b>
+    <span class="na">storageSpecSecretName</span><span class="pi">:</span> <span class="s">mlops-aws-credentials</span>
+    <i class="conum" data-value="6"></i><b>(6)</b>
+    <span class="na">s3</span><span class="pi">:</span>
+      <span class="na">endpoint</span><span class="pi">:</span> <span class="s">s3.ca-central-1.amazonaws.com</span>
+      <span class="na">region</span><span class="pi">:</span> <span class="s">ca-central-1</span>
+      <span class="na">useHttps</span><span class="pi">:</span> <span class="s2">"</span><span class="s">1"</span>
+      <span class="na">verifySSL</span><span class="pi">:</span> <span class="s2">"</span><span class="s">1"</span>
+      <span class="na">useVirtualBucket</span><span class="pi">:</span> <span class="s2">"</span><span class="s">1"</span>
+      <span class="na">useAnonymousCredential</span><span class="pi">:</span> <span class="s2">"</span><span class="s">0"</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Standard deployment mode uses standard Kubernetes resources (Deployments, Services, etc.) for model serving. Knative deployment mode uses Knative Serving resources (Revisions, Configurations, etc.) for model serving.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The domain name for the KServe models.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>The URL scheme for the KServe models.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>Enable Gateway API for KServe models.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td>The name of the Kubernetes secret that contains the AWS credentials.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="6"></i><b>6</b></td>
+<td>The S3 bucket name and the path to the MLflow models.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Install KServe.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>helm upgrade <span class="nt">--install</span> <span class="nt">--cleanup-on-fail</span> <span class="se">\</span>
+    <span class="nv">$RELEASE_NAME</span> <span class="nv">$HELM_REPO</span>/<span class="nv">$CHART_NAME</span> <span class="se">\</span>
+    <span class="nt">--version</span> <span class="nv">$CHART_VERSION</span> <span class="nt">--namespace</span> <span class="nv">$NAMESPACE</span> <span class="nt">--create-namespace</span> <span class="se">\</span>
+    <span class="nt">-f</span> custom-values.yaml</code></pre>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deploy-inferenceservice-iris-classifier">Deploy InferenceService - Iris Classifier</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Now that we have Scikit-learn model in S3 and KServe installed, we can deploy the model as a KServe InferenceService.</p>
+</div>
+<div class="sect2">
+<h3 id="s3-access-from-inferenceservice">S3 Access from InferenceService</h3>
+<div class="paragraph">
+<p>On EKS, the InferenceService pod is using the EKS nodes' IAM role (arn:aws:sts::&#8230;&#8203;:assumed-role/EksNodegroup-StandardWorkers-NodeRole/&#8230;&#8203;) for S3 access instead of the AWS credentials stored in the secret.</p>
+</div>
+<div class="paragraph">
+<p>But in this document, we are using the AWS credentials stored in the secret for simplicity. In production, it is recommended to use IRSA (IAM Roles for Service Accounts).</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c"># Create a service account for S3 access</span>
+kubectl create sa sa-s3-access <span class="nt">-n</span> kserve
+
+<span class="c"># Patch the service account to include a reference to the secret named mlops-aws-credentials</span>
+kubectl patch sa sa-s3-access <span class="nt">-n</span> kserve <span class="nt">-p</span> <span class="s1">'{"secrets": [{"name": "mlops-aws-credentials"}]}'</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The command above creates a service account named sa-s3-access in the kserve namespace and patches it to include a reference to the secret named mlops-aws-credentials. This allows the InferenceService pod to access the AWS credentials stored in the secret.</p>
+</div>
+<div class="paragraph">
+<p>This is known as "Static credential injection" and this is NOT IRSA.</p>
+</div>
+<div class="paragraph">
+<p>Alternatively, if you want to use the secret directly without a service account (as configured in your global values), KServe should pick it up if storageSpecSecretName is correctly propagated. However, explicit service account usage is often more reliable on EKS to avoid falling back to the node role.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="install-inferenceservice">Install InferenceService</h3>
+<div class="listingblock">
+<div class="title">iris-inference-serving.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s2">"</span><span class="s">serving.kserve.io/v1beta1"</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s2">"</span><span class="s">InferenceService"</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">iris-classifier"</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">kserve</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">predictor</span><span class="pi">:</span>
+    <i class="conum" data-value="1"></i><b>(1)</b>
+    <span class="na">serviceAccountName</span><span class="pi">:</span> <span class="s">sa-s3-access</span>
+    <span class="na">model</span><span class="pi">:</span>
+      <i class="conum" data-value="2"></i><b>(2)</b>
+      <span class="na">modelFormat</span><span class="pi">:</span>
+        <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">sklearn"</span>
+      <i class="conum" data-value="3"></i><b>(3)</b>
+      <span class="na">storageUri</span><span class="pi">:</span> <span class="s2">"</span><span class="s">s3://nsa2-sf-ml-models/mlflow/2/models/m-2551ab2217244663b227f8e5d9dadbe3/artifacts"</span>
+      <i class="conum" data-value="4"></i><b>(4)</b>
+      <span class="na">protocolVersion</span><span class="pi">:</span> <span class="s">v2</span>
+      <i class="conum" data-value="5"></i><b>(5)</b>
+      <span class="na">runtime</span><span class="pi">:</span> <span class="s">kserve-sklearnserver</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The service account name that will be used by the InferenceService pod for S3 access.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The model format.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>Specify directory of the model artifacts in S3.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>The protocol version.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td>The runtime.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Apply the InferenceService.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> iris-inference-serving.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Verify the InferenceService.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl get isvc iris-classifier <span class="nt">-n</span> kserve
+
+<span class="c"># sample output</span>
+NAME           URL                                              READY   PREV   LATEST   PREVROLLEDOUTREVISION   LATESTREADYREVISION   AGE
+sklearn-iris   https://sklearn-iris-kserve.servicefoundry.org   True                                                                  28s</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="test-inferenceservice">Test InferenceService</h3>
+<div class="paragraph">
+<p>Here is an example of how to test the InferenceService.</p>
+</div>
+<div class="listingblock">
+<div class="title">input_1.json</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"inputs"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="nl">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"input-0"</span><span class="p">,</span><span class="w">
+      </span><span class="nl">"shape"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+        </span><span class="mi">1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">4</span><span class="w">
+      </span><span class="p">],</span><span class="w">
+      </span><span class="nl">"datatype"</span><span class="p">:</span><span class="w"> </span><span class="s2">"FP32"</span><span class="p">,</span><span class="w">
+      </span><span class="nl">"data"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+        </span><span class="p">[</span><span class="w">
+          </span><span class="mf">4.0</span><span class="p">,</span><span class="w">
+          </span><span class="mf">3.9</span><span class="p">,</span><span class="w">
+          </span><span class="mf">2.3</span><span class="p">,</span><span class="w">
+          </span><span class="mf">0.6</span><span class="w">
+        </span><span class="p">]</span><span class="w">
+      </span><span class="p">]</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="p">]</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">SERVICE_HOSTNAME</span><span class="o">=</span><span class="si">$(</span>kubectl get inferenceservice <span class="nt">-n</span> kserve sklearn-iris <span class="nt">-o</span> <span class="nv">jsonpath</span><span class="o">=</span><span class="s1">'{.status.url}'</span> | <span class="nb">cut</span> <span class="nt">-d</span> <span class="s2">"/"</span> <span class="nt">-f</span> 3<span class="si">)</span>
+
+curl <span class="nt">-v</span> <span class="se">\</span>
+  <span class="nt">-H</span> <span class="s2">"Host: </span><span class="k">${</span><span class="nv">SERVICE_HOSTNAME</span><span class="k">}</span><span class="s2">"</span> <span class="se">\</span>
+  <span class="nt">-H</span> <span class="s2">"Content-Type: application/json"</span> <span class="se">\</span>
+  <span class="nt">-d</span> @./input_1.json <span class="se">\</span>
+  https://sklearn-iris-kserve.servicefoundry.org/v2/models/sklearn-iris/infer | jq
+
+
+<span class="c"># sample output</span>
+<span class="o">{</span>
+  <span class="s2">"model_name"</span>: <span class="s2">"sklearn-iris"</span>,
+  <span class="s2">"model_version"</span>: null,
+  <span class="s2">"id"</span>: <span class="s2">"f6ea4bd5-76d5-4d61-8360-299e1547a079"</span>,
+  <span class="s2">"parameters"</span>: null,
+  <span class="s2">"outputs"</span>: <span class="o">[</span>
+    <span class="o">{</span>
+      <span class="s2">"name"</span>: <span class="s2">"output-0"</span>,
+      <span class="s2">"shape"</span>: <span class="o">[</span>
+        1
+      <span class="o">]</span>,
+      <span class="s2">"datatype"</span>: <span class="s2">"INT64"</span>,
+      <span class="s2">"parameters"</span>: null,
+      <span class="s2">"data"</span>: <span class="o">[</span>
+        0
+      <span class="o">]</span>
+    <span class="o">}</span>
+  <span class="o">]</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The prediction result is 0, which corresponds to Iris-Setosa.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="iris-label-mapping">Iris Label Mapping</h3>
+<div class="paragraph">
+<p>The numeric predictions returned by the model correspond to the following Iris species:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>0</strong>: Iris-Setosa</p>
+</li>
+<li>
+<p><strong>1</strong>: Iris-Versicolor</p>
+</li>
+<li>
+<p><strong>2</strong>: Iris-Virginica</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>For the example input above, a result of <code>0</code> indicates that the model identified the flower as an <strong>Iris-Setosa</strong>.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="kserve-client-streamlit">KServe Client (Streamlit)</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>MLOps engineers can build a Streamlit application to interact with the KServe InferenceService and provide a user-friendly interface for users to interact with the model. This is a common practice in MLOps to provide a user-friendly interface for users to interact with the model.</p>
+</div>
+<div class="sect2">
+<h3 id="kserve-client-directory-structure">KServe Client Directory Structure</h3>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>tree services/kserve-client
+
+services/kserve-client
+├── Dockerfile
+├── app.py
+├── requirements.txt
+└── scripts
+    └── entrypoint.sh</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="dockerfile">Dockerfile</h3>
+<div class="listingblock">
+<div class="title">service/kserve-client/Dockerfile</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="dockerfile"><span class="k">FROM</span><span class="s"> python:3.11-slim</span>
+
+<span class="k">WORKDIR</span><span class="s"> /app</span>
+
+<span class="c"># Prevent Python from buffering stdout/stderr</span>
+<span class="k">ENV</span><span class="s"> PYTHONUNBUFFERED=1</span>
+
+<span class="c"># Install system dependencies</span>
+<span class="k">RUN </span>apt-get update <span class="o">&amp;&amp;</span> apt-get <span class="nb">install</span> <span class="nt">-y</span> <span class="se">\
+</span>    curl <span class="se">\
+</span>    <span class="o">&amp;&amp;</span> <span class="nb">rm</span> <span class="nt">-rf</span> /var/lib/apt/lists/<span class="k">*</span>
+
+<span class="c"># Install python dependencies</span>
+<span class="k">COPY</span><span class="s"> services/kserve-client/requirements.txt .</span>
+<span class="k">RUN </span>pip <span class="nb">install</span> <span class="nt">--no-cache-dir</span> <span class="nt">-r</span> requirements.txt
+
+<span class="c"># Copy Streamlit application code</span>
+<span class="k">COPY</span><span class="s"> services/kserve-client/app.py ./services/kserve-client/</span>
+<span class="k">COPY</span><span class="s"> services/kserve-client/scripts/ ./scripts/</span>
+
+<span class="c"># Copy images</span>
+<span class="k">COPY</span><span class="s"> images/ ./images/</span>
+
+<span class="c"># Make scripts executable</span>
+<span class="k">RUN </span><span class="nb">chmod</span> +x scripts/<span class="k">*</span>.sh
+
+<span class="c"># Expose Streamlit port</span>
+<span class="k">EXPOSE</span><span class="s"> 8501</span>
+
+<span class="c"># Run entrypoint script</span>
+<span class="k">ENTRYPOINT</span><span class="s"> ["./scripts/entrypoint.sh"]</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="requirements-txt">requirements.txt</h3>
+<div class="listingblock">
+<div class="title">service/kserve-client/requirements.txt</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="text">streamlit&gt;=1.0.0
+requests&gt;=2.28.0</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="entrypoint-sh">entrypoint.sh</h3>
+<div class="listingblock">
+<div class="title">service/kserve-client/scripts/entrypoint.sh</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="bash"><span class="c">#!/bin/bash</span>
+<span class="nb">set</span> <span class="nt">-e</span>
+
+<span class="nb">echo</span> <span class="s2">"========================================="</span>
+<span class="nb">echo</span> <span class="s2">"Streamlit Client Application"</span>
+<span class="nb">echo</span> <span class="s2">"========================================="</span>
+<span class="nb">echo</span> <span class="s2">"KSERVE URI: </span><span class="k">${</span><span class="nv">KSERVE_URI</span><span class="k">:-</span><span class="nv">http</span>://localhost:8000<span class="k">}</span><span class="s2">"</span>
+<span class="nb">echo</span> <span class="s2">"========================================="</span>
+
+<span class="c"># Start Streamlit application</span>
+<span class="nb">echo</span> <span class="s2">"Starting Streamlit server..."</span>
+<span class="nb">exec </span>streamlit run services/kserve-client/app.py <span class="nt">--server</span>.port 8501 <span class="nt">--server</span>.address 0.0.0.0</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="app-py">app.py</h3>
+<div class="listingblock">
+<div class="title">services/kserve-client/app.py - get_prediction function</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="python"><span class="k">def</span> <span class="nf">get_prediction</span><span class="p">(</span><span class="n">data</span><span class="p">):</span>
+    <span class="sh">"""</span><span class="s">
+    Sends a prediction request to the KServe inference service.
+
+    Args:
+        data (list): A list of list of floats representing the Iris features.
+                     e.g. [[sepal_length, sepal_width, petal_length, petal_width]]
+
+    Returns:
+        dict: The JSON response from the inference service, or None on error.
+    </span><span class="sh">"""</span>
+    <span class="c1"># Construct V2 Inference Protocol payload
+</span>    <span class="n">payload</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="sh">"</span><span class="s">inputs</span><span class="sh">"</span><span class="p">:</span> <span class="p">[</span>
+            <span class="p">{</span>
+                <span class="sh">"</span><span class="s">name</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">input-0</span><span class="sh">"</span><span class="p">,</span>
+                <span class="sh">"</span><span class="s">shape</span><span class="sh">"</span><span class="p">:</span> <span class="p">[</span><span class="nf">len</span><span class="p">(</span><span class="n">data</span><span class="p">),</span> <span class="mi">4</span><span class="p">],</span>
+                <span class="sh">"</span><span class="s">datatype</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">FP32</span><span class="sh">"</span><span class="p">,</span>
+                <span class="sh">"</span><span class="s">data</span><span class="sh">"</span><span class="p">:</span> <span class="n">data</span>
+            <span class="p">}</span>
+        <span class="p">]</span>
+    <span class="p">}</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">logger</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">Sending request to </span><span class="si">{</span><span class="n">KSERVE_URL</span><span class="si">}</span><span class="s"> with payload: </span><span class="si">{</span><span class="n">json</span><span class="p">.</span><span class="nf">dumps</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span><span class="si">}</span><span class="sh">"</span><span class="p">)</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="n">requests</span><span class="p">.</span><span class="nf">post</span><span class="p">(</span><span class="n">KSERVE_URL</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">payload</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="sh">"</span><span class="s">Content-Type</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">application/json</span><span class="sh">"</span><span class="p">})</span>
+        <span class="n">response</span><span class="p">.</span><span class="nf">raise_for_status</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">response</span><span class="p">.</span><span class="nf">json</span><span class="p">()</span>
+    <span class="k">except</span> <span class="n">requests</span><span class="p">.</span><span class="n">exceptions</span><span class="p">.</span><span class="n">RequestException</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="p">.</span><span class="nf">error</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">Error calling inference service: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="sh">"</span><span class="p">)</span>
+        <span class="n">st</span><span class="p">.</span><span class="nf">error</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">Error calling inference service: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="sh">"</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">None</span></code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="deploy-kserve-client">Deploy KServe Client</h3>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Build Docker Image and Push to Docker Hub</p>
+</li>
+<li>
+<p>Create Helm Chart for KServe Client with HttpRoute for public access</p>
+</li>
+<li>
+<p>Deploy KServe Client to kserve namespace using Argo CD and Kustomize</p>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect2">
+<h3 id="kserve-client-application-prediction">KServe Client Application - Prediction</h3>
+<div class="paragraph">
+<p>The KServe client application is deployed to the kserve namespace using Argo CD and Kustomize. Its hostname for testing is mlops-iris-model-kserve-client.servicefoundry.org.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/kserve-client-app.png" alt="kserve client app">
+</div>
+<div class="title">Figure 1. KServe Client Application - Prediction</div>
+</div>
+<div class="paragraph">
+<p>After setting each value in the form, click the "Classify" button to send the request to the KServe inference service.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>KServe is a powerful tool for deploying and managing machine learning models in a Kubernetes environment. It provides a simple and efficient way to deploy and manage models, and it is easy to use and maintain.</p>
+</div>
+<div class="paragraph">
+<p>This document covers:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Configuring S3 access for KServe InferenceService</p>
+</li>
+<li>
+<p>Configuring MLflow storage to use S3</p>
+</li>
+<li>
+<p>Install KServe CRDs Kserve</p>
+</li>
+<li>
+<p>Deploy KServe InferenceService</p>
+</li>
+<li>
+<p>Deploy KServe Client</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="references">References</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://kserve.github.io/website/docs/admin-guide/kubernetes-deployment" class="bare">https://kserve.github.io/website/docs/admin-guide/kubernetes-deployment</a></p>
+</li>
+<li>
+<p><a href="https://kserve.github.io/website/docs/intro#%EF%B8%8F-installation-guide" class="bare">https://kserve.github.io/website/docs/intro#%EF%B8%8F-installation-guide</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</body>
+</html>

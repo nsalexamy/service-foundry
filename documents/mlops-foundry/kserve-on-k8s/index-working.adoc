@@ -1,0 +1,97 @@
+= KServe on Kubernetes
+:toc: left
+:toclevels: 3
+:sectnums:
+
+== Introduction
+
+KServe is a standard Model Inference Platform on Kubernetes, built for highly scalable use cases. It provides a Kubernetes Custom Resource Definition (CRD) called `InferenceService` for serving machine learning models on arbitrary frameworks.
+
+== Architecture
+
+KServe encapsulates the complexity of autoscaling, networking, health checking, and server configuration to bring cutting edge serving features to your models.
+
+=== Control Plane
+
+The Control Plane is responsible for reconciling the `InferenceService` custom resource. When you create an `InferenceService`, the controller creates the necessary Knative or standard Kubernetes Deployment resources to satisfy the request.
+
+=== Data Plane
+
+The Data Plane handles the inference workload. It is responsible for pulling the model from storage, loading it into memory, and serving inference requests.
+
+=== Serverless vs. Raw Deployment
+
+KServe supports two modes of deployment:
+
+* **Serverless (Default)**: Uses Knative Serving to provide features like scale-to-zero, request-based autoscaling, and revision management. Ideal for infrequent traffic or when resource efficiency is critical.
+* **Raw Deployment**: Uses standard Kubernetes Deployment, Service, and Ingress resources. Useful if you cannot install Knative or prefer standard Kubernetes primitives.
+
+== Serving MLflow Models
+
+KServe has built-in support for serving MLflow models using the `mlflow` model format. Under the hood, it uses the `MLServer` runtime which implements the V2 Inference Protocol.
+
+=== Storage URI
+
+To serve a model, you need to provide the location of the model artifacts. This is specified in the `storageUri` field. Supported schemes include:
+
+* `s3://`: Amazon S3
+* `gs://`: Google Cloud Storage
+* `pvc://`: Kubernetes PersistentVolumeClaim
+* `http://` or `https://`: HTTP/HTTPS URL (often used with cluster-local gateways like MinIO)
+
+The URI should point to the directory containing the `MLmodel` file.
+
+=== Protocol
+
+KServe uses the **Open Inference Protocol** (also known as V2 Inference Protocol). This standardized protocol allows you to easily switch between different model servers (Triton, MLServer, TorchServe) without changing your client code.
+
+== Example: Iris Classification Service
+
+Here is an example `InferenceService` manifest for deploying an iris classification model stored in an S3-compatible object store (like MinIO).
+
+[source,yaml]
+----
+apiVersion: "serving.kserve.io/v1beta1"
+kind: "InferenceService"
+metadata:
+  name: "iris-classification-model"
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: mlflow
+      storageUri: "s3://mlflow/1/83838383838383838383838383838383/artifacts/function"
+      # If using S3/MinIO, you might need a service account with access
+      # serviceAccountName: sa-s3-access 
+----
+
+=== Explanation
+
+* `apiVersion`: `serving.kserve.io/v1beta1` is the current stable API version.
+* `kind`: `InferenceService` defines the model deployment.
+* `metadata.name`: The name of the service (e.g., `iris-classification-model`). This will be part of the URL.
+* `spec.predictor`: Defines the predictor component.
+* `model.modelFormat`: Specifies that this is an `mlflow` model. KServe will automatically select the appropriate runtime (MLServer).
+* `model.storageUri`: The location of the model artifacts. This path corresponds to the artifact location in your MLflow tracking server.
+
+=== Accessing the Service
+
+Once deployed, you can access the model using the KServe ingress. The URL typically follows the format:
+
+`http://${INGRESS_HOST}:${INGRESS_PORT}/v2/models/${MODEL_NAME}/infer`
+
+Example request payload for the Iris model:
+
+[source,json]
+----
+{
+  "inputs": [
+    {
+      "name": "input",
+      "shape": [1, 4],
+      "datatype": "FP32",
+      "data": [5.1, 3.5, 1.4, 0.2]
+    }
+  ]
+}
+----
