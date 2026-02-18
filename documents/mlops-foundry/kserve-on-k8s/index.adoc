@@ -1,0 +1,586 @@
+= Model Serving with KServe: A Complete Guide to Kubernetes-Native Inference
+
+:imagesdir: ./images
+
+[.img-wide]
+image::kserve-overview.png[KServe Architecture Overview]
+
+*YouTube Video*: https://youtu.be/qSIhO0EDsoA
+
+== Overview
+
+In the modern machine learning lifecycle, training a model is only half the battle. The real challenge lies in **serving** that model reliably, efficiently, and at scale. This guide explores how to bridge the gap between model development and production deployment using **KServe**, a highly scalable and serverless inference platform built on Kubernetes.
+
+We will walk through an integrated MLOps workflow involving three core components:
+
+1.  **JupyterHub**: The collaborative development environment where data scientists train and evaluate models.
+2.  **MLflow**: The tracking and registry service used to manage experiments and model versions.
+3.  **KServe**: The inference engine that pulls models from S3 and serves them via standardized APIs.
+
+### The MLOps Data Flow
+
+The integration follows a structured path from development to production:
+
+[mermaid]
+....
+graph TD
+    A[Data Scientist] -->|Trains Model| B(JupyterHub)
+    B -->|Logs Model & Artifacts| C(MLflow)
+    C -->|Stores Artifacts| D[AWS S3]
+    E[MLOps Engineer] -->|Creates InferenceService| F(KServe)
+    F -->|Fetches Model| D
+    G[Application] -->|Inference Request| F
+    F -->|Prediction Result| G
+....
+
+1.  **Model Training**: Using JupyterHub, models are trained and logged to MLflow.
+2.  **Artifact Management**: MLflow manages model versions and stores their weights in an AWS S3 bucket.
+3.  **Inference Deployment**: An MLOps engineer creates a KServe `InferenceService` manifest.
+4.  **Model Serving**: KServe's "Storage Initializer" fetches the model from S3 and prepares it for serving.
+5.  **Consumption**: External applications consume the model via the Open Inference Protocol (V2).
+
+== Prerequisites
+
+Before proceeding, ensure you have the following infrastructure and tools ready:
+
+*   **Kubernetes Cluster**: A running cluster (v1.33+) with sufficient resources for ML workloads.
+*   **Access Control**: `kubectl` configured with administrative access.
+*   **Package Management**: Helm (v3+) for deploying charts.
+*   **Storage**: An AWS S3 bucket for model artifacts and appropriate IAM credentials.
+*   **Continuous Delivery**: Argo CD (recommended) for GitOps-based deployments.
+
+== What is KServe?
+
+KServe is an open-source, production-ready, and highly extensible serverless inference platform designed for Kubernetes. It simplifies the deployment of machine learning models by providing a consistent interface across different frameworks.
+
+By leveraging **Knative** for serverless scaling and **Istio** (or Gateway API) for advanced traffic management, KServe allows teams to focus on their models rather than the underlying infrastructure complexity. KServe supports both **Predictive Inference** (Classical ML) and **Generative Inference** (LLMs), making it a versatile choice for modern AI platforms.
+
+=== Key Benefits
+
+KServe provides a standard inference protocol across multiple frameworks, enabling a unified approach to model serving.
+
+*   **Serverless Scaling**: Automatically scales models based on traffic, including scale-to-zero to save resources when idle.
+*   **Standardized Protocol**: Implements the V2 Inference Protocol (Open Inference Protocol), allowing clients to interact with models consistently regardless of the framework (Scikit-Learn, PyTorch, XGBoost, etc.).
+*   **AI Gateway Integration**: Built-in support for Envoy AI Gateway for enterprise-grade routing, canary deployments, and observability.
+
+
+== Helm Chart Investigation
+
+When using OCI repository, helm version should be passed with `--version` flag.
+
+[source,shell]
+----
+$ CHART_VERSION=v0.16.0
+$ HELM_REPO=oci://ghcr.io/kserve/charts
+$ CHART_NAME=kserve
+----
+
+
+=== Save Values to File
+
+[source,shell]
+----
+$ helm show values $HELM_REPO/$CHART_NAME --version $CHART_VERSION > values-$CHART_VERSION.yaml
+----
+
+=== Pull KServe Chart
+
+[source,shell]
+----
+$ helm pull $HELM_REPO/$CHART_NAME --version $CHART_VERSION --untar --untardir ./kserve-chart
+----
+
+== S3 Storage Configuration
+
+KServe requires access to a centralized storage backend (S3) to retrieve model artifacts. In this section, we will configure an S3 bucket and the necessary IAM credentials.
+
+=== Step 1: Initialize Configuration Variables
+
+Define the following environment variables to ensure consistency across the setup:
+
+[source,bash]
+----
+BUCKET_NAME=nsa2-sf-ml-models  # <1>
+POLICY_NAME=MlModelStoragePolicy # <2>
+SID=MlModelStorageAccess
+IAM_USER_NAME=mlops # <3>
+K8S_SECRET_NAME=mlops-aws-credentials # <4>
+NAMESPACE=kserve
+----
+<1> The target S3 bucket name.
+<2> The name of the IAM policy to be created.
+<3> The dedicated IAM user for KServe.
+<4> The Kubernetes secret name where AWS credentials will be stored.
+
+=== Step 2: Create S3 Bucket and IAM Credentials
+
+#### 2.1 Create the S3 Bucket
+
+1.  Log in to the **AWS Management Console** and navigate to **S3**.
+2.  Click **Create bucket**.
+3.  Enter a unique **Bucket name** (e.g., `nsa2-sf-ml-models`).
+4.  Select an **AWS Region** (e.g., `ca-central-1`).
+5.  Keep **Block all public access** enabled for security.
+6.  Finalize by clicking **Create bucket**.
+
+TIP: Note the bucket name and region, as they are required for the KServe `InferenceService` configuration.
+
+#### 2.2 Define IAM Policy for Model Access
+
+To allow KServe components to interact with S3, we define an IAM policy with the minimum necessary permissions: `GetObject`, `PutObject`, `ListBucket`, and `DeleteObject`.
+
+[source,bash]
+----
+cat <<EOF > ${POLICY_NAME}.json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "${SID}",
+            "Effect": "Allow",
+            "Action": [
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:ListBucket",
+                "s3:DeleteObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::${BUCKET_NAME}",
+                "arn:aws:s3:::${BUCKET_NAME}/*"
+            ]
+        }
+    ]
+}
+EOF
+----
+
+Create the policy in AWS IAM:
+
+1.  Navigate to **IAM** > **Policies** > **Create policy**.
+2.  Select the **JSON** tab and paste the configuration from `MlModelStoragePolicy.json`.
+3.  Name it `MlModelStoragePolicy` and click **Create policy**.
+
+#### 2.3 Create a Dedicated IAM User
+
+Create a programmatic user that will assume the previously defined policy.
+
+WARNING: For production workloads on AWS EKS, **IAM Roles for Service Accounts (IRSA)** is the recommended authentication method. IRSA provides temporary, automatically rotated credentials. This guide uses static IAM users for simplicity and cross-platform compatibility.
+
+**Steps to Create the User:**
+
+1.  Navigate to **IAM** > **Users** > **Create user**.
+2.  Set **User name** to `mlops`.
+3.  **Do not** enable Management Console access. This is a programmatic-only user.
+4.  Click **Next**.
+5.  Select **Attach policies directly** and choose `MlModelStoragePolicy`.
+6.  Complete the creation process.
+
+#### 2.4 Generate Access Keys
+
+1.  Select the `mlops` user from the list.
+2.  Navigate to the **Security credentials** tab.
+3.  Click **Create access key**.
+4.  Select **Third-party service** and proceed.
+5.  **Critically Important**: Securely store the `Access key ID` and `Secret access key`. They are required for the Kubernetes secret.
+
+=== Step 3: Securely Store Credentials in Kubernetes
+
+KServe needs these credentials to authenticate with S3. We store them in a standard Kubernetes Secret.
+
+[source,bash]
+----
+# Define your AWS credentials securely in the terminal
+MLOPS_AWS_ACCESS_KEY_ID="your-access-key-id"
+MLOPS_AWS_SECRET_ACCESS_KEY="your-secret-access-key"
+
+# Generate the Secret manifest
+kubectl create secret generic $K8S_SECRET_NAME \
+  -n $NAMESPACE \
+  --from-literal=AWS_ACCESS_KEY_ID=${MLOPS_AWS_ACCESS_KEY_ID} \
+  --from-literal=AWS_SECRET_ACCESS_KEY=${MLOPS_AWS_SECRET_ACCESS_KEY} \
+  --dry-run=client -o yaml > $K8S_SECRET_NAME.yaml
+
+# Clean up sensitive environment variables
+unset MLOPS_AWS_ACCESS_KEY_ID
+unset MLOPS_AWS_SECRET_ACCESS_KEY
+----
+
+#### 3.1 Encrypting the Secret with Sealed Secrets
+
+To safely commit the secret to Git, we use **Sealed Secrets**. This encrypts the secret such that it can only be decrypted by the `sealed-secrets-controller` running in your cluster.
+
+[source,bash]
+----
+# Use the apply-sealed-secrets script to encrypt manifests in the current directory
+$ apply-sealed-secrets ./
+----
+
+.mlops-aws-credentials.yaml - sealed secret
+[source,yaml]
+----
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  creationTimestamp: null
+  name: mlops-aws-credentials
+  namespace: kserve
+spec:
+  encryptedData:
+    AWS_ACCESS_KEY_ID: AgCd8Cquw0n...MqnVEodw==
+    AWS_SECRET_ACCESS_KEY: AgAxcpMFlQES...VVAtJz
+  template:
+    metadata:
+      creationTimestamp: null
+      name: mlops-aws-credentials
+      namespace: kserve
+----      
+
+#### 3.2 Applying the Encrypted Manifest
+
+Once sealed, the generated `mlops-aws-credentials.yaml` can be safely applied to the cluster.
+
+[source,bash]
+----
+$ kubectl apply -f mlops-aws-credentials.yaml
+----
+
+== Configuring MLflow for S3 Model Storage
+
+Before KServe can serve a model, MLflow must be configured to use S3 as its artifact store. This ensures that every model registered in MLflow is physically stored in the S3 bucket we created.
+
+In my previous guide, we installed MLflow using local storage. The following configuration updates the MLflow Helm chart to enable S3 support.
+
+.custom-values.yaml (MLflow)
+[source,yaml]
+----
+# MLflow S3 Configuration
+extraSecretNamesForEnvFrom:
+  - mlops-aws-credentials # <1>
+
+extraEnvVars:  
+  AWS_DEFAULT_REGION: "ca-central-1" # <2>
+
+artifactRoot:
+  proxiedArtifactStorage: true
+  s3:
+    enabled: true
+    bucket: nsa2-sf-ml-models # <3>
+    path: mlflow # <4>
+    existingSecret:
+      name: mlops-aws-credentials
+----
+<1> Mounts AWS credentials from our secret as environment variables.
+<2> Required for the `boto3` library used by MLflow.
+<3> The target S3 bucket for all model artifacts.
+<4> The base directory within the bucket for MLflow artifacts.
+
+When a model is logged, it will be stored at:
+`s3://{bucket_name}/mlflow/{experiment_id}/models/{model_run_id}/artifacts/`
+
+== Step 4: Install KServe CRDS
+
+KServe uses Custom Resource Definitions (CRDs) to define its API objects. It is best practice to install CRDs separately from the main controller chart, especially when using GitOps tools like Argo CD, to ensure stable upgrades.
+
+[source,shell]
+----
+$ NAMESPACE=kserve
+$ CHART_VERSION=v0.16.0
+$ CHART_NAME=kserve-crd
+$ RELEASE_NAME=kserve-crd
+$ HELM_REPO=oci://ghcr.io/kserve/charts
+
+# Install the CRD chart
+$ helm install $RELEASE_NAME $HELM_REPO/$CHART_NAME \
+    --version $CHART_VERSION --namespace $NAMESPACE --create-namespace
+----
+
+Verify the CRDs are active:
+[source,shell]
+----
+$ kubectl get crd | grep kserve
+----
+
+== Step 5: Install KServe Controller
+
+With the CRDs in place, we can now install the KServe controller. We will use a `custom-values.yaml` file to configure the deployment mode and S3 storage.
+
+### Configuring KServe for "Standard" Mode
+
+KServe supports two primary deployment modes: **Knative** (Serverless) and **Standard** (RawDeployment). 
+
+[IMPORTANT]
+====
+**Standard Mode** (RawDeployment) is preferred when you do not want to manage the complexity of Knative. It uses native Kubernetes `Deployments` and `HorizontalPodAutoscalers` for serving models while still providing the same standardized V2 Inference Protocol.
+====
+
+.custom-values.yaml (KServe)
+[source,yaml]
+----
+kserve:
+  controller:
+    deploymentMode: Standard # <1>
+    gateway:
+      domain: servicefoundry.org # <2>
+      urlScheme: https
+      ingressGateway:
+        enableGatewayApi: true # <3>
+        kserveGateway: traefik/traefik-gateway
+        className: traefik
+
+  storage:
+    storageSpecSecretName: mlops-aws-credentials # <4>
+    s3:
+      endpoint: s3.ca-central-1.amazonaws.com # <5>
+      region: ca-central-1
+      useHttps: "1"
+      verifySSL: "1"
+      useVirtualBucket: "1"
+      useAnonymousCredential: "0"
+----
+<1> Sets the controller to use native Kubernetes deployments instead of Knative.
+<2> The base domain for all served models.
+<3> Enables integration with the Kubernetes Gateway API (using Traefik in this guide).
+<4> The name of our previously created S3 credentials secret.
+<5> The AWS S3 regional endpoint.
+
+Install the chart using the custom values:
+
+[source,shell]
+----
+$ RELEASE_NAME=kserve
+$ helm upgrade --install --cleanup-on-fail \
+    $RELEASE_NAME $HELM_REPO/kserve \
+    --version $CHART_VERSION --namespace $NAMESPACE --create-namespace \
+    -f custom-values.yaml
+----
+
+Now that we have the Scikit-Learn model in S3 and KServe installed, we can deploy it as an `InferenceService`.
+
+=== Configuring S3 Access for the Inference Pod
+
+By default on EKS, pods attempt to use the node's IAM role. To ensure reliable access using our static credentials, we create a dedicated Service Account and link it to our secret.
+
+[source,bash]
+----
+# Create the Service Account
+kubectl create sa sa-s3-access -n kserve
+
+# Link the Secret to the Service Account
+kubectl patch sa sa-s3-access -n kserve -p '{"secrets": [{"name": "mlops-aws-credentials"}]}'
+----
+
+### Deploying the Inference Manifest
+
+The `InferenceService` defines how the model is served, including the framework, model location, and protocol version.
+
+.iris-inference-serving.yaml
+[source,yaml]
+----
+apiVersion: "serving.kserve.io/v1beta1"
+kind: "InferenceService"
+metadata:
+  name: "iris-classifier"
+  namespace: kserve
+spec:
+  predictor:
+    serviceAccountName: sa-s3-access # <1>
+    model:
+      modelFormat:
+        name: "sklearn" # <2>
+      storageUri: "s3://nsa2-sf-ml-models/mlflow/2/models/m-2551ab2217244663b227f8e5d9dadbe3/artifacts" # <3>
+      protocolVersion: v2 # <4>
+      runtime: kserve-sklearnserver # <5>
+----
+<1> The Service Account providing S3 credentials.
+<2> The model framework (Scikit-Learn).
+<3> The S3 path to the MLflow model artifacts.
+<4> Enables the modern V2 Inference Protocol.
+<5> The optimized KServe runtime for Scikit-Learn.
+
+Apply the manifest:
+[source,bash]
+----
+$ kubectl apply -f iris-inference-serving.yaml
+----
+
+Verify the InferenceService.
+
+[source,shell]
+----
+$ kubectl get isvc iris-classifier -n kserve
+
+# sample output
+NAME           URL                                              READY   PREV   LATEST   PREVROLLEDOUTREVISION   LATESTREADYREVISION   AGE
+sklearn-iris   https://sklearn-iris-kserve.servicefoundry.org   True                                                                  28s
+----
+
+=== Testing the Inference Endpoint
+
+To test the model, we send a POST request following the **V2 Inference Protocol**. This protocol requires a specific JSON structure containing `inputs`, `datatype`, and `shape`.
+
+.input_1.json
+[source,json]
+----
+{
+  "inputs": [
+    {
+      "name": "input-0",
+      "shape": [1, 4],
+      "datatype": "FP32",
+      "data": [
+        [4.0, 3.9, 2.3, 0.6]
+      ]
+    }
+  ]
+}
+----
+
+#### Perform Inference with Curl
+
+First, retrieve the service URL and then send the request:
+
+[source,bash]
+----
+# Get the model's public hostname
+SERVICE_HOSTNAME=$(kubectl get isvc iris-classifier -n kserve -o jsonpath='{.status.url}' | cut -d "/" -f 3)
+
+# Send the inference request
+curl -s -X POST \
+  -H "Host: ${SERVICE_HOSTNAME}" \
+  -H "Content-Type: application/json" \
+  -d @./input_1.json \
+  https://${SERVICE_HOSTNAME}/v2/models/iris-classifier/infer | jq
+----
+
+#### Understanding the Prediction Result
+
+If successful, the model returns a numeric prediction. 
+
+.Sample Output
+[source,json]
+----
+{
+  "model_name": "iris-classifier",
+  "outputs": [
+    {
+      "name": "output-0",
+      "datatype": "INT64",
+      "shape": [1],
+      "data": [0]
+    }
+  ]
+}
+----
+
+The numeric value in the `data` field maps to the Iris species:
+
+*   **0**: Iris-Setosa
+*   **1**: Iris-Versicolor
+*   **2**: Iris-Virginica
+
+In this example, the result `0` indicates that the flower was classified as an **Iris-Setosa**.
+
+
+== Building a KServe Client (Streamlit)
+
+While `curl` is excellent for testing, production users require a more approachable interface. MLOps engineers often build dedicated client applications—such as Streamlit dashboards—to provide a user-friendly way to interact with deployed models.
+
+=== Client Architecture
+
+The client application is typically deployed as a separate microservice within the Kubernetes cluster. It handles:
+
+1.  **User Input**: Capturing features via sliders or forms.
+2.  **Protocol Transformation**: Converting user inputs into the specific V2 Inference Protocol JSON format.
+3.  **Authentication**: Managing tokens if the inference endpoint is protected.
+4.  **Result Visualization**: Displaying the prediction results (labels, probabilities, or images).
+
+=== KServe Client Implementation
+
+#### 1. Streamlit Application Core
+
+The core logic of the client involves a `get_prediction` function that performs the REST call to KServe.
+
+.services/kserve-client/app.py
+[source,python]
+----
+import streamlit as st
+import requests
+import json
+
+def get_prediction(data):
+    # Construct V2 Inference Protocol payload
+    payload = {
+        "inputs": [
+            {
+                "name": "input-0", # <1>
+                "shape": [len(data), 4], # <2>
+                "datatype": "FP32",
+                "data": data
+            }
+        ]
+    }
+    
+    # Send request to the KServe InferenceService URL
+    response = requests.post(
+        KSERVE_URL, 
+        json=payload, 
+        headers={"Content-Type": "application/json"}
+    )
+    return response.json()
+----
+<1> Must match the input name defined in the model (default is `input-0` for Scikit-Learn).
+<2> The shape specifies the number of instances and features (e.g., `[1, 4]`).
+
+#### 2. Containerization
+
+To deploy the client on Kubernetes, we bundle it into a lightweight container.
+
+.services/kserve-client/Dockerfile
+[source,dockerfile]
+----
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY services/kserve-client/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt # <1>
+
+COPY services/kserve-client/app.py .
+COPY services/kserve-client/scripts/ ./scripts/
+
+EXPOSE 8501 # <2>
+ENTRYPOINT ["./scripts/entrypoint.sh"]
+----
+<1> Installs `streamlit` and `requests`.
+<2> Default port for Streamlit.
+
+### Deploying to Production
+
+The deployment process follows a standard GitOps flow:
+
+1.  **Build**: Create the Docker image and push it to a private container registry.
+2.  **Configuration**: Use Helm to define the `Deployment`, `Service`, and `HttpRoute` for the client.
+3.  **Sync**: Use **Argo CD** to synchronize the manifests with the Kubernetes cluster.
+
+Once deployed, the model becomes accessible via a friendly URL, as shown below:
+
+.Production Streamlit Interface
+[.img-wide]
+image::kserve-client-app.png[Streamlit Prediction Interface]
+
+== Conclusion
+
+Deploying machine learning models in production requires a platform that is both robust and flexible. KServe provides this by standardizing the inference layer while allowing for sophisticated features like serverless scaling and advanced traffic management.
+
+By integrating **KServe** with **MLflow** and **AWS S3**, organization can build a cohesive MLOps pipeline where models transition seamlessly from training to high-performance inference.
+
+### Key Takeaways
+
+*   **Standardization**: The V2 Inference Protocol ensures a consistent API for all models.
+*   **Separation of Concerns**: KServe handles infrastructure (scaling, routing), while data scientists focus on model logic.
+*   **Efficiency**: Standard mode (RawDeployment) provides a lightweight alternative to Knative for teams starting their MLOps journey.
+
+== References
+
+- [KServe Official Documentation](https://kserve.github.io/website/)
+- [Open Inference Protocol (V2) Specification](https://kserve.github.io/website/docs/predict/v2/protocol/)
+- [MLflow S3 Artifact Store Guide](https://mlflow.org/docs/latest/tracking.html#amazon-s3)
