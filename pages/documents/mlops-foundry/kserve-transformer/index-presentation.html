@@ -1,0 +1,1677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>KServe Transformer: Bridging Application Payloads and Model Inference Protocols</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f8fafc;
+            color: #1f2937;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+    
+</head>
+<body>
+<div id="toc" class="toc">
+<div id="toctitle">On this page</div>
+<ul class="sectlevel1">
+<li><a href="#overview">Overview</a></li>
+<li><a href="#prerequisites">Prerequisites</a></li>
+<li><a href="#transformer">Transformer</a>
+<ul class="sectlevel2">
+<li><a href="#what-is-a-transformer-in-kserve">What Is a Transformer in KServe?</a></li>
+<li><a href="#why-use-a-transformer">Why Use a Transformer?</a></li>
+<li><a href="#v1-and-v2-inference-endpoints">V1 and V2 Inference Endpoints</a></li>
+</ul>
+</li>
+<li><a href="#implementation-format-conversion-using-a-transformer">Implementation: Format Conversion Using a Transformer</a>
+<ul class="sectlevel2">
+<li><a href="#transformer-input-custom-json">Transformer Input (Custom JSON)</a></li>
+<li><a href="#model-input-v2-inference-request">Model Input (V2 Inference Request)</a></li>
+<li><a href="#model-output-v2-inference-response">Model Output (V2 Inference Response)</a></li>
+<li><a href="#transformer-output-application-response">Transformer Output (Application Response)</a></li>
+<li><a href="#iris-transformer-py">iris-transformer.py</a></li>
+</ul>
+</li>
+<li><a href="#deploy-transformer">Deploy Transformer</a>
+<ul class="sectlevel2">
+<li><a href="#directory-structure">Directory Structure</a></li>
+<li><a href="#dockerfile">Dockerfile</a></li>
+</ul>
+</li>
+<li><a href="#deploy-inferenceservice-with-transformer">Deploy InferenceService with Transformer</a></li>
+<li><a href="#test-the-inferenceservice-with-curl">Test the InferenceService with curl</a></li>
+<li><a href="#kserve-transformer-client-application">KServe Transformer Client Application</a>
+<ul class="sectlevel2">
+<li><a href="#run-the-client-application">Run the Client Application</a></li>
+</ul>
+</li>
+<li><a href="#use-cases-for-kserve-transformer">Use Cases for KServe Transformer</a>
+<ul class="sectlevel2">
+<li><a href="#pre-processing">Pre-Processing</a></li>
+<li><a href="#post-processing">Post-Processing</a></li>
+<li><a href="#cross-cutting-patterns">Cross-Cutting Patterns</a></li>
+</ul>
+</li>
+<li><a href="#conclusion">Conclusion</a></li>
+<li><a href="#references">References</a></li>
+</ul>
+</div>
+<div id="preamble">
+<div class="sectionbody">
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/kserve-transformer-introduction.png" alt="kserve transformer introduction">
+</div>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="overview">Overview</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In a production ML serving environment, the data format expected by a trained model rarely matches the format that client applications naturally produce. Models trained with scikit-learn or PyTorch typically require a strict, schema-enforced payload — such as the KServe V2 Open Inference Protocol — while client applications may produce simpler, more expressive JSON objects. Forcing clients to conform to the V2 protocol leaks infrastructure concerns into application code, creating tight coupling and brittleness.</p>
+</div>
+<div class="paragraph">
+<p>KServe addresses this problem with the <strong>Transformer</strong> component: a lightweight sidecar service that sits between the client and the model predictor. The Transformer intercepts every request and response, allowing developers to centralize all data marshalling, feature engineering, and business logic in one place — completely independent of the model itself.</p>
+</div>
+<div class="paragraph">
+<p>This article walks through the full lifecycle of building a custom KServe Transformer for an Iris flower classification service. You will learn how the Transformer integrates with an <code>InferenceService</code>, how to implement the <code>preprocess()</code> and <code>postprocess()</code> hooks, how to package the Transformer as a Docker image, and how to connect a Streamlit client application to the end-to-end pipeline.</p>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="prerequisites">Prerequisites</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Before following this guide, ensure the following are in place:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Kubernetes cluster with KServe installed</strong> — A functioning cluster running KServe v0.13 or later. A previous article in this series covers cluster setup and KServe installation.</p>
+</li>
+<li>
+<p><strong>kubectl configured</strong> — The <code>kubectl</code> command-line tool must be installed and pointed at your cluster via a valid kubeconfig.</p>
+</li>
+<li>
+<p><strong>Docker</strong> — Required for building and pushing the custom Transformer container image.</p>
+</li>
+<li>
+<p><strong>Container registry access</strong> — A registry such as Docker Hub, Amazon ECR, or Google Artifact Registry where you can push the Transformer image. The cluster must be able to pull from this registry.</p>
+</li>
+<li>
+<p><strong>Python 3.11+</strong> — The Transformer is written in Python. A local Python environment is needed for development and testing.</p>
+</li>
+<li>
+<p><strong>Familiarity with the Iris Classifier deployment</strong> — This article builds on the Iris Classifier <code>InferenceService</code> introduced in the previous article. The predictor component is reused here unchanged.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="transformer">Transformer</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="what-is-a-transformer-in-kserve">What Is a Transformer in KServe?</h3>
+<div class="paragraph">
+<p>A <strong>Transformer</strong> is a specialized KServe component that acts as a protocol and data adapter between clients and model predictors. Architecturally, it is deployed as an additional container within the same <code>InferenceService</code> pod, and KServe automatically routes all inbound requests through it before they reach the model.</p>
+</div>
+<div class="paragraph">
+<p>The Transformer exposes the same HTTP endpoints as the predictor, making it completely transparent to the client. Internally, every request passes through two developer-defined hooks:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>preprocess()</code> — Receives the raw client request and transforms it into the format the model predictor expects.</p>
+</li>
+<li>
+<p><code>postprocess()</code> — Receives the model&#8217;s raw response and transforms it into the format the client expects.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>This design cleanly separates two distinct concerns: <strong>ML inference</strong> (owned by the model) and <strong>data adaptation</strong> (owned by the Transformer). The model image remains a pure ML artifact, while all protocol translation, feature engineering, and business logic live in the Transformer.</p>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="why-use-a-transformer">Why Use a Transformer?</h3>
+<div class="paragraph">
+<p>Without a Transformer, every client must independently construct payloads that conform to the model server&#8217;s protocol. This creates tight coupling: the moment the model&#8217;s expected format changes, every client must be updated. It also forces client developers to understand ML infrastructure details that are irrelevant to their domain.</p>
+</div>
+<div class="paragraph">
+<p>A Transformer solves this by acting as a stable contract boundary. The client sends data in whatever format is natural for the application; the Transformer handles all translation internally. This enables the following patterns:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Format Conversion</strong> — Translate application-specific JSON structures into the V2 Open Inference Protocol format required by the predictor, and back again.</p>
+</li>
+<li>
+<p><strong>Feature Engineering</strong> — Compute derived features on the fly, such as ratios, log-transforms, or bucketed values, without modifying the model or the client.</p>
+</li>
+<li>
+<p><strong>Data Enrichment</strong> — Augment sparse requests with additional context retrieved from a feature store, database, or cache before forwarding them to the model.</p>
+</li>
+<li>
+<p><strong>Output Processing</strong> — Convert raw numeric predictions (e.g., class indices) into human-readable labels, confidence scores, or structured business objects.</p>
+</li>
+<li>
+<p><strong>Security and Compliance</strong> — Scrub personally identifiable information (PII), enforce authentication tokens, or validate schema before requests reach the model.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="v1-and-v2-inference-endpoints">V1 and V2 Inference Endpoints</h3>
+<div class="paragraph">
+<p>KServe exposes two HTTP endpoint families, each with different validation semantics. Understanding the distinction is important when choosing where to bind your Transformer.</p>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 20%;">
+<col style="width: 40%;">
+<col style="width: 40%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Endpoint</th>
+<th class="tableblock halign-left valign-top">Validation</th>
+<th class="tableblock halign-left valign-top">Passed to <code>preprocess()</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>/v2/models/{name}/infer</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Strict — body must conform to the Open Inference Protocol <code>InferenceRequest</code> schema; FastAPI validates it before <code>preprocess()</code> is called.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>InferenceRequest</code> object (already validated)</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>/v1/models/{name}:predict</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">None — raw JSON is accepted as-is with no schema enforcement.</p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Raw Python <code>dict</code></p></td>
+</tr>
+</tbody>
+</table>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+<div class="sect3">
+<h4 id="v2modelsnameinfer"><code>/v2/models/{name}/infer</code></h4>
+<div class="paragraph">
+<p>This endpoint implements the <strong>Open Inference Protocol (OIP)</strong> — a vendor-neutral standard developed collaboratively by NVIDIA, Microsoft, and the KServe project. Strict schema enforcement ensures that any V2-compatible client (NVIDIA Triton, Seldon Core, BentoML, MLflow serving, etc.) can communicate with any V2-compatible server without custom adapters. Bypassing validation on this path is intentional by design, because doing so would break cross-system compatibility.</p>
+</div>
+<div class="paragraph">
+<p>Use this endpoint when your clients already produce V2-compliant payloads, or when interoperability with other inference platforms is a requirement.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="v1modelsnamepredict"><code>/v1/models/{name}:predict</code></h4>
+<div class="paragraph">
+<p>This endpoint accepts any well-formed JSON object with no schema validation. The raw dictionary is passed directly to <code>preprocess()</code>, giving you complete flexibility over the input format.</p>
+</div>
+<div class="paragraph">
+<p>Use this endpoint when you control the client and want to send a simpler, more expressive payload without conforming to the V2 schema. This is the pattern used throughout this article.</p>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="implementation-format-conversion-using-a-transformer">Implementation: Format Conversion Using a Transformer</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>In the previous article, we deployed an Iris Classifier <code>InferenceService</code> and a Streamlit client application. The client constructed a V2-compliant <code>InferenceRequest</code> payload manually before sending it to the predictor — coupling the client to the model&#8217;s protocol.</p>
+</div>
+<div class="paragraph">
+<p>In this article, we introduce a Transformer that takes over that responsibility. The client now sends a compact, field-named JSON object, and the Transformer handles all conversion to and from the V2 protocol transparently.</p>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+<div class="paragraph">
+<p>The request and response payloads are defined as follows:</p>
+</div>
+<div class="paragraph">
+<p><strong>Request fields (client → Transformer)</strong>:</p>
+</div>
+<div class="hdlist">
+<table>
+<tr>
+<td class="hdlist1">
+<code>sepal_length</code>
+</td>
+<td class="hdlist2">
+<p>Sepal length in centimetres (float)</p>
+</td>
+</tr>
+<tr>
+<td class="hdlist1">
+<code>sepal_width</code>
+</td>
+<td class="hdlist2">
+<p>Sepal width in centimetres (float)</p>
+</td>
+</tr>
+<tr>
+<td class="hdlist1">
+<code>petal_length</code>
+</td>
+<td class="hdlist2">
+<p>Petal length in centimetres (float)</p>
+</td>
+</tr>
+<tr>
+<td class="hdlist1">
+<code>petal_width</code>
+</td>
+<td class="hdlist2">
+<p>Petal width in centimetres (float)</p>
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p><strong>Response fields (Transformer → client)</strong>:</p>
+</div>
+<div class="hdlist">
+<table>
+<tr>
+<td class="hdlist1">
+<code>predictions</code>
+</td>
+<td class="hdlist2">
+<p>A list of predicted species names (strings)</p>
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>The complete data flow through the pipeline is illustrated below.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>graph TD
+    A[Client] --&gt;|JSON App Payload| B[Transformer /v1/models/iris-classifier:predict ]
+    B --&gt;|V2 InferenceRequest| C[Model Server /v2/models/iris-classifier/infer]
+    C --&gt;|V2 InferenceResponse| D[Transformer /v1/models/iris-classifier:predict]
+    D --&gt;|JSON App Payload| E[Client]</pre>
+</div>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+<div class="sect2">
+<h3 id="transformer-input-custom-json">Transformer Input (Custom JSON)</h3>
+<div class="paragraph">
+<p>The client sends a simple, field-named JSON object. The field names correspond directly to the four botanical measurements of the Iris flower, making the payload self-documenting and easy to construct without any knowledge of ML inference protocols.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"sepal_length"</span><span class="p">:</span><span class="w"> </span><span class="mf">5.1</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"sepal_width"</span><span class="p">:</span><span class="w"> </span><span class="mf">3.5</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"petal_length"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.4</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"petal_width"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.2</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This format is intentionally human-readable and decoupled from the predictor&#8217;s internal requirements. The Transformer&#8217;s <code>preprocess()</code> method converts it into a V2-compliant request before forwarding it to the model.</p>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="model-input-v2-inference-request">Model Input (V2 Inference Request)</h3>
+<div class="paragraph">
+<p>The Transformer converts the application payload into the format required by the KServe V2 Open Inference Protocol. The key structural differences are:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>All feature values are packed into a flat array and wrapped inside an <code>inputs</code> tensor descriptor.</p>
+</li>
+<li>
+<p>The tensor descriptor declares its <code>shape</code> (<code>[1, 4]</code> — one sample with four features), <code>datatype</code> (<code>FP32</code> — 32-bit floating point), and a tensor <code>name</code> (<code>input-0</code>).</p>
+</li>
+</ul>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"inputs"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="nl">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"input-0"</span><span class="p">,</span><span class="w">
+      </span><span class="nl">"shape"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">],</span><span class="w">
+      </span><span class="nl">"datatype"</span><span class="p">:</span><span class="w"> </span><span class="s2">"FP32"</span><span class="p">,</span><span class="w">
+      </span><span class="nl">"data"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+        </span><span class="p">[</span><span class="mf">5.1</span><span class="p">,</span><span class="w"> </span><span class="mf">3.5</span><span class="p">,</span><span class="w"> </span><span class="mf">1.4</span><span class="p">,</span><span class="w"> </span><span class="mf">0.2</span><span class="p">]</span><span class="w">
+      </span><span class="p">]</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="p">]</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This is the payload that the Transformer&#8217;s <code>predict()</code> method forwards to the predictor over the internal cluster network.</p>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="model-output-v2-inference-response">Model Output (V2 Inference Response)</h3>
+<div class="paragraph">
+<p>The predictor returns a V2-compliant response containing the predicted class <strong>index</strong> — an integer identifying which Iris species the model selected. The raw index is not meaningful to end users without a lookup table, which is exactly the gap the <code>postprocess()</code> method fills.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"model_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"iris-classifier"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"outputs"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="nl">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"output-0"</span><span class="p">,</span><span class="w">
+      </span><span class="nl">"datatype"</span><span class="p">:</span><span class="w"> </span><span class="s2">"INT64"</span><span class="p">,</span><span class="w">
+      </span><span class="nl">"shape"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">1</span><span class="p">],</span><span class="w">
+      </span><span class="nl">"data"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="p">]</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The <code>data</code> array contains one element — the integer class index. The mapping from index to species name is:</p>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 33.3333%;">
+<col style="width: 66.6667%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Index</th>
+<th class="tableblock halign-left valign-top">Species Name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>0</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Iris-Setosa</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>1</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Iris-Versicolor</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><code>2</code></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Iris-Virginica</p></td>
+</tr>
+</tbody>
+</table>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="transformer-output-application-response">Transformer Output (Application Response)</h3>
+<div class="paragraph">
+<p>After <code>postprocess()</code> resolves the index to a species name, the Transformer returns a clean, friendly JSON response to the client. This format is stable regardless of how the model&#8217;s internal output representation evolves.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+  </span><span class="nl">"predictions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+    </span><span class="s2">"Iris-Setosa"</span><span class="w">
+  </span><span class="p">]</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="iris-transformer-py">iris-transformer.py</h3>
+<div class="paragraph">
+<p>The Transformer is implemented as a Python class that extends KServe&#8217;s <code>Model</code> base class. The three core lifecycle methods — <code>preprocess()</code>, <code>predict()</code>, and <code>postprocess()</code> — define the complete data transformation pipeline.</p>
+</div>
+<div class="listingblock">
+<div class="title">services/kserve-transformer/iris-transformer.py</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="python"><span class="kn">import</span> <span class="n">logging</span>
+<span class="kn">from</span> <span class="n">typing</span> <span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Any</span>
+
+<span class="kn">import</span> <span class="n">httpx</span>
+<span class="kn">import</span> <span class="n">kserve</span>
+<span class="kn">from</span> <span class="n">kserve</span> <span class="kn">import</span> <span class="n">Model</span><span class="p">,</span> <span class="n">ModelServer</span>
+
+<span class="n">logging</span><span class="p">.</span><span class="nf">basicConfig</span><span class="p">(</span><span class="n">level</span><span class="o">=</span><span class="n">logging</span><span class="p">.</span><span class="n">INFO</span><span class="p">)</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="p">.</span><span class="nf">getLogger</span><span class="p">(</span><span class="n">__name__</span><span class="p">)</span> <i class="conum" data-value="1"></i><b>(1)</b>
+
+<span class="c1"># Map class index -&gt; species name
+</span><span class="n">IRIS_CLASSES</span> <span class="o">=</span> <span class="p">{</span> <i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="mi">0</span><span class="p">:</span> <span class="sh">"</span><span class="s">Iris-Setosa</span><span class="sh">"</span><span class="p">,</span>
+    <span class="mi">1</span><span class="p">:</span> <span class="sh">"</span><span class="s">Iris-Versicolor</span><span class="sh">"</span><span class="p">,</span>
+    <span class="mi">2</span><span class="p">:</span> <span class="sh">"</span><span class="s">Iris-Virginica</span><span class="sh">"</span><span class="p">,</span>
+<span class="p">}</span>
+
+
+<span class="k">class</span> <span class="nc">IrisTransformer</span><span class="p">(</span><span class="n">Model</span><span class="p">):</span> <i class="conum" data-value="3"></i><b>(3)</b>
+    <span class="sh">"""</span><span class="s">KServe Transformer for the Iris classifier.
+
+    Pre-processing  : Converts a simple dict of flower measurements into the
+                      V2 KServe inference protocol format expected by the model.
+    Post-processing : Converts the model</span><span class="sh">'</span><span class="s">s INT64 class-index output back into
+                      a human-readable species name.
+
+    The `predict()` method is overridden to call the predictor directly over
+    HTTP so that we are not dependent on the `PredictorConfig` context variable,
+    which is not propagated to uvicorn worker subprocesses.
+    </span><span class="sh">"""</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="n">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">predictor_host</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">protocol</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="sh">"</span><span class="s">v2</span><span class="sh">"</span><span class="p">):</span> <i class="conum" data-value="4"></i><b>(4)</b>
+        <span class="nf">super</span><span class="p">().</span><span class="nf">__init__</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="n">self</span><span class="p">.</span><span class="n">predictor_host</span> <span class="o">=</span> <span class="n">predictor_host</span>
+        <span class="n">self</span><span class="p">.</span><span class="n">protocol</span> <span class="o">=</span> <span class="n">protocol</span>
+        <span class="n">self</span><span class="p">.</span><span class="n">ready</span> <span class="o">=</span> <span class="bp">True</span> <i class="conum" data-value="5"></i><b>(5)</b>
+
+    <span class="c1"># ------------------------------------------------------------------
+</span>    <span class="c1"># Pre-process: simple JSON  →  V2 inference request
+</span>    <span class="c1"># ------------------------------------------------------------------
+</span>    <span class="k">def</span> <span class="nf">preprocess</span><span class="p">(</span><span class="n">self</span><span class="p">,</span> <span class="n">inputs</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">headers</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span> <i class="conum" data-value="6"></i><b>(6)</b>
+        <span class="sh">"""</span><span class="s">Transform incoming user-friendly input into the V2 inference protocol.
+
+        Expected input:
+            {
+                </span><span class="sh">"</span><span class="s">sepal_length</span><span class="sh">"</span><span class="s">: 5.1,
+                </span><span class="sh">"</span><span class="s">sepal_width</span><span class="sh">"</span><span class="s">:  3.5,
+                </span><span class="sh">"</span><span class="s">petal_length</span><span class="sh">"</span><span class="s">: 1.4,
+                </span><span class="sh">"</span><span class="s">petal_width</span><span class="sh">"</span><span class="s">:  0.2
+            }
+
+        V2 output sent to the predictor:
+            {
+                </span><span class="sh">"</span><span class="s">inputs</span><span class="sh">"</span><span class="s">: [{
+                    </span><span class="sh">"</span><span class="s">name</span><span class="sh">"</span><span class="s">: </span><span class="sh">"</span><span class="s">input-0</span><span class="sh">"</span><span class="s">,
+                    </span><span class="sh">"</span><span class="s">shape</span><span class="sh">"</span><span class="s">: [1, 4],
+                    </span><span class="sh">"</span><span class="s">datatype</span><span class="sh">"</span><span class="s">: </span><span class="sh">"</span><span class="s">FP32</span><span class="sh">"</span><span class="s">,
+                    </span><span class="sh">"</span><span class="s">data</span><span class="sh">"</span><span class="s">: [[5.1, 3.5, 1.4, 0.2]]
+                }]
+            }
+        </span><span class="sh">"""</span>
+        <span class="n">logger</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sh">"</span><span class="s">preprocess input: %s</span><span class="sh">"</span><span class="p">,</span> <span class="n">inputs</span><span class="p">)</span>
+
+        <span class="n">sepal_length</span> <span class="o">=</span> <span class="nf">float</span><span class="p">(</span><span class="n">inputs</span><span class="p">[</span><span class="sh">"</span><span class="s">sepal_length</span><span class="sh">"</span><span class="p">])</span> <i class="conum" data-value="7"></i><b>(7)</b>
+        <span class="n">sepal_width</span>  <span class="o">=</span> <span class="nf">float</span><span class="p">(</span><span class="n">inputs</span><span class="p">[</span><span class="sh">"</span><span class="s">sepal_width</span><span class="sh">"</span><span class="p">])</span>
+        <span class="n">petal_length</span> <span class="o">=</span> <span class="nf">float</span><span class="p">(</span><span class="n">inputs</span><span class="p">[</span><span class="sh">"</span><span class="s">petal_length</span><span class="sh">"</span><span class="p">])</span>
+        <span class="n">petal_width</span>  <span class="o">=</span> <span class="nf">float</span><span class="p">(</span><span class="n">inputs</span><span class="p">[</span><span class="sh">"</span><span class="s">petal_width</span><span class="sh">"</span><span class="p">])</span>
+
+        <span class="n">v2_request</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="sh">"</span><span class="s">inputs</span><span class="sh">"</span><span class="p">:</span> <span class="p">[</span>
+                <span class="p">{</span>
+                    <span class="sh">"</span><span class="s">name</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">input-0</span><span class="sh">"</span><span class="p">,</span>  <i class="conum" data-value="8"></i><b>(8)</b>
+                    <span class="sh">"</span><span class="s">shape</span><span class="sh">"</span><span class="p">:</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">],</span>    <i class="conum" data-value="9"></i><b>(9)</b>
+                    <span class="sh">"</span><span class="s">datatype</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">FP32</span><span class="sh">"</span><span class="p">,</span> <i class="conum" data-value="10"></i><b>(10)</b>
+                    <span class="sh">"</span><span class="s">data</span><span class="sh">"</span><span class="p">:</span> <span class="p">[[</span><span class="n">sepal_length</span><span class="p">,</span> <span class="n">sepal_width</span><span class="p">,</span> <span class="n">petal_length</span><span class="p">,</span> <span class="n">petal_width</span><span class="p">]],</span> <i class="conum" data-value="11"></i><b>(11)</b>
+                <span class="p">}</span>
+            <span class="p">]</span>
+        <span class="p">}</span>
+
+        <span class="n">logger</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sh">"</span><span class="s">preprocess output (V2 request): %s</span><span class="sh">"</span><span class="p">,</span> <span class="n">v2_request</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">v2_request</span>
+
+    <span class="c1"># ------------------------------------------------------------------
+</span>    <span class="c1"># predict: forward V2 request to the predictor over HTTP directly
+</span>    <span class="c1"># ------------------------------------------------------------------
+</span>    <span class="k">async</span> <span class="k">def</span> <span class="nf">predict</span><span class="p">(</span><span class="n">self</span><span class="p">,</span> <span class="n">payload</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">headers</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span><span class="p">,</span> <span class="n">response_headers</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span> <i class="conum" data-value="12"></i><b>(12)</b>
+        <span class="sh">"""</span><span class="s">Forward the pre-processed V2 request to the predictor.
+
+        We override `predict()` to call the predictor directly via httpx.
+        This avoids the `PredictorConfig` context variable, which is not
+        propagated to uvicorn worker subprocesses in KServe 0.16.
+        </span><span class="sh">"""</span>
+        <span class="n">predictor_url</span> <span class="o">=</span> <span class="sa">f</span><span class="sh">"</span><span class="s">http://</span><span class="si">{</span><span class="n">self</span><span class="p">.</span><span class="n">predictor_host</span><span class="si">}</span><span class="s">/v2/models/</span><span class="si">{</span><span class="n">self</span><span class="p">.</span><span class="n">name</span><span class="si">}</span><span class="s">/infer</span><span class="sh">"</span> <i class="conum" data-value="13"></i><b>(13)</b>
+        <span class="n">logger</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sh">"</span><span class="s">Forwarding V2 request to predictor: %s</span><span class="sh">"</span><span class="p">,</span> <span class="n">predictor_url</span><span class="p">)</span>
+
+        <span class="k">async</span> <span class="k">with</span> <span class="n">httpx</span><span class="p">.</span><span class="nc">AsyncClient</span><span class="p">()</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span> <i class="conum" data-value="14"></i><b>(14)</b>
+            <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="p">.</span><span class="nf">post</span><span class="p">(</span>
+                <span class="n">predictor_url</span><span class="p">,</span>
+                <span class="n">json</span><span class="o">=</span><span class="n">payload</span><span class="p">,</span>
+                <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="sh">"</span><span class="s">Content-Type</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">application/json</span><span class="sh">"</span><span class="p">},</span>
+                <span class="n">timeout</span><span class="o">=</span><span class="mf">60.0</span><span class="p">,</span> <i class="conum" data-value="15"></i><b>(15)</b>
+            <span class="p">)</span>
+            <span class="n">response</span><span class="p">.</span><span class="nf">raise_for_status</span><span class="p">()</span> <i class="conum" data-value="16"></i><b>(16)</b>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">response</span><span class="p">.</span><span class="nf">json</span><span class="p">()</span>
+
+        <span class="n">logger</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sh">"</span><span class="s">Predictor response: %s</span><span class="sh">"</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">result</span>
+
+    <span class="c1"># ------------------------------------------------------------------
+</span>    <span class="c1"># Post-process: V2 inference response  →  friendly JSON
+</span>    <span class="c1"># ------------------------------------------------------------------
+</span>    <span class="k">def</span> <span class="nf">postprocess</span><span class="p">(</span><span class="n">self</span><span class="p">,</span> <span class="n">response</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">headers</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span> <i class="conum" data-value="17"></i><b>(17)</b>
+        <span class="sh">"""</span><span class="s">Convert the V2 model response into a user-friendly prediction dict.
+
+        Model output example:
+            {
+                </span><span class="sh">"</span><span class="s">model_name</span><span class="sh">"</span><span class="s">: </span><span class="sh">"</span><span class="s">iris-classifier</span><span class="sh">"</span><span class="s">,
+                </span><span class="sh">"</span><span class="s">outputs</span><span class="sh">"</span><span class="s">: [{
+                    </span><span class="sh">"</span><span class="s">name</span><span class="sh">"</span><span class="s">: </span><span class="sh">"</span><span class="s">output-0</span><span class="sh">"</span><span class="s">,
+                    </span><span class="sh">"</span><span class="s">datatype</span><span class="sh">"</span><span class="s">: </span><span class="sh">"</span><span class="s">INT64</span><span class="sh">"</span><span class="s">,
+                    </span><span class="sh">"</span><span class="s">shape</span><span class="sh">"</span><span class="s">: [1],
+                    </span><span class="sh">"</span><span class="s">data</span><span class="sh">"</span><span class="s">: [0]
+                }]
+            }
+
+        Transformer output:
+            {</span><span class="sh">"</span><span class="s">predictions</span><span class="sh">"</span><span class="s">: [</span><span class="sh">"</span><span class="s">Iris-Setosa</span><span class="sh">"</span><span class="s">]}
+        </span><span class="sh">"""</span>
+        <span class="n">logger</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sh">"</span><span class="s">postprocess input (V2 response): %s</span><span class="sh">"</span><span class="p">,</span> <span class="n">response</span><span class="p">)</span>
+
+        <span class="n">outputs</span> <span class="o">=</span> <span class="n">response</span><span class="p">.</span><span class="nf">get</span><span class="p">(</span><span class="sh">"</span><span class="s">outputs</span><span class="sh">"</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">outputs</span><span class="p">:</span> <i class="conum" data-value="18"></i><b>(18)</b>
+            <span class="n">logger</span><span class="p">.</span><span class="nf">warning</span><span class="p">(</span><span class="sh">"</span><span class="s">No outputs found in model response</span><span class="sh">"</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">{</span><span class="sh">"</span><span class="s">predictions</span><span class="sh">"</span><span class="p">:</span> <span class="p">[]}</span>
+
+        <span class="n">data</span> <span class="o">=</span> <span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="nf">get</span><span class="p">(</span><span class="sh">"</span><span class="s">data</span><span class="sh">"</span><span class="p">,</span> <span class="p">[])</span> <i class="conum" data-value="19"></i><b>(19)</b>
+        <span class="n">predictions</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">class_index</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+            <span class="n">label</span> <span class="o">=</span> <span class="n">IRIS_CLASSES</span><span class="p">.</span><span class="nf">get</span><span class="p">(</span><span class="nf">int</span><span class="p">(</span><span class="n">class_index</span><span class="p">),</span> <span class="sa">f</span><span class="sh">"</span><span class="s">Unknown(</span><span class="si">{</span><span class="n">class_index</span><span class="si">}</span><span class="s">)</span><span class="sh">"</span><span class="p">)</span> <i class="conum" data-value="20"></i><b>(20)</b>
+            <span class="n">predictions</span><span class="p">.</span><span class="nf">append</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
+
+        <span class="n">result</span> <span class="o">=</span> <span class="p">{</span><span class="sh">"</span><span class="s">predictions</span><span class="sh">"</span><span class="p">:</span> <span class="n">predictions</span><span class="p">}</span>
+        <span class="n">logger</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sh">"</span><span class="s">postprocess output: %s</span><span class="sh">"</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">result</span>
+
+
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="sh">"</span><span class="s">__main__</span><span class="sh">"</span><span class="p">:</span>
+    <span class="c1"># kserve.model_server.parser already defines:
+</span>    <span class="c1">#   --model_name, --predictor_host, --predictor_protocol, etc.
+</span>    <span class="c1"># Adding them again causes argparse.ArgumentError: conflicting option string.
+</span>    <span class="n">args</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">kserve</span><span class="p">.</span><span class="n">model_server</span><span class="p">.</span><span class="n">parser</span><span class="p">.</span><span class="nf">parse_known_args</span><span class="p">()</span> <i class="conum" data-value="21"></i><b>(21)</b>
+
+    <span class="n">transformer</span> <span class="o">=</span> <span class="nc">IrisTransformer</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="n">args</span><span class="p">.</span><span class="n">model_name</span><span class="p">,</span>
+        <span class="n">predictor_host</span><span class="o">=</span><span class="n">args</span><span class="p">.</span><span class="n">predictor_host</span><span class="p">,</span>
+        <span class="n">protocol</span><span class="o">=</span><span class="n">args</span><span class="p">.</span><span class="n">predictor_protocol</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="n">server</span> <span class="o">=</span> <span class="nc">ModelServer</span><span class="p">()</span>
+    <span class="n">server</span><span class="p">.</span><span class="nf">start</span><span class="p">(</span><span class="n">models</span><span class="o">=</span><span class="p">[</span><span class="n">transformer</span><span class="p">])</span> <i class="conum" data-value="22"></i><b>(22)</b></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>Structured logging is configured at module level. Using <code><em>name</em></code> as the logger name scopes log lines to this module, which simplifies filtering in aggregated log pipelines such as Loki or CloudWatch Logs.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td><code>IRIS_CLASSES</code> is a module-level constant that maps the model&#8217;s integer output indices to their corresponding species names. Keeping this mapping outside the class avoids recreating it on every request.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td><code>IrisTransformer</code> extends KServe&#8217;s <code>Model</code> base class, which provides the HTTP server infrastructure, endpoint routing, and lifecycle hooks. Subclassing <code>Model</code> is the standard extension mechanism for custom Transformers and Predictors alike.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>The constructor accepts the model <code>name</code>, the <code>predictor_host</code> (the internal cluster hostname of the model server), and an optional <code>protocol</code> string. KServe injects <code>predictor_host</code> automatically at runtime as a command-line argument.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td>Setting <code>self.ready = True</code> immediately signals to KServe&#8217;s readiness probe that this Transformer is healthy and ready to accept traffic. In more complex scenarios, you might set this to <code>False</code> initially and flip it to <code>True</code> only after loading external resources (e.g., embeddings or a feature store client).</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="6"></i><b>6</b></td>
+<td><code>preprocess()</code> is the first hook in the request pipeline. It receives the client&#8217;s raw payload (a Python <code>dict</code> when using the V1 endpoint) and must return a payload in the format the predictor expects.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="7"></i><b>7</b></td>
+<td>Each measurement is explicitly cast to <code>float</code>. This guards against clients sending integer values or string-encoded numbers, both of which would cause a type mismatch when the model server validates the tensor datatype.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="8"></i><b>8</b></td>
+<td><code>name</code> is the tensor name declared in the model&#8217;s input signature. The scikit-learn server expects a tensor named <code>input-0</code>. This value must match what the model was trained with.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="9"></i><b>9</b></td>
+<td><code>shape</code> declares the tensor dimensions: <code>[1, 4]</code> means one sample (batch size of 1) with four features. The model server uses this to reshape the flat data array into the correct matrix.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="10"></i><b>10</b></td>
+<td><code>datatype</code> specifies the numeric precision. <code>FP32</code> (32-bit floating point) matches the dtype the scikit-learn model expects. Using the wrong datatype here would cause a server-side validation error.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="11"></i><b>11</b></td>
+<td>The four scalar values are packed into a nested list to represent a single row in a 2-D batch tensor. The outer list corresponds to the batch dimension; the inner list contains the four feature values.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="12"></i><b>12</b></td>
+<td><code>predict()</code> is declared <code>async</code> because it performs a non-blocking HTTP call to the predictor. KServe&#8217;s server is built on an async framework (uvicorn + asyncio), so using async I/O here avoids blocking the event loop during network latency.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="13"></i><b>13</b></td>
+<td>The predictor URL is constructed from <code>self.predictor_host</code> and <code>self.name</code>, both of which are provided by KServe at runtime. The Transformer always calls the predictor&#8217;s V2 endpoint regardless of which endpoint the client used.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="14"></i><b>14</b></td>
+<td><code>httpx.AsyncClient</code> is used instead of the synchronous <code>requests</code> library to perform a non-blocking HTTP POST. The <code>async with</code> context manager ensures the connection is properly closed after the request completes.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="15"></i><b>15</b></td>
+<td>A 60-second timeout is set to prevent the Transformer from hanging indefinitely if the predictor becomes unresponsive. Adjust this value based on your model&#8217;s expected inference latency.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="16"></i><b>16</b></td>
+<td><code>raise_for_status()</code> converts any 4xx or 5xx HTTP response from the predictor into a Python exception, which KServe will propagate back to the client as an appropriate error response.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="17"></i><b>17</b></td>
+<td><code>postprocess()</code> is the final hook in the response pipeline. It receives the predictor&#8217;s raw V2 response and must return the payload that will be sent back to the client.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="18"></i><b>18</b></td>
+<td>Defensive check for an empty <code>outputs</code> array. This situation can occur if the predictor returned an unexpected response structure, and surfacing it as an empty list is safer than raising an unhandled <code>IndexError</code>.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="19"></i><b>19</b></td>
+<td>The first output tensor&#8217;s <code>data</code> array is extracted. For the Iris model, this is a flat list of integer class indices — one per sample in the batch.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="20"></i><b>20</b></td>
+<td>Each integer index is resolved to its species name using the <code>IRIS_CLASSES</code> lookup table. The fallback string <code>f"Unknown({class_index})"</code> preserves observability if the model ever returns an out-of-range index.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="21"></i><b>21</b></td>
+<td><code>kserve.model_server.parser</code> is KServe&#8217;s shared argument parser, which already defines <code>--model_name</code>, <code>--predictor_host</code>, and <code>--predictor_protocol</code> as standard flags. Using <code>parse_known_args()</code> rather than <code>parse_args()</code> allows the entry point to accept these flags without re-declaring them, which would cause an <code>ArgumentError</code>.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="22"></i><b>22</b></td>
+<td><code>ModelServer().start()</code> launches the uvicorn HTTP server and registers the Transformer instance as the handler for all inference requests. KServe&#8217;s routing layer then dispatches each request to the appropriate lifecycle method.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deploy-transformer">Deploy Transformer</h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="directory-structure">Directory Structure</h3>
+<div class="paragraph">
+<p>The Transformer service lives in its own directory alongside the <code>InferenceService</code> manifest and test utilities. Keeping it self-contained makes it straightforward to version, build, and deploy independently of the rest of the application.</p>
+</div>
+<div class="listingblock">
+<div class="title">Directory Structure</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>tree services/kserve-transformer/
+services/kserve-transformer/
+├── Dockerfile
+├── README.md
+├── iris-inference-with-transformer.json
+├── iris-inference-with-transformer.yaml
+├── iris-transformer.py
+└── test-iris-transformer.py</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="dockerfile">Dockerfile</h3>
+<div class="paragraph">
+<p>The Transformer is packaged as a minimal Docker image based on the official Python 3.11 slim base image. Keeping the image lean reduces pull latency, attack surface, and cold-start time in the cluster.</p>
+</div>
+<div class="listingblock">
+<div class="title">services/kserve-transformer/Dockerfile</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="dockerfile"><span class="k">FROM</span><span class="s"> python:3.11-slim </span><i class="conum" data-value="1"></i><b>(1)</b>
+
+<span class="k">WORKDIR</span><span class="s"> /app</span>
+
+<span class="c"># Prevent Python from buffering stdout/stderr</span>
+<span class="k">ENV</span><span class="s"> PYTHONUNBUFFERED=1 </span><i class="conum" data-value="2"></i><b>(2)</b>
+
+<span class="c"># Install system dependencies</span>
+<span class="k">RUN </span>apt-get update <span class="o">&amp;&amp;</span> apt-get <span class="nb">install</span> <span class="nt">-y</span> <span class="nt">--no-install-recommends</span> <span class="se">\
+</span>    curl <span class="se">\
+</span>    <span class="o">&amp;&amp;</span> <span class="nb">rm</span> <span class="nt">-rf</span> /var/lib/apt/lists/<span class="k">*</span> <i class="conum" data-value="3"></i><b>(3)</b>
+
+<span class="c"># Install KServe SDK (uvicorn[standard] is pulled in automatically by kserve)</span>
+<span class="k">RUN </span>pip <span class="nb">install</span> <span class="nt">--no-cache-dir</span> <span class="nv">kserve</span><span class="o">==</span>0.16.0 <i class="conum" data-value="4"></i><b>(4)</b>
+
+<span class="c"># Copy the transformer script</span>
+<span class="k">COPY</span><span class="s"> services/kserve-transformer/iris-transformer.py .</span>
+
+<span class="c"># Expose the default KServe model server port</span>
+<span class="k">EXPOSE</span><span class="s"> 8080 </span><i class="conum" data-value="5"></i><b>(5)</b>
+
+<span class="c"># Start the transformer; --predictor_host is injected by KServe at runtime</span>
+<span class="k">ENTRYPOINT</span><span class="s"> ["python", "iris-transformer.py"] </span><i class="conum" data-value="6"></i><b>(6)</b></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The <code>python:3.11-slim</code> base image provides a minimal Debian environment with Python 3.11 pre-installed. The <code>slim</code> variant omits development headers and documentation, significantly reducing the final image size.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>Setting <code>PYTHONUNBUFFERED=1</code> forces Python to write output directly to stdout and stderr without internal buffering. This ensures that log lines appear immediately in the pod&#8217;s log stream, which is critical for real-time observability in Kubernetes.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td><code>curl</code> is installed for use in health check scripts and ad-hoc debugging inside the pod. The <code>--no-install-recommends</code> flag and the subsequent <code>rm -rf /var/lib/apt/lists/*</code> remove cached package metadata, keeping the image layer as small as possible.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>The <code>kserve</code> Python SDK is pinned to version <code>0.16.0</code> for reproducibility. Installing it also pulls in <code>uvicorn[standard]</code> and <code>httpx</code> as transitive dependencies, so no additional packages need to be listed explicitly.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td>Port <code>8080</code> is the default port that KServe model servers listen on. Declaring it with <code>EXPOSE</code> documents the intent and allows container orchestration tooling to discover the service port automatically.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="6"></i><b>6</b></td>
+<td>The <code>ENTRYPOINT</code> launches the Transformer directly. When KServe creates the pod, it injects <code>--model_name</code>, <code>--predictor_host</code>, and other standard flags as command-line arguments, which <code>kserve.model_server.parser</code> parses at startup.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+<div class="paragraph">
+<p>After building the image, push it to a container registry accessible by your Kubernetes cluster. The image referenced throughout this guide is published to Docker Hub as <code>credemol/mlops-iris-kserve-transformer:1.0.2</code>.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>docker build <span class="nt">-t</span> credemol/mlops-iris-kserve-transformer:1.0.2 <span class="se">\</span>
+    <span class="nt">-f</span> services/kserve-transformer/Dockerfile <span class="nb">.</span>
+<span class="nv">$ </span>docker push credemol/mlops-iris-kserve-transformer:1.0.2</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="deploy-inferenceservice-with-transformer">Deploy InferenceService with Transformer</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>With the Transformer image available in the registry, the <code>InferenceService</code> manifest is extended with a <code>transformer</code> section. KServe schedules the Transformer container in the same pod as the predictor and automatically wires the inter-container routing.</p>
+</div>
+<div class="listingblock">
+<div class="title">iris-inference-with-transformer.yaml</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="yaml"><span class="na">apiVersion</span><span class="pi">:</span> <span class="s2">"</span><span class="s">serving.kserve.io/v1beta1"</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s2">"</span><span class="s">InferenceService"</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">iris-classifier"</span>
+  <span class="na">namespace</span><span class="pi">:</span> <span class="s">kserve</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <i class="conum" data-value="1"></i><b>(1)</b>
+  <span class="na">predictor</span><span class="pi">:</span>
+    <span class="na">serviceAccountName</span><span class="pi">:</span> <span class="s">sa-s3-access</span>
+    <span class="na">model</span><span class="pi">:</span>
+      <span class="na">modelFormat</span><span class="pi">:</span>
+        <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">sklearn"</span>
+      <span class="na">storageUri</span><span class="pi">:</span> <span class="s2">"</span><span class="s">s3://nsa2-sf-ml-models/mlflow/2/models/m-6db63970926b4ad496bf8aaf4cda2c9e/artifacts"</span>
+      <span class="na">protocolVersion</span><span class="pi">:</span> <span class="s">v2</span>
+      <span class="na">runtime</span><span class="pi">:</span> <span class="s">kserve-sklearnserver</span>
+
+  <i class="conum" data-value="2"></i><b>(2)</b>
+  <span class="na">transformer</span><span class="pi">:</span>
+    <span class="na">containers</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">image</span><span class="pi">:</span> <span class="s2">"</span><span class="s">credemol/mlops-iris-kserve-transformer:1.0.2"</span>
+        <span class="na">name</span><span class="pi">:</span> <span class="s">mlops-iris-kserve-transformer</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The <code>predictor</code> section is identical to the one used in the previous article. The <code>sa-s3-access</code> service account grants the predictor pod permission to pull the model artifact from the S3 bucket via IRSA (IAM Roles for Service Accounts). The <code>kserve-sklearnserver</code> runtime loads the scikit-learn model and serves it over the V2 protocol.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The <code>transformer</code> section introduces the custom container. KServe automatically injects the <code>--predictor_host</code> argument at runtime, pointing the Transformer at the internal predictor service. No manual service discovery or environment variable configuration is needed.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+<div class="paragraph">
+<p>Deploy the <code>InferenceService</code> to the cluster:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl apply <span class="nt">-f</span> services/kserve-transformer/iris-inference-with-transformer.yaml</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Verify that the <code>InferenceService</code> reaches the <code>Ready</code> state — this confirms that both the predictor and Transformer containers have started successfully and passed their readiness probes:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>kubectl get inferenceservice iris-classifier <span class="nt">-n</span> kserve</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>You should see a <code>READY</code> status of <code>True</code> and a populated <code>URL</code> field within a minute or two of applying the manifest.</p>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="test-the-inferenceservice-with-curl">Test the InferenceService with curl</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Once the <code>InferenceService</code> is ready, you can validate the end-to-end pipeline using <code>curl</code>. The request uses the simple application payload — not the V2 protocol format — demonstrating that the Transformer is handling the conversion transparently.</p>
+</div>
+<div class="paragraph">
+<p>Save the test payload to a file:</p>
+</div>
+<div class="listingblock">
+<div class="title">simple_input_1.json</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="json"><span class="p">{</span><span class="w">
+    </span><span class="nl">"sepal_length"</span><span class="p">:</span><span class="w"> </span><span class="mf">5.1</span><span class="p">,</span><span class="w">
+    </span><span class="nl">"sepal_width"</span><span class="p">:</span><span class="w"> </span><span class="mf">3.5</span><span class="p">,</span><span class="w">
+    </span><span class="nl">"petal_length"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.4</span><span class="p">,</span><span class="w">
+    </span><span class="nl">"petal_width"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.2</span><span class="w">
+</span><span class="p">}</span></code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+<div class="paragraph">
+<p>Send the request to the V1 predict endpoint, which bypasses V2 schema validation and routes the raw JSON to <code>preprocess()</code>:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ SERVICE_HOSTNAME</span><span class="o">=</span><span class="s2">"iris-classifier-transformer-kserve.servicefoundry.org"</span> <i class="conum" data-value="1"></i><b>(1)</b>
+
+curl <span class="nt">-s</span> <span class="nt">-X</span> POST <span class="se">\</span>
+  <span class="nt">-H</span> <span class="s2">"Host: </span><span class="k">${</span><span class="nv">SERVICE_HOSTNAME</span><span class="k">}</span><span class="s2">"</span> <span class="se">\ </span>       <i class="conum" data-value="2"></i><b>(2)</b>
+  <span class="nt">-H</span> <span class="s2">"Content-Type: application/json"</span> <span class="se">\</span>
+  <span class="nt">-d</span> @./simple_input_1.json <span class="se">\</span>
+  https://<span class="k">${</span><span class="nv">SERVICE_HOSTNAME</span><span class="k">}</span>/v1/models/iris-classifier:predict | jq  <i class="conum" data-value="3"></i><b>(3)</b>
+
+<span class="c"># Expected output:</span>
+<span class="o">{</span>
+  <span class="s2">"predictions"</span>: <span class="o">[</span>
+    <span class="s2">"Iris-Setosa"</span>
+  <span class="o">]</span>
+<span class="o">}</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td>The <code>SERVICE_HOSTNAME</code> is the external hostname assigned to the <code>InferenceService</code> by the Ingress or Gateway controller. It follows the pattern <code>{name}-{namespace}.{domain}</code> by convention.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td>The <code>Host</code> header is included so that the Ingress or Istio Gateway can route the request to the correct <code>InferenceService</code> virtual service. When testing against a domain that resolves through DNS, this header is set automatically.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td>The response is piped through <code>jq</code> for pretty-printed JSON output. The <code>Iris-Setosa</code> label confirms that the full pipeline — preprocess → predictor → postprocess — completed successfully.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="kserve-transformer-client-application">KServe Transformer Client Application</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>With the end-to-end pipeline verified, we can build a Streamlit web application that exposes the Iris classification service through an intuitive user interface. The application sends the same simple JSON payload to the Transformer endpoint, keeping all V2 protocol concerns contained within the Transformer layer and completely invisible to the UI code.</p>
+</div>
+<div class="listingblock">
+<div class="title">service/kserve-transformer-client/app.py</div>
+<div class="content">
+<pre class="rouge highlight"><code data-lang="python"><span class="kn">import</span> <span class="n">os</span>
+<span class="kn">import</span> <span class="n">logging</span>
+
+<span class="kn">import</span> <span class="n">requests</span>
+<span class="kn">import</span> <span class="n">streamlit</span> <span class="k">as</span> <span class="n">st</span>
+
+<span class="c1"># Configure logging
+</span><span class="n">logging</span><span class="p">.</span><span class="nf">basicConfig</span><span class="p">(</span><span class="n">level</span><span class="o">=</span><span class="n">logging</span><span class="p">.</span><span class="n">INFO</span><span class="p">)</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="p">.</span><span class="nf">getLogger</span><span class="p">(</span><span class="n">__name__</span><span class="p">)</span>
+
+<span class="c1"># -----------------------------------------------------------------------
+# Configuration from environment variables
+# -----------------------------------------------------------------------
+</span><span class="n">HOSTNAME</span> <span class="o">=</span> <span class="n">os</span><span class="p">.</span><span class="nf">getenv</span><span class="p">(</span><span class="sh">"</span><span class="s">HOSTNAME</span><span class="sh">"</span><span class="p">,</span> <span class="sh">"</span><span class="s">iris-classifier-kserve.servicefoundry.org</span><span class="sh">"</span><span class="p">)</span> <i class="conum" data-value="1"></i><b>(1)</b>
+<span class="n">MODEL_NAME</span> <span class="o">=</span> <span class="n">os</span><span class="p">.</span><span class="nf">getenv</span><span class="p">(</span><span class="sh">"</span><span class="s">MODEL_NAME</span><span class="sh">"</span><span class="p">,</span> <span class="sh">"</span><span class="s">iris-classifier</span><span class="sh">"</span><span class="p">)</span>
+<span class="n">FULL_URL</span> <span class="o">=</span> <span class="sa">f</span><span class="sh">"</span><span class="s">https://</span><span class="si">{</span><span class="n">HOSTNAME</span><span class="si">}</span><span class="s">/v1/models/</span><span class="si">{</span><span class="n">MODEL_NAME</span><span class="si">}</span><span class="s">:predict</span><span class="sh">"</span>
+
+
+<span class="c1"># -----------------------------------------------------------------------
+# Helper functions
+# -----------------------------------------------------------------------
+</span>
+<span class="k">def</span> <span class="nf">build_payload</span><span class="p">(</span><span class="n">sepal_length</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">sepal_width</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+                  <span class="n">petal_length</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">petal_width</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span> <i class="conum" data-value="2"></i><b>(2)</b>
+    <span class="sh">"""</span><span class="s">Build the simple JSON payload that the KServe Transformer accepts.</span><span class="sh">"""</span>
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="sh">"</span><span class="s">sepal_length</span><span class="sh">"</span><span class="p">:</span> <span class="n">sepal_length</span><span class="p">,</span>
+        <span class="sh">"</span><span class="s">sepal_width</span><span class="sh">"</span><span class="p">:</span> <span class="n">sepal_width</span><span class="p">,</span>
+        <span class="sh">"</span><span class="s">petal_length</span><span class="sh">"</span><span class="p">:</span> <span class="n">petal_length</span><span class="p">,</span>
+        <span class="sh">"</span><span class="s">petal_width</span><span class="sh">"</span><span class="p">:</span> <span class="n">petal_width</span><span class="p">,</span>
+    <span class="p">}</span>
+
+
+<span class="k">def</span> <span class="nf">get_prediction</span><span class="p">(</span><span class="n">payload</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span> <span class="n">url</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">FULL_URL</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span> <span class="o">|</span> <span class="bp">None</span><span class="p">:</span> <i class="conum" data-value="3"></i><b>(3)</b>
+    <span class="sh">"""</span><span class="s">
+    POST the payload to the KServe Transformer endpoint.
+
+    Returns the parsed JSON response dict, or None on error.
+    </span><span class="sh">"""</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">logger</span><span class="p">.</span><span class="nf">info</span><span class="p">(</span><span class="sh">"</span><span class="s">POST %s  payload=%s</span><span class="sh">"</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">payload</span><span class="p">)</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="n">requests</span><span class="p">.</span><span class="nf">post</span><span class="p">(</span>
+            <span class="n">url</span><span class="p">,</span>
+            <span class="n">json</span><span class="o">=</span><span class="n">payload</span><span class="p">,</span>
+            <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="sh">"</span><span class="s">Content-Type</span><span class="sh">"</span><span class="p">:</span> <span class="sh">"</span><span class="s">application/json</span><span class="sh">"</span><span class="p">},</span>
+            <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <i class="conum" data-value="4"></i><b>(4)</b>
+        <span class="p">)</span>
+        <span class="n">response</span><span class="p">.</span><span class="nf">raise_for_status</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">response</span><span class="p">.</span><span class="nf">json</span><span class="p">()</span>
+    <span class="k">except</span> <span class="n">requests</span><span class="p">.</span><span class="n">exceptions</span><span class="p">.</span><span class="n">RequestException</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="n">logger</span><span class="p">.</span><span class="nf">error</span><span class="p">(</span><span class="sh">"</span><span class="s">Request failed: %s</span><span class="sh">"</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
+        <span class="n">st</span><span class="p">.</span><span class="nf">error</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">Request failed: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="sh">"</span><span class="p">)</span> <i class="conum" data-value="5"></i><b>(5)</b>
+        <span class="k">return</span> <span class="bp">None</span>
+
+
+<span class="k">def</span> <span class="nf">parse_prediction</span><span class="p">(</span><span class="n">response</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="bp">None</span><span class="p">:</span> <i class="conum" data-value="6"></i><b>(6)</b>
+    <span class="sh">"""</span><span class="s">Extract the first prediction label from the transformer response.</span><span class="sh">"""</span>
+    <span class="n">predictions</span> <span class="o">=</span> <span class="n">response</span><span class="p">.</span><span class="nf">get</span><span class="p">(</span><span class="sh">"</span><span class="s">predictions</span><span class="sh">"</span><span class="p">,</span> <span class="p">[])</span>
+    <span class="k">if</span> <span class="n">predictions</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">predictions</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">return</span> <span class="bp">None</span>
+
+<span class="c1"># -----------------------------------------------------------------------
+# Streamlit UI
+# -----------------------------------------------------------------------
+</span>
+<span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+    <span class="n">st</span><span class="p">.</span><span class="nf">set_page_config</span><span class="p">(</span>
+        <span class="n">page_title</span><span class="o">=</span><span class="sh">"</span><span class="s">Iris Classifier — Transformer</span><span class="sh">"</span><span class="p">,</span>
+        <span class="n">page_icon</span><span class="o">=</span><span class="sh">"</span><span class="s">🌸</span><span class="sh">"</span><span class="p">,</span>
+        <span class="n">layout</span><span class="o">=</span><span class="sh">"</span><span class="s">centered</span><span class="sh">"</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="n">st</span><span class="p">.</span><span class="nf">title</span><span class="p">(</span><span class="sh">"</span><span class="s">🌸 Iris Flower Classification</span><span class="sh">"</span><span class="p">)</span>
+    <span class="n">st</span><span class="p">.</span><span class="nf">caption</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">Powered by KServe Transformer · `</span><span class="si">{</span><span class="n">FULL_URL</span><span class="si">}</span><span class="s">`</span><span class="sh">"</span><span class="p">)</span>
+
+    <span class="n">st</span><span class="p">.</span><span class="nf">divider</span><span class="p">()</span>
+
+    <span class="c1"># ── Sidebar: feature inputs ──────────────────────────────────────────
+</span>    <span class="n">st</span><span class="p">.</span><span class="n">sidebar</span><span class="p">.</span><span class="nf">header</span><span class="p">(</span><span class="sh">"</span><span class="s">🌿 Flower Measurements</span><span class="sh">"</span><span class="p">)</span> <i class="conum" data-value="7"></i><b>(7)</b>
+
+    <span class="n">sepal_length</span> <span class="o">=</span> <span class="n">st</span><span class="p">.</span><span class="n">sidebar</span><span class="p">.</span><span class="nf">slider</span><span class="p">(</span><span class="sh">"</span><span class="s">Sepal Length (cm)</span><span class="sh">"</span><span class="p">,</span> <span class="mf">4.0</span><span class="p">,</span> <span class="mf">8.0</span><span class="p">,</span> <span class="mf">5.1</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">)</span>
+    <span class="n">sepal_width</span>  <span class="o">=</span> <span class="n">st</span><span class="p">.</span><span class="n">sidebar</span><span class="p">.</span><span class="nf">slider</span><span class="p">(</span><span class="sh">"</span><span class="s">Sepal Width (cm)</span><span class="sh">"</span><span class="p">,</span>  <span class="mf">2.0</span><span class="p">,</span> <span class="mf">4.5</span><span class="p">,</span> <span class="mf">3.5</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">)</span>
+    <span class="n">petal_length</span> <span class="o">=</span> <span class="n">st</span><span class="p">.</span><span class="n">sidebar</span><span class="p">.</span><span class="nf">slider</span><span class="p">(</span><span class="sh">"</span><span class="s">Petal Length (cm)</span><span class="sh">"</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">7.0</span><span class="p">,</span> <span class="mf">1.4</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">)</span>
+    <span class="n">petal_width</span>  <span class="o">=</span> <span class="n">st</span><span class="p">.</span><span class="n">sidebar</span><span class="p">.</span><span class="nf">slider</span><span class="p">(</span><span class="sh">"</span><span class="s">Petal Width (cm)</span><span class="sh">"</span><span class="p">,</span>  <span class="mf">0.1</span><span class="p">,</span> <span class="mf">2.5</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">)</span> <i class="conum" data-value="8"></i><b>(8)</b>
+
+    <span class="c1"># ── Main panel: input summary ────────────────────────────────────────
+</span>    <span class="n">st</span><span class="p">.</span><span class="nf">subheader</span><span class="p">(</span><span class="sh">"</span><span class="s">Input Parameters</span><span class="sh">"</span><span class="p">)</span>
+    <span class="n">col1</span><span class="p">,</span> <span class="n">col2</span> <span class="o">=</span> <span class="n">st</span><span class="p">.</span><span class="nf">columns</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+    <span class="n">col1</span><span class="p">.</span><span class="nf">metric</span><span class="p">(</span><span class="sh">"</span><span class="s">Sepal Length</span><span class="sh">"</span><span class="p">,</span> <span class="sa">f</span><span class="sh">"</span><span class="si">{</span><span class="n">sepal_length</span><span class="si">}</span><span class="s"> cm</span><span class="sh">"</span><span class="p">)</span>
+    <span class="n">col1</span><span class="p">.</span><span class="nf">metric</span><span class="p">(</span><span class="sh">"</span><span class="s">Sepal Width</span><span class="sh">"</span><span class="p">,</span>  <span class="sa">f</span><span class="sh">"</span><span class="si">{</span><span class="n">sepal_width</span><span class="si">}</span><span class="s"> cm</span><span class="sh">"</span><span class="p">)</span>
+    <span class="n">col2</span><span class="p">.</span><span class="nf">metric</span><span class="p">(</span><span class="sh">"</span><span class="s">Petal Length</span><span class="sh">"</span><span class="p">,</span> <span class="sa">f</span><span class="sh">"</span><span class="si">{</span><span class="n">petal_length</span><span class="si">}</span><span class="s"> cm</span><span class="sh">"</span><span class="p">)</span>
+    <span class="n">col2</span><span class="p">.</span><span class="nf">metric</span><span class="p">(</span><span class="sh">"</span><span class="s">Petal Width</span><span class="sh">"</span><span class="p">,</span>  <span class="sa">f</span><span class="sh">"</span><span class="si">{</span><span class="n">petal_width</span><span class="si">}</span><span class="s"> cm</span><span class="sh">"</span><span class="p">)</span>
+
+    <span class="n">st</span><span class="p">.</span><span class="nf">divider</span><span class="p">()</span>
+
+    <span class="c1"># ── Classify button ──────────────────────────────────────────────────
+</span>    <span class="k">if</span> <span class="n">st</span><span class="p">.</span><span class="nf">button</span><span class="p">(</span><span class="sh">"</span><span class="s">🔍 Classify</span><span class="sh">"</span><span class="p">,</span> <span class="n">use_container_width</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="sh">"</span><span class="s">primary</span><span class="sh">"</span><span class="p">):</span> <i class="conum" data-value="9"></i><b>(9)</b>
+        <span class="n">payload</span> <span class="o">=</span> <span class="nf">build_payload</span><span class="p">(</span><span class="n">sepal_length</span><span class="p">,</span> <span class="n">sepal_width</span><span class="p">,</span> <span class="n">petal_length</span><span class="p">,</span> <span class="n">petal_width</span><span class="p">)</span>
+
+        <span class="k">with</span> <span class="n">st</span><span class="p">.</span><span class="nf">spinner</span><span class="p">(</span><span class="sh">"</span><span class="s">Calling KServe Transformer…</span><span class="sh">"</span><span class="p">):</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="nf">get_prediction</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">result</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">label</span> <span class="o">=</span> <span class="nf">parse_prediction</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">label</span><span class="p">:</span>
+                <span class="n">st</span><span class="p">.</span><span class="nf">success</span><span class="p">(</span><span class="sa">f</span><span class="sh">"</span><span class="s">### ✅ Predicted Species: **</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s">**</span><span class="sh">"</span><span class="p">)</span> <i class="conum" data-value="10"></i><b>(10)</b>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">st</span><span class="p">.</span><span class="nf">warning</span><span class="p">(</span><span class="sh">"</span><span class="s">The transformer returned an empty predictions list.</span><span class="sh">"</span><span class="p">)</span>
+
+            <span class="k">with</span> <span class="n">st</span><span class="p">.</span><span class="nf">expander</span><span class="p">(</span><span class="sh">"</span><span class="s">📄 Raw JSON Response</span><span class="sh">"</span><span class="p">):</span>
+                <span class="n">st</span><span class="p">.</span><span class="nf">json</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+
+            <span class="k">with</span> <span class="n">st</span><span class="p">.</span><span class="nf">expander</span><span class="p">(</span><span class="sh">"</span><span class="s">📤 Request Payload Sent</span><span class="sh">"</span><span class="p">):</span>
+                <span class="n">st</span><span class="p">.</span><span class="nf">json</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
+
+
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="sh">"</span><span class="s">__main__</span><span class="sh">"</span><span class="p">:</span>
+    <span class="nf">main</span><span class="p">()</span></code></pre>
+</div>
+</div>
+<div class="colist arabic">
+<table>
+<tr>
+<td><i class="conum" data-value="1"></i><b>1</b></td>
+<td><code>HOSTNAME</code> and <code>MODEL_NAME</code> are read from environment variables with sensible defaults. Externalising configuration via environment variables allows the same application image to target different environments (local, staging, production) without rebuilding.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="2"></i><b>2</b></td>
+<td><code>build_payload()</code> constructs the lightweight JSON object expected by the Transformer&#8217;s V1 endpoint. The function signature uses named parameters with explicit <code>float</code> type hints, providing a clear API contract for callers.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="3"></i><b>3</b></td>
+<td><code>get_prediction()</code> encapsulates all HTTP communication with the Transformer endpoint. Returning <code>None</code> on error rather than raising an exception allows the UI to display a user-friendly error message instead of an unhandled traceback.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="4"></i><b>4</b></td>
+<td>A 30-second timeout is applied to the HTTP request. This prevents the UI from becoming unresponsive if the Transformer or predictor pod is slow or temporarily unavailable.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="5"></i><b>5</b></td>
+<td>Errors are surfaced both through Python&#8217;s logging framework (for server-side observability) and through Streamlit&#8217;s <code>st.error()</code> widget (for the end user). This dual reporting ensures that failures are visible at all levels.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="6"></i><b>6</b></td>
+<td><code>parse_prediction()</code> safely extracts the first element from the <code>predictions</code> list. The <code>get()</code> call with an empty-list default prevents a <code>KeyError</code> if the response schema is unexpected.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="7"></i><b>7</b></td>
+<td>Sliders in the sidebar provide an intuitive input mechanism for the four Iris measurements. The ranges and default values are set to realistic botanical values that reflect the distribution of the Iris dataset.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="8"></i><b>8</b></td>
+<td>The slider ranges and step sizes are chosen to cover the full observed range of each feature in the Iris dataset (4.3–7.9 cm sepal length, 2.0–4.4 cm sepal width, etc.), ensuring the test inputs are always within the model&#8217;s training distribution.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="9"></i><b>9</b></td>
+<td>Streamlit re-renders the page on every interaction. The <code>st.button()</code> call captures a single click event, after which <code>build_payload()</code> and <code>get_prediction()</code> are called sequentially inside the button block.</td>
+</tr>
+<tr>
+<td><i class="conum" data-value="10"></i><b>10</b></td>
+<td><code>st.success()</code> renders a green banner with the predicted species name. The expandable sections below it let power users inspect both the raw JSON response from the Transformer and the payload that was sent, which is useful for debugging and demonstration purposes.</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+<div class="sect2">
+<h3 id="run-the-client-application">Run the Client Application</h3>
+<div class="paragraph">
+<p>The application can be run locally for development and testing:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="rouge highlight"><code data-lang="shell"><span class="nv">$ </span>streamlit run services/kserve-transformer-client/app.py <span class="se">\</span>
+  <span class="nt">--server</span>.port 8501 <span class="se">\</span>
+  <span class="nt">--server</span>.address 0.0.0.0</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>For production use, the application can be containerised and deployed as a standalone workload on Kubernetes, managed by ArgoCD alongside the rest of the MLOps platform.</p>
+</div>
+<div class="imageblock img-wide">
+<div class="content">
+<img src="./images/kserve-transformer-client-app.png" alt="kserve transformer client app">
+</div>
+<div class="title">Figure 1. KServe Transformer Client Application</div>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="use-cases-for-kserve-transformer">Use Cases for KServe Transformer</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The Iris classifier example demonstrates a simple format-conversion pattern, but the Transformer&#8217;s extensible hook architecture supports a wide range of production ML serving concerns.</p>
+</div>
+<div class="sect2">
+<h3 id="pre-processing">Pre-Processing</h3>
+<div class="paragraph">
+<p>The <code>preprocess()</code> hook is the ideal location for any logic that must run <strong>before</strong> the model sees the data:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Feature engineering</strong> — Compute derived features on the fly (e.g., BMI from height and weight, log-transforms, polynomial interactions, or temporal bucketing) without modifying the model or retraining.</p>
+</li>
+<li>
+<p><strong>Vocabulary / tokenization</strong> — Tokenize raw text input, apply Byte-Pair Encoding (BPE), and pad or truncate sequences to the model&#8217;s maximum context length for NLP workloads.</p>
+</li>
+<li>
+<p><strong>Image pre-processing</strong> — Resize and centre-crop images, normalise pixel values, and convert JPEG or PNG bytes into floating-point tensors for computer vision models.</p>
+</li>
+<li>
+<p><strong>Data validation</strong> — Reject malformed, out-of-range, or missing inputs with an HTTP 400 error before they consume GPU resources or corrupt model outputs.</p>
+</li>
+<li>
+<p><strong>Feature store lookup</strong> — Enrich a sparse request (e.g., a <code>user_id</code>) with a full feature vector fetched from an online feature store such as Redis, Feast, or Tecton.</p>
+</li>
+<li>
+<p><strong>Multi-modal fusion</strong> — Combine heterogeneous inputs (e.g., an image URL and a text prompt) into a single unified tensor before dispatching to a vision-language model.</p>
+</li>
+<li>
+<p><strong>A/B request routing</strong> — Inspect a request header or a user segment flag and route traffic to different model versions for controlled experimentation.</p>
+</li>
+<li>
+<p><strong>PII scrubbing</strong> — Strip or mask sensitive fields (SSNs, email addresses, phone numbers) before they reach the model log or downstream storage systems.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="post-processing">Post-Processing</h3>
+<div class="paragraph">
+<p>The <code>postprocess()</code> hook executes <strong>after</strong> the model returns its raw output, making it ideal for humanising and enriching the response:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Class index to label mapping</strong> — Convert integer class indices into human-readable category names, exactly as demonstrated in this article.</p>
+</li>
+<li>
+<p><strong>Threshold and top-K filtering</strong> — Discard softmax probabilities below a confidence threshold, or return only the top K most likely predictions rather than the full distribution.</p>
+</li>
+<li>
+<p><strong>Ensemble aggregation</strong> — Fan out the request to multiple predictors in parallel, then combine their responses using majority voting, probability averaging, or stacking.</p>
+</li>
+<li>
+<p><strong>Calibration</strong> — Apply post-hoc calibration techniques such as Platt scaling or temperature scaling to produce better-calibrated probability estimates from overconfident models.</p>
+</li>
+<li>
+<p><strong>Response enrichment</strong> — Attach operational metadata to the response — model version, inference latency, feature importance scores, or confidence intervals — without modifying the model itself.</p>
+</li>
+<li>
+<p><strong>Embedding decoding</strong> — Convert raw embedding vectors into nearest-neighbour labels retrieved from a vector database such as Pinecone, Weaviate, or pgvector.</p>
+</li>
+<li>
+<p><strong>Audit logging</strong> — Persist input/output pairs to an append-only time-series store for drift monitoring, regulatory compliance, or retraining dataset construction.</p>
+</li>
+<li>
+<p><strong>Currency and unit formatting</strong> — Round pricing predictions to two decimal places, apply currency symbols, or convert raw values to locale-appropriate representations.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="cross-cutting-patterns">Cross-Cutting Patterns</h3>
+<div class="paragraph">
+<p>Beyond pre- and post-processing, the Transformer can implement infrastructure patterns that span the entire request lifecycle:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><strong>Response caching</strong> — Cache frequent or identical requests in Redis and short-circuit the predictor entirely on cache hits, dramatically reducing latency and GPU utilisation for repetitive workloads.</p>
+</li>
+<li>
+<p><strong>Rate limiting</strong> — Track per-client or per-user request counts and return HTTP 429 responses when quotas are exceeded, protecting the predictor from overload.</p>
+</li>
+<li>
+<p><strong>Shadow mode (dark launch)</strong> — Forward each request to both the production model and a candidate model simultaneously, log any discrepancies, and return only the production model&#8217;s response — enabling safe evaluation of new models under real traffic without any user impact.</p>
+</li>
+<li>
+<p><strong>Canary gating</strong> — Route a configurable percentage of traffic (e.g., 5%) to a new model version while returning the stable model&#8217;s response to all users. This allows continuous monitoring of the canary&#8217;s behaviour before a full rollout.</p>
+</li>
+<li>
+<p><strong>Retrieval-Augmented Generation (RAG)</strong> — In the <code>preprocess()</code> hook, embed the incoming query, retrieve the top-K relevant documents from a vector store, and construct an augmented prompt. In <code>postprocess()</code>, strip internal chain-of-thought tokens before returning the final answer to the client.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+=== Why a Transformer Instead of the Client or the Model?</p>
+</div>
+<div class="paragraph">
+<p>It may be tempting to embed transformation logic in the client application or in a custom model serving script. The Transformer pattern offers distinct advantages over both alternatives:</p>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 25%;">
+<col style="width: 75%;">
+</colgroup>
+<thead>
+<tr>
+<th class="tableblock halign-left valign-top">Advantage</th>
+<th class="tableblock halign-left valign-top">Explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Separation of concerns</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">The model image remains a pure ML artefact. All business logic, protocol translation, and data engineering live in the Transformer — a completely separate codebase with its own release cycle.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Protocol independence</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Clients can send data in any JSON shape that is natural for the application. The Transformer absorbs all V2 protocol complexity, so client developers never need to understand ml serving internals.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Reusability</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">A single Transformer can front multiple model versions. When the model is retrained or updated, the Transformer requires no changes as long as the input/output semantics remain the same.</p></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><p class="tableblock"><strong>Independent scaling</strong></p></td>
+<td class="tableblock halign-left valign-top"><p class="tableblock">Transformer pods and predictor pods scale independently. CPU-intensive feature engineering (e.g., tokenization, image decoding) does not compete with GPU-bound inference for the same compute resources.</p></td>
+</tr>
+</tbody>
+</table>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="conclusion">Conclusion</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The KServe Transformer provides a principled, production-ready mechanism for decoupling application data formats from ML inference protocols. By centralising all pre-processing, post-processing, and cross-cutting concerns in a single, independently deployable component, teams can evolve their models and client applications at independent velocities without breaking the contract between them.</p>
+</div>
+<div class="paragraph">
+<p>In this article, we built a complete Transformer pipeline for the Iris classification service: a custom Python <code>IrisTransformer</code> class that converts a simple botanical JSON payload into the V2 Open Inference Protocol format, forwards it to the predictor, and maps the predicted class index back into a human-readable species name. We packaged the Transformer as a Docker image, extended the <code>InferenceService</code> manifest to include it, validated the pipeline with <code>curl</code>, and connected a Streamlit client application to demonstrate the full end-to-end user experience.</p>
+</div>
+<div class="paragraph">
+<p>The use-case catalogue in the final section illustrates how the same pattern scales to sophisticated production scenarios — from feature store enrichment and ensemble aggregation to RAG pipelines and canary deployments — all without modifying a single line of model code.</p>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="references">References</h2>
+<div class="sectionbody">
+<div class="ulist">
+<ul>
+<li>
+<p><a href="https://kserve.github.io/website/docs/model-serving/predictive-inference/transformers/custom-transformer">KServe Documentation — Custom Transformer</a></p>
+</li>
+<li>
+<p><a href="https://kserve.github.io/website/docs/reference/api/#serving.kserve.io/v1beta1.TransformerSpec">KServe API Reference — TransformerSpec</a></p>
+</li>
+<li>
+<p><a href="https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html">Open Inference Protocol (V2) Specification</a></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p><br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br></p>
+</div>
+</div>
+</div>
+</body>
+</html>

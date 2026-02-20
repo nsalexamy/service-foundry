@@ -1,0 +1,670 @@
+= Deploying Transformer with InferenceService for KServe
+
+:imagesdir: ./images
+
+[.img-wide]
+image::kserve-transformer-introduction.png[]
+
+== Overview
+
+
+== Prerequisites
+
+Before you begin, ensure you have:
+
+A Kubernetes cluster with KServe installed.
+kubectl command line tool installed and configured.
+Docker installed (for building custom transformer images).
+Access to a container registry where you can push images.
+Basic understanding of Python and PyTorch.
+
+
+
+
+
+== Transformer
+
+=== What is Transformer in KServe?
+
+A Transformer is a specialized component in KServe that sits between the client and the model server. It preprocesses incoming inference requests and post-processes the model's raw outputs before returning them to the client. This allows you to decouple data transformation logic from the core model serving code, enabling cleaner architecture and easier maintenance.
+
+
+=== Why use Transformer?
+
+In a typical KServe deployment, the client communicates directly with the model server. However, in some cases, the client may not be able to communicate directly with the model server. In such cases, a Transformer can be used to communicate with the model server on behalf of the client.
+
+Here are some of the use cases for a Transformer:
+
+* **Format Conversion**: Convert data from one format to another (e.g., JSON to CSV, or vice versa).
+* **Data Enrichment**: Add additional information to the inference request before it reaches the model.
+* **Feature Engineering**: Perform on-the-fly feature engineering to prepare data for the model.
+* **Output Processing**: Transform the model's output into a more user-friendly format.
+* **Security**: Add authentication or authorization layers to the inference request.
+
+
+=== V1 and V2 Endpoints
+
+There are two endpoints for the KServe Transformer:
+
+- `/v2/models/{name}/infer`
+- `/v1/models/{name}:predict`
+
+The `/v2/models/{name}/infer` endpoint enforces the Open Inference Protocol (OIP) — a vendor-neutral standard co-developed by NVIDIA, Microsoft, and the KServe team. FastAPI validates the body as InferenceRequest before your code runs. This is intentional and can't be bypassed on that path.
+
+The standard exists so that any V2-compatible client (NVIDIA Triton, Seldon, BentoML, MLflow, etc.) can talk to any V2-compatible server without custom adapters. Breaking it on the transformer would break cross-system compatibility.
+
+To use custom JSON format, use the `/v1/models/{name}:predict` endpoint. This endpoint is not validated by FastAPI and can be used to send custom JSON format.
+
+==== `/v2/models/{name}/infer` 
+
+- *Validation*: Requires InferenceRequest format
+- *Passes to preprocess*: InferenceRequest object after validation
+
+==== `/v1/models/{name}:predict`
+
+- *Validation*: No validation - raw JSON
+- *Passes to preprocess*: Raw Dict
+
+
+== Implementation: Format Conversion using Transformer
+
+In the previous article, we deployed Iris Classifier Model Server using KServe and a Client Application using Streamlit. The client application sends a Inference Payload to the InferenceService endpoint. In this article, we will add a Transformer to the InferenceService to convert custom Application Payload to KServe Inference Protocol Payload.
+
+Now the client application can send custom Application Payload to the InferenceService endpoint and the Transformer will convert it to KServe Inference Protocol Payload.
+
+*Request Payload*:
+
+- sepal_length
+- sepal_width
+- petal_length
+- petal_width
+
+*Response Payload*:
+
+- predictions
+
+// ----
+// client (simple JSON) 
+//   → transformer /v1/models/iris-classifier:predict
+//   → preprocess() → V2 InferenceRequest 
+//   → predictor /v2/models/iris-classifier/infer 
+//   → postprocess() → {"predictions": ["Iris-Setosa"]}
+//   → client
+// ----  
+
+[mermaid]
+----
+graph TD
+    A[Client] -->|JSON App Payload| B[Transformer /v1/models/iris-classifier:predict ]
+    B -->|V2 InferenceRequest| C[Model Server /v2/models/iris-classifier/infer]
+    C -->|V2 InferenceResponse| D[Transformer /v1/models/iris-classifier:predict]
+    D -->|JSON App Payload| E[Client]
+----
+
+=== Transformer Input (Custom JSON)
+
+[source,json]
+----
+{
+  "sepal_length": 5.1,
+  "sepal_width": 3.5,
+  "petal_length": 1.4,
+  "petal_width": 0.2
+}
+----
+
+This payload is more expressive and human-readable that can be used by other systems. However, it is not compatible with the KServe Inference Protocol.
+
+=== Model Input (Inference Request)
+
+This payload is compatible with the KServe Inference Protocol and used to call Iris Classifier Model Server.
+
+[source,json]
+----
+{
+  "inputs": [
+    {
+      "name": "input-0",
+      "shape": [1, 4],
+      "datatype": "FP32",
+      "data": [
+        [5.1, 3.5, 1.4, 0.2]
+      ]
+    }
+  ]
+}
+----
+
+
+
+=== Model Output
+
+This payload is the raw output from the Iris Classifier Model Server. It returns the predicted class index instead of the class name.
+
+[source,json]
+----
+{
+  "model_name": "iris-classifier",
+  "outputs": [
+    {
+      "name": "output-0",
+      "datatype": "INT64",
+      "shape": [1],
+      "data": [0]
+    }
+  ]
+}
+----
+
+=== Transformer Output
+
+*   **0**: Iris-Setosa
+*   **1**: Iris-Versicolor
+*   **2**: Iris-Virginica
+
+This payload is more expressive and human-readable that can be used by other systems.
+
+[source,json]
+----
+{
+  "predictions": [
+    "Iris-Setosa"
+  ]
+}
+----
+
+=== iris-transformer.py
+
+Here is the entire code for the transformer:
+
+.services/kserve-transformer/iris-transformer.py
+[source,python]
+----
+import logging
+from typing import Dict, Any
+
+import httpx
+import kserve
+from kserve import Model, ModelServer
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Map class index -> species name
+IRIS_CLASSES = {
+    0: "Iris-Setosa",
+    1: "Iris-Versicolor",
+    2: "Iris-Virginica",
+}
+
+
+class IrisTransformer(Model):
+    """KServe Transformer for the Iris classifier.
+
+    Pre-processing  : Converts a simple dict of flower measurements into the
+                      V2 KServe inference protocol format expected by the model.
+    Post-processing : Converts the model's INT64 class-index output back into
+                      a human-readable species name.
+
+    The `predict()` method is overridden to call the predictor directly over
+    HTTP so that we are not dependent on the `PredictorConfig` context variable,
+    which is not propagated to uvicorn worker subprocesses.
+    """
+
+    def __init__(self, name: str, predictor_host: str, protocol: str = "v2"):
+        super().__init__(name)
+        self.predictor_host = predictor_host
+        self.protocol = protocol
+        self.ready = True
+
+    # ------------------------------------------------------------------
+    # Pre-process: simple JSON  →  V2 inference request
+    # ------------------------------------------------------------------
+    def preprocess(self, inputs: Dict[str, Any], headers: Dict[str, str] = None) -> Dict[str, Any]:
+        """Transform incoming user-friendly input into the V2 inference protocol.
+
+        Expected input:
+            {
+                "sepal_length": 5.1,
+                "sepal_width":  3.5,
+                "petal_length": 1.4,
+                "petal_width":  0.2
+            }
+
+        V2 output sent to the predictor:
+            {
+                "inputs": [{
+                    "name": "input-0",
+                    "shape": [1, 4],
+                    "datatype": "FP32",
+                    "data": [[5.1, 3.5, 1.4, 0.2]]
+                }]
+            }
+        """
+        logger.info("preprocess input: %s", inputs)
+
+        sepal_length = float(inputs["sepal_length"])
+        sepal_width  = float(inputs["sepal_width"])
+        petal_length = float(inputs["petal_length"])
+        petal_width  = float(inputs["petal_width"])
+
+        v2_request = {
+            "inputs": [
+                {
+                    "name": "input-0",
+                    "shape": [1, 4],
+                    "datatype": "FP32",
+                    "data": [[sepal_length, sepal_width, petal_length, petal_width]],
+                }
+            ]
+        }
+
+        logger.info("preprocess output (V2 request): %s", v2_request)
+        return v2_request
+
+    # ------------------------------------------------------------------
+    # predict: forward V2 request to the predictor over HTTP directly
+    # ------------------------------------------------------------------
+    async def predict(self, payload: Dict[str, Any], headers: Dict[str, str] = None, response_headers: Dict[str, str] = None) -> Dict[str, Any]:
+        """Forward the pre-processed V2 request to the predictor.
+
+        We override `predict()` to call the predictor directly via httpx.
+        This avoids the `PredictorConfig` context variable, which is not
+        propagated to uvicorn worker subprocesses in KServe 0.16.
+        """
+        predictor_url = f"http://{self.predictor_host}/v2/models/{self.name}/infer"
+        logger.info("Forwarding V2 request to predictor: %s", predictor_url)
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                predictor_url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=60.0,
+            )
+            response.raise_for_status()
+            result = response.json()
+
+        logger.info("Predictor response: %s", result)
+        return result
+
+    # ------------------------------------------------------------------
+    # Post-process: V2 inference response  →  friendly JSON
+    # ------------------------------------------------------------------
+    def postprocess(self, response: Dict[str, Any], headers: Dict[str, str] = None) -> Dict[str, Any]:
+        """Convert the V2 model response into a user-friendly prediction dict.
+
+        Model output example:
+            {
+                "model_name": "iris-classifier",
+                "outputs": [{
+                    "name": "output-0",
+                    "datatype": "INT64",
+                    "shape": [1],
+                    "data": [0]
+                }]
+            }
+
+        Transformer output:
+            {"predictions": ["Iris-Setosa"]}
+        """
+        logger.info("postprocess input (V2 response): %s", response)
+
+        outputs = response.get("outputs", [])
+        if not outputs:
+            logger.warning("No outputs found in model response")
+            return {"predictions": []}
+
+        data = outputs[0].get("data", [])
+        predictions = []
+        for class_index in data:
+            label = IRIS_CLASSES.get(int(class_index), f"Unknown({class_index})")
+            predictions.append(label)
+
+        result = {"predictions": predictions}
+        logger.info("postprocess output: %s", result)
+        return result
+
+
+if __name__ == "__main__":
+    # kserve.model_server.parser already defines:
+    #   --model_name, --predictor_host, --predictor_protocol, etc.
+    # Adding them again causes argparse.ArgumentError: conflicting option string.
+    args, _ = kserve.model_server.parser.parse_known_args()
+
+    transformer = IrisTransformer(
+        name=args.model_name,
+        predictor_host=args.predictor_host,
+        protocol=args.predictor_protocol,
+    )
+
+    server = ModelServer()
+    server.start(models=[transformer])
+
+----
+
+== Deploy Transformer
+
+.Directory Structure
+[source,shell]
+----
+$ tree services/kserve-transformer/
+services/kserve-transformer/
+├── Dockerfile
+├── README.md
+├── iris-inference-with-transformer.json
+├── iris-inference-with-transformer.yaml
+├── iris-transformer.py
+└── test-iris-transformer.py
+----
+
+=== Dockerfile
+
+.services/kserve-transformer/Dockerfile
+[source,dockerfile]
+----
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Prevent Python from buffering stdout/stderr
+ENV PYTHONUNBUFFERED=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install KServe SDK (uvicorn[standard] is pulled in automatically by kserve)
+RUN pip install --no-cache-dir kserve==0.16.0
+
+# Copy the transformer script
+COPY services/kserve-transformer/iris-transformer.py .
+
+# Expose the default KServe model server port
+EXPOSE 8080
+
+# Start the transformer; --predictor_host is injected by KServe at runtime
+ENTRYPOINT ["python", "iris-transformer.py"]
+----
+
+I pushed the image to Docker Hub and tagged it as `credemol/mlops-iris-kserve-transformer:1.0.2`. This image will be used by the InferenceService.
+
+== Deploy Inference Service with Transformer
+
+.iris-inference-with-transformer.yaml
+[source,yaml]
+----
+apiVersion: "serving.kserve.io/v1beta1"
+kind: "InferenceService"
+metadata:
+  name: "iris-classifier"
+  namespace: kserve
+spec:
+  # <1>
+  predictor:
+    serviceAccountName: sa-s3-access
+    model:
+      modelFormat:
+        name: "sklearn"
+      storageUri: "s3://nsa2-sf-ml-models/mlflow/2/models/m-6db63970926b4ad496bf8aaf4cda2c9e/artifacts"
+      protocolVersion: v2
+      runtime: kserve-sklearnserver
+      
+  # <2>
+  transformer:
+    containers:
+      - image: "credemol/mlops-iris-kserve-transformer:1.0.2"
+        name: mlops-iris-kserve-transformer
+
+----
+<1> The predictor is a standard KServe sklearnserver that loads the model from S3 which is the same as the previous article.
+<2> The transformer is a custom KServe transformer that convert the input data to the format required by the predictor and convert the output data to the format required by the user.
+
+**Deploy the InferenceService**
+
+[source,shell]
+----
+$ kubectl apply -f services/kserve-transformer/iris-inference-with-transformer.yaml
+----
+
+**Verify the deployment**
+
+[source,shell]
+----
+$ kubectl get inferenceservice iris-classifier-transformer -n kserve
+----
+
+
+== Test InferenceService and Transformer using curl
+
+Here is an example request to the InferenceService. It is a simple JSON content without any Model specific properties
+
+.simple_input_1.json
+[source,json]
+----
+{
+    "sepal_length": 5.1,
+    "sepal_width": 3.5,
+    "petal_length": 1.4,
+    "petal_width": 0.2
+}
+----
+
+[source,shell]
+----
+$ SERVICE_HOSTNAME="iris-classifier-transformer-kserve.servicefoundry.org"
+
+curl -s -X POST \
+  -H "Host: ${SERVICE_HOSTNAME}" \
+  -H "Content-Type: application/json" \
+  -d @./simple_input_1.json \
+  https://${SERVICE_HOSTNAME}/v1/models/iris-classifier:predict | jq  
+
+# Expected output:
+{
+  "predictions": [
+    "Iris-Setosa"
+  ]
+}
+----
+
+
+== KServe Transformeer Client Application
+
+Now that we have request and response payloads, we can build a client application to interact with the InferenceService. We will use Streamlit to build the client application.
+
+.service/kserve-transformer-client/app.py
+[source,python]
+----
+import os
+import logging
+
+import requests
+import streamlit as st
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# -----------------------------------------------------------------------
+# Configuration from environment variables
+# -----------------------------------------------------------------------
+HOSTNAME = os.getenv("HOSTNAME", "iris-classifier-kserve.servicefoundry.org")
+MODEL_NAME = os.getenv("MODEL_NAME", "iris-classifier")
+FULL_URL = f"https://{HOSTNAME}/v1/models/{MODEL_NAME}:predict"
+
+
+# -----------------------------------------------------------------------
+# Helper functions
+# -----------------------------------------------------------------------
+
+def build_payload(sepal_length: float, sepal_width: float,
+                  petal_length: float, petal_width: float) -> dict:
+    """Build the simple JSON payload that the KServe Transformer accepts."""
+    return {
+        "sepal_length": sepal_length,
+        "sepal_width": sepal_width,
+        "petal_length": petal_length,
+        "petal_width": petal_width,
+    }
+
+
+def get_prediction(payload: dict, url: str = FULL_URL) -> dict | None:
+    """
+    POST the payload to the KServe Transformer endpoint.
+
+    Returns the parsed JSON response dict, or None on error.
+    """
+    try:
+        logger.info("POST %s  payload=%s", url, payload)
+        response = requests.post(
+            url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as exc:
+        logger.error("Request failed: %s", exc)
+        st.error(f"Request failed: {exc}")
+        return None
+
+
+def parse_prediction(response: dict) -> str | None:
+    """Extract the first prediction label from the transformer response."""
+    predictions = response.get("predictions", [])
+    if predictions:
+        return predictions[0]
+    return None
+
+# -----------------------------------------------------------------------
+# Streamlit UI
+# -----------------------------------------------------------------------
+
+def main():
+    st.set_page_config(
+        page_title="Iris Classifier — Transformer",
+        page_icon="🌸",
+        layout="centered",
+    )
+
+    st.title("🌸 Iris Flower Classification")
+    st.caption(f"Powered by KServe Transformer · `{FULL_URL}`")
+
+    st.divider()
+
+    # ── Sidebar: feature inputs ──────────────────────────────────────────
+    st.sidebar.header("🌿 Flower Measurements")
+
+    sepal_length = st.sidebar.slider("Sepal Length (cm)", 4.0, 8.0, 5.1, 0.1)
+    sepal_width  = st.sidebar.slider("Sepal Width (cm)",  2.0, 4.5, 3.5, 0.1)
+    petal_length = st.sidebar.slider("Petal Length (cm)", 1.0, 7.0, 1.4, 0.1)
+    petal_width  = st.sidebar.slider("Petal Width (cm)",  0.1, 2.5, 0.2, 0.1)
+
+    # ── Main panel: input summary ────────────────────────────────────────
+    st.subheader("Input Parameters")
+    col1, col2 = st.columns(2)
+    col1.metric("Sepal Length", f"{sepal_length} cm")
+    col1.metric("Sepal Width",  f"{sepal_width} cm")
+    col2.metric("Petal Length", f"{petal_length} cm")
+    col2.metric("Petal Width",  f"{petal_width} cm")
+
+    st.divider()
+
+    # ── Classify button ──────────────────────────────────────────────────
+    if st.button("🔍 Classify", use_container_width=True, type="primary"):
+        payload = build_payload(sepal_length, sepal_width, petal_length, petal_width)
+
+        with st.spinner("Calling KServe Transformer…"):
+            result = get_prediction(payload)
+
+        if result is not None:
+            label = parse_prediction(result)
+
+            if label:
+                st.success(f"### ✅ Predicted Species: **{label}**")
+            else:
+                st.warning("The transformer returned an empty predictions list.")
+
+            with st.expander("📄 Raw JSON Response"):
+                st.json(result)
+
+            with st.expander("📤 Request Payload Sent"):
+                st.json(payload)
+
+
+if __name__ == "__main__":
+    main()
+
+----
+
+=== Run the client application
+
+The application can be run locally using Streamlit.
+
+[source,shell]
+----
+$ streamlit run services/kserve-transformer-client/app.py \
+  --server.port 8501 \
+  --server.address 0.0.0.0
+----
+
+Or this application can be deployed as a standalone application on Kubernetes cluster using ArgoCD.
+
+.Kserve Transformer Client Application
+[.img-wide]
+image::kserve-transformer-client-app.png[]
+
+== Use Cases for KServe Transformer
+
+=== Pre-Processing
+
+- Feature engineering: Compute derived features (e.g., BMI from height/weight, log-transforms, ratios) before inference
+- Vocabulary / tokenization: Tokenize raw text, apply BPE encoding, pad/truncate sequences for NLP models
+- Image pre-processing: Resize, normalize, convert color space (JPEG → tensor) for vision models
+- Data validation: Reject malformed or out-of-range inputs with a 400 before they waste GPU time
+- Feature store lookup: Enrich a sparse request (e.g., user_id) with full feature vectors from Redis or Feast
+- Multi-modal fusion: Combine an image URL + text prompt into a single tensor before sending to a VLM
+- A/B routing: Route a percentage of requests to model version A vs. B based on a header
+- PII scrubbing: Strip or mask sensitive fields (SSNs, emails) before they reach the model log
+
+=== Post-Processing
+
+- Class index → label: What you built — map [0,1,2] → ["Iris-Setosa", ...]
+- Threshold / top-K filtering: Filter softmax scores below 0.5, return only top-3 results
+- Ensemble aggregation: Call multiple predictors, aggregate their responses (voting, averaging)
+- Calibration: 	Apply Platt scaling or temperature scaling for better-calibrated probabilities
+- Response enrichment: Attach metadata (model version, confidence band, feature importance) to the response
+- Decode embeddings: Convert raw embedding vectors into nearest-neighbor labels from a vector DB
+- Audit logging: Write input/output pairs to a time-series store for drift monitoring
+- Currency formatting: Round pricing predictions to 2 decimal places and attach currency symbols
+
+=== Cross-cutting patterns
+
+- Caching: 	Cache frequent requests in Redis — skip the predictor entirely on cache hit
+- Rate limiting: Track per-user request counts, return 429 when over quota
+- Shadow mode: 	Forward every request to both the new model and the old one, log discrepancies without changing the visible response
+- Canary gating: Let 5% of traffic go to a new model version; return the control model's response to the user while logging the canary's response
+- Hybrid retrieval-augmented generation (RAG): 
+preprocess
+// : embed the query, fetch top-K docs from a vector DB, build a prompt. 
+// postprocess
+// : strip `<
+
+=== Why a Transformer instead of putting this logic in the client or the model?
+
+- Separation of concerns — the model image stays pure ML; business logic lives in the transformer
+- Protocol independence — clients can use any JSON shape; the transformer handles V2 protocol
+- Reuse — one transformer can front multiple model versions without changes to any model image
+- Independent scaling — transformer pods and predictor pods scale separately; CPU-heavy feature engineering doesn't compete with GPU inference
+
+== Conclusion
+
+KServe Transformer is a powerful tool for adding business logic to your ML models. It is a simple and effective way to add business logic to your ML models.    
+
+
+== References
+
+- https://kserve.github.io/website/docs/model-serving/predictive-inference/transformers/custom-transformer
