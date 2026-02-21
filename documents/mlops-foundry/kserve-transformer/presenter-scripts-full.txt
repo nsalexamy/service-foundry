@@ -1,0 +1,319 @@
+### Section: Title
+
+KServe Transformer — Bridging Application Payloads and Model Inference Protocols.
+
+In this video, we explore how to add a Transformer to a KServe InferenceService so that your client applications never have to worry about the details of the model's inference protocol.
+
+
+### Section: Overview
+
+When you deploy a machine learning model in production, there is almost always a mismatch between the data format your application produces and the format the model server expects.
+
+Models served by KServe follow the V2 Open Inference Protocol — a strict, schema-enforced payload format. But your client application probably works with simple, field-named JAY son objects that are easier to read and easier to maintain.
+
+Forcing every client to manually construct V2-compliant payloads leaks infrastructure concerns into application code. Every time the model changes, every client has to change too.
+
+KServe solves this with the Transformer component — a lightweight sidecar service that sits between the client and the model predictor. The Transformer intercepts every request and response, letting you centralize all data marshalling, feature engineering, and business logic in one place, completely independent of the model itself.
+
+In this video, we will walk through the full lifecycle of building a custom Transformer for an Iris flower classification service — from writing the Python code, to packaging it as a Docker image, to deploying it on Kubernetes, and finally connecting a Streamlit client application to the end-to-end pipeline.
+
+
+### Section: Prerequisites
+
+Before we begin, make sure the following are in place.
+
+First, you need a Kubernetes cluster with KServe installed. A previous video in this series covers cluster setup and KServe installation in detail.
+
+Second, make sure the kube control command-line tool is installed and pointed at your cluster via a valid kubeconfig file.
+
+Third, you need Docker installed for building and pushing the custom Transformer container image. You also need access to a container registry — such as Docker Hub, Amazon ECR, or Google Artifact Registry — so the cluster can pull the image.
+
+Finally, you need Python 3.11 or later for local development and testing.
+
+This video also builds directly on the Iris Classifier InferenceService from the previous article, so familiarity with that deployment will help. The predictor component is reused here unchanged.
+
+
+### Section: What Is a Transformer in KServe?
+
+Let's start with the concept.
+
+A Transformer is a specialized KServe component that acts as a protocol and data adapter between clients and model predictors. It is deployed as an additional container within the same InferenceService pod, and KServe automatically routes all inbound requests through it before they reach the model.
+
+From the client's perspective, the Transformer is completely transparent — it exposes the same HTTP endpoints as the predictor.
+
+Internally, every request passes through two developer-defined hooks.
+
+The first is preprocess. It receives the raw client request and transforms it into the format the model predictor expects.
+
+The second is postprocess. It receives the model's raw response and transforms it into the format the client expects.
+
+This design cleanly separates two distinct concerns. ML inference is owned by the model. Data adaptation is owned by the Transformer. The model image stays a pure ML artefact, while all protocol translation, feature engineering, and business logic live in the Transformer.
+
+
+### Section: Why Use a Transformer?
+
+Without a Transformer, every client must independently construct payloads that conform to the model server's protocol. This creates tight coupling. The moment the model's expected format changes, every client must be updated. It also forces client developers to understand ML infrastructure details that have nothing to do with their domain.
+
+A Transformer solves this by acting as a stable contract boundary. The client sends data in whatever format is natural for the application, and the Transformer handles all translation internally.
+
+This pattern enables several valuable use cases.
+
+Format Conversion — you can translate application-specific JAY son structures into the V2 Open Inference Protocol format required by the predictor, and back again.
+
+Feature Engineering — you can compute derived features on the fly, such as ratios, log-transforms, or bucketed values, without modifying the model or the client.
+
+Data Enrichment — you can augment sparse requests with additional context retrieved from a feature store, database, or cache before forwarding them to the model.
+
+Output Processing — you can convert raw numeric predictions, like class indices, into human-readable labels, confidence scores, or structured business objects.
+
+And finally, Security and Compliance — you can scrub personally identifiable information, enforce authentication tokens, or validate schemas before requests ever reach the model.
+
+
+### Section: V1 and V2 Inference Endpoints
+
+KServe exposes two HTTP endpoint families, each with different validation semantics.
+
+The first is the V2 endpoint: slash v2 slash models slash name slash infer. This endpoint strictly enforces the Open Inference Protocol. FastAPI validates that the request body is a well-formed InferenceRequest before your preprocess method is ever called. You cannot bypass this validation on the V2 path, and that is intentional — it ensures cross-platform compatibility with other V2-compatible systems like NVIDIA Triton, Seldon Core, BentoML, and MLflow serving.
+
+The second is the V1 endpoint: slash v1 slash models slash name colon predict. This endpoint accepts any well-formed JAY son object with no schema validation. The raw dictionary is passed directly to your preprocess method, giving you complete flexibility over the input format.
+
+Use the V2 endpoint when your clients already produce V2-compliant payloads or when interoperability with other inference platforms is a requirement. Use the V1 endpoint when you control the client and want to send a simpler, more expressive payload. That is the pattern we use throughout this video.
+
+
+### Section: Implementation — Format Conversion Using a Transformer
+
+In the previous video, we deployed an Iris Classifier InferenceService and a Streamlit client application. The client had to construct a V2-compliant InferenceRequest payload manually every time — coupling the client directly to the model's protocol.
+
+In this video, we introduce a Transformer that takes over that responsibility. The client now sends a compact, field-named JAY son object, and the Transformer handles all conversion to and from the V2 protocol transparently.
+
+The request the client sends contains just four fields: sepal length, sepal width, petal length, and petal width — all in centimetres. That is it.
+
+The response the client receives contains a single field: predictions — a list of species names as human-readable strings.
+
+The data flow looks like this. The client sends its simple JAY son payload to the Transformer's V1 endpoint. The Transformer's preprocess method converts it into a V2 InferenceRequest and forwards it to the model predictor. The predictor returns a V2 InferenceResponse containing a raw integer class index. The Transformer's postprocess method resolves that index to a species name and returns the clean result to the client.
+
+
+### Section: Transformer Input
+
+The client sends a straightforward JAY son object. The four field names correspond directly to the botanical measurements of the Iris flower, making the payload self-documenting and completely decoupled from the underlying inference protocol.
+
+This kind of field-named format is intentionally human-readable. Any developer working on the client side can understand what data is being sent without needing to know anything about model serving.
+
+
+### Section: Model Input — V2 Inference Request
+
+The Transformer converts that simple payload into the format required by the KServe V2 Open Inference Protocol.
+
+The key structural differences are these. All four feature values are packed into a flat array and wrapped inside a tensor descriptor. The tensor descriptor declares the shape — which is one sample with four features — the datatype, which is 32-bit floating point, and the tensor name.
+
+This is the payload that the Transformer forwards internally to the predictor over the cluster network.
+
+
+### Section: Model Output — V2 Inference Response
+
+The predictor returns a V2-compliant response containing the predicted class index — an integer that identifies which Iris species the model selected.
+
+The raw integer is not meaningful to an end user on its own. That is exactly where the postprocess hook comes in.
+
+The mapping is simple. Zero means Iris Setosa. One means Iris Versicolor. Two means Iris Virginica.
+
+
+### Section: Transformer Output
+
+After postprocess resolves the integer index to a species name, the Transformer returns a clean, friendly JAY son response to the client. The response contains a predictions field with a list of species names.
+
+This format is stable regardless of how the model's internal output representation evolves. The client is completely shielded from those changes.
+
+
+### Section: iris-transformer.py — Code Walkthrough
+
+Now let's walk through the Python implementation.
+
+The Transformer is implemented as a class called IrisTransformer, which extends KServe's Model base class. This base class provides the HTTP server infrastructure, endpoint routing, and all the lifecycle hooks. Subclassing Model is the standard extension mechanism for both custom Transformers and custom Predictors.
+
+At the module level, we define a constant called IRIS_CLASSES — a dictionary mapping the integer class indices zero, one, and two to their species names. Keeping this mapping outside the class avoids recreating it on every request.
+
+The constructor accepts three arguments: the model name, the predictor host — which is the internal cluster hostname of the model server — and an optional protocol string. KServe automatically injects the predictor host as a command-line argument at runtime, so you never need to hard-code it. We immediately set self.ready to True, which signals to KServe's readiness probe that the Transformer is healthy and ready to accept traffic.
+
+Moving on to the preprocess method. This is the first hook in the request pipeline. It receives the raw client dictionary and converts it into the V2 InferenceRequest format.
+
+It explicitly casts each measurement to float. This guards against clients that send integer values or string-encoded numbers, either of which would cause a type mismatch at the model server.
+
+The tensor descriptor it builds uses the name "input-0", which must match the name declared in the model's input signature. The shape is one by four — one sample with four features. The datatype is FP32, which is 32-bit floating point. And the four measurements are packed into a nested list to represent a single row in a two-dimensional batch tensor.
+
+Now the predict method. This method is declared async because it performs a non-blocking HTTP call to the predictor. KServe's server is built on an async framework, so using async I/O here prevents the event loop from being blocked during network latency.
+
+We override the default predict implementation and call the predictor directly using the httpx library. This avoids a known issue with KServe 0.16 where the PredictorConfig context variable is not propagated to uvicorn worker subprocesses.
+
+The predictor URL is constructed from the predictor host and the model name, both of which are injected by KServe at runtime. A 60-second timeout protects against the Transformer hanging if the predictor becomes temporarily unresponsive. The raise_for_status call converts any HTTP error response into a Python exception, which KServe will propagate back to the client.
+
+Finally, the postprocess method. This hook receives the predictor's raw V2 response and converts it into the friendly format the client expects.
+
+It defensively checks for an empty outputs array, returning an empty predictions list rather than crashing with an index error. It then extracts the data array from the first output tensor and maps each integer class index to a species name using the IRIS_CLASSES lookup table. The fallback string preserves observability if the model ever returns an out-of-range index.
+
+The entry point at the bottom uses KServe's shared argument parser with parse known args, which correctly accepts the standard flags like model name, predictor host, and predictor protocol that KServe injects at runtime, without re-declaring them and triggering an ArgumentError. Then it starts the ModelServer, which launches the uvicorn HTTP server and registers the Transformer as the request handler.
+
+
+### Section: Dockerfile Walkthrough
+
+The Transformer is packaged as a minimal Docker image based on the official Python 3.11 slim base image. Choosing the slim variant significantly reduces the final image size by omitting development headers and documentation that are not needed at runtime.
+
+PYTHONUNBUFFERED is set to 1, which forces Python to write log output directly to standard out and standard error without internal buffering. This ensures log lines appear immediately in the pod's log stream — critical for real-time observability in Kubernetes.
+
+The only system dependency installed is curl, which is useful for health-check scripts and ad-hoc debugging inside the pod. The no-install-recommends flag and the subsequent cleanup of the package manager cache keep the layer as small as possible.
+
+The KServe Python SDK is pinned to version 0.16.0 for reproducibility. Installing it also pulls in uvicorn and httpx as transitive dependencies, so no additional packages need to be listed separately.
+
+Port 8080 is the default port that KServe model servers listen on, and declaring it with EXPOSE documents this intent for container orchestration tooling.
+
+The ENTRYPOINT launches the Transformer directly. When KServe creates the pod, it injects the model name, predictor host, and other standard flags as command-line arguments, which the argument parser picks up automatically at startup.
+
+After building the image, push it to your container registry. The image used in this guide is published to Docker Hub as credemol slash mlops-iris-kserve-transformer, version 1.0.2.
+
+
+### Section: Deploy the InferenceService with Transformer
+
+With the Transformer image available in the registry, we extend the InferenceService yah mul manifest to include a transformer section.
+
+The predictor section is identical to the one from the previous video. The service account named sa-s3-access grants the predictor pod permission to pull the model artifact from the S3 bucket using IAM Roles for Service Accounts. The kserve-sklearnserver runtime loads the scikit-learn model and serves it over the V2 protocol.
+
+The transformer section introduces our custom container. KServe automatically injects the predictor host argument at runtime, pointing the Transformer at the internal predictor service. There is no manual service discovery or environment variable configuration needed.
+
+To deploy, apply the manifest using kube control apply.
+
+To verify, check the InferenceService status using kube control get. You should see a READY status of True and a populated URL field within a minute or two of applying the manifest.
+
+
+### Section: Test the InferenceService with curl
+
+Once the InferenceService is ready, we validate the end-to-end pipeline using curl.
+
+We send the simple application payload — just the four botanical measurements — to the V1 predict endpoint. This demonstrates that the Transformer is handling all the V2 protocol conversion transparently; the client sending the request does not need to know anything about the V2 format at all.
+
+The SERVICE_HOSTNAME variable holds the external hostname assigned to the InferenceService by the Ingress or Gateway controller, following the convention of name dash namespace dot domain.
+
+The Host header is included so the Istio Gateway can route the request to the correct InferenceService virtual service.
+
+The response is piped through jq for pretty-printed JAY son output. The Iris-Setosa label in the response confirms that the full pipeline — preprocess, then predictor, then postprocess — completed successfully end-to-end.
+
+
+### Section: KServe Transformer Client Application
+
+Now let's look at the Streamlit client application.
+
+The application reads the InferenceService hostname and model name from environment variables, using sensible defaults. This approach allows the same application image to target different environments — local, staging, or production — without rebuilding.
+
+The build_payload function constructs the lightweight JAY son object that the Transformer's V1 endpoint expects. The function uses explicitly typed float parameters to provide a clear API contract.
+
+The get_prediction function handles all HTTP communication. It posts the payload to the Transformer endpoint and returns the parsed JAY son response, or None if the request fails. Errors are surfaced both through Python's logging framework for server-side observability, and through Streamlit's error widget for the end user.
+
+The parse_prediction function safely extracts the first species name from the predictions list, using a default empty list to prevent a KeyError if the response is unexpected.
+
+The UI itself is clean and intuitive. Four sliders in the sidebar let the user input values for sepal length, sepal width, petal length, and petal width. The slider ranges and default values are set to realistic botanical values that reflect the actual distribution of the Iris dataset. The main panel displays the current input values as metric cards, and a prominent Classify button triggers the prediction.
+
+When the user clicks Classify, the app builds the payload, sends it to the Transformer endpoint with a spinner displayed, and shows the predicted species name in a green success banner. Expandable sections let power users inspect the raw JAY son response and the exact payload that was sent, which is useful for debugging and demonstration.
+
+To run the application locally, execute streamlit run with the app script, specifying the port and address. For production use, the application can be containerised and managed by ArgoCD alongside the rest of the MLOps platform.
+
+
+### Section: Use Cases for KServe Transformer
+
+The Iris classifier example demonstrates a simple format-conversion pattern. But the Transformer's extensible hook architecture supports a much wider range of production ML serving concerns.
+
+Let's start with pre-processing use cases.
+
+Feature engineering — you can compute derived features on the fly, such as BMI from height and weight, log-transforms, or polynomial interactions, without modifying the model or retraining.
+
+Vocabulary and tokenization — for natural language processing workloads, you can tokenize raw text input, apply Byte-Pair Encoding, and pad or truncate sequences to the model's maximum context length.
+
+Image pre-processing — for computer vision models, you can resize and centre-crop images, normalise pixel values, and convert JPEG or PNG bytes into floating-point tensors.
+
+Data validation — you can reject malformed, out-of-range, or missing inputs with an HTTP 400 error before they consume GPU resources or produce incorrect results.
+
+Feature store lookup — you can enrich sparse requests, such as a user ID, with a full feature vector fetched from an online feature store like Redis, Feast, or Tecton.
+
+Multi-modal fusion — you can combine heterogeneous inputs, such as an image URL and a text prompt, into a single unified tensor before dispatching to a vision-language model.
+
+A-B request routing — you can inspect a request header or a user segment flag and route traffic to different model versions for controlled experimentation.
+
+And PII scrubbing — you can strip or mask sensitive fields like social security numbers, email addresses, or phone numbers before they reach the model log or any downstream storage system.
+
+Now for post-processing use cases.
+
+Class index to label mapping — the pattern we built in this video: mapping integer indices to human-readable category names.
+
+Threshold and top-K filtering — discarding low-confidence predictions, or returning only the top K most likely results rather than the full output distribution.
+
+Ensemble aggregation — fanning out requests to multiple predictors in parallel, then combining their responses using majority voting, probability averaging, or stacking.
+
+Calibration — applying post-hoc techniques like Platt scaling or temperature scaling to produce better-calibrated probability estimates.
+
+Response enrichment — attaching operational metadata to the response, such as model version, inference latency, or feature importance scores, without changing the model.
+
+Embedding decoding — converting raw embedding vectors into nearest-neighbour labels retrieved from a vector database like Pinecone, Weaviate, or pg vector.
+
+Audit logging — persisting input and output pairs to an append-only time-series store for drift monitoring, regulatory compliance, or retraining dataset construction.
+
+And currency formatting — rounding pricing predictions, applying currency symbols, or converting raw values to locale-appropriate representations.
+
+Finally, cross-cutting patterns that span the entire request lifecycle.
+
+Response caching — caching frequent or identical requests in Redis and short-circuiting the predictor entirely on cache hits, dramatically reducing latency and GPU utilisation.
+
+Rate limiting — tracking per-client request counts and returning HTTP 429 responses when quotas are exceeded.
+
+Shadow mode or dark launch — forwarding each request to both the production model and a candidate model simultaneously, logging any discrepancies, and returning only the production model's response. This allows safe evaluation of new models under real traffic without any user impact.
+
+Canary gating — routing a configurable percentage of traffic, say 5 percent, to a new model version while returning the stable model's response to all users. This decouples deployment from release.
+
+And Retrieval-Augmented Generation, or RAG — in the preprocess hook, you embed the incoming query, retrieve the top K relevant documents from a vector store, and construct an augmented prompt. In the postprocess hook, you strip internal chain-of-thought tokens before returning the final answer to the client.
+
+
+### Section: Why a Transformer Instead of the Client or the Model?
+
+It may be tempting to embed this transformation logic directly in the client or in a custom model serving script. But the Transformer pattern offers distinct advantages over both alternatives.
+
+Separation of concerns — the model image stays a pure ML artefact. Business logic, protocol translation, and data engineering live in the Transformer, which has its own independent release cycle.
+
+Protocol independence — clients can send data in any JAY son shape that is natural for the application. The Transformer absorbs all V2 protocol complexity, so client developers never need to understand the internals of model serving.
+
+Reusability — a single Transformer can front multiple model versions. When the model is retrained or updated, the Transformer requires no changes as long as the input and output semantics remain the same.
+
+And independent scaling — Transformer pods and predictor pods scale independently. CPU-intensive feature engineering, like tokenization or image decoding, does not compete with GPU-bound inference for the same compute resources.
+
+
+### Section: Conclusion
+
+The KServe Transformer provides a principled, production-ready mechanism for decoupling application data formats from ML inference protocols.
+
+By centralising all pre-processing, post-processing, and cross-cutting concerns in a single, independently deployable component, teams can evolve their models and client applications at independent velocities — without ever breaking the contract between them.
+
+In this video, we built a complete Transformer pipeline for the Iris classification service. We implemented the IrisTransformer class in Python with all three lifecycle hooks — preprocess, predict, and postprocess. We packaged it as a Docker image, extended the InferenceService yah mul manifest to include it, validated the pipeline with curl, and connected a Streamlit client application to demonstrate the full end-to-end user experience.
+
+The use-case catalogue we covered shows how the same pattern scales to sophisticated production scenarios — from feature store enrichment and ensemble aggregation to RAG pipelines and canary deployments — all without modifying a single line of model code.
+
+Thanks for watching! If you found this helpful, please like and subscribe for more videos on MLOps and Kubernetes-native AI infrastructure. The full source code and documentation links are in the description below.
+
+
+### YouTube Video Metadata
+
+**Title:**
+Building a Custom KServe Transformer: Bridging Application Payloads & ML Protocols
+
+**Description:**
+Learn how to build and deploy a custom KServe Transformer to decouple your client applications from strict ML inference protocols. In this tutorial, we walk through the full lifecycle of creating a Python-based Transformer for an Iris classification model. We cover how to intercept requests with `preprocess()` and `postprocess()` hooks, package the service as a Docker image, deploy it to Kubernetes via an `InferenceService`, and test with a Streamlit UI. Discover how the Transformer pattern enables seamless format conversion, feature engineering, and robust MLOps architectures without touching your core model code.
+
+**Tags:**
+KServe, Machine Learning, MLOps, Kubernetes, ML Serving, Python, AI Infrastructure, Model Deployment, Streamlit, Docker
+
+
+### LinkedIn Article Metadata
+
+**Title:**
+Decoupling ML Inference from Client Applications with KServe Transformers
+
+**Summary:**
+In production machine learning environments, strict inference protocols shouldn't leak outward into client applications. KServe's Transformer component provides an elegant design pattern to bridge this gap. By deploying a lightweight sidecar alongside your predictor, you can centralize data format conversion, feature engineering, and pre/post-processing logic away from both the model code and the client app. I've put together a comprehensive guide on building a complete end-to-end KServe Transformer pipeline—from Python implementation down to Kubernetes deployment. Check it out to see how to achieve clean separation of concerns in your MLOps architecture!
+
+**Tags:**
+#MLOps #KServe #Kubernetes #MachineLearning #SoftwareArchitecture #AI #Python #Developer
