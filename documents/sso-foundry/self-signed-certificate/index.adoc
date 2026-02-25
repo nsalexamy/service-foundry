@@ -23,7 +23,14 @@ First, create a ClusterIssuer resource for the self-signed certificate.
 .cert-manager/clusterissuer-selfsigned-bootstrap.yaml
 [source,yaml]
 ----
-include::cert-manager/clusterissuer-selfsigned-bootstrap.yaml[]
+# cert-manager/clusterissuer-selfsigned-bootstrap.yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-bootstrap
+  namespace: cert-manager
+spec:
+  selfSigned: {}
 ----
 
 Apply the ClusterIssuer resource:
@@ -39,7 +46,23 @@ This certificate is isCA: true, and the secret (nsa2-root-ca) will store both th
 .cert-manager/nsa2-root-ca.yaml
 [source,yaml]
 ----
-include::cert-manager/nsa2-root-ca.yaml[]
+# cert-manager/nsa2-root-ca.yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: nsa2-root-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: nsa2-root-ca
+  secretName: nsa2-root-ca
+  duration: 87600h   # 10 years
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  issuerRef:
+    name: selfsigned-bootstrap
+    kind: ClusterIssuer
 ----
 
 Apply and wait for the certificate to be ready:
@@ -57,7 +80,15 @@ This ClusterIssuer references the root CA secret, so it can sign certificates fo
 .cert-manager/clusterissuer-nsa2-ca.yaml
 [source,yaml]
 ----
-include::cert-manager/clusterissuer-nsa2-ca.yaml[]
+# cert-manager/clusterissuer-nsa2-ca.yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: nsa2-ca
+  namespace: cert-manager
+spec:
+  ca:
+    secretName: nsa2-root-ca
 ----
 
 Apply:
@@ -74,7 +105,26 @@ Now that your global issuer exists, you can issue your wildcard certificate in a
 .service-foundry/wildcard-nsa2-com.yaml
 [source,yaml]
 ----
-include::service-foundry/wildcard-nsa2-com.yaml[]
+# default/wildcard-nsa2-com.yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-nsa2-com
+  namespace: service-foundry
+spec:
+  secretName: wildcard-nsa2-com-tls   # Traefik will use this secret
+  issuerRef:
+    name: nsa2-ca
+    kind: ClusterIssuer
+  commonName: "*.nsa2.com"
+  dnsNames:
+    - "*.nsa2.com"
+    - "nsa2.com"
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  duration: 2160h      # 90 days
+  renewBefore: 360h    # renew 15 days before expiry
 ----
 
 Apply and wait for the certificate to be ready:

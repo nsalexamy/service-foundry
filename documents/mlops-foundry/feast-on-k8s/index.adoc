@@ -1,0 +1,190 @@
+= Installing Feast on Kubernetes
+
+== Prerequisites
+
+* A Kubernetes cluster
+* Helm 3 installed
+* Feast CLI installed
+
+
+== Investigate Helm Charts
+
+=== Feast Helm Charts
+
+There are two helm charts for Feast:
+
+- feast: https://github.com/feast-dev/feast/tree/master/infra/charts/feast
+- feast-feature-server: https://github.com/feast-dev/feast/tree/master/infra/charts/feast-feature-server
+
+
+Choose the right chart for your needs:
+
+- feast: https://github.com/feast-dev/feast/tree/master/infra/charts/feast
+- feast-feature-server: https://github.com/feast-dev/feast/tree/master/infra/charts/feast-feature-server
+
+
+=== Common
+
+[source,shell]
+----
+$ REPO_URL=https://feast-helm-charts.storage.googleapis.com 
+$ NAMESPACE=mlops
+----
+=== Feast
+
+[source,shell]
+----
+#$ mkdir -p helm-charts/feast
+#$ cd helm-charts/feast
+
+$ CHART_NAME=feast 
+
+$ CHART_VERSION=$(helm show chart $CHART_NAME --repo $REPO_URL | yq .version)
+----
+
+==== Save Chart
+
+[source,shell]
+----
+$ helm pull $CHART_NAME --repo $REPO_URL --version $CHART_VERSION --untar --untardir chart
+----
+
+
+=== Feast Feature Server
+
+[source,shell]
+----
+#$ mkdir -p helm-charts/feast-feature-server
+#$ cd helm-charts/feast-feature-server
+
+$ CHART_NAME=feast-feature-server 
+
+$ CHART_VERSION=$(helm show chart $CHART_NAME --repo $REPO_URL | yq .version)
+----
+
+==== Save Chart
+
+[source,shell]
+----
+$ helm pull $CHART_NAME --repo $REPO_URL --version $CHART_VERSION --untar --untardir chart
+----
+
+
+== Installation
+
+=== Install Feast Feature Server
+
+.feature_store.yaml
+[source,bash]
+----
+project: mlops
+
+registry:
+  registry_type: sql
+  path: postgresql+psycopg://${POSTGRESQL_USERNAME}:${POSTGRESQL_PASSWORD}@${POSTGRESQL_HOST}:${POSTGRESQL_PORT}/${POSTGRESQL_DATABASE}
+
+online_store:
+  type: redis
+  connection_string: "redis://:${REDIS_PASSWORD}@${REDIS_HOST}:${REDIS_PORT}/${REDIS_DB}"
+----
+
+Encode feature_store.yaml to base64
+
+----
+$ cat feature_store.yaml | base64 | pbcopy
+----
+
+
+.custom-values.yaml
+[source,yaml]
+----
+feature_store_yaml_base64: "paste-base64-encoded-feature_store.yaml-here"
+
+extraEnvs:
+  - name: "POSTGRESQL_USERNAME"
+    value: "admin"
+  - name: "POSTGRESQL_HOST"
+    value: "postgresql.service-foundry.svc.cluster.local"
+  - name: "POSTGRESQL_PORT"
+    value: "5432"
+  - name: "POSTGRESQL_DATABASE"
+    value: "feast"
+  - name: "REDIS_HOST"
+    value: "redis-master.service-foundry.svc.cluster.local"
+  - name: "REDIS_PORT"
+    value: "6379"
+  - name: "REDIS_DB"
+    value: "0"
+  - name: "POSTGRESQL_PASSWORD"
+    valueFrom: 
+      secretKeyRef:
+        name: feast-secret
+        key: POSTGRESQL_PASSWORD
+  - name: "REDIS_PASSWORD"
+    valueFrom: 
+      secretKeyRef:
+        name: feast-secret
+        key: REDIS_PASSWORD
+----     
+
+=== Deploy feast-secret 
+
+[source,shell]
+----
+$ NAMESPACE=mlops
+$ kubectl get namespace $NAMESPACE &>/dev/null || kubectl create namespace $NAMESPACE
+----
+
+Apply feast-secret
+[source,shell]
+----
+$ kubectl apply -f feast-secret.yaml -n $NAMESPACE
+----
+
+Verify feast-secret
+[source,shell]
+----
+$ kubectl get secret feast-secret -n $NAMESPACE
+----
+
+=== Create feast database
+
+database name: feast
+
+== custom-values.yaml
+
+
+
+== Install Feast Feature Server
+
+[source,shell]
+----
+$ NAMESPACE=mlops
+$ RELEASE_NAME=feast-feature-server
+$ CHART_NAME=feast-feature-server
+$ REPO_URL=https://feast-helm-charts.storage.googleapis.com 
+$ CHART_VERSION=$(helm show chart $CHART_NAME --repo $REPO_URL | yq .version)
+
+$ helm upgrade --install $RELEASE_NAME \
+  --repo $REPO_URL  $CHART_NAME \
+  --namespace $NAMESPACE \
+  --create-namespace \
+  --version $CHART_VERSION \
+  --values custom-values.yaml
+
+$ helm upgrade --install feast-feature-server \
+  --repo https://feast-helm-charts.storage.googleapis.com \
+  feast-feature-server \
+  --namespace mlops \
+  --create-namespace \
+  --version 0.60.0 \
+  --values custom-values.yaml  
+----
+
+Verify Feast Feature Server
+
+[source,shell]
+----
+$ kubectl get all -n mlops
+----
+
